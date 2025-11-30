@@ -58,19 +58,21 @@ function shortId(uuid: string): string {
 **Path is not identity:**
 
 ```typescript
-// File identity is UUID, path is a field
+// File identity is UUID, path computed from name + parent chain
 {
     id: '019d3f2a-7b4c-7d8e-9f0a-1b2c3d4e5f6b',
     model: 'file',
-    path: '/home/user/doc.txt',  // indexed, queryable
+    name: 'doc.txt',             // filename only
     parent: '019d3f2a-...',      // folder UUID
     data: '019d3f2a-...',        // blob UUID (content-addressable)
     owner: '019d3f2a-...',       // process UUID that created it
 }
 
-// Moving a file = updating path + parent fields, id unchanged
+// Path computed by walking parent chain: /home/user/doc.txt
+// Moving a file = updating parent field only
+// Renaming a file = updating name field only
 // Two files sharing data = same data UUID, different file UUIDs
-// Querying by path = index lookup, not identity lookup
+// Uniqueness enforced by (parent, name) constraint
 ```
 
 **Source:** `HAL.entropy.uuid()` generates all UUIDs.
@@ -192,13 +194,15 @@ Organizational container for files and other folders.
 |-------|------|-------------|
 | id | string | UUID v7 identity |
 | model | string | `'folder'` |
-| path | string | Full path (indexed) |
+| name | string | Folder name (unique within parent) |
 | parent | string | Parent folder UUID (null for root) |
 | owner | string | Owner UUID |
 | mtime | number | Last modification time (ms epoch) |
 | ctime | number | Creation time (ms epoch) |
 
 **No `data` field** - folders have no content blob.
+
+**Path is computed** - walk parent chain to build full path.
 
 **Children are not stored** - derived via query:
 ```typescript
@@ -221,7 +225,7 @@ Standard file storage backed by StorageEngine.
 |-------|------|-------------|
 | id | string | UUID v7 identity |
 | model | string | `'file'` |
-| path | string | Full path (indexed) |
+| name | string | Filename (unique within parent) |
 | parent | string | Parent folder UUID |
 | data | string | Blob UUID (content-addressable) |
 | owner | string | Owner UUID |
@@ -230,9 +234,11 @@ Standard file storage backed by StorageEngine.
 | ctime | number | Creation time (ms epoch) |
 | mimetype | string | Content type (optional) |
 
+**Path is computed** - walk parent chain to build full path.
+
 **Backing store:** StorageEngine
 - Metadata: stored as JSON in `entity:{id}` key
-- Content: stored as blob in `blob:{data}` key
+- Content: stored as blob in `data:{data}` key
 
 **Flow control:** Transactions
 - Metadata + content updates are atomic
@@ -686,12 +692,6 @@ Models use HAL devices but don't expose them directly:
 
 ## Open Questions
 
-### 1. Rename/move atomicity
-Moving a file updates `path` and `parent` fields. What if crash between the two updates? Need transaction or single-field approach.
-
-### 2. Path uniqueness enforcement
-Path is a field, not identity. What prevents two entities with same path? Need unique index + enforcement at create/rename time.
-
 ### 3. Parent folder existence
 When creating `/home/bob/docs/file.txt`, who ensures `/home/bob/docs` exists? VFS or caller? ENOENT semantics?
 
@@ -727,3 +727,5 @@ Can only `connect()`. How does a server `open('/dev/tcp/0.0.0.0:8080')` to liste
 4. **Quotas**: Mount-level quotas only. See "Storage Quotas" section.
 
 5. **Caching**: No caching for now. Every call hits StorageEngine. Profile first, optimize later.
+
+6. **Rename/move atomicity + Path uniqueness**: No `path` field on entity. Store `name` + `parent` instead. Path computed by walking parent chain. Uniqueness enforced by `(parent, name)` constraint. Future optimization: cache parent relationships (not full paths).
