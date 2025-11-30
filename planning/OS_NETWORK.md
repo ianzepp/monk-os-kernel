@@ -4,8 +4,10 @@
 
 | Component | Status | Location |
 |-----------|--------|----------|
-| HAL NetworkDevice | ✅ Done | `src/lib/hal/network.ts` |
-| Kernel `connect()` | ⏳ Pending | - |
+| HAL NetworkDevice | ✅ Done | `src/hal/network.ts` |
+| Resource abstraction | ✅ Done | `src/kernel/resource.ts` |
+| Kernel `connect()` | ✅ Done | `src/kernel/syscalls.ts` |
+| SocketResource | ✅ Done | `src/kernel/resource.ts` |
 | Kernel `port()` | ⏳ Pending | - |
 | Port interface | ⏳ Pending | - |
 | TCP listener port | ⏳ Pending | - |

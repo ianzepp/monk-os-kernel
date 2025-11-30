@@ -6,10 +6,9 @@
  */
 
 import type { HAL } from '@src/hal/index.js';
-import type { VFS, FileHandle } from '@src/vfs/index.js';
+import type { VFS } from '@src/vfs/index.js';
 import type {
     Process,
-    ProcessState,
     SpawnOpts,
     ExitStatus,
     SyscallRequest,
@@ -24,8 +23,11 @@ import {
     SyscallDispatcher,
     createFileSyscalls,
     createMiscSyscalls,
+    createNetworkSyscalls,
 } from '@src/kernel/syscalls.js';
-import { ENOSYS, ESRCH, ECHILD, ProcessExited, EBADF, EPERM } from '@src/kernel/errors.js';
+import { ESRCH, ECHILD, ProcessExited, EBADF, EPERM } from '@src/kernel/errors.js';
+import type { Resource } from '@src/kernel/resource.js';
+import { FileResource, SocketResource } from '@src/kernel/resource.js';
 
 /**
  * Console device UUID for init stdio
@@ -42,7 +44,7 @@ export class Kernel {
     private vfs: VFS;
     private processes: ProcessTable;
     private syscalls: SyscallDispatcher;
-    private handles: Map<string, FileHandle> = new Map();
+    private resources: Map<string, Resource> = new Map();
     private waiters: Map<string, ((status: ExitStatus) => void)[]> = new Map();
     private booted = false;
 
@@ -74,9 +76,17 @@ export class Kernel {
             createFileSyscalls(
                 this.vfs,
                 this.hal,
-                (proc, fd) => this.getFileHandle(proc, fd),
-                (proc, fd, resourceId) => this.setFileHandle(proc, fd, resourceId),
-                (proc, fd) => this.closeFileHandle(proc, fd)
+                (proc, fd) => this.getResource(proc, fd),
+                (proc, path, flags) => this.openFile(proc, path, flags),
+                (proc, fd) => this.closeResource(proc, fd)
+            )
+        );
+
+        // Network syscalls
+        this.syscalls.registerAll(
+            createNetworkSyscalls(
+                this.hal,
+                (proc, host, port) => this.connectTcp(proc, host, port)
             )
         );
 
@@ -159,7 +169,7 @@ export class Kernel {
 
         // Clear process table
         this.processes.clear();
-        this.handles.clear();
+        this.resources.clear();
         this.waiters.clear();
 
         this.booted = false;
@@ -214,7 +224,7 @@ export class Kernel {
         // Close all file descriptors
         for (const [fd] of proc.fds) {
             try {
-                await this.closeFileHandle(proc, fd);
+                await this.closeResource(proc, fd);
             } catch {
                 // Ignore errors during cleanup
             }
@@ -500,35 +510,65 @@ export class Kernel {
     }
 
     /**
-     * Get file handle for a file descriptor.
+     * Get resource for a file descriptor.
      */
-    private getFileHandle(proc: Process, fd: number): FileHandle | undefined {
+    private getResource(proc: Process, fd: number): Resource | undefined {
         const resourceId = proc.fds.get(fd);
         if (!resourceId) return undefined;
 
-        return this.handles.get(resourceId);
+        return this.resources.get(resourceId);
     }
 
     /**
-     * Set file handle for a file descriptor.
+     * Open a file and allocate fd.
      */
-    private setFileHandle(proc: Process, fd: number, resourceId: string): void {
+    private async openFile(proc: Process, path: string, flags: import('@src/kernel/types.js').OpenFlags): Promise<number> {
+        const handle = await this.vfs.open(path, flags, proc.id);
+
+        // Create resource wrapper
+        const resource = new FileResource(handle.id, handle);
+        this.resources.set(resource.id, resource);
+
+        // Allocate fd
+        const fd = proc.nextFd++;
+        proc.fds.set(fd, resource.id);
+
+        return fd;
+    }
+
+    /**
+     * Connect TCP and allocate fd.
+     */
+    private async connectTcp(proc: Process, host: string, port: number): Promise<number> {
+        const socket = await this.hal.network.connect(host, port);
+
+        // Create resource wrapper
+        const resourceId = this.hal.entropy.uuid();
+        const stat = socket.stat();
+        const description = `tcp:${stat.remoteAddr}:${stat.remotePort}`;
+        const resource = new SocketResource(resourceId, socket, description);
+        this.resources.set(resourceId, resource);
+
+        // Allocate fd
+        const fd = proc.nextFd++;
         proc.fds.set(fd, resourceId);
+
+        return fd;
     }
 
     /**
      * Close a file descriptor.
      */
-    private async closeFileHandle(proc: Process, fd: number): Promise<void> {
+    private async closeResource(proc: Process, fd: number): Promise<void> {
         const resourceId = proc.fds.get(fd);
         if (!resourceId) {
             throw new EBADF(`Bad file descriptor: ${fd}`);
         }
 
-        const handle = this.handles.get(resourceId);
-        if (handle) {
-            await handle.close();
-            this.handles.delete(resourceId);
+        const resource = this.resources.get(resourceId);
+        if (resource) {
+            await resource.close();
+            this.resources.delete(resourceId);
         }
 
         proc.fds.delete(fd);

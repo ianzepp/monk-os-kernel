@@ -15,8 +15,13 @@ export {
     SyscallDispatcher,
     createFileSyscalls,
     createMiscSyscalls,
+    createNetworkSyscalls,
 } from '@src/kernel/syscalls.js';
 export type { SyscallHandler, SyscallRegistry } from '@src/kernel/syscalls.js';
+
+// Resources
+export type { Resource, ResourceType } from '@src/kernel/resource.js';
+export { FileResource, SocketResource } from '@src/kernel/resource.js';
 
 // Types
 export type {

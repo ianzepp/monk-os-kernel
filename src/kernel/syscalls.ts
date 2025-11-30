@@ -7,6 +7,7 @@
 import type { HAL } from '@src/hal/index.js';
 import type { VFS, SeekWhence } from '@src/vfs/index.js';
 import type { Process, OpenFlags } from '@src/kernel/types.js';
+import type { Resource, FileResource } from '@src/kernel/resource.js';
 import { ENOSYS } from '@src/kernel/errors.js';
 
 /**
@@ -87,16 +88,16 @@ export class SyscallDispatcher {
  *
  * @param vfs - VFS instance
  * @param hal - HAL instance
- * @param getHandle - Function to get file handle from fd
- * @param setHandle - Function to set file handle for fd
- * @param closeHandle - Function to close fd
+ * @param getResource - Function to get resource from fd
+ * @param openFile - Function to open a file and allocate fd
+ * @param closeResource - Function to close fd
  */
 export function createFileSyscalls(
     vfs: VFS,
     hal: HAL,
-    getHandle: (proc: Process, fd: number) => import('@src/vfs/index.js').FileHandle | undefined,
-    setHandle: (proc: Process, fd: number, resourceId: string) => void,
-    closeHandle: (proc: Process, fd: number) => Promise<void>
+    getResource: (proc: Process, fd: number) => Resource | undefined,
+    openFile: (proc: Process, path: string, flags: OpenFlags) => Promise<number>,
+    closeResource: (proc: Process, fd: number) => Promise<void>
 ): SyscallRegistry {
     return {
         async open(proc: Process, path: unknown, flags: unknown): Promise<number> {
@@ -108,18 +109,14 @@ export function createFileSyscalls(
                 ? flags as OpenFlags
                 : { read: true };
 
-            const handle = await vfs.open(path, openFlags, proc.id);
-            const fd = proc.nextFd++;
-            proc.fds.set(fd, handle.id);
-
-            return fd;
+            return openFile(proc, path, openFlags);
         },
 
         async close(proc: Process, fd: unknown): Promise<void> {
             if (typeof fd !== 'number') {
                 throw new Error('EINVAL: fd must be a number');
             }
-            await closeHandle(proc, fd);
+            await closeResource(proc, fd);
         },
 
         async read(proc: Process, fd: unknown, size?: unknown): Promise<Uint8Array> {
@@ -127,13 +124,13 @@ export function createFileSyscalls(
                 throw new Error('EINVAL: fd must be a number');
             }
 
-            const handle = getHandle(proc, fd);
-            if (!handle) {
+            const resource = getResource(proc, fd);
+            if (!resource) {
                 throw new Error(`EBADF: Bad file descriptor: ${fd}`);
             }
 
             const readSize = typeof size === 'number' ? size : undefined;
-            return handle.read(readSize);
+            return resource.read(readSize);
         },
 
         async write(proc: Process, fd: unknown, data: unknown): Promise<number> {
@@ -141,8 +138,8 @@ export function createFileSyscalls(
                 throw new Error('EINVAL: fd must be a number');
             }
 
-            const handle = getHandle(proc, fd);
-            if (!handle) {
+            const resource = getResource(proc, fd);
+            if (!resource) {
                 throw new Error(`EBADF: Bad file descriptor: ${fd}`);
             }
 
@@ -150,7 +147,7 @@ export function createFileSyscalls(
                 throw new Error('EINVAL: data must be Uint8Array');
             }
 
-            return handle.write(data);
+            return resource.write(data);
         },
 
         async seek(proc: Process, fd: unknown, offset: unknown, whence: unknown): Promise<number> {
@@ -158,9 +155,14 @@ export function createFileSyscalls(
                 throw new Error('EINVAL: fd must be a number');
             }
 
-            const handle = getHandle(proc, fd);
-            if (!handle) {
+            const resource = getResource(proc, fd);
+            if (!resource) {
                 throw new Error(`EBADF: Bad file descriptor: ${fd}`);
+            }
+
+            // Only file resources support seek
+            if (resource.type !== 'file') {
+                throw new Error('ESPIPE: Illegal seek on socket');
             }
 
             if (typeof offset !== 'number') {
@@ -168,7 +170,7 @@ export function createFileSyscalls(
             }
 
             const seekWhence: SeekWhence = (whence as SeekWhence) || 'start';
-            return handle.seek(offset, seekWhence);
+            return (resource as FileResource).getHandle().seek(offset, seekWhence);
         },
 
         async stat(proc: Process, path: unknown): Promise<unknown> {
@@ -184,13 +186,18 @@ export function createFileSyscalls(
                 throw new Error('EINVAL: fd must be a number');
             }
 
-            const handle = getHandle(proc, fd);
-            if (!handle) {
+            const resource = getResource(proc, fd);
+            if (!resource) {
                 throw new Error(`EBADF: Bad file descriptor: ${fd}`);
             }
 
-            // Get stat via path stored on handle
-            return vfs.stat(handle.path, proc.id);
+            // Only file resources have path-based stat
+            if (resource.type !== 'file') {
+                // For sockets, return socket stat
+                throw new Error('EINVAL: fstat not supported on sockets');
+            }
+
+            return vfs.stat(resource.description, proc.id);
         },
 
         async mkdir(proc: Process, path: unknown): Promise<void> {
@@ -288,6 +295,37 @@ export function createMiscSyscalls(): SyscallRegistry {
                 throw new Error('EINVAL: value must be a string');
             }
             proc.env[name] = value;
+        },
+    };
+}
+
+/**
+ * Create network syscalls.
+ *
+ * @param hal - HAL instance
+ * @param connectTcp - Function to connect and allocate fd for socket
+ */
+export function createNetworkSyscalls(
+    hal: HAL,
+    connectTcp: (proc: Process, host: string, port: number) => Promise<number>
+): SyscallRegistry {
+    return {
+        async connect(proc: Process, proto: unknown, host: unknown, port: unknown): Promise<number> {
+            if (typeof proto !== 'string') {
+                throw new Error('EINVAL: proto must be a string');
+            }
+            if (typeof host !== 'string') {
+                throw new Error('EINVAL: host must be a string');
+            }
+            if (typeof port !== 'number') {
+                throw new Error('EINVAL: port must be a number');
+            }
+
+            if (proto !== 'tcp') {
+                throw new Error(`EINVAL: unsupported protocol: ${proto}`);
+            }
+
+            return connectTcp(proc, host, port);
         },
     };
 }
