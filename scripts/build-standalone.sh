@@ -21,21 +21,28 @@ echo -e "${BLUE}=== Building Standalone Monk API ===${NC}"
 echo ""
 
 # 1. Ensure TypeScript is compiled
-echo -e "${BLUE}[1/3] Compiling TypeScript...${NC}"
+echo -e "${BLUE}[1/4] Compiling TypeScript...${NC}"
 bun run build
 
 # 2. Create output directory
-echo -e "${BLUE}[2/3] Preparing output directory...${NC}"
+echo -e "${BLUE}[2/4] Preparing output directory...${NC}"
 rm -rf dist-standalone
 mkdir -p dist-standalone
 
 # 3. Compile to single executable
-echo -e "${BLUE}[3/3] Compiling to standalone binary...${NC}"
+echo -e "${BLUE}[3/4] Compiling to standalone binary...${NC}"
 bun build \
     --compile \
     --minify \
     ./dist/index.js \
     --outfile dist-standalone/monk-api
+
+# 4. Copy ROM filesystem (OS bootstrap files)
+echo -e "${BLUE}[4/4] Copying ROM filesystem...${NC}"
+if [[ -d "rom" ]]; then
+    cp -r rom dist-standalone/rom
+    echo "Copied $(find rom -type f | wc -l | tr -d ' ') ROM files"
+fi
 
 # Get file size
 SIZE=$(du -h dist-standalone/monk-api | cut -f1)

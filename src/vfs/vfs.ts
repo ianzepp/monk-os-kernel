@@ -212,19 +212,20 @@ export class VFS {
         opts?: OpenOptions
     ): Promise<FileHandle> {
         const normalPath = this.normalizePath(path);
-
-        // Check host mounts first
-        const hostMount = this.findHostMount(normalPath);
-        if (hostMount) {
-            return hostOpen(hostMount, normalPath, flags);
-        }
-
         const ctx = this.createContext(caller);
 
-        // Resolve path to entity
+        // Try VFS storage first (for devices, dynamic files)
         let entityId = await this.resolvePath(normalPath);
 
-        // Handle create flag
+        // If not in VFS storage, check host mounts
+        if (!entityId) {
+            const hostMount = this.findHostMount(normalPath);
+            if (hostMount) {
+                return hostOpen(hostMount, normalPath, flags);
+            }
+        }
+
+        // Handle create flag (creates in VFS storage)
         if (!entityId && flags.create) {
             entityId = await this.createFile(normalPath, caller);
         }
@@ -260,17 +261,16 @@ export class VFS {
      */
     async stat(path: string, caller: string): Promise<ModelStat> {
         const normalPath = this.normalizePath(path);
-
-        // Check host mounts first
-        const hostMount = this.findHostMount(normalPath);
-        if (hostMount) {
-            return hostStat(hostMount, normalPath);
-        }
-
         const ctx = this.createContext(caller);
 
+        // Try VFS storage first
         const entityId = await this.resolvePath(normalPath);
         if (!entityId) {
+            // Fall back to host mount
+            const hostMount = this.findHostMount(normalPath);
+            if (hostMount) {
+                return hostStat(hostMount, normalPath);
+            }
             throw new ENOENT(`No such file: ${path}`);
         }
 
@@ -409,18 +409,17 @@ export class VFS {
      */
     async *readdir(path: string, caller: string): AsyncIterable<ModelStat> {
         const normalPath = this.normalizePath(path);
-
-        // Check host mounts first
-        const hostMount = this.findHostMount(normalPath);
-        if (hostMount) {
-            yield* hostReaddir(hostMount, normalPath);
-            return;
-        }
-
         const ctx = this.createContext(caller);
 
+        // Try VFS storage first
         const entityId = await this.resolvePath(normalPath);
         if (!entityId) {
+            // Fall back to host mount
+            const hostMount = this.findHostMount(normalPath);
+            if (hostMount) {
+                yield* hostReaddir(hostMount, normalPath);
+                return;
+            }
             throw new ENOENT(`No such directory: ${path}`);
         }
 

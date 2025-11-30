@@ -71,8 +71,12 @@ export function resolveHostPath(mount: HostMount, vfsPath: string): string | nul
         return mount.resolvedHostPath;
     }
 
-    if (vfsPath.startsWith(mount.vfsPath + '/')) {
-        const relativePath = vfsPath.slice(mount.vfsPath.length);
+    // Special case for root mount: any path starting with / is under mount
+    const prefix = mount.vfsPath === '/' ? '/' : mount.vfsPath + '/';
+    if (vfsPath.startsWith(prefix)) {
+        const relativePath = mount.vfsPath === '/'
+            ? vfsPath
+            : vfsPath.slice(mount.vfsPath.length);
         const hostPath = join(mount.resolvedHostPath, relativePath);
 
         // Security: ensure resolved path is still under the mount
@@ -91,7 +95,10 @@ export function resolveHostPath(mount: HostMount, vfsPath: string): string | nul
  * Check if a VFS path is under a host mount.
  */
 export function isUnderHostMount(mount: HostMount, vfsPath: string): boolean {
-    return vfsPath === mount.vfsPath || vfsPath.startsWith(mount.vfsPath + '/');
+    if (vfsPath === mount.vfsPath) return true;
+    // Special case for root mount: any path starting with / is under mount
+    const prefix = mount.vfsPath === '/' ? '/' : mount.vfsPath + '/';
+    return vfsPath.startsWith(prefix);
 }
 
 /**

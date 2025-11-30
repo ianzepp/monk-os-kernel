@@ -33,7 +33,8 @@ import { FileResource, SocketResource, ListenerPort, WatchPort, UdpPort, PubsubP
 import type { ProcessPortMessage } from '@src/kernel/syscalls.js';
 import type { ServiceDef, Activation } from '@src/kernel/services.js';
 import { VFSLoader } from '@src/kernel/loader.js';
-import { PROCESS_LIB_SOURCE } from '@src/kernel/bootstrap.js';
+import { readFile, readdir, stat as fsStat } from 'fs/promises';
+import { join, resolve } from 'path';
 
 /**
  * Console device path
@@ -138,15 +139,12 @@ export class Kernel {
             throw new Error('Kernel already booted');
         }
 
-        // Initialize VFS
+        // Initialize VFS (creates root folder, /dev devices)
         await this.vfs.init();
 
-        // Mount host directories into VFS
-        // This makes ./src/bin/ available as /bin/ in VFS
-        this.vfs.mountHost('/bin', './src/bin', { readonly: true });
-
-        // Bootstrap /lib/process.ts for VFS scripts
-        await this.bootstrapProcessLib();
+        // Copy ROM into VFS (Phase 0 → Phase 1 transition)
+        // Reads ./rom/ and creates real VFS entities with UUIDs and ACLs
+        await this.copyRomToVfs('./rom');
 
         // Load and activate services
         await this.loadServices();
@@ -239,23 +237,62 @@ export class Kernel {
     }
 
     /**
-     * Bootstrap /lib/process.ts into VFS.
+     * Copy ROM filesystem into VFS.
      *
-     * Creates /lib directory and writes the process library that
-     * enables VFS scripts to make syscalls.
+     * Reads all files from the host ROM directory and creates them
+     * as real VFS entities with UUIDs and ACLs.
+     *
+     * @param romPath - Path to ROM directory on host (e.g., './src/rom')
      */
-    private async bootstrapProcessLib(): Promise<void> {
-        // Create /lib directory if it doesn't exist
-        try {
-            await this.vfs.stat('/lib', 'kernel');
-        } catch {
-            await this.vfs.mkdir('/lib', 'kernel');
-        }
+    private async copyRomToVfs(romPath: string): Promise<void> {
+        const absoluteRomPath = resolve(romPath);
+        await this.copyDirToVfs(absoluteRomPath, '/');
+    }
 
-        // Write /lib/process.ts
-        const handle = await this.vfs.open('/lib/process.ts', { write: true, create: true }, 'kernel');
-        await handle.write(new TextEncoder().encode(PROCESS_LIB_SOURCE));
-        await handle.close();
+    /**
+     * Recursively copy a host directory into VFS.
+     */
+    private async copyDirToVfs(hostDir: string, vfsDir: string): Promise<void> {
+        const entries = await readdir(hostDir, { withFileTypes: true });
+
+        for (const entry of entries) {
+            const hostPath = join(hostDir, entry.name);
+            const vfsPath = vfsDir === '/' ? `/${entry.name}` : `${vfsDir}/${entry.name}`;
+
+            if (entry.isDirectory()) {
+                // Create directory in VFS
+                await this.vfs.mkdir(vfsPath, 'kernel');
+
+                // Set directory ACL: world-readable
+                await this.vfs.setAccess(vfsPath, 'kernel', {
+                    grants: [{ to: '*', ops: ['read', 'list', 'stat'] }],
+                    deny: [],
+                });
+
+                // Recurse into subdirectory
+                await this.copyDirToVfs(hostPath, vfsPath);
+            } else if (entry.isFile()) {
+                // Read file content from host
+                const content = await readFile(hostPath);
+
+                // Create file in VFS
+                const handle = await this.vfs.open(
+                    vfsPath,
+                    { read: true, write: true, create: true },
+                    'kernel'
+                );
+
+                // Write content
+                await handle.write(new Uint8Array(content));
+                await handle.close();
+
+                // Set file ACL: world-readable
+                await this.vfs.setAccess(vfsPath, 'kernel', {
+                    grants: [{ to: '*', ops: ['read', 'stat'] }],
+                    deny: [],
+                });
+            }
+        }
     }
 
     /**
@@ -450,67 +487,15 @@ export class Kernel {
     }
 
     /**
-     * Check if a path looks like a host filesystem absolute path.
-     *
-     * Host paths are absolute paths that don't correspond to VFS roots.
-     * Common host prefixes include /Users/, /home/username/, /var/, etc.
-     */
-    private isHostAbsolutePath(path: string): boolean {
-        // Common host filesystem prefixes (macOS, Linux)
-        const hostPrefixes = [
-            '/Users/',       // macOS home
-            '/System/',      // macOS system
-            '/Library/',     // macOS library
-            '/private/',     // macOS private
-            '/Volumes/',     // macOS volumes
-            '/home/',        // Linux home (but could conflict with VFS /home)
-            '/var/',         // System data
-            '/opt/',         // Optional packages
-            '/usr/',         // Unix programs
-            '/Applications/', // macOS apps
-        ];
-
-        // Check for common host prefixes
-        for (const prefix of hostPrefixes) {
-            if (path.startsWith(prefix)) {
-                return true;
-            }
-        }
-
-        // Also check for paths that look like project paths
-        // (contain typical project markers after /home/)
-        if (path.includes('/Workspaces/') ||
-            path.includes('/workspace/') ||
-            path.includes('/projects/') ||
-            path.includes('/node_modules/')) {
-            return true;
-        }
-
-        return false;
-    }
-
-    /**
      * Spawn a worker for a process.
      *
-     * Path resolution:
-     * - Paths starting with / that are NOT host absolute paths are VFS paths
-     *   (e.g., /bin/init.ts) - these go through VFS loader
-     * - Host absolute paths (e.g., /Users/.../file.ts) are passed directly
-     * - Relative paths (e.g., ./src/bin/init.ts) are host paths
+     * All paths starting with / are VFS paths and go through the VFS loader.
+     * ROM contents (./src/rom/) are copied into VFS at boot time.
      */
     private async spawnWorker(proc: Process, entry: string): Promise<Worker> {
-        let workerUrl: string;
-        let isVFSBundle = false;
-
-        if (entry.startsWith('/') && !this.isHostAbsolutePath(entry)) {
-            // VFS path - compile and bundle from VFS (may be host mount or VFS storage)
-            const bundle = await this.loader.assembleBundle(entry);
-            workerUrl = this.loader.createBlobURL(bundle);
-            isVFSBundle = true;
-        } else {
-            // Host path (absolute or relative) - pass directly to Worker
-            workerUrl = entry;
-        }
+        // All paths go through VFS loader
+        const bundle = await this.loader.assembleBundle(entry);
+        const workerUrl = this.loader.createBlobURL(bundle);
 
         const worker = new Worker(workerUrl, {
             type: 'module',
@@ -518,10 +503,7 @@ export class Kernel {
         });
 
         // Revoke blob URL after worker loads (it's already loaded the code)
-        if (isVFSBundle) {
-            // Give worker time to load before revoking
-            setTimeout(() => this.loader.revokeBlobURL(workerUrl), 1000);
-        }
+        setTimeout(() => this.loader.revokeBlobURL(workerUrl), 1000);
 
         // Wire up syscall handling
         worker.onmessage = (event: MessageEvent<KernelMessage>) => {
