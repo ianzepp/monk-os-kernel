@@ -235,6 +235,9 @@ export interface BootEnv {
     /** Path to init process */
     initPath: string;
 
+    /** Command-line arguments for init */
+    initArgs?: string[];
+
     /** Initial environment variables */
     env?: Record<string, string>;
 }

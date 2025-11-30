@@ -124,7 +124,7 @@ export class Kernel {
             cmd: env.initPath,
             cwd: '/',
             env: { ...env.env },
-            args: [env.initPath],
+            args: env.initArgs ?? [env.initPath],
             fds: new Map(),
             ports: new Map(),
             nextFd: 3,
