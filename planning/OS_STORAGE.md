@@ -4,16 +4,74 @@
 
 **Everything is a file. Everything is a database. Files are database rows.**
 
+**Everything has a UUID.**
+
 This merges Plan 9's "everything is a file" with BeOS's database-centric filesystem:
 
 - **Plan 9**: Uniform namespace, all resources accessed via file operations
 - **BeOS**: Files have queryable attributes, filesystem is a database
+- **UUID-first**: Identity is a UUID, paths and names are just indexed fields
 
 In Monk OS, the **Model** is the unifying concept. Every path maps to a model, and the model determines:
 - What metadata fields exist (schema)
 - Where bytes come from on read
 - Where bytes go on write
 - How flow control works
+
+## UUID Identity
+
+Every entity in the system has a UUID as its primary identity:
+
+```typescript
+interface Entity {
+    /** Primary identity - UUID v7 */
+    id: string;
+}
+```
+
+**UUID v7** is used because:
+- Timestamp-sortable (created_at ordering is free)
+- Better index locality in storage
+- Still random enough to be unguessable
+
+**What gets a UUID:**
+
+| Entity | Old ID | UUID Identity |
+|--------|--------|---------------|
+| Process | PID (number) | `019d3f2a-7b4c-7d8e-9f0a-1b2c3d4e5f6a` |
+| File | inode/path | `019d3f2a-7b4c-7d8e-9f0a-1b2c3d4e5f6b` |
+| File descriptor | fd (number) | `019d3f2a-7b4c-7d8e-9f0a-1b2c3d4e5f6c` |
+| Socket | fd (number) | `019d3f2a-7b4c-7d8e-9f0a-1b2c3d4e5f6d` |
+| Content blob | - | `019d3f2a-7b4c-7d8e-9f0a-1b2c3d4e5f6e` |
+
+**Short form for display:** `019d..5f6a` (4 leading + `..` + 4 trailing)
+
+```typescript
+function shortId(uuid: string): string {
+    const clean = uuid.replace(/-/g, '');
+    return `${clean.slice(0, 4)}..${clean.slice(-4)}`;
+}
+
+// '019d3f2a-7b4c-7d8e-9f0a-1b2c3d4e5f6a' → '019d..5f6a'
+```
+
+**Path is not identity:**
+
+```typescript
+// File identity is UUID, path is a field
+{
+    id: '019d3f2a-7b4c-7d8e-9f0a-1b2c3d4e5f6b',
+    path: '/home/user/doc.txt',  // indexed, queryable
+    content: '019d3f2a-...',     // blob UUID (content-addressable)
+    owner: '019d3f2a-...',       // process UUID that created it
+}
+
+// Moving a file = updating path field, id unchanged
+// Two paths to same content = same content UUID, different file UUIDs
+// Querying by path = index lookup, not identity lookup
+```
+
+**Source:** `HAL.entropy.uuid()` generates all UUIDs.
 
 ## Architecture
 
@@ -348,12 +406,14 @@ Models use HAL devices but don't expose them directly:
 
 ## Open Questions
 
-1. **Symlinks**: Should there be a LinkModel, or is it a flag on FileModel?
+1. **Directories**: Are directories a separate model, or implicit from path structure?
 
-2. **Directories**: Are directories a separate model, or implicit from path structure?
+2. **Permissions**: Per-model permission checks, or unified in VFS?
 
-3. **Permissions**: Per-model permission checks, or unified in VFS?
+3. **Quotas**: Storage quotas at model level or VFS level?
 
-4. **Quotas**: Storage quotas at model level or VFS level?
+4. **Caching**: Should models cache stat() results? Invalidation strategy?
 
-5. **Caching**: Should models cache stat() results? Invalidation strategy?
+## Resolved Questions
+
+1. **Symlinks**: No symlinks. Two files sharing content have the same `content` UUID. Indirection is handled by queries or application logic, not filesystem primitives.
