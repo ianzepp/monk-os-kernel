@@ -32,6 +32,7 @@ import type { WatchEvent } from '@src/vfs/model.js';
 import { FileResource, SocketResource, ListenerPort, WatchPort, UdpPort, PubsubPort, matchTopic, PipeBuffer, PipeResource } from '@src/kernel/resource.js';
 import type { ProcessPortMessage } from '@src/kernel/syscalls.js';
 import type { ServiceDef, Activation } from '@src/kernel/services.js';
+import type { MountsConfig, MountDef } from '@src/kernel/mounts.js';
 import { VFSLoader } from '@src/kernel/loader.js';
 import { readFile, readdir, stat as fsStat } from 'fs/promises';
 import { join, resolve } from 'path';
@@ -145,6 +146,9 @@ export class Kernel {
         // Copy ROM into VFS (Phase 0 → Phase 1 transition)
         // Reads ./rom/ and creates real VFS entities with UUIDs and ACLs
         await this.copyRomToVfs('./rom');
+
+        // Load and apply mounts from /etc/mounts.json
+        await this.loadMounts();
 
         // Load and activate services
         await this.loadServices();
@@ -1131,6 +1135,98 @@ export class Kernel {
     // ========================================================================
     // Service Management
     // ========================================================================
+
+    /**
+     * Load and apply mounts from /etc/mounts.json
+     */
+    private async loadMounts(): Promise<void> {
+        const mountsPath = '/etc/mounts.json';
+
+        try {
+            await this.vfs.stat(mountsPath, 'kernel');
+        } catch {
+            // No mounts.json - that's fine, skip
+            return;
+        }
+
+        try {
+            const handle = await this.vfs.open(mountsPath, { read: true }, 'kernel');
+            const chunks: Uint8Array[] = [];
+            while (true) {
+                const chunk = await handle.read(65536);
+                if (chunk.length === 0) break;
+                chunks.push(chunk);
+            }
+            await handle.close();
+
+            const total = chunks.reduce((sum, c) => sum + c.length, 0);
+            const combined = new Uint8Array(total);
+            let offset = 0;
+            for (const chunk of chunks) {
+                combined.set(chunk, offset);
+                offset += chunk.length;
+            }
+
+            const content = new TextDecoder().decode(combined);
+            const config = JSON.parse(content) as MountsConfig;
+
+            for (const mount of config.mounts) {
+                await this.applyMount(mount);
+            }
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            this.hal.console.error(
+                new TextEncoder().encode(`Failed to load mounts: ${msg}\n`)
+            );
+        }
+    }
+
+    /**
+     * Apply a single mount definition.
+     */
+    private async applyMount(mount: MountDef): Promise<void> {
+        // Ensure mount point exists
+        try {
+            await this.vfs.stat(mount.path, 'kernel');
+        } catch {
+            await this.vfs.mkdir(mount.path, 'kernel', { recursive: true });
+        }
+
+        switch (mount.type) {
+            case 'memory':
+                // Memory mounts are the default VFS behavior (HAL storage)
+                // Nothing special to do - path already exists in VFS
+                break;
+
+            case 'host':
+                this.vfs.mountHost(mount.path, mount.source, {
+                    readonly: !mount.options?.writable,
+                });
+                break;
+
+            case 'transpiled-host':
+                // TODO: Implement TranspiledHostMount
+                // For now, mount as regular host mount
+                this.vfs.mountHost(mount.path, mount.source, {
+                    readonly: true,
+                });
+                // Store aliases for loader to use
+                if (mount.options?.aliases) {
+                    this.loader.setAliases(mount.options.aliases);
+                }
+                break;
+
+            case 'storage':
+                // Storage mounts use HAL storage backend
+                // This is the default behavior, nothing special needed
+                break;
+
+            default:
+                this.hal.console.error(
+                    new TextEncoder().encode(`Unknown mount type: ${(mount as MountDef).type}\n`)
+                );
+        }
+    }
 
     /**
      * Load services from /etc/services/*.json

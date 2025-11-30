@@ -1,0 +1,12 @@
+{
+    "mounts": [
+        {
+            "path": "/tmp",
+            "type": "memory",
+            "description": "Temporary files (cleared on reboot)",
+            "options": {
+                "maxSize": "50MB"
+            }
+        }
+    ]
+}

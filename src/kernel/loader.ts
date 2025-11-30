@@ -371,12 +371,53 @@ export class VFSLoader {
     private hal: HAL;
     private cache: ModuleCache;
     private transpiler: InstanceType<typeof Bun.Transpiler>;
+    private aliases: Map<string, string> = new Map();
 
     constructor(vfs: VFS, hal: HAL, cacheConfig?: ModuleCacheConfig) {
         this.vfs = vfs;
         this.hal = hal;
         this.cache = new ModuleCache(cacheConfig);
         this.transpiler = new Bun.Transpiler({ loader: 'ts' });
+    }
+
+    /**
+     * Set import aliases for transpiled-host mounts.
+     *
+     * Aliases map external package names to VFS paths:
+     *   '@monk/process' -> '/lib/process'
+     *
+     * @param aliases - Map of alias -> VFS path
+     */
+    setAliases(aliases: Record<string, string>): void {
+        for (const [alias, target] of Object.entries(aliases)) {
+            this.aliases.set(alias, target);
+        }
+    }
+
+    /**
+     * Get all registered aliases.
+     */
+    getAliases(): Map<string, string> {
+        return new Map(this.aliases);
+    }
+
+    /**
+     * Resolve an import path, applying aliases if applicable.
+     */
+    private resolveAlias(importPath: string): string {
+        // Check for exact alias match
+        if (this.aliases.has(importPath)) {
+            return this.aliases.get(importPath)!;
+        }
+
+        // Check for prefix match (e.g., '@monk/process/foo' -> '/lib/process/foo')
+        for (const [alias, target] of this.aliases) {
+            if (importPath.startsWith(alias + '/')) {
+                return target + importPath.slice(alias.length);
+            }
+        }
+
+        return importPath;
     }
 
     /**
