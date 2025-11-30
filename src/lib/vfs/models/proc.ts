@@ -11,9 +11,9 @@
  * - /proc/{uuid}/fd/     - Open file descriptors
  */
 
-import type { Model, ModelStat, ModelContext, FieldDef } from '../model.js';
-import type { FileHandle, OpenFlags, OpenOptions, SeekWhence } from '../handle.js';
-import { ENOENT, EBADF, EACCES, EROFS, ENOTSUP } from '../../hal/index.js';
+import type { Model, ModelStat, ModelContext, FieldDef } from '@src/lib/vfs/model.js';
+import type { FileHandle, OpenFlags, OpenOptions, SeekWhence } from '@src/lib/vfs/handle.js';
+import { ENOENT, EBADF, EACCES, EROFS, ENOTSUP } from '@src/lib/hal/index.js';
 
 const PROC_FIELDS: FieldDef[] = [
     { name: 'id', type: 'string', required: true },
@@ -357,7 +357,7 @@ export async function createProcessProc(
     const procModel = new ProcModel(new ProcessRegistry()); // Temp, won't be used for create
 
     // Create process folder: /proc/{uuid}
-    const folderModel = await import('./folder.js').then((m) => new m.FolderModel());
+    const folderModel = await import('@src/lib/vfs/models/folder.js').then((m) => new m.FolderModel());
     const processFolderId = await folderModel.create(ctx, procFolderId, processState.id, {
         owner: processState.id,
     });

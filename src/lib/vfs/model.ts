@@ -9,9 +9,9 @@
  * - How flow control works
  */
 
-import type { FileHandle, OpenFlags, OpenOptions } from './handle.js';
-import type { ACL } from './acl.js';
-import type { HAL } from '../hal/index.js';
+import type { FileHandle, OpenFlags, OpenOptions } from '@src/lib/vfs/handle.js';
+import type { ACL } from '@src/lib/vfs/acl.js';
+import type { HAL } from '@src/lib/hal/index.js';
 
 /**
  * Field definition for model schema

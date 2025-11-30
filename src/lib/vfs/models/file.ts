@@ -5,9 +5,9 @@
  * Files have metadata (entity) and content (data blob).
  */
 
-import type { Model, ModelStat, ModelContext, FieldDef, WatchEvent } from '../model.js';
-import type { FileHandle, OpenFlags, OpenOptions, SeekWhence } from '../handle.js';
-import { ENOENT, EBADF, EACCES, EINVAL } from '../../hal/index.js';
+import type { Model, ModelStat, ModelContext, FieldDef, WatchEvent } from '@src/lib/vfs/model.js';
+import type { FileHandle, OpenFlags, OpenOptions, SeekWhence } from '@src/lib/vfs/handle.js';
+import { ENOENT, EBADF, EACCES, EINVAL } from '@src/lib/hal/index.js';
 
 /**
  * Storage keys:

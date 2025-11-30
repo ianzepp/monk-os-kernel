@@ -14,20 +14,20 @@
  */
 
 // Core interfaces
-export type { Model, ModelStat, FieldDef } from './model.js';
-export type { FileHandle, OpenFlags, SeekWhence } from './handle.js';
-export type { ACL, Grant } from './acl.js';
+export type { Model, ModelStat, FieldDef } from '@src/lib/vfs/model.js';
+export type { FileHandle, OpenFlags, SeekWhence } from '@src/lib/vfs/handle.js';
+export type { ACL, Grant } from '@src/lib/vfs/acl.js';
 
 // VFS class
-export { VFS } from './vfs.js';
-export type { MountOptions, MountInfo } from './vfs.js';
+export { VFS } from '@src/lib/vfs/vfs.js';
+export type { MountOptions, MountInfo } from '@src/lib/vfs/vfs.js';
 
 // Built-in models
-export { FileModel } from './models/file.js';
-export { FolderModel } from './models/folder.js';
-export { DeviceModel, initStandardDevices } from './models/device.js';
-export { ProcModel, ProcessRegistry, createProcessProc } from './models/proc.js';
-export type { ProcessState } from './models/proc.js';
+export { FileModel } from '@src/lib/vfs/models/file.js';
+export { FolderModel } from '@src/lib/vfs/models/folder.js';
+export { DeviceModel, initStandardDevices } from '@src/lib/vfs/models/device.js';
+export { ProcModel, ProcessRegistry, createProcessProc } from '@src/lib/vfs/models/proc.js';
+export type { ProcessState } from '@src/lib/vfs/models/proc.js';
 
 // Errors (re-export relevant HAL errors + VFS-specific)
 export {
@@ -41,4 +41,4 @@ export {
     EINVAL,
     ENOSPC,
     ENOTEMPTY,
-} from '../hal/index.js';
+} from '@src/lib/hal/index.js';

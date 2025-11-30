@@ -8,14 +8,14 @@
  * - Quota tracking
  */
 
-import type { HAL } from '../hal/index.js';
-import type { Model, ModelStat, ModelContext, WatchEvent } from './model.js';
-import type { FileHandle, OpenFlags, OpenOptions } from './handle.js';
-import type { ACL } from './acl.js';
-import { checkAccess, defaultACL, encodeACL, decodeACL } from './acl.js';
-import { FileModel } from './models/file.js';
-import { FolderModel } from './models/folder.js';
-import { ENOENT, EEXIST, ENOTDIR, EACCES, EINVAL } from '../hal/index.js';
+import type { HAL } from '@src/lib/hal/index.js';
+import type { Model, ModelStat, ModelContext, WatchEvent } from '@src/lib/vfs/model.js';
+import type { FileHandle, OpenFlags, OpenOptions } from '@src/lib/vfs/handle.js';
+import type { ACL } from '@src/lib/vfs/acl.js';
+import { checkAccess, defaultACL, encodeACL, decodeACL } from '@src/lib/vfs/acl.js';
+import { FileModel } from '@src/lib/vfs/models/file.js';
+import { FolderModel } from '@src/lib/vfs/models/folder.js';
+import { ENOENT, EEXIST, ENOTDIR, EACCES, EINVAL } from '@src/lib/hal/index.js';
 
 /**
  * Mount options
