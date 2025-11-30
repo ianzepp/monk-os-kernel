@@ -42,10 +42,9 @@ async function main(): Promise<void> {
     });
 
     // Spawn shell on console
-    // TODO: For now, just log that we would spawn shell
-    // const shellPid = await spawn('/bin/shell');
-    // children.set(shellPid, '/bin/shell');
-    await println('init: shell spawn deferred (not yet implemented)');
+    const shellPid = await spawn('/bin/shell.ts');
+    children.set(shellPid, '/bin/shell.ts');
+    await println(`init: spawned shell (pid ${shellPid})`);
 
     // Reap children forever
     await println('init: entering reap loop');

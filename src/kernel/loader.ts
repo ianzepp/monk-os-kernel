@@ -169,6 +169,8 @@ export class ModuleCache {
  * - import x from '/path'
  * - import * as x from '/path'
  * - import '/path' (side-effect imports)
+ * - export * from '/path' (re-exports)
+ * - export { x } from '/path' (named re-exports)
  */
 export function extractImports(js: string): string[] {
     const imports: string[] = [];
@@ -183,6 +185,10 @@ export function extractImports(js: string): string[] {
         /import\s+\*\s+as\s+\w+\s+from\s+['"]([^'"]+)['"]/g,
         // import '/path' (side-effect)
         /import\s+['"]([^'"]+)['"]/g,
+        // export * from '/path' (re-exports)
+        /export\s+\*\s+from\s+['"]([^'"]+)['"]/g,
+        // export { x } from '/path' (named re-exports)
+        /export\s+\{[^}]*\}\s+from\s+['"]([^'"]+)['"]/g,
     ];
 
     for (const pattern of patterns) {
@@ -204,20 +210,26 @@ export function extractImports(js: string): string[] {
  * @returns Resolved VFS path
  */
 export function resolveImport(importPath: string, fromModule: string): string {
+    // Strip .js extension added by transpiler (VFS uses .ts)
+    let path = importPath;
+    if (path.endsWith('.js')) {
+        path = path.slice(0, -3);
+    }
+
     // Absolute VFS path
-    if (importPath.startsWith('/')) {
-        return importPath.endsWith('.ts') ? importPath : importPath + '.ts';
+    if (path.startsWith('/')) {
+        return path.endsWith('.ts') ? path : path + '.ts';
     }
 
     // Relative path
-    if (importPath.startsWith('./') || importPath.startsWith('../')) {
+    if (path.startsWith('./') || path.startsWith('../')) {
         const fromDir = fromModule.substring(0, fromModule.lastIndexOf('/')) || '/';
-        const resolved = resolvePath(fromDir, importPath);
+        const resolved = resolvePath(fromDir, path);
         return resolved.endsWith('.ts') ? resolved : resolved + '.ts';
     }
 
     // Built-in or external - return as-is
-    return importPath;
+    return path;
 }
 
 /**
@@ -304,6 +316,36 @@ export function rewriteImports(js: string, fromModule: string): string {
     result = result.replace(
         /export\s+default\s+/g,
         'exports.default = '
+    );
+
+    // export * from '/path' -> Object.assign(exports, __require('/path'))
+    result = result.replace(
+        /export\s+\*\s+from\s+['"]([^'"]+)['"]\s*;?/g,
+        (_, path) => {
+            const resolved = resolveImport(path, fromModule);
+            return `Object.assign(exports, __require('${resolved}'));`;
+        }
+    );
+
+    // export { x, y } from '/path' -> const __reexport = __require('/path'); exports.x = __reexport.x; ...
+    result = result.replace(
+        /export\s+\{([^}]+)\}\s+from\s+['"]([^'"]+)['"]\s*;?/g,
+        (_, names, path) => {
+            const resolved = resolveImport(path, fromModule);
+            const items = names.split(',')
+                .map((n: string) => n.trim())
+                .filter((n: string) => n && !n.startsWith('type '));
+            if (items.length === 0) return ''; // Type-only exports
+            const tempVar = `__reexport_${Math.random().toString(36).slice(2, 8)}`;
+            const assigns = items.map((n: string) => {
+                // Handle "x as y" syntax
+                const parts = n.split(/\s+as\s+/);
+                const source = parts[0].trim();
+                const exported = (parts[1] || parts[0]).trim();
+                return `exports.${exported} = ${tempVar}.${source}`;
+            }).join('; ');
+            return `const ${tempVar} = __require('${resolved}'); ${assigns};`;
+        }
     );
 
     // export { x, y } -> exports.x = x; exports.y = y

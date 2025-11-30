@@ -38,7 +38,7 @@ async function boot(): Promise<void> {
 
     // Boot kernel with init process
     await kernel.boot({
-        initPath: './src/bin/init.ts',
+        initPath: '/bin/init.ts',
         initArgs: ['init'],
         env: {
             HOME: '/',

@@ -50,7 +50,7 @@ async function main(): Promise<void> {
         await sendTelnetNegotiation();
 
         // Spawn shell with inherited stdio (fd 0/1/2 = socket)
-        const shellPid = await spawn('./src/bin/shell.ts', {
+        const shellPid = await spawn('/bin/shell.ts', {
             args: ['shell'],
         });
 
