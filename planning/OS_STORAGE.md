@@ -686,7 +686,35 @@ Models use HAL devices but don't expose them directly:
 
 ## Open Questions
 
-None currently.
+### 1. Rename/move atomicity
+Moving a file updates `path` and `parent` fields. What if crash between the two updates? Need transaction or single-field approach.
+
+### 2. Path uniqueness enforcement
+Path is a field, not identity. What prevents two entities with same path? Need unique index + enforcement at create/rename time.
+
+### 3. Parent folder existence
+When creating `/home/bob/docs/file.txt`, who ensures `/home/bob/docs` exists? VFS or caller? ENOENT semantics?
+
+### 4. Orphan blob cleanup
+If entity deleted but `data:{uuid}` blob remains, who garbage collects? Reference counting on blobs?
+
+### 5. Access check on parent traversal
+To open `/home/bob/docs/file.txt`, do I need `list` permission on `/home`, `/home/bob`, `/home/bob/docs`? Or just on the file itself?
+
+### 6. FileHandle revocation
+If access revoked while handle open, does handle keep working (capability model) or fail on next I/O?
+
+### 7. watch() semantics
+What events? Just this path or subtree? What about renames that move files in/out?
+
+### 8. Quota accounting on delete
+When file deleted, `bytes_used` must decrement. When blob shared between files, who owns the bytes?
+
+### 9. ProcModel pid field
+Lists `pid` as number, but everything is UUID. Inconsistency - should this be the process UUID displayed differently?
+
+### 10. Network model - no listen()
+Can only `connect()`. How does a server `open('/dev/tcp/0.0.0.0:8080')` to listen? Different path format? Different model?
 
 ## Resolved Questions
 
