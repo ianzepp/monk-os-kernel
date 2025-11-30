@@ -28,7 +28,8 @@ import {
 } from '@src/kernel/syscalls.js';
 import { ESRCH, ECHILD, ProcessExited, EBADF, EPERM, EINVAL, ENOSYS, EMFILE } from '@src/kernel/errors.js';
 import type { Resource, Port } from '@src/kernel/resource.js';
-import { FileResource, SocketResource, ListenerPort, PipeBuffer, PipeResource } from '@src/kernel/resource.js';
+import type { WatchEvent } from '@src/vfs/model.js';
+import { FileResource, SocketResource, ListenerPort, WatchPort, UdpPort, PipeBuffer, PipeResource } from '@src/kernel/resource.js';
 import type { ProcessPortMessage } from '@src/kernel/syscalls.js';
 
 /**
@@ -775,8 +776,36 @@ export class Kernel {
                 break;
             }
 
-            case 'udp':
-            case 'watch':
+            case 'watch': {
+                const watchOpts = opts as { pattern: string } | undefined;
+                if (!watchOpts || typeof watchOpts.pattern !== 'string') {
+                    throw new EINVAL('watch requires pattern option');
+                }
+
+                const portId = this.hal.entropy.uuid();
+                const description = `watch:${watchOpts.pattern}`;
+
+                // Create a function that returns the VFS watch iterable
+                const vfsWatch = (pattern: string): AsyncIterable<WatchEvent> => {
+                    return this.vfs.watch(pattern, proc.id);
+                };
+
+                port = new WatchPort(portId, watchOpts.pattern, vfsWatch, description);
+                break;
+            }
+
+            case 'udp': {
+                const udpOpts = opts as { bind: number; address?: string } | undefined;
+                if (!udpOpts || typeof udpOpts.bind !== 'number') {
+                    throw new EINVAL('udp requires bind option');
+                }
+
+                const portId = this.hal.entropy.uuid();
+                const description = `udp:${udpOpts.address ?? '0.0.0.0'}:${udpOpts.bind}`;
+                port = new UdpPort(portId, udpOpts, description);
+                break;
+            }
+
             case 'pubsub':
                 throw new ENOSYS(`${type} ports not yet implemented`);
 

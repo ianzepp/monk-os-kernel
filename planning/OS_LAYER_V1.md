@@ -355,10 +355,13 @@ async function ircd(kernel: Kernel) {
 - FileModel, FolderModel, DeviceModel, ProcModel
 - Grant-based ACL system
 
-### Phase 3: Kernel Network
-- Implement `connect()` syscall → FileHandle
-- Implement `port()` syscall → Port
-- Port types: `tcp:listen`, `udp`, `watch`, `pubsub`
+### Phase 3: Kernel Network (Partial ✅)
+- ✅ Implement `connect()` syscall → FileHandle
+- ✅ Implement `port()` syscall → Port
+- ✅ Port type: `tcp:listen` (accept connections)
+- ✅ Port type: `watch` (VFS file system events)
+- ✅ Port type: `udp` (datagram send/receive)
+- ⏳ Port type: `pubsub` (cross-process messaging)
 - See [OS_NETWORK.md](./OS_NETWORK.md)
 
 ### Phase 4: Syscall Layer
