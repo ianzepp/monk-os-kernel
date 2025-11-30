@@ -686,7 +686,7 @@ Models use HAL devices but don't expose them directly:
 
 ## Open Questions
 
-1. **Caching**: Should models cache stat() results? Invalidation strategy?
+None currently.
 
 ## Resolved Questions
 
@@ -697,3 +697,5 @@ Models use HAL devices but don't expose them directly:
 3. **Permissions**: Grant-based ACLs, separate from stat(). See "Access Control" section.
 
 4. **Quotas**: Mount-level quotas only. See "Storage Quotas" section.
+
+5. **Caching**: No caching for now. Every call hits StorageEngine. Profile first, optimize later.
