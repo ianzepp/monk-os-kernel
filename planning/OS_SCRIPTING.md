@@ -128,29 +128,491 @@ $ cd /tmp && pwd
 
 See "Shell Implementation Status" section below for full feature list.
 
-## Dynamic Execution
+## VFS-Backed Execution
 
-AI and other tools need to execute dynamically generated TypeScript.
+Scripts stored in VFS can be executed directly. No bundling at compile time - the kernel
+loads, compiles, and runs scripts on demand.
 
-### Options (TBD)
+### Architecture Overview
 
-| Method | Description |
-|--------|-------------|
-| Temp file + spawn | Write to `/tmp/xxx.ts`, spawn, delete |
-| Blob import | `import(URL.createObjectURL(blob))` |
-| `exec` syscall | Kernel-provided eval with context |
+```
+VFS Source                    Module Cache (LRU)              Worker Bundle
+─────────────                 ─────────────────               ─────────────
+/lib/process.ts    ──────►   cache['/lib/process'] = {js}
+/lib/utils.ts      ──────►   cache['/lib/utils'] = {js}
+/bin/myscript.ts   ──────►   cache['/bin/myscript'] = {js}
+                                       │
+                                       ▼
+                             Assemble at spawn time
+                                       │
+                                       ▼
+                             ┌─────────────────────────┐
+                             │ Module Registry (loader)│
+                             │ /lib/process.js         │
+                             │ /lib/utils.js           │
+                             │ /bin/myscript.js (entry)│
+                             └─────────────────────────┘
+                                       │
+                                       ▼
+                                   Blob URL
+                                       │
+                                       ▼
+                                    Worker
+```
 
-**Open question:** Which method? Temp file is simplest but has I/O overhead. Blob import may work in Bun. Syscall is cleanest API but requires kernel support.
+### Key Design Decisions
 
-### Likely API
+1. **Dynamic linking, not static bundling** - modules compiled separately, assembled at spawn
+2. **In-memory LRU cache** - compiled modules cached in kernel memory
+3. **No temp files** - transpile in memory, load via Blob URL
+4. **VFS paths for imports** - scripts use `/lib/process`, not `@src/process`
+
+### Module Cache
+
+Compiled modules are cached in kernel memory with LRU eviction:
 
 ```typescript
-// For AI and dynamic execution
+interface CachedModule {
+    /** Transpiled JavaScript with rewritten imports */
+    js: string;
+
+    /** VFS paths this module imports */
+    imports: string[];
+
+    /** Source content hash for invalidation */
+    hash: string;
+
+    /** Last access time for LRU eviction */
+    usedAt: number;
+}
+
+class ModuleCache {
+    private cache = new Map<string, CachedModule>();
+    private maxSize = 100;  // max modules to cache
+
+    get(path: string): CachedModule | undefined;
+    set(path: string, mod: CachedModule): void;
+    evictLRU(): void;
+    invalidate(path: string): void;
+    clear(): void;
+}
+```
+
+**Cache invalidation:**
+- On `spawn()`: check source hash, recompile if changed
+- On file `write()`: could proactively invalidate (optional optimization)
+- On kernel restart: cache is empty, rebuild on demand
+
+### Compilation Pipeline
+
+#### Step 1: Compile Module
+
+```typescript
+async function compileModule(vfsPath: string): Promise<CachedModule> {
+    const source = await vfs.readFile(vfsPath);
+    const hash = Bun.hash(source).toString(16);
+
+    // Check cache
+    const cached = moduleCache.get(vfsPath);
+    if (cached && cached.hash === hash) {
+        cached.usedAt = Date.now();
+        return cached;
+    }
+
+    // Transpile TypeScript → JavaScript
+    const transpiler = new Bun.Transpiler({ loader: 'ts' });
+    const js = transpiler.transformSync(source);
+
+    // Extract VFS imports
+    const imports = extractImports(js).filter(p => p.startsWith('/'));
+
+    // Rewrite imports to use module registry
+    const rewritten = rewriteImports(js);
+
+    const mod: CachedModule = {
+        js: rewritten,
+        imports,
+        hash,
+        usedAt: Date.now()
+    };
+
+    moduleCache.set(vfsPath, mod);
+    return mod;
+}
+```
+
+#### Step 2: Rewrite Imports
+
+ES imports are transformed to registry lookups:
+
+```typescript
+// Before (VFS source)
+import { open, read } from '/lib/process';
+import { helper } from '/lib/utils';
+export function myFunc() { ... }
+
+// After (compiled module)
+const { open, read } = __require('/lib/process');
+const { helper } = __require('/lib/utils');
+function myFunc() { ... }
+exports.myFunc = myFunc;
+```
+
+```typescript
+function rewriteImports(js: string): string {
+    let result = js;
+
+    // import { x, y } from '/path'  →  const { x, y } = __require('/path')
+    result = result.replace(
+        /import\s+\{([^}]+)\}\s+from\s+['"]([^'"]+)['"]/g,
+        (_, imports, path) => {
+            if (path.startsWith('/')) {
+                return `const {${imports}} = __require('${path}')`;
+            }
+            return `const {${imports}} = __require('${path}')`;  // external
+        }
+    );
+
+    // import x from '/path'  →  const x = __require('/path').default
+    result = result.replace(
+        /import\s+(\w+)\s+from\s+['"]([^'"]+)['"]/g,
+        (_, name, path) => `const ${name} = __require('${path}').default`
+    );
+
+    // import * as x from '/path'  →  const x = __require('/path')
+    result = result.replace(
+        /import\s+\*\s+as\s+(\w+)\s+from\s+['"]([^'"]+)['"]/g,
+        (_, name, path) => `const ${name} = __require('${path}')`
+    );
+
+    // export { x }  →  exports.x = x
+    result = result.replace(
+        /export\s+\{([^}]+)\}/g,
+        (_, names) => {
+            const items = names.split(',').map((n: string) => n.trim());
+            return items.map((n: string) => `exports.${n} = ${n}`).join('; ');
+        }
+    );
+
+    // export function x()  →  function x() ... exports.x = x
+    result = result.replace(
+        /export\s+(function|class|const|let|var)\s+(\w+)/g,
+        '$1 $2'
+    );
+    // (exports added separately after parsing)
+
+    return result;
+}
+```
+
+#### Step 3: Resolve Dependencies
+
+Walk the dependency graph, compiling each module:
+
+```typescript
+async function resolveDependencies(entryPath: string): Promise<Map<string, CachedModule>> {
+    const modules = new Map<string, CachedModule>();
+    const queue = [entryPath];
+
+    while (queue.length > 0) {
+        const path = queue.shift()!;
+        if (modules.has(path)) continue;
+
+        const mod = await compileModule(path);
+        modules.set(path, mod);
+
+        // Queue unresolved dependencies
+        for (const imp of mod.imports) {
+            if (!modules.has(imp)) {
+                queue.push(imp);
+            }
+        }
+    }
+
+    return modules;
+}
+```
+
+#### Step 4: Assemble Bundle
+
+Combine modules with a minimal CommonJS-style registry:
+
+```typescript
+async function assembleBundle(entryPath: string): Promise<string> {
+    const modules = await resolveDependencies(entryPath);
+
+    // Module registry preamble
+    let bundle = `
+'use strict';
+const __modules = {};
+const __cache = {};
+
+function __require(path) {
+    if (__cache[path]) return __cache[path];
+    if (!__modules[path]) throw new Error('Module not found: ' + path);
+    const module = { exports: {} };
+    const exports = module.exports;
+    __modules[path](module, exports, __require);
+    __cache[path] = module.exports;
+    return module.exports;
+}
+
+`;
+
+    // Add each module as a factory function
+    for (const [path, mod] of modules) {
+        bundle += `
+// ${path}
+__modules['${path}'] = function(module, exports, __require) {
+${mod.js}
+};
+
+`;
+    }
+
+    // Execute entry point
+    bundle += `
+// Entry point
+__require('${entryPath}');
+`;
+
+    return bundle;
+}
+```
+
+#### Step 5: Spawn Worker
+
+```typescript
+async function spawnFromVFS(entryPath: string, opts: SpawnOpts): Promise<Process> {
+    // Assemble bundle from cached modules
+    const bundle = await assembleBundle(entryPath);
+
+    // Create Blob URL (no temp files)
+    const blob = new Blob([bundle], { type: 'application/javascript' });
+    const url = URL.createObjectURL(blob);
+
+    // Create worker
+    const worker = new Worker(url);
+
+    // Cleanup URL (worker already loaded the code)
+    URL.revokeObjectURL(url);
+
+    // Standard process setup
+    const proc = createProcess(worker, entryPath, opts);
+    wireUpSyscalls(proc);
+
+    return proc;
+}
+```
+
+### Import Resolution
+
+Scripts use VFS paths for imports:
+
+```typescript
+// /bin/myapp.ts
+import { open, read, write, exit } from '/lib/process';
+import { formatBytes } from '/lib/utils';
+import { Config } from '/lib/config';
+```
+
+**Path resolution rules:**
+
+| Import Path | Resolved To |
+|-------------|-------------|
+| `/lib/process` | VFS path `/lib/process.ts` |
+| `/lib/utils.ts` | VFS path `/lib/utils.ts` (explicit extension) |
+| `./helper` | Relative to importing module |
+| `bun:test` | Bun built-in (passed through) |
+| `node:fs` | Node built-in (passed through) |
+
+```typescript
+function resolveImport(importPath: string, fromModule: string): string {
+    // Absolute VFS path
+    if (importPath.startsWith('/')) {
+        return importPath.endsWith('.ts') ? importPath : importPath + '.ts';
+    }
+
+    // Relative path
+    if (importPath.startsWith('./') || importPath.startsWith('../')) {
+        const dir = dirname(fromModule);
+        const resolved = resolve(dir, importPath);
+        return resolved.endsWith('.ts') ? resolved : resolved + '.ts';
+    }
+
+    // Built-in or external - pass through unchanged
+    return importPath;
+}
+```
+
+### Process Library Bootstrap
+
+The process library (`/lib/process.ts`) is special - it's the bridge between
+userland and kernel. Options for providing it:
+
+**Option A: Pre-populated in VFS**
+
+On kernel boot, write the process library to VFS:
+
+```typescript
+// During kernel init
+await vfs.writeFile('/lib/process.ts', PROCESS_LIB_SOURCE);
+```
+
+The source is bundled with the kernel binary. Scripts import it like any other module.
+
+**Option B: Virtual module**
+
+The kernel intercepts imports of `/lib/process` and provides it directly:
+
+```typescript
+if (importPath === '/lib/process') {
+    return { js: BUILTIN_PROCESS_LIB, imports: [], hash: 'builtin' };
+}
+```
+
+No VFS entry needed. The module exists only in the registry.
+
+**Recommendation:** Option A - simpler, consistent, allows inspection/modification.
+
+### Example: Full Execution Flow
+
+```typescript
+// User runs: spawn('/bin/hello.ts')
+
+// 1. Kernel receives spawn syscall
+//    entryPath = '/bin/hello.ts'
+
+// 2. Read /bin/hello.ts from VFS
+const source = `
+import { println, exit } from '/lib/process';
+await println('Hello, Monk OS!');
+exit(0);
+`;
+
+// 3. Compile /bin/hello.ts
+//    - Transpile TS → JS
+//    - Rewrite imports
+//    - Extract dependencies: ['/lib/process']
+
+// 4. Compile /lib/process.ts (if not cached)
+//    - Already cached from previous spawn
+
+// 5. Assemble bundle
+const bundle = `
+'use strict';
+const __modules = {};
+const __cache = {};
+function __require(path) { ... }
+
+__modules['/lib/process'] = function(module, exports, __require) {
+    // syscall bridge, println, exit, etc.
+};
+
+__modules['/bin/hello.ts'] = function(module, exports, __require) {
+    const { println, exit } = __require('/lib/process');
+    await println('Hello, Monk OS!');
+    exit(0);
+};
+
+__require('/bin/hello.ts');
+`;
+
+// 6. Create Blob URL
+const url = URL.createObjectURL(new Blob([bundle]));
+
+// 7. Spawn Worker
+const worker = new Worker(url);
+
+// 8. Wire up syscall handling, fds, etc.
+```
+
+### Performance Considerations
+
+| Operation | Cost | Mitigation |
+|-----------|------|------------|
+| VFS read | I/O | Cache compiled modules |
+| Transpile | CPU | Cache compiled modules |
+| Dependency walk | I/O | Cache module imports |
+| Bundle assembly | CPU (string concat) | Small, fast |
+| Blob URL creation | Memory | Revoke after load |
+
+**Typical spawn time:**
+- Cold (nothing cached): ~10-50ms depending on module count
+- Warm (all cached): ~1-5ms (assembly + worker creation)
+
+### Cache Sizing
+
+```typescript
+const CACHE_CONFIG = {
+    maxModules: 100,        // max cached modules
+    maxSizeBytes: 10_000_000,  // 10MB total JS
+    ttlMs: 30 * 60 * 1000,  // 30 min unused = eligible for eviction
+};
+```
+
+### Future: Persistent Cache (Option B)
+
+If cache misses become expensive, graduate to StorageEngine-backed cache:
+
+```
+bundle:{path}:{hash}  →  compiled JS
+```
+
+Survives kernel restart. See OS_VERSIONING.md for keyspace patterns.
+
+## Dynamic Execution
+
+For AI and tools that generate code at runtime:
+
+```typescript
+// Write to VFS, spawn
+await vfs.writeFile('/tmp/dynamic-123.ts', generatedCode);
+const pid = await spawn('/tmp/dynamic-123.ts');
+const result = await wait(pid);
+await vfs.unlink('/tmp/dynamic-123.ts');
+```
+
+Or a convenience syscall:
+
+```typescript
+// exec() - write, spawn, wait, cleanup in one call
 const result = await exec(`
-  const files = await readdir('/tmp');
-  return files.length;
+    const files = await readdir('/tmp');
+    return files.length;
 `);
 // result = 5
+```
+
+Implementation of `exec()`:
+
+```typescript
+async function exec(code: string, opts?: ExecOpts): Promise<unknown> {
+    const path = `/tmp/.exec-${crypto.randomUUID()}.ts`;
+
+    // Wrap code to capture return value
+    const wrapped = `
+        import { exit, write } from '/lib/process';
+        const __result = await (async () => {
+            ${code}
+        })();
+        await write(1, JSON.stringify(__result));
+        exit(0);
+    `;
+
+    await vfs.writeFile(path, wrapped);
+
+    const [readFd, writeFd] = await pipe();
+    const pid = await spawn(path, { stdout: writeFd });
+    await close(writeFd);
+
+    const output = await readAll(readFd);
+    await close(readFd);
+    await wait(pid);
+    await vfs.unlink(path);
+
+    return JSON.parse(output);
+}
 ```
 
 ## Error Handling
