@@ -260,12 +260,16 @@ Test:
 3. `exit(0)` syscall terminates cleanly
 4. Kernel sees zombie with exitCode 0
 
+## Design Decisions
+
+1. **Console I/O** - Via `/dev/console` device in VFS. Kernel opens device at boot, init inherits fds 0/1/2 pointing to console.
+
+2. **Module resolution** - Static mapping for v1: `/bin/init` maps to `src/bin/init.ts`. Bun Workers load these directly. VFS-backed execution deferred until import resolution solved at larger scope.
+
+3. **Error reconstruction** - Process library reconstructs typed HAL errors from wire format using a code-to-constructor lookup table.
+
+4. **Blocking semantics** - `recv()` returns a Promise that resolves when message arrives. This is cooperative blocking - the async context waits but Worker event loop continues. Sufficient for async code patterns.
+
 ## Open Questions
 
-1. **Console I/O** - How do stdout/stderr work? Currently mapped to console device UUIDs but no actual device. Need `/dev/console` or similar.
-
-2. **Module resolution** - Worker entry points are file paths. How do imports resolve? Bun handles this, but paths like `/bin/init.ts` need to map to actual files.
-
-3. **Error reconstruction** - When kernel sends error response, process library creates generic Error. Should we reconstruct typed errors (ENOENT, etc.)?
-
-4. **Blocking semantics** - `recv()` blocks the async context but not the Worker. Is that sufficient, or do we need true blocking?
+1. **Import resolution for VFS scripts** - When VFS-backed scripts import libraries, how do we resolve? Options: Bun loader plugins, import maps, bundling, custom module registry.

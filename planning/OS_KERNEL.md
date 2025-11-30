@@ -637,14 +637,22 @@ On boot:
 
 ---
 
+## Design Decisions
+
+1. **Process entry points** - Static mapping for v1: `/bin/init` maps to `src/bin/init.ts`. VFS-backed execution deferred until import resolution is solved at larger scope.
+
+2. **Stdio** - Via `/dev/console` device in VFS. Kernel opens device at boot and passes handles to init. Children inherit parent's stdio by default.
+
+3. **Resource limits** - Implemented: MAX_FDS=256, MAX_PORTS=64 per process. Enforced at open/connect/port creation.
+
+4. **Orphan reparenting** - Implemented: Children reparented to init when parent dies (see `ProcessTable.reparentOrphans()`).
+
+5. **`wait(-1)`** - Deferred. Init polls children for now. Will add "wait for any child" when needed.
+
+6. **Error types** - Process library reconstructs typed HAL errors from wire format.
+
 ## Open Questions
 
-1. **Process entry points** - How are process scripts located? `/bin/`, VFS paths, or bundled?
+1. **Process groups** - Do we need process groups for job control?
 
-2. **Stdio inheritance** - Should children inherit parent's stdio fds, or get new pipes?
-
-3. **Resource limits** - Memory limits, fd limits, cpu time per process?
-
-4. **Orphan reparenting** - When a process dies, do its children get reparented to init?
-
-5. **Process groups** - Do we need process groups for job control?
+2. **Import resolution** - When VFS-backed scripts import libraries, how do we resolve? Options: Bun loader plugins, import maps, bundling, custom module registry. Solve when VFS execution is implemented.
