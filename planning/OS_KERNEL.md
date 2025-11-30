@@ -566,16 +566,57 @@ interface Process {
 
 Detailed capability design TBD.
 
-## Future: GUI Support
+## GUI Support: Browser as Display Server
 
-The architecture supports future GUI by:
+**No native display syscalls needed.** The browser is the display server.
 
-1. **HAL is extensible** - can add DisplayDevice, InputDevice
-2. **Ports handle events** - input, window events will be port types
-3. **Surfaces aren't files** - like network, dedicated syscalls when needed
-4. **Shared memory** - HAL IPCDevice can support mmap-style framebuffers
+### Architecture
 
-No specific GUI syscalls are designed yet.
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Browser (Display Server)                                   │
+│  ┌─────────────────────────────────────────────────────────┐│
+│  │  Canvas / WebGL / DOM                                   ││
+│  │  Keyboard, Mouse, Touch, Gamepad events                 ││
+│  └─────────────────────────────────────────────────────────┘│
+│                           ▲                                 │
+│                           │ HTTP / WebSocket                │
+│                           ▼                                 │
+├─────────────────────────────────────────────────────────────┤
+│  Monk OS                                                    │
+│  ┌─────────────────────────────────────────────────────────┐│
+│  │  GUI Process (userland)                                 ││
+│  │  - Serves HTML/JS/CSS via Bun.serve()                   ││
+│  │  - Pushes updates via WebSocket                         ││
+│  │  - Receives input events via WebSocket                  ││
+│  └─────────────────────────────────────────────────────────┘│
+│                           │                                 │
+│                    Kernel (tcp:listen)                      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Why This Works
+
+1. **Already have the pieces** - HAL NetworkDevice, `tcp:listen` port
+2. **Cross-platform free** - Works anywhere with a browser
+3. **Rich primitives** - Canvas 2D, WebGL, CSS, SVG, Web Audio
+4. **Input handled** - Browser provides keyboard, mouse, touch, gamepad
+5. **No native dependencies** - Pure TypeScript, no platform-specific code
+
+### Examples
+
+- **Window manager** = Web app serving HTML, managing iframes
+- **Desktop** = SPA with app launcher, taskbar
+- **Terminal** = xterm.js in browser, WebSocket to shell process
+- **Graphics app** = Canvas/WebGL rendering, shipped as static assets
+
+### What the Kernel Provides
+
+- `port('tcp:listen', { port: 8080 })` - Serve HTTP/WebSocket
+- `connect('tcp', ...)` - Outbound connections if needed
+- No display syscalls, no framebuffer, no input events at kernel level
+
+GUI is entirely userland. The kernel just provides networking.
 
 ## Process Table Persistence
 
