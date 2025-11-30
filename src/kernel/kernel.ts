@@ -152,20 +152,24 @@ export class Kernel {
     async shutdown(): Promise<void> {
         if (!this.booted) return;
 
-        // Send SIGTERM to all processes except init
+        // Count running processes (excluding zombies)
+        let runningCount = 0;
         const init = this.processes.getInit();
         for (const proc of this.processes.all()) {
             if (proc !== init && proc.state === 'running') {
                 this.deliverSignal(proc, SIGTERM);
+                runningCount++;
             }
         }
 
-        // Wait for grace period
-        await new Promise(resolve => setTimeout(resolve, TERM_GRACE_MS));
+        // Only wait for grace period if there are running processes to terminate
+        if (runningCount > 0) {
+            await new Promise(resolve => setTimeout(resolve, TERM_GRACE_MS));
+        }
 
-        // Force kill remaining processes
+        // Force kill ALL remaining processes including init
         for (const proc of this.processes.all()) {
-            if (proc.state === 'running') {
+            if (proc.state === 'running' || proc.state === 'starting') {
                 this.forceExit(proc, 128 + SIGKILL);
             }
         }
