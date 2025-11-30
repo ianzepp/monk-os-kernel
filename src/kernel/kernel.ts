@@ -45,7 +45,9 @@ export class Kernel {
     private processes: ProcessTable;
     private syscalls: SyscallDispatcher;
     private resources: Map<string, Resource> = new Map();
+    private resourceRefs: Map<string, number> = new Map(); // Reference counts
     private ports: Map<string, Port> = new Map();
+    private portRefs: Map<string, number> = new Map(); // Reference counts
     private waiters: Map<string, ((status: ExitStatus) => void)[]> = new Map();
     private booted = false;
 
@@ -174,10 +176,12 @@ export class Kernel {
             }
         }
 
-        // Clear process table
+        // Clear process table and all maps
         this.processes.clear();
         this.resources.clear();
+        this.resourceRefs.clear();
         this.ports.clear();
+        this.portRefs.clear();
         this.waiters.clear();
 
         this.booted = false;
@@ -457,6 +461,8 @@ export class Kernel {
 
     /**
      * Setup stdio for a new process.
+     *
+     * Inherits file descriptors from parent and increments reference counts.
      */
     private setupStdio(proc: Process, parent: Process, opts?: SpawnOpts): void {
         // Inherit from parent by default
@@ -468,6 +474,7 @@ export class Kernel {
             const resourceId = parent.fds.get(stdin);
             if (resourceId) {
                 proc.fds.set(0, resourceId);
+                this.refResource(resourceId);
             }
         }
 
@@ -475,6 +482,7 @@ export class Kernel {
             const resourceId = parent.fds.get(stdout);
             if (resourceId) {
                 proc.fds.set(1, resourceId);
+                this.refResource(resourceId);
             }
         }
 
@@ -482,10 +490,19 @@ export class Kernel {
             const resourceId = parent.fds.get(stderr);
             if (resourceId) {
                 proc.fds.set(2, resourceId);
+                this.refResource(resourceId);
             }
         }
 
         // TODO: Handle 'pipe' option to create new pipes
+    }
+
+    /**
+     * Increment reference count for a resource.
+     */
+    private refResource(resourceId: string): void {
+        const refs = this.resourceRefs.get(resourceId) ?? 1;
+        this.resourceRefs.set(resourceId, refs + 1);
     }
 
     /**
@@ -504,23 +521,15 @@ export class Kernel {
         // Terminate worker immediately
         proc.worker.terminate();
 
-        // Clean up resources (fire-and-forget, don't await)
+        // Clean up resources with refcounting (fire-and-forget, don't await)
         for (const resourceId of proc.fds.values()) {
-            const resource = this.resources.get(resourceId);
-            if (resource) {
-                resource.close().catch(() => {}); // Ignore errors
-                this.resources.delete(resourceId);
-            }
+            this.unrefResource(resourceId);
         }
         proc.fds.clear();
 
-        // Clean up ports (fire-and-forget, don't await)
+        // Clean up ports with refcounting (fire-and-forget, don't await)
         for (const portUuid of proc.ports.values()) {
-            const port = this.ports.get(portUuid);
-            if (port) {
-                port.close().catch(() => {}); // Ignore errors
-                this.ports.delete(portUuid);
-            }
+            this.unrefPort(portUuid);
         }
         proc.ports.clear();
 
@@ -529,6 +538,40 @@ export class Kernel {
 
         // Notify waiters
         this.notifyWaiters(proc);
+    }
+
+    /**
+     * Decrement reference count for a resource, closing if last ref.
+     */
+    private unrefResource(resourceId: string): void {
+        const refs = (this.resourceRefs.get(resourceId) ?? 1) - 1;
+        if (refs <= 0) {
+            const resource = this.resources.get(resourceId);
+            if (resource) {
+                resource.close().catch(() => {}); // Ignore errors
+                this.resources.delete(resourceId);
+            }
+            this.resourceRefs.delete(resourceId);
+        } else {
+            this.resourceRefs.set(resourceId, refs);
+        }
+    }
+
+    /**
+     * Decrement reference count for a port, closing if last ref.
+     */
+    private unrefPort(portUuid: string): void {
+        const refs = (this.portRefs.get(portUuid) ?? 1) - 1;
+        if (refs <= 0) {
+            const port = this.ports.get(portUuid);
+            if (port) {
+                port.close().catch(() => {}); // Ignore errors
+                this.ports.delete(portUuid);
+            }
+            this.portRefs.delete(portUuid);
+        } else {
+            this.portRefs.set(portUuid, refs);
+        }
     }
 
     /**
@@ -629,6 +672,9 @@ export class Kernel {
 
     /**
      * Close a file descriptor.
+     *
+     * Uses reference counting - only closes the underlying resource
+     * when the last reference is released.
      */
     private async closeResource(proc: Process, fd: number): Promise<void> {
         const resourceId = proc.fds.get(fd);
@@ -636,13 +682,22 @@ export class Kernel {
             throw new EBADF(`Bad file descriptor: ${fd}`);
         }
 
-        const resource = this.resources.get(resourceId);
-        if (resource) {
-            await resource.close();
-            this.resources.delete(resourceId);
-        }
-
+        // Remove fd from process
         proc.fds.delete(fd);
+
+        // Decrement refcount
+        const refs = (this.resourceRefs.get(resourceId) ?? 1) - 1;
+        if (refs <= 0) {
+            // Last reference - close the resource
+            const resource = this.resources.get(resourceId);
+            if (resource) {
+                await resource.close();
+                this.resources.delete(resourceId);
+            }
+            this.resourceRefs.delete(resourceId);
+        } else {
+            this.resourceRefs.set(resourceId, refs);
+        }
     }
 
     /**
