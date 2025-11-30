@@ -556,16 +556,17 @@ On entity creation, ACL defaults to:
 
 Creator has full control. No one else has access until explicitly granted.
 
-### ACL Storage
+### Access Storage
 
-ACLs are stored separately from entity metadata:
+Access data is stored separately from entity metadata:
 
 ```
 entity:{uuid}     → { id, model, path, parent, ... }  // stat() data
-acl:{uuid}        → { grants: [...], deny: [...] }    // access() data
+access:{uuid}     → { grants: [...], deny: [...] }    // access() data
+blob:{uuid}       → raw bytes                         // read() data
 ```
 
-This keeps `stat()` lean and allows ACL queries without loading entity data.
+This keeps `stat()` lean and allows access queries without loading entity data.
 
 ## Relationship to HAL
 
