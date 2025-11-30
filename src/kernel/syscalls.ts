@@ -348,15 +348,21 @@ export function createNetworkSyscalls(
             if (typeof host !== 'string') {
                 throw new EINVAL('host must be a string');
             }
-            if (typeof port !== 'number') {
-                throw new EINVAL('port must be a number');
-            }
 
-            if (proto !== 'tcp') {
-                throw new EINVAL(`unsupported protocol: ${proto}`);
-            }
+            switch (proto) {
+                case 'tcp':
+                    if (typeof port !== 'number') {
+                        throw new EINVAL('port must be a number');
+                    }
+                    return connectTcp(proc, host, port);
 
-            return connectTcp(proc, host, port);
+                case 'unix':
+                    // Unix sockets use path as host, port=0
+                    return connectTcp(proc, host, 0);
+
+                default:
+                    throw new EINVAL(`unsupported protocol: ${proto}`);
+            }
         },
 
         async port(proc: Process, type: unknown, opts: unknown): Promise<number> {

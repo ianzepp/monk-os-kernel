@@ -206,12 +206,12 @@ export interface NetworkDevice {
     listen(port: number, opts?: ListenOpts): Promise<Listener>;
 
     /**
-     * Connect to a TCP server.
+     * Connect to a TCP server or Unix socket.
      *
-     * Bun: Bun.connect()
+     * Bun: Bun.connect({ hostname, port }) or Bun.connect({ unix: path })
      *
-     * @param host - Hostname or IP
-     * @param port - Port number
+     * @param host - Hostname/IP for TCP, or socket path for Unix
+     * @param port - Port number for TCP, or 0 for Unix sockets
      * @param opts - Connection options
      * @returns Connected socket
      */
@@ -254,41 +254,50 @@ export class BunNetworkDevice implements NetworkDevice {
             let closed = false;
             let socketRef: ReturnType<typeof Bun.connect> extends Promise<infer T> ? T : never;
 
-            const socket = Bun.connect({
-                hostname: host,
-                port,
-                tls: opts?.tls,
-
-                socket: {
-                    open(socket) {
-                        socketRef = socket as any;
-                        resolve(new BunSocket(socket as any, dataQueue, () => dataResolve, (r) => { dataResolve = r; }, () => closed, (c) => { closed = c; }));
-                    },
-                    data(socket, data) {
-                        const bytes = new Uint8Array(data);
-                        if (dataResolve) {
-                            dataResolve(bytes);
-                            dataResolve = null;
-                        } else {
-                            dataQueue.push(bytes);
-                        }
-                    },
-                    close() {
-                        closed = true;
-                        if (dataResolve) {
-                            dataResolve(new Uint8Array(0));
-                            dataResolve = null;
-                        }
-                    },
-                    error(socket, error) {
-                        closed = true;
-                        reject(error);
-                    },
-                    connectError(socket, error) {
-                        reject(error);
-                    },
+            const socketHandlers = {
+                open(socket: any) {
+                    socketRef = socket;
+                    resolve(new BunSocket(socket, dataQueue, () => dataResolve, (r) => { dataResolve = r; }, () => closed, (c) => { closed = c; }));
                 },
-            });
+                data(_socket: any, data: any) {
+                    const bytes = new Uint8Array(data);
+                    if (dataResolve) {
+                        dataResolve(bytes);
+                        dataResolve = null;
+                    } else {
+                        dataQueue.push(bytes);
+                    }
+                },
+                close() {
+                    closed = true;
+                    if (dataResolve) {
+                        dataResolve(new Uint8Array(0));
+                        dataResolve = null;
+                    }
+                },
+                error(_socket: any, error: Error) {
+                    closed = true;
+                    reject(error);
+                },
+                connectError(_socket: any, error: Error) {
+                    reject(error);
+                },
+            };
+
+            // Unix socket if port is 0, TCP otherwise
+            if (port === 0) {
+                Bun.connect({
+                    unix: host,
+                    socket: socketHandlers,
+                });
+            } else {
+                Bun.connect({
+                    hostname: host,
+                    port,
+                    tls: opts?.tls,
+                    socket: socketHandlers,
+                });
+            }
 
             if (opts?.timeout) {
                 setTimeout(() => {

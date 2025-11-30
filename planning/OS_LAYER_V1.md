@@ -356,7 +356,7 @@ async function ircd(kernel: Kernel) {
 - Grant-based ACL system
 
 ### Phase 3: Kernel Network (Partial ✅)
-- ✅ Implement `connect()` syscall → FileHandle
+- ✅ Implement `connect()` syscall → FileHandle (TCP and Unix sockets)
 - ✅ Implement `port()` syscall → Port
 - ✅ Port type: `tcp:listen` (accept connections)
 - ✅ Port type: `watch` (VFS file system events)

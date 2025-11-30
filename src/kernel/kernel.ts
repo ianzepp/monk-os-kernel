@@ -653,7 +653,10 @@ export class Kernel {
     }
 
     /**
-     * Connect TCP and allocate fd.
+     * Connect TCP or Unix socket and allocate fd.
+     *
+     * For TCP: host is hostname/IP, port is port number
+     * For Unix: host is socket path, port is 0
      */
     private async connectTcp(proc: Process, host: string, port: number): Promise<number> {
         if (proc.fds.size >= MAX_FDS) {
@@ -664,8 +667,10 @@ export class Kernel {
 
         // Create resource wrapper
         const resourceId = this.hal.entropy.uuid();
-        const stat = socket.stat();
-        const description = `tcp:${stat.remoteAddr}:${stat.remotePort}`;
+        const isUnix = port === 0;
+        const description = isUnix
+            ? `unix:${host}`
+            : `tcp:${socket.stat().remoteAddr}:${socket.stat().remotePort}`;
         const resource = new SocketResource(resourceId, socket, description);
         this.resources.set(resourceId, resource);
 
