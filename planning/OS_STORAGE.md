@@ -568,6 +568,100 @@ data:{uuid}       → raw bytes                         // read() data
 
 This keeps `stat()` lean and allows access queries without loading entity data.
 
+## Storage Quotas
+
+### Philosophy
+
+Quotas are a property of mount points, not arbitrary folders. Each mount has its own quota based on its backing store.
+
+**Key principles:**
+- Only mount points have quotas
+- No inheritance or parent walking - find mount, check quota
+- Hard limits only (EDQUOT on exceed)
+- Soft limits are application concern
+
+### Mount Quota Structure
+
+```typescript
+interface MountQuota {
+    /** Maximum bytes allowed (null = unlimited) */
+    bytes_limit: number | null;
+
+    /** Current bytes used */
+    bytes_used: number;
+}
+```
+
+### Example Mount Table
+
+```
+/                     → RootMount, 100MB quota
+/home/bob             → LocalMount to /dev/sda1, 2TB quota
+/home/bob/docs        → (no mount, inherits /home/bob)
+/tmp                  → MemoryMount, 512MB quota
+/dev                  → DeviceMount, no quota (virtual)
+/proc                 → ProcMount, no quota (virtual)
+```
+
+### Write Flow
+
+```
+write('/home/bob/docs/file.txt', data)
+    │
+    ▼
+VFS finds mount for path → /home/bob
+    │
+    ▼
+Check: mount.quota.bytes_used + data.length <= bytes_limit?
+    │
+    ├─ Yes → proceed, update bytes_used
+    └─ No  → EDQUOT (quota exceeded)
+```
+
+### The `quota()` Syscall
+
+```typescript
+// Read quota for mount containing path
+quota(path: string): Promise<MountQuota>
+
+// Set quota on mount point (requires * on mount path)
+quota(mountPath: string, limits: { bytes_limit: number }): Promise<void>
+
+// Clear quota (unlimited)
+quota(mountPath: string, null): Promise<void>
+```
+
+**Examples:**
+
+```typescript
+// Check quota for a path
+const q = await vfs.quota('/home/bob/docs/file.txt');
+// Returns quota for /home/bob mount
+// { bytes_limit: 2000000000000, bytes_used: 45000000 }
+
+// Set quota on mount point
+await vfs.quota('/home/bob', { bytes_limit: 1_000_000_000_000 });
+
+// Remove quota (unlimited)
+await vfs.quota('/tmp', null);
+```
+
+### Who Can Modify Quotas?
+
+| Operation | Required Permission |
+|-----------|---------------------|
+| `quota(path)` (read) | `stat` op on mount |
+| `quota(path, limits)` (set) | `*` op on mount |
+| `quota(path, null)` (clear) | `*` op on mount |
+
+### Storage Keys
+
+```
+mount:{path}    → { path, model, device, quota: { bytes_limit, bytes_used } }
+```
+
+Quota is stored as part of mount metadata, not separately.
+
 ## Relationship to HAL
 
 The Model layer sits between VFS and HAL:
@@ -592,9 +686,7 @@ Models use HAL devices but don't expose them directly:
 
 ## Open Questions
 
-1. **Quotas**: Storage quotas at model level or VFS level?
-
-2. **Caching**: Should models cache stat() results? Invalidation strategy?
+1. **Caching**: Should models cache stat() results? Invalidation strategy?
 
 ## Resolved Questions
 
@@ -603,3 +695,5 @@ Models use HAL devices but don't expose them directly:
 2. **Directories**: `folder` is a separate model from `file`. Folders have no `data` field. Children are derived via query (`WHERE parent = folder_uuid`), not stored on the folder.
 
 3. **Permissions**: Grant-based ACLs, separate from stat(). See "Access Control" section.
+
+4. **Quotas**: Mount-level quotas only. See "Storage Quotas" section.
