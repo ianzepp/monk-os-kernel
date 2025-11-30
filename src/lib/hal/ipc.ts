@@ -17,19 +17,30 @@
  */
 
 /**
+ * Mutex lock options
+ */
+export interface MutexLockOpts {
+    /** Lock timeout in milliseconds. If exceeded, throws ETIMEDOUT. */
+    timeout?: number;
+}
+
+/**
  * Mutex interface for mutual exclusion
  */
 export interface Mutex {
     /**
      * Acquire lock.
-     * Blocks until lock is available.
+     * Blocks until lock is available or timeout.
      *
      * Bun: Atomics.wait() + Atomics.compareExchange()
      *
      * WARNING: Blocks the event loop in main thread.
      * Only use in Workers.
+     *
+     * @param opts - Lock options (timeout)
+     * @throws ETIMEDOUT if timeout exceeded
      */
-    lock(): void;
+    lock(opts?: MutexLockOpts): void;
 
     /**
      * Try to acquire lock without blocking.
@@ -229,7 +240,9 @@ class AtomicMutex implements Mutex {
         Atomics.store(this.view, this.index, 0);
     }
 
-    lock(): void {
+    lock(opts?: MutexLockOpts): void {
+        const startTime = opts?.timeout ? Date.now() : 0;
+
         // Spin-wait with exponential backoff, then block
         let spins = 0;
         while (true) {
@@ -238,16 +251,33 @@ class AtomicMutex implements Mutex {
                 return; // Got the lock
             }
 
+            // Check timeout
+            if (opts?.timeout) {
+                const elapsed = Date.now() - startTime;
+                if (elapsed >= opts.timeout) {
+                    throw new Error('ETIMEDOUT: Lock timeout');
+                }
+            }
+
             // Spin briefly before blocking
             if (spins < 10) {
                 spins++;
                 continue;
             }
 
-            // Block until notified
+            // Block until notified (with timeout if specified)
             try {
-                Atomics.wait(this.view, this.index, 1);
+                const waitTimeout = opts?.timeout
+                    ? Math.max(1, opts.timeout - (Date.now() - startTime))
+                    : undefined;
+                const result = Atomics.wait(this.view, this.index, 1, waitTimeout);
+                if (result === 'timed-out') {
+                    throw new Error('ETIMEDOUT: Lock timeout');
+                }
             } catch (e) {
+                if (e instanceof Error && e.message.startsWith('ETIMEDOUT')) {
+                    throw e;
+                }
                 // Atomics.wait() throws in main thread
                 throw new Error(
                     'Mutex.lock() cannot block on main thread. ' +
@@ -446,7 +476,7 @@ export class MockIPCDevice implements IPCDevice {
 class MockMutex implements Mutex {
     private _locked = false;
 
-    lock(): void {
+    lock(_opts?: MutexLockOpts): void {
         if (this._locked) {
             throw new Error('MockMutex: would block (already locked)');
         }

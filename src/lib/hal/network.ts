@@ -61,6 +61,14 @@ export interface SocketStat {
 }
 
 /**
+ * Socket read options
+ */
+export interface SocketReadOpts {
+    /** Read timeout in milliseconds. If exceeded, throws ETIMEDOUT. */
+    timeout?: number;
+}
+
+/**
  * Socket interface for connected TCP connections.
  *
  * Provides a read()-based interface over Bun's event-driven sockets.
@@ -75,13 +83,15 @@ export interface SocketStat {
 export interface Socket extends AsyncDisposable {
     /**
      * Read available data.
-     * Blocks until data arrives or connection closes.
+     * Blocks until data arrives, connection closes, or timeout.
      *
      * Bun: Data is buffered from socket 'data' events
      *
+     * @param opts - Read options (timeout)
      * @returns Data bytes, or empty array if connection closed
+     * @throws ETIMEDOUT if timeout exceeded
      */
-    read(): Promise<Uint8Array>;
+    read(opts?: SocketReadOpts): Promise<Uint8Array>;
 
     /**
      * Write data to socket.
@@ -108,6 +118,14 @@ export interface Socket extends AsyncDisposable {
 }
 
 /**
+ * Listener accept options
+ */
+export interface ListenerAcceptOpts {
+    /** Accept timeout in milliseconds. If exceeded, throws ETIMEDOUT. */
+    timeout?: number;
+}
+
+/**
  * Listener interface for TCP servers.
  *
  * Implements AsyncDisposable for use with `await using`:
@@ -120,11 +138,14 @@ export interface Socket extends AsyncDisposable {
 export interface Listener extends AsyncDisposable {
     /**
      * Accept next incoming connection.
-     * Blocks until a connection arrives.
+     * Blocks until a connection arrives or timeout.
      *
      * Bun: Connections buffered from 'open' events
+     *
+     * @param opts - Accept options (timeout)
+     * @throws ETIMEDOUT if timeout exceeded
      */
-    accept(): Promise<Socket>;
+    accept(opts?: ListenerAcceptOpts): Promise<Socket>;
 
     /**
      * Stop listening and close all connections.
@@ -385,7 +406,7 @@ class BunListener implements Listener {
         });
     }
 
-    async accept(): Promise<Socket> {
+    async accept(opts?: ListenerAcceptOpts): Promise<Socket> {
         if (this.closed) {
             throw new Error('Listener closed');
         }
@@ -394,8 +415,20 @@ class BunListener implements Listener {
             return this.connectionQueue.shift()!;
         }
 
-        return new Promise((resolve) => {
-            this.connectionResolve = resolve;
+        return new Promise((resolve, reject) => {
+            let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+            if (opts?.timeout) {
+                timeoutId = setTimeout(() => {
+                    this.connectionResolve = null;
+                    reject(new Error('ETIMEDOUT: Accept timeout'));
+                }, opts.timeout);
+            }
+
+            this.connectionResolve = (socket) => {
+                if (timeoutId) clearTimeout(timeoutId);
+                resolve(socket);
+            };
         });
     }
 
@@ -432,7 +465,7 @@ class BunSocket implements Socket {
         private setClosed: (c: boolean) => void
     ) {}
 
-    async read(): Promise<Uint8Array> {
+    async read(opts?: SocketReadOpts): Promise<Uint8Array> {
         if (this.dataQueue.length > 0) {
             return this.dataQueue.shift()!;
         }
@@ -441,8 +474,20 @@ class BunSocket implements Socket {
             return new Uint8Array(0);
         }
 
-        return new Promise((resolve) => {
-            this.setDataResolve(resolve);
+        return new Promise((resolve, reject) => {
+            let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+            if (opts?.timeout) {
+                timeoutId = setTimeout(() => {
+                    this.setDataResolve(null);
+                    reject(new Error('ETIMEDOUT: Read timeout'));
+                }, opts.timeout);
+            }
+
+            this.setDataResolve((data) => {
+                if (timeoutId) clearTimeout(timeoutId);
+                resolve(data);
+            });
         });
     }
 

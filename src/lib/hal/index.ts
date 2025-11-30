@@ -65,7 +65,9 @@ export type { StorageEngine, StorageStat, Transaction, WatchEvent } from './stor
 export type {
     NetworkDevice,
     Listener,
+    ListenerAcceptOpts,
     Socket,
+    SocketReadOpts,
     SocketStat,
     HttpServer,
     HttpHandler,
@@ -80,7 +82,7 @@ export type { CryptoDevice, HashAlg, CipherAlg, KeyAlg, KdfAlg } from './crypto.
 export type { ConsoleDevice } from './console.js';
 export type { DNSDevice } from './dns.js';
 export type { HostDevice, HostProcess, HostSpawnOpts, HostStat } from './host.js';
-export type { IPCDevice, Mutex, Semaphore, CondVar } from './ipc.js';
+export type { IPCDevice, Mutex, MutexLockOpts, Semaphore, CondVar } from './ipc.js';
 
 // Bun implementations
 export { BunBlockDevice, MemoryBlockDevice } from './block.js';
@@ -113,6 +115,17 @@ export interface HAL {
     readonly dns: import('./dns.js').DNSDevice;
     readonly host: import('./host.js').HostDevice;
     readonly ipc: import('./ipc.js').IPCDevice;
+
+    /**
+     * Gracefully shut down all devices.
+     *
+     * Closes storage connections, network listeners, cancels timers,
+     * and releases any held resources. Should be called before process
+     * exit to ensure clean shutdown.
+     *
+     * After shutdown(), the HAL instance should not be used.
+     */
+    shutdown(): Promise<void>;
 }
 
 /**
@@ -178,11 +191,13 @@ export async function createBunHAL(config?: HALConfig): Promise<HAL> {
             storage = new MemoryStorageEngine();
     }
 
+    const timer = new BunTimerDevice();
+
     return {
         block,
         storage,
         network: new BunNetworkDevice(),
-        timer: new BunTimerDevice(),
+        timer,
         clock: new BunClockDevice(),
         entropy: new BunEntropyDevice(),
         crypto: new BunCryptoDevice(),
@@ -190,5 +205,17 @@ export async function createBunHAL(config?: HALConfig): Promise<HAL> {
         dns: new BunDNSDevice(),
         host: new BunHostDevice(),
         ipc: new BunIPCDevice(),
+
+        async shutdown(): Promise<void> {
+            // Cancel all pending timers
+            timer.cancelAll();
+
+            // Close storage engine (database connections)
+            await storage.close();
+
+            // Note: Network listeners/sockets are closed via their own
+            // dispose methods. The HAL doesn't track active connections.
+            // Kernel is responsible for tracking and closing them.
+        },
     };
 }

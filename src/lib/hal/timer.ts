@@ -77,6 +77,12 @@ export interface TimerDevice {
      * Bun: clearTimeout() or clearInterval()
      */
     cancel(handle: TimerHandle): void;
+
+    /**
+     * Cancel all active timers.
+     * Called during shutdown to release timer resources.
+     */
+    cancelAll(): void;
 }
 
 /**
@@ -149,6 +155,15 @@ export class BunTimerDevice implements TimerDevice {
             clearTimeout(timer);
         }
         this.timers.delete(handle.id);
+    }
+
+    cancelAll(): void {
+        for (const [id, timer] of this.timers) {
+            // Check by examining the timer - intervals are tracked separately
+            clearTimeout(timer as ReturnType<typeof setTimeout>);
+            clearInterval(timer as ReturnType<typeof setInterval>);
+        }
+        this.timers.clear();
     }
 }
 
@@ -292,5 +307,14 @@ export class MockTimerDevice implements TimerDevice {
 
     cancel(handle: TimerHandle): void {
         this.pendingTimers = this.pendingTimers.filter((t) => t.id !== handle.id);
+    }
+
+    cancelAll(): void {
+        this.pendingTimers = [];
+        // Reject all pending sleepers
+        for (const sleeper of this.sleepResolvers) {
+            sleeper.reject(new DOMException('Cancelled', 'AbortError'));
+        }
+        this.sleepResolvers = [];
     }
 }

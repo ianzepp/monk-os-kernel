@@ -15,6 +15,20 @@
  * - Web Crypto API is async; Bun.hash() is sync
  * - Key import/export requires specific formats (raw, pkcs8, spki, jwk)
  * - AES-GCM includes auth tag in ciphertext; AES-CBC does not
+ *
+ * CryptoKey Lifetime and Export:
+ * - CryptoKey objects are opaque handles to key material
+ * - Keys exist only in memory; no automatic persistence
+ * - Keys are NOT serializable via JSON.stringify()
+ * - To persist keys, use crypto.subtle.exportKey():
+ *   - 'raw': Export as Uint8Array (symmetric keys only)
+ *   - 'jwk': Export as JSON Web Key (all key types)
+ *   - 'pkcs8': Export private keys in PKCS#8 format
+ *   - 'spki': Export public keys in SubjectPublicKeyInfo format
+ * - Keys generated with extractable=false cannot be exported
+ * - genkey() creates keys with extractable=true for flexibility
+ * - To reimport: use crypto.subtle.importKey() with same format
+ * - Keys do not survive process restart; must export before shutdown
  */
 
 /**
@@ -98,8 +112,15 @@ export interface CryptoDevice {
      *
      * Bun: crypto.subtle.generateKey()
      *
+     * Lifetime: Keys exist only in memory. To persist:
+     * ```typescript
+     * const key = await crypto.genkey('aes-256');
+     * const raw = await crypto.subtle.exportKey('raw', key);
+     * // Store raw bytes, reimport with importKey()
+     * ```
+     *
      * @param alg - Key algorithm
-     * @returns Generated key
+     * @returns Generated key (extractable=true)
      */
     genkey(alg: KeyAlg): Promise<CryptoKey>;
 
