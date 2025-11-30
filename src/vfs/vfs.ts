@@ -15,6 +15,7 @@ import type { ACL } from '@src/vfs/acl.js';
 import { checkAccess, defaultACL, encodeACL, decodeACL } from '@src/vfs/acl.js';
 import { FileModel } from '@src/vfs/models/file.js';
 import { FolderModel } from '@src/vfs/models/folder.js';
+import { DeviceModel, initStandardDevices } from '@src/vfs/models/device.js';
 import { ENOENT, EEXIST, ENOTDIR, EACCES, EINVAL } from '@src/hal/index.js';
 
 /**
@@ -61,6 +62,7 @@ export class VFS {
         // Register built-in models
         this.registerModel(new FileModel());
         this.registerModel(new FolderModel());
+        this.registerModel(new DeviceModel());
     }
 
     /**
@@ -96,6 +98,34 @@ export class VFS {
 
         // Mount root
         this.mount('/', this.models.get('folder')!, {});
+
+        // Create /dev folder and standard devices
+        await this.initDevices();
+    }
+
+    /**
+     * Initialize /dev directory with standard devices.
+     */
+    private async initDevices(): Promise<void> {
+        const ctx = this.createContext('kernel');
+
+        // Check if /dev already exists
+        let devId = await this.resolvePath('/dev');
+        if (!devId) {
+            // Create /dev folder
+            const folderModel = this.models.get('folder')!;
+            devId = await folderModel.create(ctx, ROOT_ID, 'dev', { owner: 'kernel' });
+
+            // Set ACL to allow all to read/stat
+            const devACL: ACL = {
+                grants: [{ to: '*', ops: ['read', 'list', 'stat'] }],
+                deny: [],
+            };
+            await this.hal.storage.put(`access:${devId}`, encodeACL(devACL));
+
+            // Create standard devices
+            await initStandardDevices(ctx, devId);
+        }
     }
 
     /**

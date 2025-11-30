@@ -32,11 +32,9 @@ import { FileResource, SocketResource, ListenerPort } from '@src/kernel/resource
 import type { ProcessPortMessage } from '@src/kernel/syscalls.js';
 
 /**
- * Console device UUID for init stdio
+ * Console device path
  */
-const CONSOLE_STDIN = '00000000-0000-0000-0000-000000000001';
-const CONSOLE_STDOUT = '00000000-0000-0000-0000-000000000002';
-const CONSOLE_STDERR = '00000000-0000-0000-0000-000000000003';
+const CONSOLE_PATH = '/dev/console';
 
 /**
  * Kernel class
@@ -132,10 +130,8 @@ export class Kernel {
             nextPid: 1,
         };
 
-        // Setup stdio for init
-        init.fds.set(0, CONSOLE_STDIN);
-        init.fds.set(1, CONSOLE_STDOUT);
-        init.fds.set(2, CONSOLE_STDERR);
+        // Setup stdio for init - open /dev/console
+        await this.setupInitStdio(init);
 
         // Start init worker
         init.worker = this.spawnWorker(init, env.initPath);
@@ -428,6 +424,31 @@ export class Kernel {
 
         // Send response back to process
         proc.worker.postMessage(response);
+    }
+
+    /**
+     * Setup stdio for init process.
+     *
+     * Opens /dev/console for stdin, stdout, stderr.
+     */
+    private async setupInitStdio(init: Process): Promise<void> {
+        // Open console for stdin (read-only)
+        const stdinHandle = await this.vfs.open(CONSOLE_PATH, { read: true }, 'kernel');
+        const stdinResource = new FileResource(stdinHandle.id, stdinHandle);
+        this.resources.set(stdinResource.id, stdinResource);
+        init.fds.set(0, stdinResource.id);
+
+        // Open console for stdout (write-only)
+        const stdoutHandle = await this.vfs.open(CONSOLE_PATH, { write: true }, 'kernel');
+        const stdoutResource = new FileResource(stdoutHandle.id, stdoutHandle);
+        this.resources.set(stdoutResource.id, stdoutResource);
+        init.fds.set(1, stdoutResource.id);
+
+        // Open console for stderr (write-only)
+        const stderrHandle = await this.vfs.open(CONSOLE_PATH, { write: true }, 'kernel');
+        const stderrResource = new FileResource(stderrHandle.id, stderrHandle);
+        this.resources.set(stderrResource.id, stderrResource);
+        init.fds.set(2, stderrResource.id);
     }
 
     /**
