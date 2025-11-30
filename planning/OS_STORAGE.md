@@ -1,5 +1,29 @@
 # Monk OS Storage Architecture
 
+## Implementation Status
+
+**Core VFS: COMPLETE** (`src/lib/vfs/`)
+
+| Component | Status | Location |
+|-----------|--------|----------|
+| VFS class | ✅ Done | `vfs.ts` |
+| Model interface | ✅ Done | `model.ts` |
+| FileHandle interface | ✅ Done | `handle.ts` |
+| ACL (grant-based) | ✅ Done | `acl.ts` |
+| FileModel | ✅ Done | `models/file.ts` |
+| FolderModel | ✅ Done | `models/folder.ts` |
+| DeviceModel | ✅ Done | `models/device.ts` |
+| ProcModel | ✅ Done | `models/proc.ts` |
+| NetworkModel | ⏳ Deferred | Awaiting question #10 resolution |
+| File Versioning | ⏳ Deferred | Optional feature, implement after core stable |
+| Quota enforcement | ⏳ Deferred | Structure in place, not enforced yet |
+
+**HAL dependency: COMPLETE** (`src/lib/hal/`)
+- UUID v7 generation via `EntropyDevice.uuid()`
+- All TypeScript strictness errors resolved
+
+---
+
 ## Philosophy
 
 **Everything is a file. Everything is a database. Files are database rows.**
