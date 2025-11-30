@@ -11,7 +11,7 @@
  * Caveats:
  * - Wall clock (now()) can jump backward due to NTP, DST, or manual changes
  * - Always use monotonic() for measuring durations
- * - Bun.nanoseconds() returns BigInt, not Number
+ * - Bun.nanoseconds() returns number; we convert to bigint for the interface
  * - uptime() is calculated from first call, not actual process start
  *
  * Host leakage:
@@ -65,15 +65,16 @@ export interface ClockDevice {
  *
  * Bun touchpoints:
  * - Date.now() - wall clock in milliseconds
- * - Bun.nanoseconds() - monotonic in nanoseconds (BigInt)
+ * - Bun.nanoseconds() - monotonic in nanoseconds (returns number, not bigint)
  *
  * Caveats:
  * - Bun.nanoseconds() epoch is process start
  * - We track boot time as first instantiation
+ * - We convert to bigint to match interface (nanoseconds can exceed Number.MAX_SAFE_INTEGER)
  */
 export class BunClockDevice implements ClockDevice {
     private bootTime: number;
-    private bootMono: bigint;
+    private bootMono: number;
 
     constructor() {
         this.bootTime = Date.now();
@@ -85,13 +86,13 @@ export class BunClockDevice implements ClockDevice {
     }
 
     monotonic(): bigint {
-        return Bun.nanoseconds();
+        return BigInt(Bun.nanoseconds());
     }
 
     uptime(): number {
         // Convert nanoseconds difference to milliseconds
         const elapsed = Bun.nanoseconds() - this.bootMono;
-        return Number(elapsed / 1_000_000n);
+        return Math.floor(elapsed / 1_000_000);
     }
 }
 

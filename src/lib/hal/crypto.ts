@@ -232,7 +232,7 @@ export class BunCryptoDevice implements CryptoDevice {
         return new Uint8Array(plaintext);
     }
 
-    private getCipherAlgSpec(alg: CipherAlg, iv: Uint8Array): AesGcmParams | AesCbcParams {
+    private getCipherAlgSpec(alg: CipherAlg, iv: Uint8Array): { name: string; iv: Uint8Array } {
         switch (alg) {
             case 'aes-256-gcm':
             case 'aes-128-gcm':

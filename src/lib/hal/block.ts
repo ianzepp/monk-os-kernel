@@ -252,18 +252,18 @@ export class BunBlockDevice implements BlockDevice {
         const self = this;
         let released = false;
 
+        const release = () => {
+            if (!released) {
+                released = true;
+                self.rangeLock.release(offset, size);
+            }
+        };
+
         return {
             offset,
             size,
-            release() {
-                if (!released) {
-                    released = true;
-                    self.rangeLock.release(offset, size);
-                }
-            },
-            [Symbol.dispose]() {
-                this.release();
-            },
+            release,
+            [Symbol.dispose]: release,
         };
     }
 }
@@ -347,18 +347,18 @@ export class MemoryBlockDevice implements BlockDevice {
         const self = this;
         let released = false;
 
+        const release = () => {
+            if (!released) {
+                released = true;
+                self.rangeLock.release(offset, size);
+            }
+        };
+
         return {
             offset,
             size,
-            release() {
-                if (!released) {
-                    released = true;
-                    self.rangeLock.release(offset, size);
-                }
-            },
-            [Symbol.dispose]() {
-                this.release();
-            },
+            release,
+            [Symbol.dispose]: release,
         };
     }
 }

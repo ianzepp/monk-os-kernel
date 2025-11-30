@@ -313,8 +313,8 @@ export class BunNetworkDevice implements NetworkDevice {
             },
             addr() {
                 return {
-                    hostname: server.hostname,
-                    port: server.port,
+                    hostname: server.hostname ?? '0.0.0.0',
+                    port: server.port ?? 0,
                 };
             },
         };
@@ -325,7 +325,8 @@ export class BunNetworkDevice implements NetworkDevice {
  * Bun TCP listener wrapper
  */
 class BunListener implements Listener {
-    private server: ReturnType<typeof Bun.listen> | null = null;
+    // Use 'any' to avoid Bun.listen's complex union type between TCP/Unix listeners
+    private server: any = null;
     private connectionQueue: Socket[] = [];
     private connectionResolve: ((socket: Socket) => void) | null = null;
     private closed = false;

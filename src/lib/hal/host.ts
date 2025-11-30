@@ -198,15 +198,15 @@ export class BunHostDevice implements HostDevice {
             },
 
             get stdin() {
-                return proc.stdin as WritableStream<Uint8Array> | null;
+                return (proc.stdin as unknown) as WritableStream<Uint8Array> | null;
             },
 
             get stdout() {
-                return proc.stdout as ReadableStream<Uint8Array> | null;
+                return (proc.stdout as unknown) as ReadableStream<Uint8Array> | null;
             },
 
             get stderr() {
-                return proc.stderr as ReadableStream<Uint8Array> | null;
+                return (proc.stderr as unknown) as ReadableStream<Uint8Array> | null;
             },
 
             async wait() {

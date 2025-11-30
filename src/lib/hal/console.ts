@@ -86,7 +86,8 @@ export interface ConsoleDevice {
  * - For line reading, we buffer until newline
  */
 export class BunConsoleDevice implements ConsoleDevice {
-    private stdinReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+    // Use 'any' to avoid Bun's stream reader type complexity
+    private stdinReader: any = null;
     private stdinBuffer: Uint8Array = new Uint8Array(0);
 
     async read(): Promise<Uint8Array> {
@@ -96,10 +97,10 @@ export class BunConsoleDevice implements ConsoleDevice {
         }
 
         const { value, done } = await this.stdinReader.read();
-        if (done) {
+        if (done || !value) {
             return new Uint8Array(0);
         }
-        return value;
+        return new Uint8Array(value);
     }
 
     async readline(): Promise<string | null> {
