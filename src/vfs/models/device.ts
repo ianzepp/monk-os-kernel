@@ -143,6 +143,7 @@ class DeviceHandle implements FileHandle {
     private ctx: ModelContext;
     private entityId: string;
     private device: DeviceType;
+    private consoleBuffer: Uint8Array = new Uint8Array(0);
 
     constructor(ctx: ModelContext, entityId: string, device: DeviceType, flags: OpenFlags) {
         this.id = ctx.hal.entropy.uuid();
@@ -180,9 +181,21 @@ class DeviceHandle implements FileHandle {
                 // Returns random bytes
                 return this.ctx.hal.entropy.read(Math.min(readSize, 65536));
 
-            case 'console':
-                // Read from stdin
-                return this.ctx.hal.console.read();
+            case 'console': {
+                // Read from stdin with buffering to respect size
+                // First check buffer, then read more if needed
+                if (this.consoleBuffer.length === 0) {
+                    const chunk = await this.ctx.hal.console.read();
+                    if (chunk.length === 0) {
+                        return new Uint8Array(0); // EOF
+                    }
+                    this.consoleBuffer = chunk;
+                }
+                // Return requested size from buffer
+                const toReturn = this.consoleBuffer.slice(0, readSize);
+                this.consoleBuffer = this.consoleBuffer.slice(toReturn.length);
+                return toReturn;
+            }
 
             case 'clock':
                 // Returns current timestamp as string
