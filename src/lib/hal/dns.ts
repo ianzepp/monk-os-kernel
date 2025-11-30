@@ -13,6 +13,12 @@
  * - IPv4 and IPv6 results may be returned together
  * - Reverse DNS often fails or returns generic PTR records
  * - No direct control over DNS servers used (system resolver)
+ *
+ * Host leakage:
+ * - Uses host DNS resolver configuration (/etc/resolv.conf or equivalent).
+ * - Monk processes see host's DNS view: corporate DNS, split-horizon,
+ *   VPN settings, and local overrides (/etc/hosts) all leak through.
+ * - DNS cache is shared with host; cached entries from host processes visible.
  */
 
 /**

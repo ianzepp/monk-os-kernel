@@ -13,6 +13,11 @@
  * - Always use monotonic() for measuring durations
  * - Bun.nanoseconds() returns BigInt, not Number
  * - uptime() is calculated from first call, not actual process start
+ *
+ * Host leakage:
+ * - now() reflects host system time, including NTP adjustments and
+ *   manual clock changes. Monk processes see the same time as host.
+ * - monotonic() is relative to process start, no meaningful leakage.
  */
 
 /**

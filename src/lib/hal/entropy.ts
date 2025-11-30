@@ -12,6 +12,10 @@
  * - On Linux, uses /dev/urandom (non-blocking) not /dev/random
  * - Maximum single request is 65536 bytes (browser spec limit)
  * - UUIDs are v4 (random), not v1 (time-based) or v7 (sortable)
+ *
+ * Host leakage:
+ * - Uses host OS entropy pool. Quality depends on host entropy sources.
+ * - In practice, modern OS entropy is high quality and this is not a concern.
  */
 
 /**
