@@ -244,7 +244,7 @@ Standard file storage backed by StorageEngine.
 - Metadata + content updates are atomic
 - Concurrent writes serialize via storage transactions
 
-**Content sharing:** Two files with same `data` UUID share the same blob (deduplication).
+**No deduplication:** Each file owns its blob. `unlink()` deletes both entity and data.
 
 ### NetworkModel
 
@@ -301,19 +301,19 @@ Process information (read-only virtual files).
 
 | Field | Type | Description |
 |-------|------|-------------|
-| pid | number | Process ID |
-| ppid | number | Parent process ID |
+| id | string | Process UUID |
+| parent | string | Parent process UUID |
 | state | string | Process state |
 | cmd | string | Command line |
 | cwd | string | Working directory |
 
-**Path format:** `/proc/{pid}/...`
+**Path format:** `/proc/{uuid}/...`
 
 | Path | Content |
 |------|---------|
-| `/proc/{pid}/status` | Process status as text |
-| `/proc/{pid}/fd` | Directory of open file descriptors |
-| `/proc/{pid}/env` | Environment variables |
+| `/proc/{uuid}/status` | Process status as text |
+| `/proc/{uuid}/fd` | Directory of open file descriptors |
+| `/proc/{uuid}/env` | Environment variables |
 
 **Backing store:** Kernel process table (in-memory)
 
@@ -692,29 +692,8 @@ Models use HAL devices but don't expose them directly:
 
 ## Open Questions
 
-### 3. Parent folder existence
-When creating `/home/bob/docs/file.txt`, who ensures `/home/bob/docs` exists? VFS or caller? ENOENT semantics?
-
-### 4. Orphan blob cleanup
-If entity deleted but `data:{uuid}` blob remains, who garbage collects? Reference counting on blobs?
-
-### 5. Access check on parent traversal
-To open `/home/bob/docs/file.txt`, do I need `list` permission on `/home`, `/home/bob`, `/home/bob/docs`? Or just on the file itself?
-
-### 6. FileHandle revocation
-If access revoked while handle open, does handle keep working (capability model) or fail on next I/O?
-
-### 7. watch() semantics
-What events? Just this path or subtree? What about renames that move files in/out?
-
-### 8. Quota accounting on delete
-When file deleted, `bytes_used` must decrement. When blob shared between files, who owns the bytes?
-
-### 9. ProcModel pid field
-Lists `pid` as number, but everything is UUID. Inconsistency - should this be the process UUID displayed differently?
-
-### 10. Network model - no listen()
-Can only `connect()`. How does a server `open('/dev/tcp/0.0.0.0:8080')` to listen? Different path format? Different model?
+### 10. Network model - listen() semantics
+How does a server listen? Options: separate path (`/dev/tcp/listen/8080`), separate syscall, or listener as file where `read()` returns connections. TBD.
 
 ## Resolved Questions
 
@@ -729,3 +708,17 @@ Can only `connect()`. How does a server `open('/dev/tcp/0.0.0.0:8080')` to liste
 5. **Caching**: No caching for now. Every call hits StorageEngine. Profile first, optimize later.
 
 6. **Rename/move atomicity + Path uniqueness**: No `path` field on entity. Store `name` + `parent` instead. Path computed by walking parent chain. Uniqueness enforced by `(parent, name)` constraint. Future optimization: cache parent relationships (not full paths).
+
+7. **Parent folder existence**: VFS enforces. Create fails with ENOENT if parent folder doesn't exist. Caller must create parents first (like UNIX).
+
+8. **Orphan blob cleanup**: No deduplication. Each file owns its blob. `unlink()` deletes both `entity:{uuid}` and `data:{uuid}`. No orphans, no GC needed.
+
+9. **Access check on parent traversal**: Check only the target, not parents. If you have permission on `/home/bob/docs/public/file.txt`, you can access it even without permission on `/home/bob/docs`. Path is navigation, not security boundary.
+
+10. **FileHandle revocation**: Handles can be forcibly revoked. `revoke()` invalidates the handle immediately. Next I/O on revoked handle fails with EBADF. No negotiation - like process kill.
+
+11. **watch() semantics**: Minimal event on any entity mutation. `WatchEvent { entity: uuid, op: 'create'|'update'|'delete', fields: string[] }`. Application-level (emitted from StorageEngine on put/delete), not database-level. Cross-process only works with PostgreSQL LISTEN/NOTIFY. Refine granularity later based on need.
+
+12. **Quota accounting on delete**: VFS handles quota accounting on unlink. Decrement `bytes_used` by file's size, then delete entity + data. No shared blobs, so no ownership ambiguity.
+
+13. **ProcModel pid field**: No pid. Process identity is UUID. Path is `/proc/{uuid}/...`. Consistent with everything else.
