@@ -355,24 +355,29 @@ async function ircd(kernel: Kernel) {
 - FileModel, FolderModel, DeviceModel, ProcModel
 - Grant-based ACL system
 
-### Phase 3: Kernel Network (Partial ✅)
+### Phase 3: Kernel Network ✅
 - ✅ Implement `connect()` syscall → FileHandle (TCP and Unix sockets)
 - ✅ Implement `port()` syscall → Port
-- ✅ Port type: `tcp:listen` (accept connections)
-- ✅ Port type: `watch` (VFS file system events)
-- ✅ Port type: `udp` (datagram send/receive)
-- ⏳ Port type: `pubsub` (cross-process messaging)
+- ✅ Port type: `tcp:listen` (accept connections) - `ListenerPort`
+- ✅ Port type: `udp` (datagram send/receive) - `UdpPort`
+- ✅ Port type: `watch` (VFS file system events) - `WatchPort`
+- ✅ Port type: `pubsub` (cross-process messaging) - `PubsubPort`
 - See [OS_NETWORK.md](./OS_NETWORK.md)
 
-### Phase 4: Syscall Layer
-- Define complete syscall interface
-- Implement for in-process calls
-- Implement for Worker message passing
+### Phase 4: Syscall Layer ✅
+- ✅ Define complete syscall interface (`src/process/index.ts`)
+- ✅ Implement for Worker message passing (`src/process/syscall.ts`)
+- ✅ Error reconstruction from wire format (`src/process/errors.ts`)
+- ✅ Signal handling (SIGTERM/SIGKILL)
+- ⏳ In-process direct calls (not yet needed - Worker mode covers current use cases)
 
-### Phase 5: Server Migration
-- Refactor httpd to use `port('tcp:listen')`
-- Refactor telnetd to use `port('tcp:listen')`
-- Migrate ircd from monk-irc
+### Phase 5: Server Migration ✅
+- ✅ Socket-activated services (`/etc/services/*.json`)
+- ✅ Handler registry for bundled executables
+- ✅ Spawn-on-event for tcp:listen, udp, pubsub, watch, boot
+- ✅ telnetd using socket activation (`bun run boot` → `nc localhost 2323`)
+- ⏳ httpd migration
+- ⏳ ircd migration from monk-irc
 
 ### Phase 6: Message-Driven Features
 - Real-time updates via watch Ports

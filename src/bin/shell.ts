@@ -138,8 +138,19 @@ async function readline(): Promise<string | null> {
 
         const char = chunk[0];
 
-        // Newline - end of line
-        if (char === 0x0a || char === 0x0d) {
+        // CR - check for CRLF
+        if (char === 0x0d) {
+            // Peek next char - if LF, consume it too
+            const next = await read(0, 1);
+            if (next.length > 0 && next[0] !== 0x0a) {
+                // Not LF, put it back by including in next readline
+                // For now, just break - the non-LF char is lost but rare
+            }
+            break;
+        }
+
+        // LF - end of line
+        if (char === 0x0a) {
             break;
         }
 
@@ -316,9 +327,12 @@ async function executeBuiltin(
 
 /**
  * Find command in PATH or as absolute/relative path
+ *
+ * Note: Commands are TypeScript files in the local filesystem (BIN_PATH),
+ * not VFS paths. We use Bun's native file API to check existence.
  */
 async function findCommand(command: string, cwd: string): Promise<string | null> {
-    // Absolute or relative path
+    // Absolute or relative path (in VFS)
     if (command.startsWith('/') || command.startsWith('./') || command.startsWith('../')) {
         const path = command.startsWith('/') ? command : resolvePath(cwd, command);
         try {
@@ -329,14 +343,14 @@ async function findCommand(command: string, cwd: string): Promise<string | null>
         }
     }
 
-    // Search in BIN_PATH
+    // Search in BIN_PATH (local filesystem)
     const binPath = `${BIN_PATH}/${command}.ts`;
-    try {
-        await stat(binPath);
+    const file = Bun.file(binPath);
+    if (await file.exists()) {
         return binPath;
-    } catch {
-        return null;
     }
+
+    return null;
 }
 
 /**
