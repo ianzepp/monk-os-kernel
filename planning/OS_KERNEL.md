@@ -4,11 +4,14 @@
 
 | Component | Status | Location |
 |-----------|--------|----------|
-| Kernel interface | ⏳ Pending | - |
-| Process table | ⏳ Pending | - |
-| Syscall dispatch | ⏳ Pending | - |
+| Kernel class | ✅ Done | `src/kernel/kernel.ts` |
+| Process table | ✅ Done | `src/kernel/process-table.ts` |
+| Syscall dispatch | ✅ Done | `src/kernel/syscalls.ts` |
+| Types & errors | ✅ Done | `src/kernel/types.ts`, `errors.ts` |
 | Scheduler | ⏳ Pending | - |
-| Init process | ⏳ Pending | - |
+| Init process | ⏳ Pending | Requires Worker entry point |
+| Network syscalls | ⏳ Pending | - |
+| Port syscalls | ⏳ Pending | - |
 
 ---
 

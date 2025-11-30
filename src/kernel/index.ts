@@ -1,0 +1,55 @@
+/**
+ * Kernel Module
+ *
+ * Monk OS kernel - process management, syscall dispatch, and coordination.
+ */
+
+// Core kernel
+export { Kernel } from '@src/kernel/kernel.js';
+
+// Process management
+export { ProcessTable } from '@src/kernel/process-table.js';
+
+// Syscall dispatch
+export {
+    SyscallDispatcher,
+    createFileSyscalls,
+    createMiscSyscalls,
+} from '@src/kernel/syscalls.js';
+export type { SyscallHandler, SyscallRegistry } from '@src/kernel/syscalls.js';
+
+// Types
+export type {
+    Process,
+    ProcessState,
+    SpawnOpts,
+    ExitStatus,
+    SyscallRequest,
+    SyscallResponse,
+    SignalMessage,
+    KernelMessage,
+    Stat,
+    OpenFlags,
+    SeekWhence,
+    PortType,
+    PortOpts,
+    PortMessage,
+    BootEnv,
+} from '@src/kernel/types.js';
+
+export {
+    SIGTERM,
+    SIGKILL,
+    TERM_GRACE_MS,
+} from '@src/kernel/types.js';
+
+// Errors
+export {
+    ENOSYS,
+    ECHILD,
+    ESRCH,
+    ProcessExited,
+    EBADF,
+    EINVAL,
+    EPERM,
+} from '@src/kernel/errors.js';
