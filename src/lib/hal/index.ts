@@ -60,7 +60,7 @@ export {
 } from './errors.js';
 
 // Device interfaces
-export type { BlockDevice, BlockStat } from './block.js';
+export type { BlockDevice, BlockStat, BlockLock } from './block.js';
 export type { StorageEngine, StorageStat, Transaction, WatchEvent } from './storage.js';
 export type {
     NetworkDevice,

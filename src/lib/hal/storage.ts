@@ -41,9 +41,17 @@ export interface WatchEvent {
 }
 
 /**
- * Transaction handle for atomic operations
+ * Transaction handle for atomic operations.
+ *
+ * Implements AsyncDisposable for use with `await using`:
+ * ```typescript
+ * await using tx = await storage.begin();
+ * await tx.put('key', value);
+ * await tx.commit();
+ * // If exception thrown before commit, automatically rolled back
+ * ```
  */
-export interface Transaction {
+export interface Transaction extends AsyncDisposable {
     /**
      * Get value by key within transaction.
      */
@@ -366,12 +374,19 @@ export class BunStorageEngine implements StorageEngine {
  */
 class SQLiteTransaction implements Transaction {
     private committed = false;
+    private rolledBack = false;
     private events: WatchEvent[] = [];
 
     constructor(
         private db: Database,
         private engine: BunStorageEngine
     ) {}
+
+    async [Symbol.asyncDispose](): Promise<void> {
+        if (!this.committed && !this.rolledBack) {
+            await this.rollback();
+        }
+    }
 
     async get(key: string): Promise<Uint8Array | null> {
         const row = this.db.query('SELECT value FROM storage WHERE key = ?').get(key) as
@@ -406,8 +421,8 @@ class SQLiteTransaction implements Transaction {
     }
 
     async rollback(): Promise<void> {
-        if (this.committed) return;
-        this.committed = true;
+        if (this.committed || this.rolledBack) return;
+        this.rolledBack = true;
         this.engine._rollback();
         this.events = [];
     }
@@ -552,9 +567,16 @@ export class MemoryStorageEngine implements StorageEngine {
  */
 class MemoryTransaction implements Transaction {
     private committed = false;
+    private rolledBack = false;
     private operations: Array<{ type: 'put' | 'delete'; key: string; value?: Uint8Array }> = [];
 
     constructor(private engine: MemoryStorageEngine) {}
+
+    async [Symbol.asyncDispose](): Promise<void> {
+        if (!this.committed && !this.rolledBack) {
+            await this.rollback();
+        }
+    }
 
     async get(key: string): Promise<Uint8Array | null> {
         // Check pending operations first
@@ -590,8 +612,8 @@ class MemoryTransaction implements Transaction {
     }
 
     async rollback(): Promise<void> {
-        if (this.committed) return;
-        this.committed = true;
+        if (this.committed || this.rolledBack) return;
+        this.rolledBack = true;
         this.operations = [];
     }
 }

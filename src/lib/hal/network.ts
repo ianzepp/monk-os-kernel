@@ -64,8 +64,15 @@ export interface SocketStat {
  * Socket interface for connected TCP connections.
  *
  * Provides a read()-based interface over Bun's event-driven sockets.
+ *
+ * Implements AsyncDisposable for use with `await using`:
+ * ```typescript
+ * await using socket = await network.connect('localhost', 8080);
+ * await socket.write(data);
+ * // auto-closed on scope exit
+ * ```
  */
-export interface Socket {
+export interface Socket extends AsyncDisposable {
     /**
      * Read available data.
      * Blocks until data arrives or connection closes.
@@ -102,8 +109,15 @@ export interface Socket {
 
 /**
  * Listener interface for TCP servers.
+ *
+ * Implements AsyncDisposable for use with `await using`:
+ * ```typescript
+ * await using listener = await network.listen(8080);
+ * const socket = await listener.accept();
+ * // listener auto-closed on scope exit
+ * ```
  */
-export interface Listener {
+export interface Listener extends AsyncDisposable {
     /**
      * Accept next incoming connection.
      * Blocks until a connection arrives.
@@ -132,8 +146,14 @@ export type HttpHandler = (req: Request) => Response | Promise<Response>;
 
 /**
  * HTTP server interface
+ *
+ * Implements AsyncDisposable for use with `await using`:
+ * ```typescript
+ * await using server = await network.serve(8080, handler);
+ * // server auto-closed on scope exit
+ * ```
  */
-export interface HttpServer {
+export interface HttpServer extends AsyncDisposable {
     /**
      * Stop server.
      *
@@ -267,6 +287,9 @@ export class BunNetworkDevice implements NetworkDevice {
             async close() {
                 server.stop();
             },
+            async [Symbol.asyncDispose]() {
+                server.stop();
+            },
             addr() {
                 return {
                     hostname: server.hostname,
@@ -384,6 +407,10 @@ class BunListener implements Listener {
         }
     }
 
+    async [Symbol.asyncDispose](): Promise<void> {
+        await this.close();
+    }
+
     addr(): { hostname: string; port: number } {
         return {
             hostname: this.hostname,
@@ -434,6 +461,10 @@ class BunSocket implements Socket {
     async close(): Promise<void> {
         this.setClosed(true);
         this.socket.end();
+    }
+
+    async [Symbol.asyncDispose](): Promise<void> {
+        await this.close();
     }
 
     stat(): SocketStat {

@@ -28,6 +28,25 @@ export interface BlockStat {
 }
 
 /**
+ * Block range lock handle.
+ *
+ * Implements Disposable for use with `using`:
+ * ```typescript
+ * using lock = await block.writelock(0, 4096);
+ * await block.write(0, data);
+ * // auto-released on scope exit
+ * ```
+ */
+export interface BlockLock extends Disposable {
+    /** Start offset of locked range */
+    readonly offset: number;
+    /** Size of locked range in bytes */
+    readonly size: number;
+    /** Release the lock */
+    release(): void;
+}
+
+/**
  * Block device interface.
  *
  * Provides raw byte-level access to storage. All operations
@@ -73,6 +92,64 @@ export interface BlockDevice {
      * Get device metadata.
      */
     stat(): Promise<BlockStat>;
+
+    /**
+     * Acquire write lock for a byte range.
+     *
+     * Multiple readers can coexist, but writers are exclusive.
+     * Lock prevents other writers from overlapping ranges.
+     *
+     * @param offset - Start of range to lock
+     * @param size - Size of range in bytes
+     * @returns Lock handle (release when done)
+     */
+    writelock(offset: number, size: number): Promise<BlockLock>;
+}
+
+/**
+ * Simple range lock implementation.
+ * Tracks locked ranges and blocks until range is available.
+ */
+class RangeLock {
+    private locks: Array<{ offset: number; size: number; resolve: () => void }> = [];
+    private waiters: Array<{ offset: number; size: number; resolve: () => void }> = [];
+
+    private overlaps(a: { offset: number; size: number }, b: { offset: number; size: number }): boolean {
+        const aEnd = a.offset + a.size;
+        const bEnd = b.offset + b.size;
+        return a.offset < bEnd && b.offset < aEnd;
+    }
+
+    async acquire(offset: number, size: number): Promise<void> {
+        const range = { offset, size, resolve: () => {} };
+
+        // Check for conflicts
+        while (this.locks.some((lock) => this.overlaps(lock, range))) {
+            // Wait for release
+            await new Promise<void>((resolve) => {
+                range.resolve = resolve;
+                this.waiters.push(range);
+            });
+        }
+
+        this.locks.push(range);
+    }
+
+    release(offset: number, size: number): void {
+        const idx = this.locks.findIndex((l) => l.offset === offset && l.size === size);
+        if (idx !== -1) {
+            this.locks.splice(idx, 1);
+        }
+
+        // Wake waiters that might now be able to proceed
+        const toWake = this.waiters.filter(
+            (w) => !this.locks.some((lock) => this.overlaps(lock, w))
+        );
+        this.waiters = this.waiters.filter((w) => !toWake.includes(w));
+        for (const w of toWake) {
+            w.resolve();
+        }
+    }
 }
 
 /**
@@ -91,6 +168,7 @@ export interface BlockDevice {
  */
 export class BunBlockDevice implements BlockDevice {
     private path: string;
+    private rangeLock = new RangeLock();
 
     constructor(path: string) {
         this.path = path;
@@ -167,6 +245,27 @@ export class BunBlockDevice implements BlockDevice {
             readonly: false,
         };
     }
+
+    async writelock(offset: number, size: number): Promise<BlockLock> {
+        await this.rangeLock.acquire(offset, size);
+
+        const self = this;
+        let released = false;
+
+        return {
+            offset,
+            size,
+            release() {
+                if (!released) {
+                    released = true;
+                    self.rangeLock.release(offset, size);
+                }
+            },
+            [Symbol.dispose]() {
+                this.release();
+            },
+        };
+    }
 }
 
 /**
@@ -185,6 +284,7 @@ export class BunBlockDevice implements BlockDevice {
 export class MemoryBlockDevice implements BlockDevice {
     private buffer: Uint8Array;
     private readonly initialSize: number;
+    private rangeLock = new RangeLock();
 
     /**
      * @param initialSize - Initial buffer size in bytes (default 1MB)
@@ -239,5 +339,26 @@ export class MemoryBlockDevice implements BlockDevice {
      */
     reset(): void {
         this.buffer = new Uint8Array(this.initialSize);
+    }
+
+    async writelock(offset: number, size: number): Promise<BlockLock> {
+        await this.rangeLock.acquire(offset, size);
+
+        const self = this;
+        let released = false;
+
+        return {
+            offset,
+            size,
+            release() {
+                if (!released) {
+                    released = true;
+                    self.rangeLock.release(offset, size);
+                }
+            },
+            [Symbol.dispose]() {
+                this.release();
+            },
+        };
     }
 }
