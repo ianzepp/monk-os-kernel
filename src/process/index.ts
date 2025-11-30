@@ -226,6 +226,23 @@ export function rename(oldPath: string, newPath: string): Promise<void> {
 }
 
 // ============================================================================
+// Pipe Operations
+// ============================================================================
+
+/**
+ * Create a pipe.
+ *
+ * Returns [readFd, writeFd] - a unidirectional data channel.
+ * Data written to writeFd can be read from readFd.
+ * Closing writeFd signals EOF to readers.
+ *
+ * @returns Tuple of [readFd, writeFd]
+ */
+export function pipe(): Promise<[number, number]> {
+    return withTypedErrors(syscall<[number, number]>('pipe'));
+}
+
+// ============================================================================
 // Network Operations
 // ============================================================================
 

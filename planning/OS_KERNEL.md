@@ -9,9 +9,11 @@
 | Syscall dispatch | ✅ Done | `src/kernel/syscalls.ts` |
 | Types & errors | ✅ Done | `src/kernel/types.ts`, `errors.ts` |
 | Resource abstraction | ✅ Done | `src/kernel/resource.ts` |
+| Pipe syscall | ✅ Done | `src/kernel/kernel.ts`, `resource.ts` |
 | Network `connect()` | ✅ Done | `src/kernel/syscalls.ts` |
 | Port syscalls | ✅ Done | `src/kernel/syscalls.ts` |
 | TCP listener port | ✅ Done | `src/kernel/resource.ts` |
+| Shell | ✅ Done | `src/bin/shell.ts` |
 | Scheduler | ⏳ Pending | Bun Workers handle scheduling |
 | Init process | ⏳ Pending | Requires Worker entry point |
 | Message router | ⏳ Pending | - |
@@ -213,6 +215,20 @@ interface IPCDevice {
 | `rename` | oldPath, newPath | void | Move/rename file |
 | `access` | path, acl? | ACL | Read or set ACL |
 
+#### Pipes
+
+| Syscall | Arguments | Returns | Description |
+|---------|-----------|---------|-------------|
+| `pipe` | - | [readFd, writeFd] | Create unidirectional pipe |
+
+The `pipe()` syscall creates a unidirectional data channel:
+- Returns two file descriptors: `[readFd, writeFd]`
+- Data written to `writeFd` can be read from `readFd`
+- Closing `writeFd` signals EOF to readers (read returns empty)
+- Closing `readFd` causes EPIPE on subsequent writes
+
+Used by shell for command pipelines (`cmd1 | cmd2`).
+
 #### Network
 
 | Syscall | Arguments | Returns | Description |
@@ -397,7 +413,7 @@ The first process (pid 1) is special:
 ```typescript
 // /bin/init.ts
 
-import { spawn, port } from '@monk/process';
+import { spawn, port } from '@src/process';
 
 async function main() {
   // Start a shell on console

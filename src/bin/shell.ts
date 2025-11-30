@@ -34,6 +34,7 @@ import {
     print,
     println,
     eprintln,
+    pipe,
 } from '@src/process/index.js';
 
 import {
@@ -339,11 +340,20 @@ async function findCommand(command: string, cwd: string): Promise<string | null>
 
 /**
  * Execute an external command
+ *
+ * @param state - Shell state
+ * @param command - Command name
+ * @param args - Command arguments
+ * @param stdin - Optional stdin fd override
+ * @param stdout - Optional stdout fd override
+ * @returns Exit code
  */
 async function executeExternal(
     state: ShellState,
     command: string,
-    args: string[]
+    args: string[],
+    stdin?: number,
+    stdout?: number
 ): Promise<number> {
     const cmdPath = await findCommand(command, state.cwd);
 
@@ -357,6 +367,8 @@ async function executeExternal(
             args: [command, ...args],
             cwd: state.cwd,
             env: state.env,
+            stdin,
+            stdout,
         });
 
         const status = await wait(pid);
@@ -374,28 +386,39 @@ async function executeExternal(
 
 /**
  * Execute a single command (no pipes)
+ *
+ * @param state - Shell state
+ * @param cmd - Parsed command
+ * @param stdin - Optional stdin fd override
+ * @param stdout - Optional stdout fd override
+ * @returns Exit code
  */
 async function executeSingleCommand(
     state: ShellState,
-    cmd: ParsedCommand
+    cmd: ParsedCommand,
+    stdin?: number,
+    stdout?: number
 ): Promise<number> {
     // Expand globs in arguments
     const expandedArgs = await expandGlobs(cmd.args, state.cwd, readdirForGlob);
 
     // Check for built-in
     if (BUILTIN_COMMANDS.includes(cmd.command)) {
+        // Builtins run in shell process, so we can't redirect their I/O
+        // through kernel fds. For now, just run them normally.
+        // TODO: Support redirecting builtin I/O
         return executeBuiltin(state, cmd.command, expandedArgs);
     }
 
     // External command
-    return executeExternal(state, cmd.command, expandedArgs);
+    return executeExternal(state, cmd.command, expandedArgs, stdin, stdout);
 }
 
 /**
  * Execute a pipeline of commands
  *
- * TODO: Implement actual pipes with kernel pipe() syscall
- * For now, pipelines are not supported
+ * Creates pipes between commands and runs them concurrently.
+ * Returns the exit code of the last command in the pipeline.
  */
 async function executePipeline(
     state: ShellState,
@@ -403,13 +426,58 @@ async function executePipeline(
 ): Promise<number> {
     if (pipeline.length === 0) return 0;
 
-    if (pipeline.length > 1) {
-        await eprintln('shell: pipes not yet implemented');
-        return 1;
+    // Single command - no pipes needed
+    if (pipeline.length === 1) {
+        return executeSingleCommand(state, pipeline[0]);
     }
 
-    // Single command
-    return executeSingleCommand(state, pipeline[0]);
+    // Multi-command pipeline
+    // Create pipes between each pair of commands
+    const pipes: Array<[number, number]> = [];
+    const fdsToClose: number[] = [];
+
+    try {
+        // Create N-1 pipes for N commands
+        for (let i = 0; i < pipeline.length - 1; i++) {
+            const [readFd, writeFd] = await pipe();
+            pipes.push([readFd, writeFd]);
+            fdsToClose.push(readFd, writeFd);
+        }
+
+        // Start all commands concurrently
+        const commandPromises: Promise<number>[] = [];
+
+        for (let i = 0; i < pipeline.length; i++) {
+            const cmd = pipeline[i];
+            const isFirst = i === 0;
+            const isLast = i === pipeline.length - 1;
+
+            // Determine stdin/stdout for this command
+            const stdin = isFirst ? undefined : pipes[i - 1][0];  // Read from previous pipe
+            const stdout = isLast ? undefined : pipes[i][1];      // Write to next pipe
+
+            // Start command (don't await yet - run concurrently)
+            commandPromises.push(executeSingleCommand(state, cmd, stdin, stdout));
+        }
+
+        // Close our copies of the pipe ends
+        // The child processes have their own references
+        for (const fd of fdsToClose) {
+            await close(fd).catch(() => {});
+        }
+        fdsToClose.length = 0;
+
+        // Wait for all commands to complete
+        const results = await Promise.all(commandPromises);
+
+        // Return exit code of last command
+        return results[results.length - 1];
+    } finally {
+        // Clean up any remaining fds on error
+        for (const fd of fdsToClose) {
+            await close(fd).catch(() => {});
+        }
+    }
 }
 
 /**

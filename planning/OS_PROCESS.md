@@ -4,10 +4,12 @@
 
 | Component | Status | Location |
 |-----------|--------|----------|
-| Syscall transport | ⏳ Pending | `src/process/syscall.ts` |
-| Process API | ⏳ Pending | `src/process/index.ts` |
+| Syscall transport | ✅ Done | `src/process/syscall.ts` |
+| Process API | ✅ Done | `src/process/index.ts` |
+| Pipe syscall | ✅ Done | `src/process/index.ts` |
+| Error types | ✅ Done | `src/process/errors.ts` |
 | Init process | ⏳ Pending | `src/bin/init.ts` |
-| Boot test | ⏳ Pending | - |
+| Boot test | ✅ Done | `spec/kernel/boot.test.ts` |
 
 ---
 
@@ -133,6 +135,14 @@ export function unlink(path: string): Promise<void>;
 export function readdir(path: string): Promise<string[]>;
 ```
 
+#### Pipes
+
+```typescript
+export function pipe(): Promise<[number, number]>;  // Returns [readFd, writeFd]
+```
+
+Creates a unidirectional pipe for inter-process communication. Used by shell for command pipelines.
+
 #### Network
 
 ```typescript
@@ -180,7 +190,7 @@ Processes can register signal handlers:
 ```typescript
 let signalHandler: ((signal: number) => void) | null = null;
 
-export function onsignal(handler: (signal: number) => void): void {
+export function onSignal(handler: (signal: number) => void): void {
     signalHandler = handler;
 }
 
@@ -200,12 +210,11 @@ function handleSignal(signal: number): void {
 The init process (`/bin/init.ts`) is minimal:
 
 ```typescript
-import { spawn, wait, exit, onsignal } from '@src/process';
-import { SIGTERM } from '@src/process/constants';
+import { spawn, wait, exit, onSignal, SIGTERM } from '@src/process';
 
 async function main() {
     // Ignore SIGTERM (init can't be killed)
-    onsignal(() => {});
+    onSignal(() => {});
 
     // Spawn shell on console
     const shellPid = await spawn('/bin/shell');

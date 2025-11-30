@@ -28,7 +28,7 @@ import {
 } from '@src/kernel/syscalls.js';
 import { ESRCH, ECHILD, ProcessExited, EBADF, EPERM, EINVAL, ENOSYS, EMFILE } from '@src/kernel/errors.js';
 import type { Resource, Port } from '@src/kernel/resource.js';
-import { FileResource, SocketResource, ListenerPort } from '@src/kernel/resource.js';
+import { FileResource, SocketResource, ListenerPort, PipeBuffer, PipeResource } from '@src/kernel/resource.js';
 import type { ProcessPortMessage } from '@src/kernel/syscalls.js';
 
 /**
@@ -99,6 +99,9 @@ export class Kernel {
 
         // Misc syscalls
         this.syscalls.registerAll(createMiscSyscalls());
+
+        // Pipe syscall
+        this.syscalls.register('pipe', (proc) => this.createPipe(proc));
     }
 
     /**
@@ -700,6 +703,47 @@ export class Kernel {
         } else {
             this.resourceRefs.set(resourceId, refs);
         }
+    }
+
+    /**
+     * Create a pipe and return [readFd, writeFd].
+     *
+     * Creates a unidirectional data channel. Data written to writeFd
+     * can be read from readFd. Closing writeFd signals EOF to readers.
+     */
+    private createPipe(proc: Process): [number, number] {
+        // Check fd limit (need 2 fds)
+        if (proc.fds.size + 2 > MAX_FDS) {
+            throw new EMFILE('Too many open files');
+        }
+
+        // Create shared buffer
+        const buffer = new PipeBuffer();
+        const pipeId = this.hal.entropy.uuid();
+
+        // Create read end
+        const readResource = new PipeResource(
+            `${pipeId}:read`,
+            buffer,
+            'read',
+            `pipe:${pipeId}:read`
+        );
+        this.resources.set(readResource.id, readResource);
+        const readFd = proc.nextFd++;
+        proc.fds.set(readFd, readResource.id);
+
+        // Create write end
+        const writeResource = new PipeResource(
+            `${pipeId}:write`,
+            buffer,
+            'write',
+            `pipe:${pipeId}:write`
+        );
+        this.resources.set(writeResource.id, writeResource);
+        const writeFd = proc.nextFd++;
+        proc.fds.set(writeFd, writeResource.id);
+
+        return [readFd, writeFd];
     }
 
     /**

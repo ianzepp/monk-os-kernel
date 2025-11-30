@@ -35,7 +35,7 @@ Scripts are just TypeScript files:
 ```typescript
 // /bin/cleanup.sh
 
-import { readdir, stat, unlink } from '@monk/process';
+import { readdir, stat, unlink } from '@src/process';
 
 const files = await readdir('/tmp');
 for (const f of files) {
@@ -92,7 +92,7 @@ await write('/tmp/output', result);
 Less common syscalls require explicit import:
 
 ```typescript
-import { port, connect, spawn } from '@monk/process';
+import { port, connect, spawn } from '@src/process';
 
 const listener = await port('tcp:listen', { port: 8080 });
 ```
@@ -105,33 +105,28 @@ const listener = await port('tcp:listen', { port: 8080 });
 Likely imports:
 - `spawn`, `kill`, `wait`, `exit`
 - `port`, `send`, `recv`, `connect`
+- `pipe` (for inter-process communication)
 - `access`, `chmod`
 
-## Interactive Shell (REPL)
+## Interactive Shell
 
-The shell is a TypeScript REPL with syscalls in scope:
+The shell (`src/bin/shell.ts`) is a traditional command interpreter:
 
 ```
-$ const files = await readdir('/home')
-['user', 'guest']
+$ ls /home
+user  guest
 
-$ files.filter(f => f.startsWith('u'))
-['user']
+$ echo hello world
+hello world
 
-$ await unlink('/tmp/junk')
-undefined
+$ cat /etc/config | grep key
+key=value
 
-$ for (const f of await readdir('/tmp')) {
-    console.log(await stat(`/tmp/${f}`))
-  }
-{ size: 1024, mtime: ... }
-{ size: 2048, mtime: ... }
-
-$ await spawn('/bin/httpd.ts')
-42
+$ cd /tmp && pwd
+/tmp
 ```
 
-Top-level await is supported (Bun handles this).
+See "Shell Implementation Status" section below for full feature list.
 
 ## Dynamic Execution
 
@@ -169,10 +164,10 @@ This can be dialed down later for production use.
 
 ## Process Library
 
-The `@monk/process` library provides syscall wrappers:
+The `@src/process` library provides syscall wrappers:
 
 ```typescript
-// @monk/process
+// @src/process
 
 // File operations
 export function open(path: string, flags: number): Promise<number>;
@@ -196,6 +191,9 @@ export function exit(code: number): never;
 
 // Network
 export function connect(proto: string, host: string, port: number): Promise<number>;
+
+// Pipes
+export function pipe(): Promise<[number, number]>;  // [readFd, writeFd]
 
 // Ports
 export function port(type: string, opts: object): Promise<number>;
@@ -233,7 +231,7 @@ console.log(`${words.length} words`);
 
 ```typescript
 // /bin/httpd.sh
-import { port } from '@monk/process';
+import { port } from '@src/process';
 
 const listener = await port('tcp:listen', { port: 8080 });
 console.log('Listening on :8080');
@@ -264,3 +262,49 @@ for (const f of files) {
   console.log(`${f}: ${bytes(info.size)}`);
 }
 ```
+
+## Shell Implementation Status
+
+The shell (`src/bin/shell.ts`) provides a command interpreter for Monk OS.
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Command parsing | ✅ Done | Via `src/lib/shell/` |
+| Variable expansion | ✅ Done | `$VAR`, `${VAR}`, `${VAR:-default}`, `~` |
+| Glob expansion | ✅ Done | `*`, `?`, `[...]` |
+| Command history | ✅ Done | In-memory |
+| Pipes (`\|`) | ✅ Done | Uses kernel `pipe()` syscall |
+| Chaining (`&&`, `\|\|`) | ✅ Done | Short-circuit evaluation |
+| Redirects (`<`, `>`, `>>`) | ⏳ Pending | Requires file handle passing |
+| Background (`&`) | ⏳ Pending | Requires job control |
+
+### Built-in Commands
+
+| Command | Description |
+|---------|-------------|
+| `cd` | Change directory |
+| `pwd` | Print working directory |
+| `export` | Set environment variable |
+| `history` | Show command history |
+| `exit` | Exit shell |
+| `echo` | Output text |
+| `true` | Return success (0) |
+| `false` | Return failure (1) |
+
+### Usage
+
+```bash
+shell              # Interactive mode
+shell -c "cmd"     # Execute single command
+shell script.sh    # Execute script file
+shell --version    # Show version
+shell --help       # Show help
+```
+
+### Pipeline Example
+
+```bash
+$ cat /etc/passwd | grep root | head -1
+```
+
+The shell creates pipes between commands and runs them concurrently. Each command's stdout is connected to the next command's stdin via kernel pipes.
