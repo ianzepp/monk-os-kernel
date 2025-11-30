@@ -143,6 +143,14 @@ export function pipe(): Promise<[number, number]>;  // Returns [readFd, writeFd]
 
 Creates a unidirectional pipe for inter-process communication. Used by shell for command pipelines.
 
+#### Fd Redirection
+
+```typescript
+export function redirect(targetFd: number, sourceFd: number): Promise<() => Promise<void>>;
+```
+
+Temporarily redirects a file descriptor to point to another fd's resource. Returns a restore function that reverts the redirection when called. Used by shell for I/O redirection (`>`, `>>`, `<`) with builtin commands.
+
 #### Network
 
 ```typescript

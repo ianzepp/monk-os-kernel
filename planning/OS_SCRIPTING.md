@@ -275,7 +275,7 @@ The shell (`src/bin/shell.ts`) provides a command interpreter for Monk OS.
 | Command history | ✅ Done | In-memory |
 | Pipes (`\|`) | ✅ Done | Uses kernel `pipe()` syscall |
 | Chaining (`&&`, `\|\|`) | ✅ Done | Short-circuit evaluation |
-| Redirects (`<`, `>`, `>>`) | ⏳ Pending | Requires file handle passing |
+| Redirects (`<`, `>`, `>>`) | ✅ Done | Uses `redirect()` syscall for builtins |
 | Background (`&`) | ⏳ Pending | Requires job control |
 
 ### Built-in Commands
