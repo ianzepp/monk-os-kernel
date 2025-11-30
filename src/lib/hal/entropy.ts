@@ -5,13 +5,13 @@
  *
  * Bun touchpoints:
  * - crypto.getRandomValues() for random bytes
- * - crypto.randomUUID() for UUID v4
+ * - Date.now() for UUID v7 timestamp
  *
  * Caveats:
  * - getRandomValues() is synchronous and may block if entropy pool depleted
  * - On Linux, uses /dev/urandom (non-blocking) not /dev/random
  * - Maximum single request is 65536 bytes (browser spec limit)
- * - UUIDs are v4 (random), not v1 (time-based) or v7 (sortable)
+ * - UUIDs are v7 (timestamp-sortable per RFC 9562)
  *
  * Host leakage:
  * - Uses host OS entropy pool. Quality depends on host entropy sources.
@@ -36,9 +36,19 @@ export interface EntropyDevice {
     read(size: number): Uint8Array;
 
     /**
-     * Generate a UUID v4.
+     * Generate a UUID v7 (timestamp-sortable).
      *
-     * Bun: crypto.randomUUID()
+     * UUID v7 per RFC 9562:
+     * - First 48 bits: Unix timestamp in milliseconds
+     * - Next 4 bits: version (0111 = 7)
+     * - Next 12 bits: random
+     * - Next 2 bits: variant (10)
+     * - Final 62 bits: random
+     *
+     * Benefits:
+     * - Timestamp-sortable (created_at ordering is free)
+     * - Better index locality in databases
+     * - Still random enough to be unguessable
      *
      * @returns UUID string (36 chars: 8-4-4-4-12 with hyphens)
      */
@@ -50,7 +60,7 @@ export interface EntropyDevice {
  *
  * Bun touchpoints:
  * - crypto.getRandomValues(buffer) - fill buffer with random bytes
- * - crypto.randomUUID() - generate UUID v4
+ * - Date.now() - timestamp for UUID v7
  *
  * Caveats:
  * - Both are synchronous
@@ -70,8 +80,59 @@ export class BunEntropyDevice implements EntropyDevice {
     }
 
     uuid(): string {
-        return crypto.randomUUID();
+        return uuidv7();
     }
+}
+
+/**
+ * Generate UUID v7 per RFC 9562.
+ *
+ * Layout (128 bits total):
+ *   0                   1                   2                   3
+ *   0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *  |                          unix_ts_ms (32 bits)                |
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *  |   unix_ts_ms (16 bits)  | ver |       rand_a (12 bits)       |
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *  |var|                     rand_b (62 bits)                     |
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *  |                        rand_b (continued)                    |
+ *  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ */
+function uuidv7(): string {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+
+    // Get current timestamp in milliseconds (48 bits)
+    const timestamp = Date.now();
+
+    // Bytes 0-5: 48-bit timestamp (big-endian)
+    bytes[0] = (timestamp / 0x10000000000) & 0xff;
+    bytes[1] = (timestamp / 0x100000000) & 0xff;
+    bytes[2] = (timestamp / 0x1000000) & 0xff;
+    bytes[3] = (timestamp / 0x10000) & 0xff;
+    bytes[4] = (timestamp / 0x100) & 0xff;
+    bytes[5] = timestamp & 0xff;
+
+    // Byte 6: version (0111 = 7) in high nibble, random in low nibble
+    bytes[6] = (bytes[6] & 0x0f) | 0x70;
+
+    // Byte 8: variant (10) in high 2 bits, random in low 6 bits
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+
+    // Format as UUID string
+    const hex = Array.from(bytes)
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
+
+    return [
+        hex.slice(0, 8),
+        hex.slice(8, 12),
+        hex.slice(12, 16),
+        hex.slice(16, 20),
+        hex.slice(20, 32),
+    ].join('-');
 }
 
 /**
@@ -154,12 +215,23 @@ export class SeededEntropyDevice implements EntropyDevice {
     }
 
     uuid(): string {
-        // Generate deterministic UUID-like string
-        // Not a valid v4 UUID (version bits not set) but consistent format
+        // Generate deterministic UUID v7-like string
+        // Uses counter for timestamp to maintain determinism while being sortable
         const bytes = this.read(16);
 
-        // Set version 4 bits
-        bytes[6] = (bytes[6] & 0x0f) | 0x40;
+        // Use incrementing counter for timestamp portion (deterministic ordering)
+        const timestamp = this.uuidCounter++;
+
+        // Bytes 0-5: 48-bit "timestamp" (big-endian) - uses counter for determinism
+        bytes[0] = (timestamp / 0x10000000000) & 0xff;
+        bytes[1] = (timestamp / 0x100000000) & 0xff;
+        bytes[2] = (timestamp / 0x1000000) & 0xff;
+        bytes[3] = (timestamp / 0x10000) & 0xff;
+        bytes[4] = (timestamp / 0x100) & 0xff;
+        bytes[5] = timestamp & 0xff;
+
+        // Set version 7 bits
+        bytes[6] = (bytes[6] & 0x0f) | 0x70;
         // Set variant bits
         bytes[8] = (bytes[8] & 0x3f) | 0x80;
 
