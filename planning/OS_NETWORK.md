@@ -11,10 +11,10 @@
 | Port interface | ✅ Done | `src/kernel/resource.ts` |
 | Kernel `port()` | ✅ Done | `src/kernel/kernel.ts` |
 | Port syscalls (recv/send/pclose) | ✅ Done | `src/kernel/syscalls.ts` |
-| TCP listener port | ✅ Done | `src/kernel/resource.ts` |
-| UDP port | ⏳ Pending | - |
-| Watch port | ⏳ Pending | - |
-| Pub/Sub port | ⏳ Pending | - |
+| TCP listener port | ✅ Done | `src/kernel/resource.ts` (ListenerPort) |
+| UDP port | ✅ Done | `src/kernel/resource.ts` (UdpPort) |
+| Watch port | ✅ Done | `src/kernel/resource.ts` (WatchPort) |
+| Pub/Sub port | ✅ Done | `src/kernel/resource.ts` (PubsubPort) |
 
 ---
 

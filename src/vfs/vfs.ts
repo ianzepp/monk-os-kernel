@@ -17,6 +17,14 @@ import { FileModel } from '@src/vfs/models/file.js';
 import { FolderModel } from '@src/vfs/models/folder.js';
 import { DeviceModel, initStandardDevices } from '@src/vfs/models/device.js';
 import { ENOENT, EEXIST, ENOTDIR, EACCES, EINVAL } from '@src/hal/index.js';
+import type { HostMount, HostMountOptions } from '@src/vfs/mounts/host.js';
+import {
+    createHostMount,
+    isUnderHostMount,
+    hostStat,
+    hostReaddir,
+    hostOpen,
+} from '@src/vfs/mounts/host.js';
 
 /**
  * Mount options
@@ -55,6 +63,7 @@ export class VFS {
     private hal: HAL;
     private mounts: Map<string, MountInfo> = new Map();
     private models: Map<string, Model> = new Map();
+    private hostMounts: HostMount[] = [];
 
     constructor(hal: HAL) {
         this.hal = hal;
@@ -159,6 +168,41 @@ export class VFS {
     }
 
     /**
+     * Mount a host filesystem directory into VFS.
+     *
+     * @param vfsPath - VFS path prefix (e.g., '/bin')
+     * @param hostPath - Host directory path (e.g., './src/bin')
+     * @param options - Mount options
+     */
+    mountHost(vfsPath: string, hostPath: string, options?: HostMountOptions): void {
+        const mount = createHostMount(vfsPath, hostPath, options);
+        this.hostMounts.push(mount);
+
+        // Sort by path length descending (longest prefix first)
+        this.hostMounts.sort((a, b) => b.vfsPath.length - a.vfsPath.length);
+    }
+
+    /**
+     * Unmount a host filesystem directory.
+     */
+    unmountHost(vfsPath: string): void {
+        const normalPath = this.normalizePath(vfsPath);
+        this.hostMounts = this.hostMounts.filter(m => m.vfsPath !== normalPath);
+    }
+
+    /**
+     * Find host mount for a path.
+     */
+    private findHostMount(path: string): HostMount | null {
+        for (const mount of this.hostMounts) {
+            if (isUnderHostMount(mount, path)) {
+                return mount;
+            }
+        }
+        return null;
+    }
+
+    /**
      * Open a file.
      */
     async open(
@@ -168,6 +212,13 @@ export class VFS {
         opts?: OpenOptions
     ): Promise<FileHandle> {
         const normalPath = this.normalizePath(path);
+
+        // Check host mounts first
+        const hostMount = this.findHostMount(normalPath);
+        if (hostMount) {
+            return hostOpen(hostMount, normalPath, flags);
+        }
+
         const ctx = this.createContext(caller);
 
         // Resolve path to entity
@@ -209,6 +260,13 @@ export class VFS {
      */
     async stat(path: string, caller: string): Promise<ModelStat> {
         const normalPath = this.normalizePath(path);
+
+        // Check host mounts first
+        const hostMount = this.findHostMount(normalPath);
+        if (hostMount) {
+            return hostStat(hostMount, normalPath);
+        }
+
         const ctx = this.createContext(caller);
 
         const entityId = await this.resolvePath(normalPath);
@@ -351,6 +409,14 @@ export class VFS {
      */
     async *readdir(path: string, caller: string): AsyncIterable<ModelStat> {
         const normalPath = this.normalizePath(path);
+
+        // Check host mounts first
+        const hostMount = this.findHostMount(normalPath);
+        if (hostMount) {
+            yield* hostReaddir(hostMount, normalPath);
+            return;
+        }
+
         const ctx = this.createContext(caller);
 
         const entityId = await this.resolvePath(normalPath);

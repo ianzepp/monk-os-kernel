@@ -32,7 +32,8 @@ import type { WatchEvent } from '@src/vfs/model.js';
 import { FileResource, SocketResource, ListenerPort, WatchPort, UdpPort, PubsubPort, matchTopic, PipeBuffer, PipeResource } from '@src/kernel/resource.js';
 import type { ProcessPortMessage } from '@src/kernel/syscalls.js';
 import type { ServiceDef, Activation } from '@src/kernel/services.js';
-import { HandlerRegistry, createDefaultRegistry } from '@src/kernel/services.js';
+import { VFSLoader } from '@src/kernel/loader.js';
+import { PROCESS_LIB_SOURCE } from '@src/kernel/bootstrap.js';
 
 /**
  * Console device path
@@ -56,17 +57,19 @@ export class Kernel {
     private booted = false;
 
     // Service management
-    private handlers: HandlerRegistry;
     private services: Map<string, ServiceDef> = new Map(); // name -> def
     private activationPorts: Map<string, Port> = new Map(); // service name -> port
     private activationAborts: Map<string, AbortController> = new Map(); // service name -> abort
+
+    // VFS module loader for dynamic script execution
+    private loader: VFSLoader;
 
     constructor(hal: HAL, vfs: VFS) {
         this.hal = hal;
         this.vfs = vfs;
         this.processes = new ProcessTable();
         this.syscalls = new SyscallDispatcher();
-        this.handlers = createDefaultRegistry();
+        this.loader = new VFSLoader(vfs, hal);
 
         this.registerSyscalls();
     }
@@ -138,6 +141,13 @@ export class Kernel {
         // Initialize VFS
         await this.vfs.init();
 
+        // Mount host directories into VFS
+        // This makes ./src/bin/ available as /bin/ in VFS
+        this.vfs.mountHost('/bin', './src/bin', { readonly: true });
+
+        // Bootstrap /lib/process.ts for VFS scripts
+        await this.bootstrapProcessLib();
+
         // Load and activate services
         await this.loadServices();
 
@@ -164,7 +174,7 @@ export class Kernel {
         await this.setupInitStdio(init);
 
         // Start init worker
-        init.worker = this.spawnWorker(init, env.initPath);
+        init.worker = await this.spawnWorker(init, env.initPath);
         init.state = 'running';
 
         // Register init
@@ -229,6 +239,26 @@ export class Kernel {
     }
 
     /**
+     * Bootstrap /lib/process.ts into VFS.
+     *
+     * Creates /lib directory and writes the process library that
+     * enables VFS scripts to make syscalls.
+     */
+    private async bootstrapProcessLib(): Promise<void> {
+        // Create /lib directory if it doesn't exist
+        try {
+            await this.vfs.stat('/lib', 'kernel');
+        } catch {
+            await this.vfs.mkdir('/lib', 'kernel');
+        }
+
+        // Write /lib/process.ts
+        const handle = await this.vfs.open('/lib/process.ts', { write: true, create: true }, 'kernel');
+        await handle.write(new TextEncoder().encode(PROCESS_LIB_SOURCE));
+        await handle.close();
+    }
+
+    /**
      * Spawn a child process.
      */
     private async spawn(parent: Process, entry: string, opts?: SpawnOpts): Promise<number> {
@@ -255,7 +285,7 @@ export class Kernel {
         this.setupStdio(proc, parent, opts);
 
         // Create worker
-        proc.worker = this.spawnWorker(proc, entry);
+        proc.worker = await this.spawnWorker(proc, entry);
         proc.state = 'running';
 
         // Register in process table
@@ -420,13 +450,78 @@ export class Kernel {
     }
 
     /**
-     * Spawn a worker for a process.
+     * Check if a path looks like a host filesystem absolute path.
+     *
+     * Host paths are absolute paths that don't correspond to VFS roots.
+     * Common host prefixes include /Users/, /home/username/, /var/, etc.
      */
-    private spawnWorker(proc: Process, entry: string): Worker {
-        const worker = new Worker(entry, {
+    private isHostAbsolutePath(path: string): boolean {
+        // Common host filesystem prefixes (macOS, Linux)
+        const hostPrefixes = [
+            '/Users/',       // macOS home
+            '/System/',      // macOS system
+            '/Library/',     // macOS library
+            '/private/',     // macOS private
+            '/Volumes/',     // macOS volumes
+            '/home/',        // Linux home (but could conflict with VFS /home)
+            '/var/',         // System data
+            '/opt/',         // Optional packages
+            '/usr/',         // Unix programs
+            '/Applications/', // macOS apps
+        ];
+
+        // Check for common host prefixes
+        for (const prefix of hostPrefixes) {
+            if (path.startsWith(prefix)) {
+                return true;
+            }
+        }
+
+        // Also check for paths that look like project paths
+        // (contain typical project markers after /home/)
+        if (path.includes('/Workspaces/') ||
+            path.includes('/workspace/') ||
+            path.includes('/projects/') ||
+            path.includes('/node_modules/')) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Spawn a worker for a process.
+     *
+     * Path resolution:
+     * - Paths starting with / that are NOT host absolute paths are VFS paths
+     *   (e.g., /bin/init.ts) - these go through VFS loader
+     * - Host absolute paths (e.g., /Users/.../file.ts) are passed directly
+     * - Relative paths (e.g., ./src/bin/init.ts) are host paths
+     */
+    private async spawnWorker(proc: Process, entry: string): Promise<Worker> {
+        let workerUrl: string;
+        let isVFSBundle = false;
+
+        if (entry.startsWith('/') && !this.isHostAbsolutePath(entry)) {
+            // VFS path - compile and bundle from VFS (may be host mount or VFS storage)
+            const bundle = await this.loader.assembleBundle(entry);
+            workerUrl = this.loader.createBlobURL(bundle);
+            isVFSBundle = true;
+        } else {
+            // Host path (absolute or relative) - pass directly to Worker
+            workerUrl = entry;
+        }
+
+        const worker = new Worker(workerUrl, {
             type: 'module',
             env: proc.env,
         });
+
+        // Revoke blob URL after worker loads (it's already loaded the code)
+        if (isVFSBundle) {
+            // Give worker time to load before revoking
+            setTimeout(() => this.loader.revokeBlobURL(workerUrl), 1000);
+        }
 
         // Wire up syscall handling
         worker.onmessage = (event: MessageEvent<KernelMessage>) => {
@@ -1097,8 +1192,11 @@ export class Kernel {
                 const content = new TextDecoder().decode(combined);
                 const def = JSON.parse(content) as ServiceDef;
 
-                // Validate handler exists
-                if (!this.handlers.has(def.handler)) {
+                // Validate handler exists in VFS (add .ts extension if needed)
+                const handlerPath = def.handler.endsWith('.ts') ? def.handler : def.handler + '.ts';
+                try {
+                    await this.vfs.stat(handlerPath, 'kernel');
+                } catch {
                     this.hal.console.error(
                         new TextEncoder().encode(`service ${serviceName}: unknown handler ${def.handler}\n`)
                     );
@@ -1410,10 +1508,8 @@ export class Kernel {
         socket?: import('@src/hal/network.js').Socket,
         inputData?: Uint8Array
     ): Promise<void> {
-        const entry = this.handlers.get(def.handler);
-        if (!entry) {
-            throw new Error(`Unknown handler: ${def.handler}`);
-        }
+        // Handler path is a VFS path (e.g., /bin/telnetd), add .ts extension if needed
+        const entry = def.handler.endsWith('.ts') ? def.handler : def.handler + '.ts';
 
         const procId = this.hal.entropy.uuid();
 
@@ -1475,7 +1571,7 @@ export class Kernel {
         }
 
         // Start worker
-        proc.worker = this.spawnWorker(proc, entry);
+        proc.worker = await this.spawnWorker(proc, entry);
         proc.state = 'running';
 
         // Register in process table
@@ -1509,13 +1605,6 @@ export class Kernel {
      */
     isBooted(): boolean {
         return this.booted;
-    }
-
-    /**
-     * Get handler registry (for testing).
-     */
-    getHandlerRegistry(): HandlerRegistry {
-        return this.handlers;
     }
 
     /**

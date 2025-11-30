@@ -71,4 +71,3 @@ export type {
     BootActivation,
     HandlerEntry,
 } from '@src/kernel/services.js';
-export { HandlerRegistry, createDefaultRegistry } from '@src/kernel/services.js';
