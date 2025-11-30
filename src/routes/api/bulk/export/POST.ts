@@ -37,7 +37,7 @@ export default async function handler(context: Context) {
     const filename = `export-${systemInit.nsName}-${timestamp}.sqlite`;
 
     // Return as file download
-    return new Response(result.buffer, {
+    return new Response(new Blob([result.buffer as BlobPart]), {
         status: 200,
         headers: {
             'Content-Type': 'application/x-sqlite3',

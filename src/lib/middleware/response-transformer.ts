@@ -270,7 +270,7 @@ export async function responseTransformerMiddleware(context: Context, next: Next
         const status = typeof init === 'number' ? init : init?.status || 200;
 
         // Return final response with byte data
-        return new Response(finalData, { status, headers });
+        return new Response(new Blob([finalData as BlobPart]), { status, headers });
     } as any; // Type assertion needed for Hono method override
 
     // Execute route handlers

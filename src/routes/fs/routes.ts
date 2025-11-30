@@ -133,7 +133,7 @@ export async function FsGet(c: Context) {
                 return c.body(result.content);
             case 'binary':
                 c.header('Content-Type', 'application/octet-stream');
-                return new Response(result.content, {
+                return new Response(new Blob([result.content as BlobPart]), {
                     headers: { 'Content-Type': 'application/octet-stream' },
                 });
             case 'error':
