@@ -1,0 +1,177 @@
+/**
+ * Webhook Sender Observer (EXAMPLE TEMPLATE)
+ *
+ * This is an example implementation of a webhook observer that sends
+ * HTTP notifications when data changes occur. Copy this file to
+ * `50-webhook-sender.ts` and configure your endpoints to enable.
+ *
+ * Ring: 8 (Integration) - Model: % (all models) - Operations: create, update, delete
+ *
+ * Features:
+ * - Configurable webhook endpoints per model/operation
+ * - Retry logic with exponential backoff
+ * - Request timeouts
+ * - Environment variable substitution in headers
+ * - Structured payload with operation context
+ *
+ * To enable:
+ * 1. Copy this file to `50-webhook-sender.ts` (remove .example)
+ * 2. Configure webhookEndpoints array with your endpoints
+ * 3. Set required environment variables (e.g., WEBHOOK_TOKEN)
+ */
+
+import { BaseAsyncObserver } from '@src/lib/observers/base-async-observer.js';
+import type { ObserverContext } from '@src/lib/observers/interfaces.js';
+import { ObserverRing } from '@src/lib/observers/types.js';
+
+interface WebhookEndpoint {
+    url: string;
+    models: string[];        // Model names or ['*'] for all
+    operations: string[];    // 'create', 'update', 'delete'
+    headers?: Record<string, string>;
+    timeout?: number;        // Milliseconds
+    retries?: number;        // Number of retry attempts
+}
+
+export default class WebhookSender extends BaseAsyncObserver {
+    readonly ring = ObserverRing.Integration;
+    readonly operations = ['create', 'update', 'delete'] as const;
+
+    /**
+     * Configure your webhook endpoints here.
+     * In production, consider loading from database or environment config.
+     */
+    private readonly webhookEndpoints: WebhookEndpoint[] = [
+        // Example: Send user/account changes to external service
+        {
+            url: 'https://api.example.com/webhooks/data-changes',
+            models: ['user', 'account'],
+            operations: ['create', 'update', 'delete'],
+            headers: {
+                'Authorization': 'Bearer ${WEBHOOK_TOKEN}',
+                'Content-Type': 'application/json'
+            },
+            timeout: 5000,
+            retries: 3
+        },
+        // Example: Send all creates/deletes to analytics
+        {
+            url: 'https://analytics.example.com/events',
+            models: ['*'],
+            operations: ['create', 'delete'],
+            timeout: 3000,
+            retries: 1
+        }
+    ];
+
+    async execute(context: ObserverContext): Promise<void> {
+        const { model, operation } = context;
+
+        const endpoints = this.getApplicableEndpoints(model.model_name, operation);
+        if (endpoints.length === 0) return;
+
+        // Send webhooks in parallel (fire-and-forget for async observer)
+        const results = await Promise.allSettled(
+            endpoints.map(endpoint => this.sendWebhook(endpoint, context))
+        );
+
+        // Log failures but don't throw (async observers shouldn't block)
+        for (const result of results) {
+            if (result.status === 'rejected') {
+                console.error('Webhook failed:', result.reason);
+            }
+        }
+    }
+
+    private getApplicableEndpoints(model: string, operation: string): WebhookEndpoint[] {
+        return this.webhookEndpoints.filter(endpoint => {
+            const modelMatches = endpoint.models.includes('*') ||
+                                endpoint.models.includes(model);
+            const operationMatches = endpoint.operations.includes(operation);
+            return modelMatches && operationMatches;
+        });
+    }
+
+    private async sendWebhook(endpoint: WebhookEndpoint, context: ObserverContext): Promise<void> {
+        const payload = this.createPayload(context);
+        const headers = this.processHeaders(endpoint.headers || {});
+
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), endpoint.timeout || 5000);
+
+        try {
+            const response = await fetch(endpoint.url, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(payload),
+                signal: controller.signal
+            });
+
+            clearTimeout(timeout);
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+        } catch (error) {
+            clearTimeout(timeout);
+
+            if ((endpoint.retries || 0) > 0) {
+                return this.retryWebhook(endpoint, context, endpoint.retries!);
+            }
+            throw error;
+        }
+    }
+
+    private async retryWebhook(
+        endpoint: WebhookEndpoint,
+        context: ObserverContext,
+        retriesLeft: number
+    ): Promise<void> {
+        for (let attempt = 1; attempt <= retriesLeft; attempt++) {
+            // Exponential backoff: 1s, 2s, 4s, ... capped at 10s
+            const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
+            await new Promise(resolve => setTimeout(resolve, delay));
+
+            try {
+                await this.sendWebhook({ ...endpoint, retries: 0 }, context);
+                return;
+            } catch (error) {
+                if (attempt === retriesLeft) throw error;
+            }
+        }
+    }
+
+    private createPayload(context: ObserverContext): object {
+        const { operation, model, data } = context;
+        const records = Array.isArray(data) ? data : (data ? [data] : []);
+
+        return {
+            event: {
+                type: `${model.model_name}.${operation}`,
+                timestamp: new Date().toISOString(),
+                source: 'monk-api',
+                version: '1.0'
+            },
+            operation,
+            model: model.model_name,
+            data: records.map(r => ({
+                record: r.toObject(),
+                changes: operation === 'update' ? r.getChanges() : undefined
+            })),
+            context: {
+                user_id: context.system.getUser?.()?.id || null
+            }
+        };
+    }
+
+    private processHeaders(headers: Record<string, string>): Record<string, string> {
+        const processed: Record<string, string> = {};
+        for (const [key, value] of Object.entries(headers)) {
+            // Replace ${ENV_VAR} with environment variable values
+            processed[key] = value.replace(/\$\{([^}]+)\}/g, (match, envVar) => {
+                return process.env[envVar] || match;
+            });
+        }
+        return processed;
+    }
+}

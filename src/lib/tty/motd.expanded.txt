@@ -1,0 +1,35 @@
+  ┌─────────────────────────────────────────────────────────────┐
+  │                        Monk TTY                             │
+  ├─────────────────────────────────────────────────────────────┤
+  │ Transports: Telnet (2323), SSH (2222)                       │
+  ├─────────────────────────────────────────────────────────────┤
+  │ Shell Features:                                             │
+  │   ✓ Pipes:        cat file | grep foo | wc -l               │
+  │   ✓ Redirects:    echo hi > file, cat < input               │
+  │   ✓ Chaining:     mkdir dir && cd dir || echo fail          │
+  │   ✓ Background:   ping /health &                            │
+  │   ✓ Globs:        ls *.txt, rm /tmp/*.log                   │
+  │   ✓ Variables:    $USER, ${HOME}, ${VAR:-default}           │
+  │   ✓ Exit codes:   $?                                        │
+  │   ✓ Scripts:      source ~/.profile                         │
+  │   ✓ History:      ↑/↓ arrows, ~/.history                    │
+  │   ✓ Signals:      CTRL+C interrupt                          │
+  ├─────────────────────────────────────────────────────────────┤
+  │ 50+ Commands:                                               │
+  │   Navigation:  cd, pwd, ls, tree, find                      │
+  │   Files:       cat, head, tail, cp, mv, rm, touch, chmod    │
+  │   Text:        grep, sort, uniq, wc, cut, tr, jq            │
+  │   Data:        select, insert, update, delete, describe     │
+  │   Process:     ps, kill, sleep, timeout                     │
+  │   Network:     curl, ping, nc                               │
+  │   Scripting:   source, test, read, basename, dirname        │
+  ├─────────────────────────────────────────────────────────────┤
+  │ Virtual Filesystem:                                         │
+  │   /api/data/*    → Database records                         │
+  │   /api/describe/* → Model schemas                           │
+  │   /proc/*        → Process table                            │
+  │   /bin/*         → Commands                                 │
+  │   /home/*        → User home directories                    │
+  │   /tmp/*         → Temporary storage                        │
+  │   mount -t local → Host filesystem access                   │
+  └─────────────────────────────────────────────────────────────┘
