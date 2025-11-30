@@ -27,7 +27,6 @@ export type { ClockDevice } from './clock.js';
 export type { EntropyDevice } from './entropy.js';
 export type { CryptoDevice, HashAlg, CipherAlg, KeyAlg, KdfAlg } from './crypto.js';
 export type { ConsoleDevice } from './console.js';
-export type { EnvDevice } from './env.js';
 export type { DNSDevice } from './dns.js';
 export type { HostDevice, HostProcess, HostSpawnOpts, HostStat } from './host.js';
 export type { IPCDevice, Mutex, Semaphore, CondVar } from './ipc.js';
@@ -41,7 +40,6 @@ export { BunClockDevice, MockClockDevice } from './clock.js';
 export { BunEntropyDevice, SeededEntropyDevice } from './entropy.js';
 export { BunCryptoDevice } from './crypto.js';
 export { BunConsoleDevice, BufferConsoleDevice } from './console.js';
-export { BunEnvDevice, MockEnvDevice } from './env.js';
 export { BunDNSDevice, MockDNSDevice } from './dns.js';
 export { BunHostDevice, MockHostDevice } from './host.js';
 export { BunIPCDevice, MockIPCDevice } from './ipc.js';
@@ -61,7 +59,6 @@ export interface HAL {
     readonly entropy: import('./entropy.js').EntropyDevice;
     readonly crypto: import('./crypto.js').CryptoDevice;
     readonly console: import('./console.js').ConsoleDevice;
-    readonly env: import('./env.js').EnvDevice;
     readonly dns: import('./dns.js').DNSDevice;
     readonly host: import('./host.js').HostDevice;
     readonly ipc: import('./ipc.js').IPCDevice;
@@ -104,7 +101,6 @@ export async function createBunHAL(config?: HALConfig): Promise<HAL> {
     const { BunEntropyDevice } = await import('./entropy.js');
     const { BunCryptoDevice } = await import('./crypto.js');
     const { BunConsoleDevice } = await import('./console.js');
-    const { BunEnvDevice } = await import('./env.js');
     const { BunDNSDevice } = await import('./dns.js');
     const { BunHostDevice } = await import('./host.js');
     const { BunIPCDevice } = await import('./ipc.js');
@@ -140,7 +136,6 @@ export async function createBunHAL(config?: HALConfig): Promise<HAL> {
         entropy: new BunEntropyDevice(),
         crypto: new BunCryptoDevice(),
         console: new BunConsoleDevice(),
-        env: new BunEnvDevice(),
         dns: new BunDNSDevice(),
         host: new BunHostDevice(),
         ipc: new BunIPCDevice(),

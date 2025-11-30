@@ -67,7 +67,6 @@ interface HAL {
   entropy: EntropyDevice;
   crypto: CryptoDevice;
   console: ConsoleDevice;
-  env: EnvDevice;
   dns: DNSDevice;
   host: HostDevice;
   ipc: IPCDevice;
@@ -547,14 +546,11 @@ interface ConsoleDevice {
 
 ---
 
-### EnvDevice
 
 Boot-time environment variables and configuration.
 
-**Bun primitives**: `process.env`, `Bun.env`
 
 ```typescript
-interface EnvDevice {
   /**
    * Get environment variable.
    * @param key - Variable name
@@ -578,8 +574,6 @@ interface EnvDevice {
 ```
 
 **Implementations**:
-- `BunEnvDevice` - wraps Bun.env
-- `MockEnvDevice` - isolated environment for testing
 
 ---
 
@@ -798,7 +792,6 @@ src/lib/hal/
 ├── entropy.ts        # EntropyDevice implementations
 ├── crypto.ts         # CryptoDevice implementations
 ├── console.ts        # ConsoleDevice implementations
-├── env.ts            # EnvDevice implementations
 ├── dns.ts            # DNSDevice implementations
 ├── host.ts           # HostDevice implementations
 ├── ipc.ts            # IPCDevice implementations
@@ -808,7 +801,6 @@ src/lib/hal/
     ├── clock.ts
     ├── entropy.ts
     ├── console.ts
-    ├── env.ts
     ├── dns.ts
     └── host.ts
 ```
@@ -823,7 +815,6 @@ import { Kernel } from './kernel';
 
 // Production: real Bun HAL
 const hal = createBunHAL({
-  storage: { type: 'postgres', url: process.env.DATABASE_URL },
 });
 const kernel = new Kernel(hal);
 await kernel.boot();
@@ -851,7 +842,6 @@ const testKernel = new Kernel(mockHal);
 | EntropyDevice | `crypto.getRandomValues()`, `crypto.randomUUID()` |
 | CryptoDevice | `Bun.hash()`, `Bun.CryptoHasher`, `crypto.subtle` |
 | ConsoleDevice | `process.stdin`, `process.stdout`, `process.stderr` |
-| EnvDevice | `Bun.env`, `process.env` |
 | DNSDevice | `Bun.dns` |
 | HostDevice | `Bun.spawn()`, `os` module |
 | IPCDevice | `SharedArrayBuffer`, `MessagePort`, `Atomics` |
