@@ -29,8 +29,10 @@ import {
 import { ESRCH, ECHILD, ProcessExited, EBADF, EPERM, EINVAL, ENOSYS, EMFILE } from '@src/kernel/errors.js';
 import type { Resource, Port } from '@src/kernel/resource.js';
 import type { WatchEvent } from '@src/vfs/model.js';
-import { FileResource, SocketResource, ListenerPort, WatchPort, UdpPort, PipeBuffer, PipeResource } from '@src/kernel/resource.js';
+import { FileResource, SocketResource, ListenerPort, WatchPort, UdpPort, PubsubPort, matchTopic, PipeBuffer, PipeResource } from '@src/kernel/resource.js';
 import type { ProcessPortMessage } from '@src/kernel/syscalls.js';
+import type { ServiceDef, Activation } from '@src/kernel/services.js';
+import { HandlerRegistry, createDefaultRegistry } from '@src/kernel/services.js';
 
 /**
  * Console device path
@@ -49,14 +51,22 @@ export class Kernel {
     private resourceRefs: Map<string, number> = new Map(); // Reference counts
     private ports: Map<string, Port> = new Map();
     private portRefs: Map<string, number> = new Map(); // Reference counts
+    private pubsubPorts: Set<PubsubPort> = new Set(); // All pubsub ports for routing
     private waiters: Map<string, ((status: ExitStatus) => void)[]> = new Map();
     private booted = false;
+
+    // Service management
+    private handlers: HandlerRegistry;
+    private services: Map<string, ServiceDef> = new Map(); // name -> def
+    private activationPorts: Map<string, Port> = new Map(); // service name -> port
+    private activationAborts: Map<string, AbortController> = new Map(); // service name -> abort
 
     constructor(hal: HAL, vfs: VFS) {
         this.hal = hal;
         this.vfs = vfs;
         this.processes = new ProcessTable();
         this.syscalls = new SyscallDispatcher();
+        this.handlers = createDefaultRegistry();
 
         this.registerSyscalls();
     }
@@ -118,7 +128,7 @@ export class Kernel {
     /**
      * Boot the kernel.
      *
-     * Initializes VFS and starts the init process.
+     * Initializes VFS, loads services, and starts the init process.
      */
     async boot(env: BootEnv): Promise<void> {
         if (this.booted) {
@@ -127,6 +137,9 @@ export class Kernel {
 
         // Initialize VFS
         await this.vfs.init();
+
+        // Load and activate services
+        await this.loadServices();
 
         // Create init process
         const initId = this.hal.entropy.uuid();
@@ -191,6 +204,16 @@ export class Kernel {
             }
         }
 
+        // Stop all service activation loops
+        for (const abort of this.activationAborts.values()) {
+            abort.abort();
+        }
+
+        // Close all activation ports
+        for (const port of this.activationPorts.values()) {
+            await port.close().catch(() => {});
+        }
+
         // Clear process table and all maps
         this.processes.clear();
         this.resources.clear();
@@ -198,6 +221,9 @@ export class Kernel {
         this.ports.clear();
         this.portRefs.clear();
         this.waiters.clear();
+        this.services.clear();
+        this.activationPorts.clear();
+        this.activationAborts.clear();
 
         this.booted = false;
     }
@@ -873,8 +899,40 @@ export class Kernel {
                 break;
             }
 
-            case 'pubsub':
-                throw new ENOSYS(`${type} ports not yet implemented`);
+            case 'pubsub': {
+                const pubsubOpts = opts as { subscribe?: string | string[] } | undefined;
+                const patterns = pubsubOpts?.subscribe
+                    ? Array.isArray(pubsubOpts.subscribe)
+                        ? pubsubOpts.subscribe
+                        : [pubsubOpts.subscribe]
+                    : [];
+
+                const portId = this.hal.entropy.uuid();
+                const description = patterns.length > 0
+                    ? `pubsub:${patterns.join(',')}`
+                    : 'pubsub:(send-only)';
+
+                // Create publish function that routes through kernel
+                const publishFn = (topic: string, data: Uint8Array, sourcePortId: string) => {
+                    this.publishPubsub(topic, data, sourcePortId);
+                };
+
+                // Create unsubscribe function for cleanup
+                const unsubscribeFn = () => {
+                    const p = this.ports.get(portId) as PubsubPort | undefined;
+                    if (p) {
+                        this.pubsubPorts.delete(p);
+                    }
+                };
+
+                const pubsubPort = new PubsubPort(portId, patterns, publishFn, unsubscribeFn, description);
+
+                // Register in pubsub routing set
+                this.pubsubPorts.add(pubsubPort);
+
+                port = pubsubPort;
+                break;
+            }
 
             default:
                 throw new EINVAL(`unknown port type: ${type}`);
@@ -962,6 +1020,479 @@ export class Kernel {
         proc.ports.delete(portId);
     }
 
+    /**
+     * Publish a message to all matching pubsub subscribers.
+     *
+     * @param topic - Topic to publish to
+     * @param data - Message payload
+     * @param sourcePortId - Port ID of publisher (to avoid echo)
+     */
+    private publishPubsub(topic: string, data: Uint8Array, sourcePortId: string): void {
+        const message = {
+            from: topic,
+            data,
+            meta: {
+                timestamp: Date.now(),
+            },
+        };
+
+        for (const port of this.pubsubPorts) {
+            // Don't echo back to sender
+            if (port.id === sourcePortId) continue;
+
+            // Check if any pattern matches
+            const patterns = port.getPatterns();
+            for (const pattern of patterns) {
+                if (matchTopic(pattern, topic)) {
+                    port.enqueue(message);
+                    break; // Only deliver once per port
+                }
+            }
+        }
+    }
+
+    // ========================================================================
+    // Service Management
+    // ========================================================================
+
+    /**
+     * Load services from /etc/services/*.json
+     */
+    private async loadServices(): Promise<void> {
+        // Ensure /etc/services exists (create recursively if needed)
+        try {
+            await this.vfs.stat('/etc/services', 'kernel');
+        } catch {
+            await this.vfs.mkdir('/etc/services', 'kernel', { recursive: true });
+
+            // Seed default services
+            await this.seedDefaultServices();
+        }
+
+        // Read service definitions
+        for await (const entry of this.vfs.readdir('/etc/services', 'kernel')) {
+            if (!entry.name.endsWith('.json')) continue;
+
+            const serviceName = entry.name.replace(/\.json$/, '');
+            const path = `/etc/services/${entry.name}`;
+
+            try {
+                const handle = await this.vfs.open(path, { read: true }, 'kernel');
+                const chunks: Uint8Array[] = [];
+                while (true) {
+                    const chunk = await handle.read(65536);
+                    if (chunk.length === 0) break;
+                    chunks.push(chunk);
+                }
+                await handle.close();
+
+                const total = chunks.reduce((sum, c) => sum + c.length, 0);
+                const combined = new Uint8Array(total);
+                let offset = 0;
+                for (const chunk of chunks) {
+                    combined.set(chunk, offset);
+                    offset += chunk.length;
+                }
+
+                const content = new TextDecoder().decode(combined);
+                const def = JSON.parse(content) as ServiceDef;
+
+                // Validate handler exists
+                if (!this.handlers.has(def.handler)) {
+                    this.hal.console.error(
+                        new TextEncoder().encode(`service ${serviceName}: unknown handler ${def.handler}\n`)
+                    );
+                    continue;
+                }
+
+                this.services.set(serviceName, def);
+
+                // Activate the service
+                await this.activateService(serviceName, def);
+            } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                this.hal.console.error(
+                    new TextEncoder().encode(`service ${serviceName}: ${msg}\n`)
+                );
+            }
+        }
+    }
+
+    /**
+     * Seed default service definitions.
+     *
+     * Called when /etc/services is first created.
+     */
+    private async seedDefaultServices(): Promise<void> {
+        // Default telnetd service
+        const telnetd: ServiceDef = {
+            handler: '/bin/telnetd',
+            activate: {
+                type: 'tcp:listen',
+                port: 2323,
+            },
+            description: 'Telnet server for shell access',
+        };
+
+        await this.writeServiceFile('telnetd', telnetd);
+    }
+
+    /**
+     * Write a service definition file to VFS.
+     */
+    private async writeServiceFile(name: string, def: ServiceDef): Promise<void> {
+        const path = `/etc/services/${name}.json`;
+        const content = JSON.stringify(def, null, 2);
+        const data = new TextEncoder().encode(content);
+
+        const handle = await this.vfs.open(path, { write: true, create: true }, 'kernel');
+        await handle.write(data);
+        await handle.close();
+    }
+
+    /**
+     * Activate a service based on its definition.
+     */
+    private async activateService(name: string, def: ServiceDef): Promise<void> {
+        const activation = def.activate;
+
+        switch (activation.type) {
+            case 'boot':
+                // Spawn immediately
+                await this.spawnServiceHandler(name, def);
+                break;
+
+            case 'tcp:listen': {
+                // Create listener and spawn on each connection
+                const listener = await this.hal.network.listen(activation.port, {
+                    hostname: activation.host,
+                });
+
+                const portId = this.hal.entropy.uuid();
+                const addr = listener.addr();
+                const description = `service:${name}:tcp:${addr.hostname}:${addr.port}`;
+                const port = new ListenerPort(portId, listener, description);
+
+                this.activationPorts.set(name, port);
+
+                // Start accept loop
+                const abort = new AbortController();
+                this.activationAborts.set(name, abort);
+
+                this.runTcpActivationLoop(name, def, port, abort.signal);
+                break;
+            }
+
+            case 'pubsub': {
+                // Subscribe and spawn on each message
+                const portId = this.hal.entropy.uuid();
+                const patterns = [activation.topic];
+                const description = `service:${name}:pubsub:${activation.topic}`;
+
+                const publishFn = (topic: string, data: Uint8Array, sourcePortId: string) => {
+                    this.publishPubsub(topic, data, sourcePortId);
+                };
+                const unsubscribeFn = () => {
+                    this.pubsubPorts.delete(port);
+                };
+
+                const port = new PubsubPort(portId, patterns, publishFn, unsubscribeFn, description);
+                this.pubsubPorts.add(port);
+                this.activationPorts.set(name, port);
+
+                // Start message loop
+                const abort = new AbortController();
+                this.activationAborts.set(name, abort);
+
+                this.runPubsubActivationLoop(name, def, port, abort.signal);
+                break;
+            }
+
+            case 'watch': {
+                // Watch and spawn on each event
+                const portId = this.hal.entropy.uuid();
+                const description = `service:${name}:watch:${activation.pattern}`;
+
+                const vfsWatch = (pattern: string): AsyncIterable<WatchEvent> => {
+                    return this.vfs.watch(pattern, 'kernel');
+                };
+
+                const port = new WatchPort(portId, activation.pattern, vfsWatch, description);
+                this.activationPorts.set(name, port);
+
+                // Start watch loop
+                const abort = new AbortController();
+                this.activationAborts.set(name, abort);
+
+                this.runWatchActivationLoop(name, def, port, abort.signal);
+                break;
+            }
+
+            case 'udp': {
+                // Bind UDP and spawn on each datagram
+                const portId = this.hal.entropy.uuid();
+                const description = `service:${name}:udp:${activation.host ?? '0.0.0.0'}:${activation.port}`;
+
+                const port = new UdpPort(portId, { bind: activation.port, address: activation.host }, description);
+                this.activationPorts.set(name, port);
+
+                // Start datagram loop
+                const abort = new AbortController();
+                this.activationAborts.set(name, abort);
+
+                this.runUdpActivationLoop(name, def, port, abort.signal);
+                break;
+            }
+        }
+    }
+
+    /**
+     * Run TCP listener activation loop.
+     */
+    private async runTcpActivationLoop(
+        name: string,
+        def: ServiceDef,
+        port: ListenerPort,
+        signal: AbortSignal
+    ): Promise<void> {
+        try {
+            while (!signal.aborted) {
+                const msg = await port.recv();
+
+                if (signal.aborted) {
+                    // Clean up the socket we just accepted
+                    if (msg.socket) {
+                        await msg.socket.close().catch(() => {});
+                    }
+                    break;
+                }
+
+                if (msg.socket) {
+                    // Spawn handler with socket as fd 0
+                    this.spawnServiceHandler(name, def, msg.socket).catch((err) => {
+                        const errMsg = err instanceof Error ? err.message : String(err);
+                        this.hal.console.error(
+                            new TextEncoder().encode(`service ${name}: spawn failed: ${errMsg}\n`)
+                        );
+                        msg.socket?.close().catch(() => {});
+                    });
+                }
+            }
+        } catch (err) {
+            if (!signal.aborted) {
+                const errMsg = err instanceof Error ? err.message : String(err);
+                this.hal.console.error(
+                    new TextEncoder().encode(`service ${name}: activation loop error: ${errMsg}\n`)
+                );
+            }
+        }
+    }
+
+    /**
+     * Run pubsub activation loop.
+     */
+    private async runPubsubActivationLoop(
+        name: string,
+        def: ServiceDef,
+        port: PubsubPort,
+        signal: AbortSignal
+    ): Promise<void> {
+        try {
+            while (!signal.aborted) {
+                const msg = await port.recv();
+
+                if (signal.aborted) break;
+
+                // Spawn handler with message data as fd 0 input
+                this.spawnServiceHandler(name, def, undefined, msg.data).catch((err) => {
+                    const errMsg = err instanceof Error ? err.message : String(err);
+                    this.hal.console.error(
+                        new TextEncoder().encode(`service ${name}: spawn failed: ${errMsg}\n`)
+                    );
+                });
+            }
+        } catch (err) {
+            if (!signal.aborted) {
+                const errMsg = err instanceof Error ? err.message : String(err);
+                this.hal.console.error(
+                    new TextEncoder().encode(`service ${name}: activation loop error: ${errMsg}\n`)
+                );
+            }
+        }
+    }
+
+    /**
+     * Run watch activation loop.
+     */
+    private async runWatchActivationLoop(
+        name: string,
+        def: ServiceDef,
+        port: WatchPort,
+        signal: AbortSignal
+    ): Promise<void> {
+        try {
+            while (!signal.aborted) {
+                const msg = await port.recv();
+
+                if (signal.aborted) break;
+
+                // Encode event as JSON for fd 0
+                const eventData = new TextEncoder().encode(JSON.stringify({
+                    path: msg.from,
+                    op: msg.meta?.op,
+                    data: msg.data ? Array.from(msg.data) : undefined,
+                }));
+
+                this.spawnServiceHandler(name, def, undefined, eventData).catch((err) => {
+                    const errMsg = err instanceof Error ? err.message : String(err);
+                    this.hal.console.error(
+                        new TextEncoder().encode(`service ${name}: spawn failed: ${errMsg}\n`)
+                    );
+                });
+            }
+        } catch (err) {
+            if (!signal.aborted) {
+                const errMsg = err instanceof Error ? err.message : String(err);
+                this.hal.console.error(
+                    new TextEncoder().encode(`service ${name}: activation loop error: ${errMsg}\n`)
+                );
+            }
+        }
+    }
+
+    /**
+     * Run UDP activation loop.
+     */
+    private async runUdpActivationLoop(
+        name: string,
+        def: ServiceDef,
+        port: UdpPort,
+        signal: AbortSignal
+    ): Promise<void> {
+        try {
+            while (!signal.aborted) {
+                const msg = await port.recv();
+
+                if (signal.aborted) break;
+
+                // Encode datagram with source address for fd 0
+                const datagram = new TextEncoder().encode(JSON.stringify({
+                    from: msg.from,
+                    data: msg.data ? Array.from(msg.data) : undefined,
+                }));
+
+                this.spawnServiceHandler(name, def, undefined, datagram).catch((err) => {
+                    const errMsg = err instanceof Error ? err.message : String(err);
+                    this.hal.console.error(
+                        new TextEncoder().encode(`service ${name}: spawn failed: ${errMsg}\n`)
+                    );
+                });
+            }
+        } catch (err) {
+            if (!signal.aborted) {
+                const errMsg = err instanceof Error ? err.message : String(err);
+                this.hal.console.error(
+                    new TextEncoder().encode(`service ${name}: activation loop error: ${errMsg}\n`)
+                );
+            }
+        }
+    }
+
+    /**
+     * Spawn a service handler process.
+     *
+     * For socket activation: socket becomes fd 0 (bidirectional)
+     * For message activation: data becomes readable on fd 0
+     */
+    private async spawnServiceHandler(
+        name: string,
+        def: ServiceDef,
+        socket?: import('@src/hal/network.js').Socket,
+        inputData?: Uint8Array
+    ): Promise<void> {
+        const entry = this.handlers.get(def.handler);
+        if (!entry) {
+            throw new Error(`Unknown handler: ${def.handler}`);
+        }
+
+        const procId = this.hal.entropy.uuid();
+
+        const proc: Process = {
+            id: procId,
+            parent: '', // Kernel is parent (no parent process)
+            worker: null as unknown as Worker,
+            state: 'starting',
+            cmd: def.handler,
+            cwd: '/',
+            env: {},
+            args: [def.handler],
+            fds: new Map(),
+            ports: new Map(),
+            nextFd: 3,
+            nextPort: 0,
+            children: new Map(),
+            nextPid: 1,
+        };
+
+        // Setup fd 0 based on activation type
+        if (socket) {
+            // Socket activation: fd 0 is the connected socket
+            const resourceId = this.hal.entropy.uuid();
+            const stat = socket.stat();
+            const description = `tcp:${stat.remoteAddr}:${stat.remotePort}`;
+            const resource = new SocketResource(resourceId, socket, description);
+            this.resources.set(resourceId, resource);
+            proc.fds.set(0, resourceId);
+
+            // fd 1 and 2 also point to the socket (like inetd)
+            this.resourceRefs.set(resourceId, 3);
+            proc.fds.set(1, resourceId);
+            proc.fds.set(2, resourceId);
+        } else if (inputData) {
+            // Message activation: fd 0 is a pipe with pre-filled data
+            const buffer = new PipeBuffer();
+            buffer.write(inputData);
+            buffer.closeWriteEnd(); // Signal EOF after the data
+
+            const pipeId = this.hal.entropy.uuid();
+            const readResource = new PipeResource(
+                `${pipeId}:read`,
+                buffer,
+                'read',
+                `service:${name}:stdin`
+            );
+            this.resources.set(readResource.id, readResource);
+            proc.fds.set(0, readResource.id);
+
+            // fd 1 and 2 go to console
+            await this.setupServiceStdio(proc, 1);
+            await this.setupServiceStdio(proc, 2);
+        } else {
+            // Boot activation: all stdio to console
+            await this.setupServiceStdio(proc, 0);
+            await this.setupServiceStdio(proc, 1);
+            await this.setupServiceStdio(proc, 2);
+        }
+
+        // Start worker
+        proc.worker = this.spawnWorker(proc, entry);
+        proc.state = 'running';
+
+        // Register in process table
+        this.processes.register(proc);
+    }
+
+    /**
+     * Setup a stdio fd to console for service processes.
+     */
+    private async setupServiceStdio(proc: Process, fd: number): Promise<void> {
+        const flags = fd === 0 ? { read: true } : { write: true };
+        const handle = await this.vfs.open(CONSOLE_PATH, flags, 'kernel');
+        const resource = new FileResource(handle.id, handle);
+        this.resources.set(resource.id, resource);
+        proc.fds.set(fd, resource.id);
+    }
+
     // ========================================================================
     // Public accessors for testing
     // ========================================================================
@@ -978,5 +1509,19 @@ export class Kernel {
      */
     isBooted(): boolean {
         return this.booted;
+    }
+
+    /**
+     * Get handler registry (for testing).
+     */
+    getHandlerRegistry(): HandlerRegistry {
+        return this.handlers;
+    }
+
+    /**
+     * Get loaded services (for testing).
+     */
+    getServices(): Map<string, ServiceDef> {
+        return this.services;
     }
 }

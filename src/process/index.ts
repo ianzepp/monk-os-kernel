@@ -183,8 +183,13 @@ export function fstat(fd: number): Promise<Stat> {
  *
  * @param path - Directory path
  */
-export function mkdir(path: string): Promise<void> {
-    return withTypedErrors(syscall<void>('mkdir', path));
+export interface MkdirOpts {
+    /** Create parent directories as needed (like mkdir -p) */
+    recursive?: boolean;
+}
+
+export function mkdir(path: string, opts?: MkdirOpts): Promise<void> {
+    return withTypedErrors(syscall<void>('mkdir', path, opts));
 }
 
 /**

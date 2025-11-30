@@ -260,13 +260,28 @@ export class VFS {
 
     /**
      * Create a directory.
+     *
+     * @param path - Directory path to create
+     * @param caller - Caller ID for access control
+     * @param opts - Options: { recursive?: boolean }
+     *   - recursive: Create parent directories as needed (like mkdir -p)
+     * @returns Entity ID of created directory
      */
-    async mkdir(path: string, caller: string): Promise<string> {
+    async mkdir(path: string, caller: string, opts?: { recursive?: boolean }): Promise<string> {
         const normalPath = this.normalizePath(path);
+        const recursive = opts?.recursive ?? false;
 
         // Check if already exists
         const existing = await this.resolvePath(normalPath);
         if (existing) {
+            if (recursive) {
+                // Like mkdir -p: if it exists and is a directory, that's ok
+                const ctx = this.createContext(caller);
+                const entity = await ctx.getEntity(existing);
+                if (entity?.model === 'folder') {
+                    return existing;
+                }
+            }
             throw new EEXIST(`Path exists: ${path}`);
         }
 
@@ -274,9 +289,14 @@ export class VFS {
         const { parentPath, name } = this.splitPath(normalPath);
 
         // Resolve parent
-        const parentId = await this.resolvePath(parentPath);
+        let parentId = await this.resolvePath(parentPath);
         if (!parentId) {
-            throw new ENOENT(`Parent not found: ${parentPath}`);
+            if (recursive && parentPath !== '/') {
+                // Recursively create parent
+                parentId = await this.mkdir(parentPath, caller, { recursive: true });
+            } else {
+                throw new ENOENT(`Parent not found: ${parentPath}`);
+            }
         }
 
         // Check parent is a folder

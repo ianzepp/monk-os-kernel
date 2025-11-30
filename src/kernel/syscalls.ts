@@ -199,12 +199,13 @@ export function createFileSyscalls(
             return vfs.stat(resource.description, proc.id);
         },
 
-        async mkdir(proc: Process, path: unknown): Promise<void> {
+        async mkdir(proc: Process, path: unknown, opts?: unknown): Promise<void> {
             if (typeof path !== 'string') {
                 throw new EINVAL('path must be a string');
             }
 
-            await vfs.mkdir(path, proc.id);
+            const options = opts as { recursive?: boolean } | undefined;
+            await vfs.mkdir(path, proc.id, options);
         },
 
         async unlink(proc: Process, path: unknown): Promise<void> {

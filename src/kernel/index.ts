@@ -58,3 +58,17 @@ export {
     EINVAL,
     EPERM,
 } from '@src/kernel/errors.js';
+
+// Services
+export type {
+    ServiceDef,
+    Activation,
+    ActivationType,
+    TcpActivation,
+    UdpActivation,
+    PubsubActivation,
+    WatchActivation,
+    BootActivation,
+    HandlerEntry,
+} from '@src/kernel/services.js';
+export { HandlerRegistry, createDefaultRegistry } from '@src/kernel/services.js';
