@@ -242,6 +242,33 @@ export function pipe(): Promise<[number, number]> {
     return withTypedErrors(syscall<[number, number]>('pipe'));
 }
 
+/**
+ * Redirect a file descriptor to point to the same resource as another fd.
+ *
+ * Returns a restore function that reverts the redirection when called.
+ * This is useful for temporarily redirecting stdout/stderr to a file.
+ *
+ * @param targetFd - The fd to redirect (e.g., 1 for stdout)
+ * @param sourceFd - The fd to redirect to (e.g., a file fd)
+ * @returns A function that restores the original fd when called
+ *
+ * @example
+ * const fd = await open('/tmp/output.txt', { write: true, create: true });
+ * const restore = await redirect(1, fd);  // stdout → file
+ * await println('This goes to file');
+ * await restore();  // stdout → console
+ * await close(fd);
+ */
+export async function redirect(targetFd: number, sourceFd: number): Promise<() => Promise<void>> {
+    const saved = await withTypedErrors(
+        syscall<string>('redirect', { target: targetFd, source: sourceFd })
+    );
+
+    return async () => {
+        await withTypedErrors(syscall('restore', { target: targetFd, saved }));
+    };
+}
+
 // ============================================================================
 // Network Operations
 // ============================================================================

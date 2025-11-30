@@ -103,6 +103,16 @@ export class Kernel {
 
         // Pipe syscall
         this.syscalls.register('pipe', (proc) => this.createPipe(proc));
+
+        // Redirect syscalls
+        this.syscalls.register('redirect', (proc, args) => {
+            const { target, source } = args as { target: number; source: number };
+            return this.redirectFd(proc, target, source);
+        });
+        this.syscalls.register('restore', (proc, args) => {
+            const { target, saved } = args as { target: number; saved: string };
+            return this.restoreFd(proc, target, saved);
+        });
     }
 
     /**
@@ -750,6 +760,58 @@ export class Kernel {
         proc.fds.set(writeFd, writeResource.id);
 
         return [readFd, writeFd];
+    }
+
+    /**
+     * Redirect a file descriptor to point to the same resource as another fd.
+     *
+     * Returns the saved resource ID so it can be restored later.
+     * The caller must call restoreFd to restore the original resource.
+     */
+    private redirectFd(proc: Process, targetFd: number, sourceFd: number): string {
+        const sourceResourceId = proc.fds.get(sourceFd);
+        if (!sourceResourceId) {
+            throw new EBADF(`Bad source file descriptor: ${sourceFd}`);
+        }
+
+        const savedResourceId = proc.fds.get(targetFd);
+        if (!savedResourceId) {
+            throw new EBADF(`Bad target file descriptor: ${targetFd}`);
+        }
+
+        // Point target fd to source's resource
+        proc.fds.set(targetFd, sourceResourceId);
+
+        // Increment refcount on the source resource
+        const refs = this.resourceRefs.get(sourceResourceId) ?? 1;
+        this.resourceRefs.set(sourceResourceId, refs + 1);
+
+        return savedResourceId;
+    }
+
+    /**
+     * Restore a file descriptor to its original resource.
+     *
+     * This should be called after redirectFd to restore the original resource.
+     */
+    private async restoreFd(proc: Process, targetFd: number, savedResourceId: string): Promise<void> {
+        const currentResourceId = proc.fds.get(targetFd);
+        if (!currentResourceId) {
+            throw new EBADF(`Bad file descriptor: ${targetFd}`);
+        }
+
+        // Restore the original resource
+        proc.fds.set(targetFd, savedResourceId);
+
+        // Decrement refcount on the current resource (it was redirected)
+        const refs = (this.resourceRefs.get(currentResourceId) ?? 1) - 1;
+        if (refs <= 0) {
+            // Don't close - redirected resources shouldn't be auto-closed here
+            // The original fd that opened the resource will close it
+            this.resourceRefs.delete(currentResourceId);
+        } else {
+            this.resourceRefs.set(currentResourceId, refs);
+        }
     }
 
     /**

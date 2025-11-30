@@ -532,6 +532,11 @@ export class VFS {
     }
 
     private async checkEntityAccess(entityId: string, caller: string, ops: string[]): Promise<void> {
+        // Kernel bypasses all ACL checks
+        if (caller === 'kernel') {
+            return;
+        }
+
         const acl = await this.getACL(entityId);
         const now = this.hal.clock.now();
 

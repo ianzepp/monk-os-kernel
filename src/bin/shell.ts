@@ -35,6 +35,7 @@ import {
     println,
     eprintln,
     pipe,
+    redirect,
 } from '@src/process/index.js';
 
 import {
@@ -389,29 +390,98 @@ async function executeExternal(
  *
  * @param state - Shell state
  * @param cmd - Parsed command
- * @param stdin - Optional stdin fd override
- * @param stdout - Optional stdout fd override
+ * @param pipeStdin - Optional stdin fd from pipe
+ * @param pipeStdout - Optional stdout fd to pipe
  * @returns Exit code
  */
 async function executeSingleCommand(
     state: ShellState,
     cmd: ParsedCommand,
-    stdin?: number,
-    stdout?: number
+    pipeStdin?: number,
+    pipeStdout?: number
 ): Promise<number> {
     // Expand globs in arguments
     const expandedArgs = await expandGlobs(cmd.args, state.cwd, readdirForGlob);
 
-    // Check for built-in
-    if (BUILTIN_COMMANDS.includes(cmd.command)) {
-        // Builtins run in shell process, so we can't redirect their I/O
-        // through kernel fds. For now, just run them normally.
-        // TODO: Support redirecting builtin I/O
-        return executeBuiltin(state, cmd.command, expandedArgs);
-    }
+    // Track fds we open for redirects (need to close after command)
+    const fdsToClose: number[] = [];
 
-    // External command
-    return executeExternal(state, cmd.command, expandedArgs, stdin, stdout);
+    // Determine final stdin/stdout
+    let stdin = pipeStdin;
+    let stdout = pipeStdout;
+
+    try {
+        // Handle input redirect (< file)
+        // Input redirect overrides pipe stdin
+        if (cmd.inputRedirect) {
+            const inputPath = resolvePath(state.cwd, cmd.inputRedirect);
+            try {
+                const fd = await open(inputPath, { read: true });
+                fdsToClose.push(fd);
+                stdin = fd;
+            } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                await eprintln(`${cmd.command}: ${cmd.inputRedirect}: ${msg}`);
+                return 1;
+            }
+        }
+
+        // Handle output redirect (> file) or append redirect (>> file)
+        // Output redirect overrides pipe stdout
+        if (cmd.outputRedirect) {
+            const outputPath = resolvePath(state.cwd, cmd.outputRedirect);
+            try {
+                const fd = await open(outputPath, { write: true, create: true, truncate: true });
+                fdsToClose.push(fd);
+                stdout = fd;
+            } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                await eprintln(`${cmd.command}: ${cmd.outputRedirect}: ${msg}`);
+                return 1;
+            }
+        } else if (cmd.appendRedirect) {
+            const appendPath = resolvePath(state.cwd, cmd.appendRedirect);
+            try {
+                const fd = await open(appendPath, { write: true, create: true, append: true });
+                fdsToClose.push(fd);
+                stdout = fd;
+            } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                await eprintln(`${cmd.command}: ${cmd.appendRedirect}: ${msg}`);
+                return 1;
+            }
+        }
+
+        // Check for built-in
+        if (BUILTIN_COMMANDS.includes(cmd.command)) {
+            // Set up redirects for builtin (redirect fd 1 to our output fd)
+            const restoreFns: Array<() => Promise<void>> = [];
+
+            if (stdout !== undefined) {
+                restoreFns.push(await redirect(1, stdout));
+            }
+            if (stdin !== undefined) {
+                restoreFns.push(await redirect(0, stdin));
+            }
+
+            try {
+                return await executeBuiltin(state, cmd.command, expandedArgs);
+            } finally {
+                // Restore original fds
+                for (const restore of restoreFns) {
+                    await restore();
+                }
+            }
+        }
+
+        // External command
+        return await executeExternal(state, cmd.command, expandedArgs, stdin, stdout);
+    } finally {
+        // Close any fds we opened for redirects
+        for (const fd of fdsToClose) {
+            await close(fd).catch(() => {});
+        }
+    }
 }
 
 /**
