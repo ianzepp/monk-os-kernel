@@ -25,9 +25,10 @@ import {
     createMiscSyscalls,
     createNetworkSyscalls,
 } from '@src/kernel/syscalls.js';
-import { ESRCH, ECHILD, ProcessExited, EBADF, EPERM } from '@src/kernel/errors.js';
-import type { Resource } from '@src/kernel/resource.js';
-import { FileResource, SocketResource } from '@src/kernel/resource.js';
+import { ESRCH, ECHILD, ProcessExited, EBADF, EPERM, EINVAL, ENOSYS } from '@src/kernel/errors.js';
+import type { Resource, Port } from '@src/kernel/resource.js';
+import { FileResource, SocketResource, ListenerPort } from '@src/kernel/resource.js';
+import type { ProcessPortMessage } from '@src/kernel/syscalls.js';
 
 /**
  * Console device UUID for init stdio
@@ -45,6 +46,7 @@ export class Kernel {
     private processes: ProcessTable;
     private syscalls: SyscallDispatcher;
     private resources: Map<string, Resource> = new Map();
+    private ports: Map<string, Port> = new Map();
     private waiters: Map<string, ((status: ExitStatus) => void)[]> = new Map();
     private booted = false;
 
@@ -86,7 +88,11 @@ export class Kernel {
         this.syscalls.registerAll(
             createNetworkSyscalls(
                 this.hal,
-                (proc, host, port) => this.connectTcp(proc, host, port)
+                (proc, host, port) => this.connectTcp(proc, host, port),
+                (proc, type, opts) => this.createPort(proc, type, opts),
+                (proc, portId) => this.getPort(proc, portId),
+                (proc, portId) => this.recvPort(proc, portId),
+                (proc, portId) => this.closePort(proc, portId)
             )
         );
 
@@ -170,6 +176,7 @@ export class Kernel {
         // Clear process table
         this.processes.clear();
         this.resources.clear();
+        this.ports.clear();
         this.waiters.clear();
 
         this.booted = false;
@@ -231,7 +238,13 @@ export class Kernel {
         }
 
         // Close all ports
-        proc.ports.clear();
+        for (const [portId] of proc.ports) {
+            try {
+                await this.closePort(proc, portId);
+            } catch {
+                // Ignore errors during cleanup
+            }
+        }
 
         // Terminate worker
         proc.worker.terminate();
@@ -572,6 +585,116 @@ export class Kernel {
         }
 
         proc.fds.delete(fd);
+    }
+
+    /**
+     * Create a port and allocate port id.
+     */
+    private async createPort(proc: Process, type: string, opts: unknown): Promise<number> {
+        let port: Port;
+
+        switch (type) {
+            case 'tcp:listen': {
+                const listenOpts = opts as { port: number; host?: string; backlog?: number } | undefined;
+                if (!listenOpts || typeof listenOpts.port !== 'number') {
+                    throw new EINVAL('tcp:listen requires port option');
+                }
+
+                const listener = await this.hal.network.listen(listenOpts.port, {
+                    hostname: listenOpts.host,
+                    backlog: listenOpts.backlog,
+                });
+
+                const portId = this.hal.entropy.uuid();
+                const addr = listener.addr();
+                const description = `tcp:listen:${addr.hostname}:${addr.port}`;
+                port = new ListenerPort(portId, listener, description);
+                break;
+            }
+
+            case 'udp':
+            case 'watch':
+            case 'pubsub':
+                throw new ENOSYS(`${type} ports not yet implemented`);
+
+            default:
+                throw new EINVAL(`unknown port type: ${type}`);
+        }
+
+        // Register port
+        this.ports.set(port.id, port);
+
+        // Allocate port id in process
+        const localPortId = proc.nextPort++;
+        proc.ports.set(localPortId, port.id);
+
+        return localPortId;
+    }
+
+    /**
+     * Get port for a port id.
+     */
+    private getPort(proc: Process, portId: number): Port | undefined {
+        const portUuid = proc.ports.get(portId);
+        if (!portUuid) return undefined;
+
+        return this.ports.get(portUuid);
+    }
+
+    /**
+     * Receive from port, auto-allocating fd for sockets.
+     */
+    private async recvPort(proc: Process, portId: number): Promise<ProcessPortMessage> {
+        const port = this.getPort(proc, portId);
+        if (!port) {
+            throw new EBADF(`Bad port: ${portId}`);
+        }
+
+        const msg = await port.recv();
+
+        // If message contains a socket, wrap it and allocate fd
+        if (msg.socket) {
+            const resourceId = this.hal.entropy.uuid();
+            const stat = msg.socket.stat();
+            const description = `tcp:${stat.remoteAddr}:${stat.remotePort}`;
+            const resource = new SocketResource(resourceId, msg.socket, description);
+            this.resources.set(resourceId, resource);
+
+            // Allocate fd
+            const fd = proc.nextFd++;
+            proc.fds.set(fd, resourceId);
+
+            return {
+                from: msg.from,
+                fd,
+                meta: msg.meta,
+            };
+        }
+
+        // Regular data message
+        return {
+            from: msg.from,
+            data: msg.data,
+            meta: msg.meta,
+        };
+    }
+
+    /**
+     * Close a port.
+     */
+    private async closePort(proc: Process, portId: number): Promise<void> {
+        const portUuid = proc.ports.get(portId);
+        if (!portUuid) {
+            throw new EBADF(`Bad port: ${portId}`);
+        }
+
+        const port = this.ports.get(portUuid);
+        if (port) {
+            await port.close();
+            this.ports.delete(portUuid);
+        }
+
+        proc.ports.delete(portId);
     }
 
     // ========================================================================

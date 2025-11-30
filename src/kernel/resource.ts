@@ -6,10 +6,16 @@
  * - HAL Socket (TCP connections)
  *
  * All resources support read(), write(), close() with consistent semantics.
+ *
+ * Ports are message-based I/O channels for:
+ * - TCP listeners (accept connections)
+ * - UDP sockets (datagrams)
+ * - File watchers
+ * - Pub/sub messaging
  */
 
 import type { FileHandle } from '@src/vfs/index.js';
-import type { Socket } from '@src/hal/index.js';
+import type { Socket, Listener } from '@src/hal/index.js';
 
 /**
  * Resource type discriminator
@@ -129,5 +135,112 @@ export class SocketResource implements Resource {
      */
     stat(): { remoteAddr: string; remotePort: number; localAddr: string; localPort: number } {
         return this.socket.stat();
+    }
+}
+
+// ============================================================================
+// Port Types
+// ============================================================================
+
+// NOTE: Ports are currently owned by a single process. If we add fd/port
+// passing between processes in the future, we'll need reference counting
+// to avoid closing a port that's still in use by another process.
+// Same issue exists for Resources above.
+
+/**
+ * Port type discriminator
+ */
+export type PortType = 'tcp:listen' | 'udp' | 'watch' | 'pubsub';
+
+/**
+ * Message received from a port.
+ *
+ * For tcp:listen: socket contains the accepted connection
+ * For udp/pubsub/watch: data contains the payload
+ */
+export interface PortMessage {
+    /** Source identifier (remote address, topic, path) */
+    from: string;
+
+    /** Payload for data ports */
+    data?: Uint8Array;
+
+    /** Accepted socket for tcp:listen */
+    socket?: Socket;
+
+    /** Optional metadata */
+    meta?: Record<string, unknown>;
+}
+
+/**
+ * Base port interface
+ */
+export interface Port {
+    /** Unique port identifier */
+    readonly id: string;
+
+    /** Port type */
+    readonly type: PortType;
+
+    /** Human-readable description */
+    readonly description: string;
+
+    /** Receive next message (blocks until available) */
+    recv(): Promise<PortMessage>;
+
+    /** Send message to destination (not all ports support this) */
+    send(to: string, data: Uint8Array): Promise<void>;
+
+    /** Close port */
+    close(): Promise<void>;
+
+    /** Check if closed */
+    readonly closed: boolean;
+}
+
+/**
+ * TCP listener port
+ *
+ * Wraps HAL Listener to provide port interface.
+ * recv() accepts connections and returns them as PortMessages with socket.
+ */
+export class ListenerPort implements Port {
+    readonly type: PortType = 'tcp:listen';
+    private _closed = false;
+
+    constructor(
+        readonly id: string,
+        private listener: Listener,
+        readonly description: string
+    ) {}
+
+    get closed(): boolean {
+        return this._closed;
+    }
+
+    async recv(): Promise<PortMessage> {
+        const socket = await this.listener.accept();
+        const stat = socket.stat();
+        return {
+            from: `${stat.remoteAddr}:${stat.remotePort}`,
+            socket,
+        };
+    }
+
+    async send(_to: string, _data: Uint8Array): Promise<void> {
+        throw new Error('EOPNOTSUPP: tcp:listen ports do not support send');
+    }
+
+    async close(): Promise<void> {
+        if (this._closed) return;
+        this._closed = true;
+        await this.listener.close();
+    }
+
+    /**
+     * Get listener address
+     */
+    addr(): { hostname: string; port: number } {
+        return this.listener.addr();
     }
 }

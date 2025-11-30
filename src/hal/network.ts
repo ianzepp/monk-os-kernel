@@ -36,6 +36,8 @@ export interface ListenOpts {
     hostname?: string;
     /** Enable TLS */
     tls?: TlsOpts;
+    /** Connection backlog (default: OS default, typically 128) */
+    backlog?: number;
 }
 
 /**

@@ -10,9 +10,10 @@
 | Types & errors | ✅ Done | `src/kernel/types.ts`, `errors.ts` |
 | Resource abstraction | ✅ Done | `src/kernel/resource.ts` |
 | Network `connect()` | ✅ Done | `src/kernel/syscalls.ts` |
+| Port syscalls | ✅ Done | `src/kernel/syscalls.ts` |
+| TCP listener port | ✅ Done | `src/kernel/resource.ts` |
 | Scheduler | ⏳ Pending | Bun Workers handle scheduling |
 | Init process | ⏳ Pending | Requires Worker entry point |
-| Port syscalls | ⏳ Pending | - |
 | Message router | ⏳ Pending | - |
 
 ---

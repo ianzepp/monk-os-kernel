@@ -8,7 +8,7 @@ import type { HAL } from '@src/hal/index.js';
 import type { VFS, SeekWhence } from '@src/vfs/index.js';
 import type { Process, OpenFlags } from '@src/kernel/types.js';
 import type { Resource, FileResource } from '@src/kernel/resource.js';
-import { ENOSYS } from '@src/kernel/errors.js';
+import { ENOSYS, EINVAL, EBADF } from '@src/kernel/errors.js';
 
 /**
  * Syscall handler function type
@@ -102,7 +102,7 @@ export function createFileSyscalls(
     return {
         async open(proc: Process, path: unknown, flags: unknown): Promise<number> {
             if (typeof path !== 'string') {
-                throw new Error('EINVAL: path must be a string');
+                throw new EINVAL('path must be a string');
             }
 
             const openFlags: OpenFlags = typeof flags === 'object' && flags !== null
@@ -114,19 +114,19 @@ export function createFileSyscalls(
 
         async close(proc: Process, fd: unknown): Promise<void> {
             if (typeof fd !== 'number') {
-                throw new Error('EINVAL: fd must be a number');
+                throw new EINVAL('fd must be a number');
             }
             await closeResource(proc, fd);
         },
 
         async read(proc: Process, fd: unknown, size?: unknown): Promise<Uint8Array> {
             if (typeof fd !== 'number') {
-                throw new Error('EINVAL: fd must be a number');
+                throw new EINVAL('fd must be a number');
             }
 
             const resource = getResource(proc, fd);
             if (!resource) {
-                throw new Error(`EBADF: Bad file descriptor: ${fd}`);
+                throw new EBADF(`Bad file descriptor: ${fd}`);
             }
 
             const readSize = typeof size === 'number' ? size : undefined;
@@ -135,16 +135,16 @@ export function createFileSyscalls(
 
         async write(proc: Process, fd: unknown, data: unknown): Promise<number> {
             if (typeof fd !== 'number') {
-                throw new Error('EINVAL: fd must be a number');
+                throw new EINVAL('fd must be a number');
             }
 
             const resource = getResource(proc, fd);
             if (!resource) {
-                throw new Error(`EBADF: Bad file descriptor: ${fd}`);
+                throw new EBADF(`Bad file descriptor: ${fd}`);
             }
 
             if (!(data instanceof Uint8Array)) {
-                throw new Error('EINVAL: data must be Uint8Array');
+                throw new EINVAL('data must be Uint8Array');
             }
 
             return resource.write(data);
@@ -152,21 +152,21 @@ export function createFileSyscalls(
 
         async seek(proc: Process, fd: unknown, offset: unknown, whence: unknown): Promise<number> {
             if (typeof fd !== 'number') {
-                throw new Error('EINVAL: fd must be a number');
+                throw new EINVAL('fd must be a number');
             }
 
             const resource = getResource(proc, fd);
             if (!resource) {
-                throw new Error(`EBADF: Bad file descriptor: ${fd}`);
+                throw new EBADF(`Bad file descriptor: ${fd}`);
             }
 
             // Only file resources support seek
             if (resource.type !== 'file') {
-                throw new Error('ESPIPE: Illegal seek on socket');
+                throw new EINVAL('Illegal seek on socket');
             }
 
             if (typeof offset !== 'number') {
-                throw new Error('EINVAL: offset must be a number');
+                throw new EINVAL('offset must be a number');
             }
 
             const seekWhence: SeekWhence = (whence as SeekWhence) || 'start';
@@ -175,7 +175,7 @@ export function createFileSyscalls(
 
         async stat(proc: Process, path: unknown): Promise<unknown> {
             if (typeof path !== 'string') {
-                throw new Error('EINVAL: path must be a string');
+                throw new EINVAL('path must be a string');
             }
 
             return vfs.stat(path, proc.id);
@@ -183,18 +183,17 @@ export function createFileSyscalls(
 
         async fstat(proc: Process, fd: unknown): Promise<unknown> {
             if (typeof fd !== 'number') {
-                throw new Error('EINVAL: fd must be a number');
+                throw new EINVAL('fd must be a number');
             }
 
             const resource = getResource(proc, fd);
             if (!resource) {
-                throw new Error(`EBADF: Bad file descriptor: ${fd}`);
+                throw new EBADF(`Bad file descriptor: ${fd}`);
             }
 
             // Only file resources have path-based stat
             if (resource.type !== 'file') {
-                // For sockets, return socket stat
-                throw new Error('EINVAL: fstat not supported on sockets');
+                throw new EINVAL('fstat not supported on sockets');
             }
 
             return vfs.stat(resource.description, proc.id);
@@ -202,7 +201,7 @@ export function createFileSyscalls(
 
         async mkdir(proc: Process, path: unknown): Promise<void> {
             if (typeof path !== 'string') {
-                throw new Error('EINVAL: path must be a string');
+                throw new EINVAL('path must be a string');
             }
 
             await vfs.mkdir(path, proc.id);
@@ -210,7 +209,7 @@ export function createFileSyscalls(
 
         async unlink(proc: Process, path: unknown): Promise<void> {
             if (typeof path !== 'string') {
-                throw new Error('EINVAL: path must be a string');
+                throw new EINVAL('path must be a string');
             }
 
             await vfs.unlink(path, proc.id);
@@ -219,7 +218,7 @@ export function createFileSyscalls(
         async rmdir(proc: Process, path: unknown): Promise<void> {
             // rmdir is same as unlink for directories
             if (typeof path !== 'string') {
-                throw new Error('EINVAL: path must be a string');
+                throw new EINVAL('path must be a string');
             }
 
             await vfs.unlink(path, proc.id);
@@ -227,7 +226,7 @@ export function createFileSyscalls(
 
         async readdir(proc: Process, path: unknown): Promise<string[]> {
             if (typeof path !== 'string') {
-                throw new Error('EINVAL: path must be a string');
+                throw new EINVAL('path must be a string');
             }
 
             const entries: string[] = [];
@@ -239,7 +238,7 @@ export function createFileSyscalls(
 
         async rename(proc: Process, oldPath: unknown, newPath: unknown): Promise<void> {
             if (typeof oldPath !== 'string' || typeof newPath !== 'string') {
-                throw new Error('EINVAL: paths must be strings');
+                throw new EINVAL('paths must be strings');
             }
 
             // TODO: Implement rename in VFS
@@ -248,7 +247,7 @@ export function createFileSyscalls(
 
         async access(proc: Process, path: unknown, acl?: unknown): Promise<unknown> {
             if (typeof path !== 'string') {
-                throw new Error('EINVAL: path must be a string');
+                throw new EINVAL('path must be a string');
             }
 
             if (acl !== undefined) {
@@ -274,7 +273,7 @@ export function createMiscSyscalls(): SyscallRegistry {
 
         chdir(proc: Process, path: unknown): void {
             if (typeof path !== 'string') {
-                throw new Error('EINVAL: path must be a string');
+                throw new EINVAL('path must be a string');
             }
             // TODO: Verify path exists and is a directory
             proc.cwd = path;
@@ -282,17 +281,17 @@ export function createMiscSyscalls(): SyscallRegistry {
 
         getenv(proc: Process, name: unknown): string | undefined {
             if (typeof name !== 'string') {
-                throw new Error('EINVAL: name must be a string');
+                throw new EINVAL('name must be a string');
             }
             return proc.env[name];
         },
 
         setenv(proc: Process, name: unknown, value: unknown): void {
             if (typeof name !== 'string') {
-                throw new Error('EINVAL: name must be a string');
+                throw new EINVAL('name must be a string');
             }
             if (typeof value !== 'string') {
-                throw new Error('EINVAL: value must be a string');
+                throw new EINVAL('value must be a string');
             }
             proc.env[name] = value;
         },
@@ -300,32 +299,108 @@ export function createMiscSyscalls(): SyscallRegistry {
 }
 
 /**
+ * Port message returned to process.
+ *
+ * For tcp:listen: fd is the accepted connection
+ * For udp/pubsub/watch: data is the payload
+ */
+export interface ProcessPortMessage {
+    /** Source identifier */
+    from: string;
+
+    /** File descriptor for accepted connections (tcp:listen) */
+    fd?: number;
+
+    /** Payload data (udp, pubsub, watch) */
+    data?: Uint8Array;
+
+    /** Optional metadata */
+    meta?: Record<string, unknown>;
+}
+
+/**
  * Create network syscalls.
  *
  * @param hal - HAL instance
  * @param connectTcp - Function to connect and allocate fd for socket
+ * @param createPort - Function to create a port and allocate port id
+ * @param getPort - Function to get port from port id
+ * @param recvPort - Function to receive from port (auto-allocates fd for sockets)
+ * @param closePort - Function to close port
  */
 export function createNetworkSyscalls(
     hal: HAL,
-    connectTcp: (proc: Process, host: string, port: number) => Promise<number>
+    connectTcp: (proc: Process, host: string, port: number) => Promise<number>,
+    createPort: (proc: Process, type: string, opts: unknown) => Promise<number>,
+    getPort: (proc: Process, portId: number) => import('./resource.js').Port | undefined,
+    recvPort: (proc: Process, portId: number) => Promise<ProcessPortMessage>,
+    closePort: (proc: Process, portId: number) => Promise<void>
 ): SyscallRegistry {
     return {
         async connect(proc: Process, proto: unknown, host: unknown, port: unknown): Promise<number> {
             if (typeof proto !== 'string') {
-                throw new Error('EINVAL: proto must be a string');
+                throw new EINVAL('proto must be a string');
             }
             if (typeof host !== 'string') {
-                throw new Error('EINVAL: host must be a string');
+                throw new EINVAL('host must be a string');
             }
             if (typeof port !== 'number') {
-                throw new Error('EINVAL: port must be a number');
+                throw new EINVAL('port must be a number');
             }
 
             if (proto !== 'tcp') {
-                throw new Error(`EINVAL: unsupported protocol: ${proto}`);
+                throw new EINVAL(`unsupported protocol: ${proto}`);
             }
 
             return connectTcp(proc, host, port);
+        },
+
+        async port(proc: Process, type: unknown, opts: unknown): Promise<number> {
+            if (typeof type !== 'string') {
+                throw new EINVAL('type must be a string');
+            }
+
+            return createPort(proc, type, opts);
+        },
+
+        async recv(proc: Process, portId: unknown): Promise<ProcessPortMessage> {
+            if (typeof portId !== 'number') {
+                throw new EINVAL('portId must be a number');
+            }
+
+            const port = getPort(proc, portId);
+            if (!port) {
+                throw new EBADF(`Bad port: ${portId}`);
+            }
+
+            return recvPort(proc, portId);
+        },
+
+        async send(proc: Process, portId: unknown, to: unknown, data: unknown): Promise<void> {
+            if (typeof portId !== 'number') {
+                throw new EINVAL('portId must be a number');
+            }
+            if (typeof to !== 'string') {
+                throw new EINVAL('to must be a string');
+            }
+            if (!(data instanceof Uint8Array)) {
+                throw new EINVAL('data must be Uint8Array');
+            }
+
+            const port = getPort(proc, portId);
+            if (!port) {
+                throw new EBADF(`Bad port: ${portId}`);
+            }
+
+            await port.send(to, data);
+        },
+
+        async pclose(proc: Process, portId: unknown): Promise<void> {
+            if (typeof portId !== 'number') {
+                throw new EINVAL('portId must be a number');
+            }
+
+            await closePort(proc, portId);
         },
     };
 }
