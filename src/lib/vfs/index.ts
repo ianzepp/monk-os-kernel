@@ -25,6 +25,9 @@ export type { MountOptions, MountInfo } from './vfs.js';
 // Built-in models
 export { FileModel } from './models/file.js';
 export { FolderModel } from './models/folder.js';
+export { DeviceModel, initStandardDevices } from './models/device.js';
+export { ProcModel, ProcessRegistry, createProcessProc } from './models/proc.js';
+export type { ProcessState } from './models/proc.js';
 
 // Errors (re-export relevant HAL errors + VFS-specific)
 export {
