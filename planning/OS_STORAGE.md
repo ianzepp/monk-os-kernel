@@ -61,13 +61,15 @@ function shortId(uuid: string): string {
 // File identity is UUID, path is a field
 {
     id: '019d3f2a-7b4c-7d8e-9f0a-1b2c3d4e5f6b',
+    model: 'file',
     path: '/home/user/doc.txt',  // indexed, queryable
-    content: '019d3f2a-...',     // blob UUID (content-addressable)
+    parent: '019d3f2a-...',      // folder UUID
+    data: '019d3f2a-...',        // blob UUID (content-addressable)
     owner: '019d3f2a-...',       // process UUID that created it
 }
 
-// Moving a file = updating path field, id unchanged
-// Two paths to same content = same content UUID, different file UUIDs
+// Moving a file = updating path + parent fields, id unchanged
+// Two files sharing data = same data UUID, different file UUIDs
 // Querying by path = index lookup, not identity lookup
 ```
 
@@ -182,26 +184,61 @@ const content = await handle.read();
 
 ## Built-in Models
 
+### FolderModel
+
+Organizational container for files and other folders.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| id | string | UUID v7 identity |
+| model | string | `'folder'` |
+| path | string | Full path (indexed) |
+| parent | string | Parent folder UUID (null for root) |
+| owner | string | Owner UUID |
+| mtime | number | Last modification time (ms epoch) |
+| ctime | number | Creation time (ms epoch) |
+
+**No `data` field** - folders have no content blob.
+
+**Children are not stored** - derived via query:
+```typescript
+// List folder contents
+vfs.list('/home/user/documents')
+// → SELECT * FROM entities WHERE parent = '019d...'
+```
+
+**Operations:**
+- `stat()` → returns folder fields
+- `read()` → error (use `list()`)
+- `write()` → error
+- `list()` → query children by parent UUID
+
 ### FileModel
 
 Standard file storage backed by StorageEngine.
 
 | Field | Type | Description |
 |-------|------|-------------|
+| id | string | UUID v7 identity |
+| model | string | `'file'` |
+| path | string | Full path (indexed) |
+| parent | string | Parent folder UUID |
+| data | string | Blob UUID (content-addressable) |
+| owner | string | Owner UUID |
 | size | number | Content size in bytes |
 | mtime | number | Last modification time (ms epoch) |
 | ctime | number | Creation time (ms epoch) |
-| owner | string | Owner identifier |
-| mode | number | Permission bits |
 | mimetype | string | Content type (optional) |
 
 **Backing store:** StorageEngine
-- Metadata: stored as JSON in `meta:{path}` key
-- Content: stored as blob in `blob:{path}` key
+- Metadata: stored as JSON in `entity:{id}` key
+- Content: stored as blob in `blob:{data}` key
 
 **Flow control:** Transactions
 - Metadata + content updates are atomic
 - Concurrent writes serialize via storage transactions
+
+**Content sharing:** Two files with same `data` UUID share the same blob (deduplication).
 
 ### NetworkModel
 
@@ -406,14 +443,14 @@ Models use HAL devices but don't expose them directly:
 
 ## Open Questions
 
-1. **Directories**: Are directories a separate model, or implicit from path structure?
+1. **Permissions**: Per-model permission checks, or unified in VFS?
 
-2. **Permissions**: Per-model permission checks, or unified in VFS?
+2. **Quotas**: Storage quotas at model level or VFS level?
 
-3. **Quotas**: Storage quotas at model level or VFS level?
-
-4. **Caching**: Should models cache stat() results? Invalidation strategy?
+3. **Caching**: Should models cache stat() results? Invalidation strategy?
 
 ## Resolved Questions
 
-1. **Symlinks**: No symlinks. Two files sharing content have the same `content` UUID. Indirection is handled by queries or application logic, not filesystem primitives.
+1. **Symlinks**: No symlinks. Two files sharing data have the same `data` UUID. Indirection is handled by queries or application logic, not filesystem primitives.
+
+2. **Directories**: `folder` is a separate model from `file`. Folders have no `data` field. Children are derived via query (`WHERE parent = folder_uuid`), not stored on the folder.
