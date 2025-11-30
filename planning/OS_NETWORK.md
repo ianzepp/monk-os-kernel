@@ -60,11 +60,12 @@ const msg = await sock.recv();            // msg.from tells you who sent it
 
 ### connect()
 
-Create a connected stream (TCP client).
+Create a connected stream (TCP or Unix socket).
 
 ```typescript
 interface Kernel {
   connect(proto: 'tcp', host: string, port: number): Promise<FileHandle>;
+  connect(proto: 'unix', path: string): Promise<FileHandle>;
 }
 ```
 
@@ -73,7 +74,7 @@ Returns a FileHandle with:
 - `write(data: Uint8Array): Promise<number>` - write to stream
 - `close(): Promise<void>` - close connection
 
-**Example:**
+**TCP Example:**
 
 ```typescript
 const conn = await kernel.connect('tcp', 'example.com', 80);
@@ -81,6 +82,17 @@ await conn.write(new TextEncoder().encode('GET / HTTP/1.0\r\n\r\n'));
 const response = await conn.read();
 await conn.close();
 ```
+
+**Unix Socket Example:**
+
+```typescript
+const conn = await kernel.connect('unix', '/var/run/db.sock');
+await conn.write(query);
+const result = await conn.read();
+await conn.close();
+```
+
+Unix sockets provide faster local IPC than TCP loopback. Permission to connect is controlled by VFS ACL on the socket path.
 
 ### port()
 
@@ -452,4 +464,4 @@ VFS and Network are peers under the Kernel:
 
 3. **Multicast UDP** - Support for joining multicast groups? Likely a `{ multicast: '224.0.0.1' }` option on UDP ports.
 
-4. **Unix sockets** - Should `connect()` support Unix domain sockets? Path-based, but still a stream. Maybe `kernel.connect('unix', '/var/run/socket')`.
+4. **Unix sockets** - **Yes.** `connect('unix', '/var/run/socket')` returns fd like TCP. Port argument ignored. Uses VFS ACL on socket path for permission. No HAL changes needed - kernel dispatches to `Bun.connect({ unix: path })` based on proto.

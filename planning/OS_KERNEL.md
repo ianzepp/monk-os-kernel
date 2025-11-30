@@ -8,10 +8,12 @@
 | Process table | ✅ Done | `src/kernel/process-table.ts` |
 | Syscall dispatch | ✅ Done | `src/kernel/syscalls.ts` |
 | Types & errors | ✅ Done | `src/kernel/types.ts`, `errors.ts` |
-| Scheduler | ⏳ Pending | - |
+| Resource abstraction | ✅ Done | `src/kernel/resource.ts` |
+| Network `connect()` | ✅ Done | `src/kernel/syscalls.ts` |
+| Scheduler | ⏳ Pending | Bun Workers handle scheduling |
 | Init process | ⏳ Pending | Requires Worker entry point |
-| Network syscalls | ⏳ Pending | - |
 | Port syscalls | ⏳ Pending | - |
+| Message router | ⏳ Pending | - |
 
 ---
 
@@ -214,7 +216,11 @@ interface IPCDevice {
 
 | Syscall | Arguments | Returns | Description |
 |---------|-----------|---------|-------------|
-| `connect` | proto, host, port | fd | TCP connect, returns stream fd |
+| `connect` | proto, host, port | fd | Connect stream, returns fd |
+
+**Protocols:**
+- `tcp` - TCP connection: `connect('tcp', 'host', port)`
+- `unix` - Unix socket: `connect('unix', '/path/to/sock')` (port ignored)
 
 #### Ports
 
