@@ -93,6 +93,124 @@ export interface MountsConfig {
 }
 
 /**
+ * Dependencies for mount loading
+ */
+export interface MountLoaderDeps {
+    vfs: {
+        stat(path: string, caller: string): Promise<unknown>;
+        open(path: string, flags: { read: boolean }, caller: string): Promise<{
+            read(size: number): Promise<Uint8Array>;
+            close(): Promise<void>;
+        }>;
+        mkdir(path: string, caller: string, opts?: { recursive?: boolean }): Promise<string>;
+        mountHost(path: string, source: string, opts?: { readonly?: boolean }): void;
+    };
+    hal: {
+        console: {
+            error(data: Uint8Array): void;
+        };
+    };
+    loader: {
+        setAliases(aliases: Record<string, string>): void;
+    };
+}
+
+/**
+ * Load and apply mounts from /etc/mounts.json
+ */
+export async function loadMounts(deps: MountLoaderDeps): Promise<void> {
+    const { vfs, hal } = deps;
+    const mountsPath = '/etc/mounts.json';
+
+    try {
+        await vfs.stat(mountsPath, 'kernel');
+    } catch {
+        // No mounts.json - that's fine, skip
+        return;
+    }
+
+    try {
+        const handle = await vfs.open(mountsPath, { read: true }, 'kernel');
+        const chunks: Uint8Array[] = [];
+        while (true) {
+            const chunk = await handle.read(65536);
+            if (chunk.length === 0) break;
+            chunks.push(chunk);
+        }
+        await handle.close();
+
+        const total = chunks.reduce((sum, c) => sum + c.length, 0);
+        const combined = new Uint8Array(total);
+        let offset = 0;
+        for (const chunk of chunks) {
+            combined.set(chunk, offset);
+            offset += chunk.length;
+        }
+
+        const content = new TextDecoder().decode(combined);
+        const config = JSON.parse(content) as MountsConfig;
+
+        for (const mount of config.mounts) {
+            await applyMount(deps, mount);
+        }
+    } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        hal.console.error(
+            new TextEncoder().encode(`Failed to load mounts: ${msg}\n`)
+        );
+    }
+}
+
+/**
+ * Apply a single mount definition.
+ */
+export async function applyMount(deps: MountLoaderDeps, mount: MountDef): Promise<void> {
+    const { vfs, hal, loader } = deps;
+
+    // Ensure mount point exists
+    try {
+        await vfs.stat(mount.path, 'kernel');
+    } catch {
+        await vfs.mkdir(mount.path, 'kernel', { recursive: true });
+    }
+
+    switch (mount.type) {
+        case 'memory':
+            // Memory mounts are the default VFS behavior (HAL storage)
+            // Nothing special to do - path already exists in VFS
+            break;
+
+        case 'host':
+            vfs.mountHost(mount.path, mount.source, {
+                readonly: !mount.options?.writable,
+            });
+            break;
+
+        case 'transpiled-host':
+            // TODO: Implement TranspiledHostMount
+            // For now, mount as regular host mount
+            vfs.mountHost(mount.path, mount.source, {
+                readonly: true,
+            });
+            // Store aliases for loader to use
+            if (mount.options?.aliases) {
+                loader.setAliases(mount.options.aliases);
+            }
+            break;
+
+        case 'storage':
+            // Storage mounts use HAL storage backend
+            // This is the default behavior, nothing special needed
+            break;
+
+        default:
+            hal.console.error(
+                new TextEncoder().encode(`Unknown mount type: ${(mount as MountDef).type}\n`)
+            );
+    }
+}
+
+/**
  * Parse a size string like "50MB" or "1GB" to bytes
  */
 export function parseSize(size: string): number {
