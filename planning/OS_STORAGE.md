@@ -563,7 +563,7 @@ Access data is stored separately from entity metadata:
 ```
 entity:{uuid}     → { id, model, path, parent, ... }  // stat() data
 access:{uuid}     → { grants: [...], deny: [...] }    // access() data
-blob:{uuid}       → raw bytes                         // read() data
+data:{uuid}       → raw bytes                         // read() data
 ```
 
 This keeps `stat()` lean and allows access queries without loading entity data.
