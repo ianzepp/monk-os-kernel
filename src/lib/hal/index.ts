@@ -8,6 +8,57 @@
  * Everything above accesses hardware through these interfaces.
  */
 
+// Error types
+export {
+    HALError,
+    // File/Block I/O
+    EACCES,
+    EAGAIN,
+    EBADF,
+    EBUSY,
+    EEXIST,
+    EFAULT,
+    EFBIG,
+    EINVAL,
+    EIO,
+    EISDIR,
+    EMFILE,
+    ENAMETOOLONG,
+    ENOENT,
+    ENOSPC,
+    ENOTDIR,
+    ENOTEMPTY,
+    EPERM,
+    EROFS,
+    // Network
+    EADDRINUSE,
+    EADDRNOTAVAIL,
+    ECONNREFUSED,
+    ECONNRESET,
+    ETIMEDOUT,
+    EHOSTUNREACH,
+    ENETUNREACH,
+    ENOTCONN,
+    EPIPE,
+    // Process/IPC
+    ECANCELED,
+    EDEADLK,
+    EINTR,
+    ECHILD,
+    ESRCH,
+    // Crypto
+    EAUTH,
+    // General
+    ENOSYS,
+    ENOTSUP,
+    EOVERFLOW,
+    ERANGE,
+    // Helpers
+    isHALError,
+    hasErrorCode,
+    fromSystemError,
+} from './errors.js';
+
 // Device interfaces
 export type { BlockDevice, BlockStat } from './block.js';
 export type { StorageEngine, StorageStat, Transaction, WatchEvent } from './storage.js';

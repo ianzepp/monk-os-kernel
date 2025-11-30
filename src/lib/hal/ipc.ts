@@ -245,8 +245,15 @@ class AtomicMutex implements Mutex {
             }
 
             // Block until notified
-            // Note: This throws in main thread
-            Atomics.wait(this.view, this.index, 1);
+            try {
+                Atomics.wait(this.view, this.index, 1);
+            } catch (e) {
+                // Atomics.wait() throws in main thread
+                throw new Error(
+                    'Mutex.lock() cannot block on main thread. ' +
+                    'Use trylock() or call from a Worker.'
+                );
+            }
             spins = 0;
         }
     }
@@ -299,7 +306,14 @@ class AtomicSemaphore implements Semaphore {
             }
 
             // Count is zero, wait for post
-            Atomics.wait(this.view, this.index, 0);
+            try {
+                Atomics.wait(this.view, this.index, 0);
+            } catch (e) {
+                throw new Error(
+                    'Semaphore.wait() cannot block on main thread. ' +
+                    'Use trywait() or call from a Worker.'
+                );
+            }
         }
     }
 
@@ -348,7 +362,14 @@ class AtomicCondVar implements CondVar {
         const seq = Atomics.load(this.view, this.index);
         mutex.unlock();
         try {
-            Atomics.wait(this.view, this.index, seq);
+            try {
+                Atomics.wait(this.view, this.index, seq);
+            } catch (e) {
+                throw new Error(
+                    'CondVar.wait() cannot block on main thread. ' +
+                    'Call from a Worker.'
+                );
+            }
         } finally {
             mutex.lock();
         }
@@ -358,7 +379,15 @@ class AtomicCondVar implements CondVar {
         const seq = Atomics.load(this.view, this.index);
         mutex.unlock();
         try {
-            const result = Atomics.wait(this.view, this.index, seq, ms);
+            let result: 'ok' | 'not-equal' | 'timed-out';
+            try {
+                result = Atomics.wait(this.view, this.index, seq, ms);
+            } catch (e) {
+                throw new Error(
+                    'CondVar.timedwait() cannot block on main thread. ' +
+                    'Call from a Worker.'
+                );
+            }
             return result !== 'timed-out';
         } finally {
             mutex.lock();
