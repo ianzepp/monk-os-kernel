@@ -226,6 +226,69 @@ export function rename(oldPath: string, newPath: string): Promise<void> {
 }
 
 // ============================================================================
+// Access Control (ACL)
+// ============================================================================
+
+/**
+ * Permission grant.
+ */
+export interface Grant {
+    /** Who receives the grant (caller ID, or '*' for everyone) */
+    to: string;
+    /** What operations are permitted (e.g., 'read', 'write', '*') */
+    ops: string[];
+    /** Optional expiration (ms since epoch) */
+    expires?: number;
+}
+
+/**
+ * Access Control List.
+ */
+export interface ACL {
+    /** Explicit grants */
+    grants: Grant[];
+    /** Explicit denies (caller IDs) - always wins over grants */
+    deny: string[];
+}
+
+/**
+ * Get or set ACL for a path.
+ *
+ * This is the unified API for permission management. It replaces the need for
+ * separate grant()/revoke()/chmod() syscalls by providing direct ACL access.
+ *
+ * @param path - File or directory path
+ * @returns Current ACL when called with path only
+ *
+ * @example
+ * // Get current ACL
+ * const acl = await access('/myfile');
+ *
+ * // Grant world read access
+ * await access('/myfile', {
+ *     grants: [{ to: '*', ops: ['read'] }],
+ *     deny: []
+ * });
+ *
+ * // Reset to default (owner-only)
+ * await access('/myfile', null);
+ */
+export function access(path: string): Promise<ACL>;
+/**
+ * Set ACL for a path.
+ *
+ * @param path - File or directory path
+ * @param acl - New ACL, or null to reset to default (owner-only)
+ */
+export function access(path: string, acl: ACL | null): Promise<void>;
+export function access(path: string, acl?: ACL | null): Promise<ACL | void> {
+    if (acl === undefined) {
+        return withTypedErrors(syscall<ACL>('access', path));
+    }
+    return withTypedErrors(syscall<void>('access', path, acl));
+}
+
+// ============================================================================
 // Pipe Operations
 // ============================================================================
 
