@@ -37,6 +37,9 @@ export interface Process {
     /** Environment variables */
     env: Record<string, string>;
 
+    /** Command-line arguments */
+    args: string[];
+
     /** Open file descriptors: local fd -> resource UUID */
     fds: Map<number, string>;
 
@@ -63,6 +66,9 @@ export interface Process {
  * Spawn options
  */
 export interface SpawnOpts {
+    /** Command-line arguments */
+    args?: string[];
+
     /** Working directory for child */
     cwd?: string;
 

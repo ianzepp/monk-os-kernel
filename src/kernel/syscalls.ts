@@ -267,6 +267,10 @@ export function createFileSyscalls(
  */
 export function createMiscSyscalls(): SyscallRegistry {
     return {
+        getargs(proc: Process): string[] {
+            return proc.args;
+        },
+
         getcwd(proc: Process): string {
             return proc.cwd;
         },

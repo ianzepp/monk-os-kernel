@@ -59,6 +59,7 @@ export interface Stat {
  * Spawn options
  */
 export interface SpawnOpts {
+    args?: string[];
     cwd?: string;
     env?: Record<string, string>;
     stdin?: number | 'pipe';
@@ -346,6 +347,15 @@ export function getpid(): Promise<number> {
  */
 export function getppid(): Promise<number> {
     return withTypedErrors(syscall<number>('getppid'));
+}
+
+/**
+ * Get command-line arguments.
+ *
+ * @returns Argument array (argv[0] is the command)
+ */
+export function getargs(): Promise<string[]> {
+    return withTypedErrors(syscall<string[]>('getargs'));
 }
 
 // ============================================================================
