@@ -102,6 +102,12 @@ export const SIGKILL = 9;
 export const TERM_GRACE_MS = 5000;
 
 /**
+ * Resource limits per process
+ */
+export const MAX_FDS = 256;
+export const MAX_PORTS = 64;
+
+/**
  * Syscall message from process to kernel
  */
 export interface SyscallRequest {

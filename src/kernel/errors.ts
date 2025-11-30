@@ -12,6 +12,7 @@ export {
     EBADF,
     EINVAL,
     EPERM,
+    EMFILE,
 } from '@src/hal/index.js';
 
 /**

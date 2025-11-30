@@ -19,13 +19,14 @@ import type {
 } from '@src/kernel/types.js';
 import { SIGTERM, SIGKILL, TERM_GRACE_MS } from '@src/kernel/types.js';
 import { ProcessTable } from '@src/kernel/process-table.js';
+import { MAX_FDS, MAX_PORTS } from '@src/kernel/types.js';
 import {
     SyscallDispatcher,
     createFileSyscalls,
     createMiscSyscalls,
     createNetworkSyscalls,
 } from '@src/kernel/syscalls.js';
-import { ESRCH, ECHILD, ProcessExited, EBADF, EPERM, EINVAL, ENOSYS } from '@src/kernel/errors.js';
+import { ESRCH, ECHILD, ProcessExited, EBADF, EPERM, EINVAL, ENOSYS, EMFILE } from '@src/kernel/errors.js';
 import type { Resource, Port } from '@src/kernel/resource.js';
 import { FileResource, SocketResource, ListenerPort } from '@src/kernel/resource.js';
 import type { ProcessPortMessage } from '@src/kernel/syscalls.js';
@@ -464,6 +465,10 @@ export class Kernel {
 
     /**
      * Force exit a process immediately.
+     *
+     * Unlike graceful exit(), this doesn't await cleanup - but we still
+     * release kernel-side resources. The process doesn't get a chance to
+     * clean up, but the kernel must not leak handles.
      */
     private forceExit(proc: Process, code: number): void {
         if (proc.state === 'zombie') return;
@@ -473,6 +478,26 @@ export class Kernel {
 
         // Terminate worker immediately
         proc.worker.terminate();
+
+        // Clean up resources (fire-and-forget, don't await)
+        for (const resourceId of proc.fds.values()) {
+            const resource = this.resources.get(resourceId);
+            if (resource) {
+                resource.close().catch(() => {}); // Ignore errors
+                this.resources.delete(resourceId);
+            }
+        }
+        proc.fds.clear();
+
+        // Clean up ports (fire-and-forget, don't await)
+        for (const portUuid of proc.ports.values()) {
+            const port = this.ports.get(portUuid);
+            if (port) {
+                port.close().catch(() => {}); // Ignore errors
+                this.ports.delete(portUuid);
+            }
+        }
+        proc.ports.clear();
 
         // Reparent children
         this.processes.reparentOrphans(proc.id);
@@ -536,6 +561,10 @@ export class Kernel {
      * Open a file and allocate fd.
      */
     private async openFile(proc: Process, path: string, flags: import('@src/kernel/types.js').OpenFlags): Promise<number> {
+        if (proc.fds.size >= MAX_FDS) {
+            throw new EMFILE('Too many open files');
+        }
+
         const handle = await this.vfs.open(path, flags, proc.id);
 
         // Create resource wrapper
@@ -553,6 +582,10 @@ export class Kernel {
      * Connect TCP and allocate fd.
      */
     private async connectTcp(proc: Process, host: string, port: number): Promise<number> {
+        if (proc.fds.size >= MAX_FDS) {
+            throw new EMFILE('Too many open files');
+        }
+
         const socket = await this.hal.network.connect(host, port);
 
         // Create resource wrapper
@@ -591,6 +624,10 @@ export class Kernel {
      * Create a port and allocate port id.
      */
     private async createPort(proc: Process, type: string, opts: unknown): Promise<number> {
+        if (proc.ports.size >= MAX_PORTS) {
+            throw new EMFILE('Too many open ports');
+        }
+
         let port: Port;
 
         switch (type) {
@@ -654,6 +691,12 @@ export class Kernel {
 
         // If message contains a socket, wrap it and allocate fd
         if (msg.socket) {
+            if (proc.fds.size >= MAX_FDS) {
+                // Can't accept - close the socket and throw
+                await msg.socket.close();
+                throw new EMFILE('Too many open files');
+            }
+
             const resourceId = this.hal.entropy.uuid();
             const stat = msg.socket.stat();
             const description = `tcp:${stat.remoteAddr}:${stat.remotePort}`;

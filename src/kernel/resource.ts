@@ -16,6 +16,8 @@
 
 import type { FileHandle } from '@src/vfs/index.js';
 import type { Socket, Listener } from '@src/hal/index.js';
+import type { PortType } from '@src/kernel/types.js';
+export type { PortType } from '@src/kernel/types.js';
 
 /**
  * Resource type discriminator
@@ -96,12 +98,17 @@ export class FileResource implements Resource {
 export class SocketResource implements Resource {
     readonly type: ResourceType = 'socket';
     private _closed = false;
+    private readonly _stat: { remoteAddr: string; remotePort: number; localAddr: string; localPort: number };
 
     constructor(
         readonly id: string,
         private socket: Socket,
         readonly description: string
-    ) {}
+    ) {
+        // Cache stat on construction - it doesn't change and socket.stat()
+        // may throw or return garbage after the socket is closed
+        this._stat = socket.stat();
+    }
 
     get closed(): boolean {
         return this._closed;
@@ -131,10 +138,10 @@ export class SocketResource implements Resource {
     }
 
     /**
-     * Get socket metadata
+     * Get socket metadata (cached, safe to call after close)
      */
     stat(): { remoteAddr: string; remotePort: number; localAddr: string; localPort: number } {
-        return this.socket.stat();
+        return this._stat;
     }
 }
 
@@ -147,10 +154,7 @@ export class SocketResource implements Resource {
 // to avoid closing a port that's still in use by another process.
 // Same issue exists for Resources above.
 
-/**
- * Port type discriminator
- */
-export type PortType = 'tcp:listen' | 'udp' | 'watch' | 'pubsub';
+// PortType is defined in types.ts as the authoritative source
 
 /**
  * Message received from a port.
@@ -203,6 +207,15 @@ export interface Port {
  *
  * Wraps HAL Listener to provide port interface.
  * recv() accepts connections and returns them as PortMessages with socket.
+ *
+ * KNOWN ISSUES:
+ * - If a process creates a listener but never calls recv(), connections queue
+ *   in the HAL Listener's internal buffer indefinitely. Future: add a timeout
+ *   that kills the process for misbehavior if recv() isn't called within N seconds.
+ * - recv() blocks indefinitely with no way to interrupt. If a process is blocked
+ *   in recv() when SIGTERM arrives, it can't respond gracefully. The grace period
+ *   expires and SIGKILL is sent. Future: need a mechanism to cancel pending recv()
+ *   calls, possibly via AbortController or a kernel-side interrupt flag.
  */
 export class ListenerPort implements Port {
     readonly type: PortType = 'tcp:listen';
