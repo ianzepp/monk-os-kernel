@@ -198,13 +198,13 @@ export class BunCryptoDevice implements CryptoDevice {
 
         const cryptoKey = await crypto.subtle.importKey(
             'raw',
-            key,
+            key.buffer.slice(key.byteOffset, key.byteOffset + key.byteLength) as ArrayBuffer,
             { name: 'HMAC', hash: algMap[alg] },
             false,
             ['sign']
         );
 
-        const signature = await crypto.subtle.sign('HMAC', cryptoKey, data);
+        const signature = await crypto.subtle.sign('HMAC', cryptoKey, data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer);
         return new Uint8Array(signature);
     }
 
@@ -213,7 +213,7 @@ export class BunCryptoDevice implements CryptoDevice {
         const iv = crypto.getRandomValues(new Uint8Array(ivLength));
 
         const algSpec = this.getCipherAlgSpec(alg, iv);
-        const ciphertext = await crypto.subtle.encrypt(algSpec, key, data);
+        const ciphertext = await crypto.subtle.encrypt(algSpec, key, data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer);
 
         // Prepend IV to ciphertext
         const result = new Uint8Array(iv.length + ciphertext.byteLength);
@@ -228,7 +228,7 @@ export class BunCryptoDevice implements CryptoDevice {
         const ciphertext = data.slice(ivLength);
 
         const algSpec = this.getCipherAlgSpec(alg, iv);
-        const plaintext = await crypto.subtle.decrypt(algSpec, key, ciphertext);
+        const plaintext = await crypto.subtle.decrypt(algSpec, key, ciphertext.buffer.slice(ciphertext.byteOffset, ciphertext.byteOffset + ciphertext.byteLength) as ArrayBuffer);
         return new Uint8Array(plaintext);
     }
 
@@ -269,14 +269,18 @@ export class BunCryptoDevice implements CryptoDevice {
     async derive(alg: KdfAlg, password: Uint8Array, salt: Uint8Array): Promise<Uint8Array> {
         switch (alg) {
             case 'pbkdf2-sha256': {
-                const keyMaterial = await crypto.subtle.importKey('raw', password, 'PBKDF2', false, [
-                    'deriveBits',
-                ]);
+                const keyMaterial = await crypto.subtle.importKey(
+                    'raw',
+                    password.buffer.slice(password.byteOffset, password.byteOffset + password.byteLength) as ArrayBuffer,
+                    'PBKDF2',
+                    false,
+                    ['deriveBits']
+                );
 
                 const bits = await crypto.subtle.deriveBits(
                     {
                         name: 'PBKDF2',
-                        salt,
+                        salt: salt.buffer.slice(salt.byteOffset, salt.byteOffset + salt.byteLength) as ArrayBuffer,
                         iterations: 100000,
                         hash: 'SHA-256',
                     },

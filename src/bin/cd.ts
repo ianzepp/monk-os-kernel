@@ -38,7 +38,7 @@ async function main(): Promise<void> {
         const oldpwd = await getenv('OLDPWD');
         if (!oldpwd) {
             await eprintln('cd: OLDPWD not set');
-            await exit(1);
+            return exit(1);
         }
         path = oldpwd;
     } else {
