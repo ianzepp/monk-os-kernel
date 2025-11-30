@@ -690,6 +690,94 @@ Models use HAL devices but don't expose them directly:
 - DeviceModel uses various HAL devices
 - ProcModel uses kernel state (no HAL)
 
+## File Versioning (Optional Feature)
+
+**Implement after core VFS is stable.**
+
+Opt-in automatic versioning for text files. Every write creates a new version - no explicit commit required.
+
+### Scope
+
+- **Text files only** - binary files use normal overwrite behavior
+- **Opt-in** - not enabled by default
+- **Linear history** - no branching
+
+### Activation Modes
+
+```typescript
+// Per-open: version this session's writes
+const handle = await vfs.open('/doc.txt', 'rw', { versioned: true });
+
+// Per-file: mark file as versioned (all future writes)
+await vfs.setstat('/doc.txt', { versioned: true });
+
+// Per-mount: all text files in mount are versioned
+await vfs.mount('/projects', storage, { versioned: true });
+```
+
+### API
+
+```typescript
+interface VFS {
+    // Open specific version (read-only)
+    open(path, flags, opts?: { version?: number; versioned?: boolean }): Promise<FileHandle>;
+
+    // Get version history
+    versions(path: string): Promise<VersionInfo[]>;
+
+    // Diff between versions of same file
+    diff(path: string, from: number, to: number): Promise<TextDiff>;
+
+    // Diff between two files
+    diff(pathA: string, pathB: string): Promise<TextDiff>;
+}
+
+interface VersionInfo {
+    version: number;
+    mtime: number;
+    size: number;
+    author: string;  // process/user UUID
+}
+
+interface TextDiff {
+    hunks: DiffHunk[];
+}
+
+interface DiffHunk {
+    oldStart: number;
+    oldCount: number;
+    newStart: number;
+    newCount: number;
+    lines: DiffLine[];
+}
+
+interface DiffLine {
+    op: '+' | '-' | ' ';
+    content: string;
+}
+```
+
+### Storage Layout
+
+```
+entity:{uuid}       → { ..., versioned: true, version: 5 }
+version:{uuid}:{n}  → { blob: sha256, mtime, size, author }
+blob:{sha256}       → raw bytes (content-addressable, refcounted)
+```
+
+When versioning is enabled:
+- `data:{uuid}` is replaced by `version:{uuid}:{n}` entries
+- Blobs are content-addressable (SHA-256 hash)
+- Blobs are refcounted for deduplication across versions
+- Blob GC runs when refcount hits zero
+
+### Open Questions (Versioning)
+
+1. **Retention policy** - Keep all versions forever? Last N? Time-based? Configurable per-mount?
+2. **Diff algorithm** - Myers diff? Patience diff? Configurable?
+
+---
+
 ## Open Questions
 
 ### 10. Network model - listen() semantics
