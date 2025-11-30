@@ -419,6 +419,154 @@ User-defined models are backed by FileModel (StorageEngine) but add:
 | proc | None | Read-only snapshots |
 | user-defined | Transactions | Inherits from file model |
 
+## Access Control
+
+### Philosophy
+
+No UNIX-style user/group/other permission bits. Instead, explicit grants to specific UUIDs (users, processes, roles) with explicit operations.
+
+**Key principles:**
+- Grants are explicit, not inherited
+- Deny always wins over grants
+- Operations are model-defined
+- Check happens once at `open()`, not every I/O call
+- FileHandle *is* the capability
+
+### ACL Structure
+
+```typescript
+interface ACL {
+    /** Explicit grants */
+    grants: Grant[];
+
+    /** Explicit denies (always wins) */
+    deny: string[];  // UUIDs
+}
+
+interface Grant {
+    /** Who receives the grant (user, process, role UUID) */
+    to: string;
+
+    /** What operations are permitted */
+    ops: string[];
+
+    /** Optional expiration (ms since epoch) */
+    expires?: number;
+}
+```
+
+### Operations by Model
+
+Each model defines what operations are valid:
+
+| Model | Operations |
+|-------|------------|
+| file | `read`, `write`, `delete`, `stat`, `*` |
+| folder | `list`, `create`, `delete`, `stat`, `*` |
+| network | `connect`, `listen`, `stat`, `*` |
+| device | `read`, `write`, `stat`, `*` |
+| proc | `signal`, `stat`, `*` |
+
+`*` grants all operations (full control).
+
+### The `access()` Syscall
+
+Single syscall for reading and modifying ACLs:
+
+```typescript
+// Read ACLs
+access(path: string): Promise<ACL>
+
+// Set ACLs (replaces existing)
+access(path: string, acl: ACL): Promise<void>
+
+// Clear ACLs (reset to creator-only)
+access(path: string, null): Promise<void>
+```
+
+**Examples:**
+
+```typescript
+// Read current ACLs
+const acl = await vfs.access('/home/user/doc.txt');
+// { grants: [...], deny: [...] }
+
+// Grant read access
+await vfs.access('/home/user/doc.txt', {
+    grants: [
+        { to: '019d...', ops: ['read', 'stat'] },
+        { to: '019d...', ops: ['*'] },  // full control
+    ],
+    deny: [],
+});
+
+// Add a grant (read-modify-write)
+const acl = await vfs.access('/home/user/doc.txt');
+acl.grants.push({ to: '019d...', ops: ['read'] });
+await vfs.access('/home/user/doc.txt', acl);
+
+// Revoke all access (creator-only)
+await vfs.access('/home/user/doc.txt', null);
+```
+
+### Permission Check Flow
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  vfs.open('/path', ['read', 'write'])                  │
+└───────────────────────┬─────────────────────────────────┘
+                        │
+                        ▼
+┌─────────────────────────────────────────────────────────┐
+│  1. Load ACL for path                                   │
+│  2. Check: caller in deny[]?  → EPERM                   │
+│  3. Check: caller has required ops in grants[]?         │
+│     - Direct match, or                                  │
+│     - Has '*' grant                                     │
+│  4. No match? → EPERM                                   │
+│  5. Match? → Return FileHandle                          │
+└───────────────────────┬─────────────────────────────────┘
+                        │
+                        ▼
+┌─────────────────────────────────────────────────────────┐
+│  FileHandle is the capability                           │
+│  - read() / write() → no further checks                 │
+│  - handle authorized at open() time                     │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Who Can Modify ACLs?
+
+| Operation | Required Permission |
+|-----------|---------------------|
+| `access(path)` (read) | `stat` op on path |
+| `access(path, acl)` (set) | `*` op on path |
+| `access(path, null)` (clear) | `*` op on path |
+
+### Default ACLs
+
+On entity creation, ACL defaults to:
+
+```typescript
+{
+    grants: [{ to: creator_uuid, ops: ['*'] }],
+    deny: [],
+}
+```
+
+Creator has full control. No one else has access until explicitly granted.
+
+### ACL Storage
+
+ACLs are stored separately from entity metadata:
+
+```
+entity:{uuid}     → { id, model, path, parent, ... }  // stat() data
+acl:{uuid}        → { grants: [...], deny: [...] }    // access() data
+```
+
+This keeps `stat()` lean and allows ACL queries without loading entity data.
+
 ## Relationship to HAL
 
 The Model layer sits between VFS and HAL:
@@ -443,14 +591,14 @@ Models use HAL devices but don't expose them directly:
 
 ## Open Questions
 
-1. **Permissions**: Per-model permission checks, or unified in VFS?
+1. **Quotas**: Storage quotas at model level or VFS level?
 
-2. **Quotas**: Storage quotas at model level or VFS level?
-
-3. **Caching**: Should models cache stat() results? Invalidation strategy?
+2. **Caching**: Should models cache stat() results? Invalidation strategy?
 
 ## Resolved Questions
 
 1. **Symlinks**: No symlinks. Two files sharing data have the same `data` UUID. Indirection is handled by queries or application logic, not filesystem primitives.
 
 2. **Directories**: `folder` is a separate model from `file`. Folders have no `data` field. Children are derived via query (`WHERE parent = folder_uuid`), not stored on the folder.
+
+3. **Permissions**: Grant-based ACLs, separate from stat(). See "Access Control" section.
