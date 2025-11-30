@@ -5,9 +5,9 @@
  * Folders have no data blob - children are derived via query.
  */
 
-import type { Model, ModelStat, ModelContext, FieldDef, WatchEvent } from '@src/lib/vfs/model.js';
-import type { FileHandle, OpenFlags, OpenOptions } from '@src/lib/vfs/handle.js';
-import { EISDIR, ENOENT, ENOTEMPTY } from '@src/lib/hal/index.js';
+import type { Model, ModelStat, ModelContext, FieldDef, WatchEvent } from '@src/vfs/model.js';
+import type { FileHandle, OpenFlags, OpenOptions } from '@src/vfs/handle.js';
+import { EISDIR, ENOENT, ENOTEMPTY } from '@src/hal/index.js';
 
 /**
  * Storage keys:

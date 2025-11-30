@@ -13,9 +13,9 @@
  * - /dev/clock     - Read returns current timestamp
  */
 
-import type { Model, ModelStat, ModelContext, FieldDef } from '@src/lib/vfs/model.js';
-import type { FileHandle, OpenFlags, OpenOptions, SeekWhence } from '@src/lib/vfs/handle.js';
-import { ENOENT, EBADF, EACCES, EINVAL, ENOTSUP } from '@src/lib/hal/index.js';
+import type { Model, ModelStat, ModelContext, FieldDef } from '@src/vfs/model.js';
+import type { FileHandle, OpenFlags, OpenOptions, SeekWhence } from '@src/vfs/handle.js';
+import { ENOENT, EBADF, EACCES, EINVAL, ENOTSUP } from '@src/hal/index.js';
 
 const DEVICE_FIELDS: FieldDef[] = [
     { name: 'id', type: 'string', required: true },

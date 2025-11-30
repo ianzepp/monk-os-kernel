@@ -53,9 +53,11 @@ Instead of thinking "I'm stuck with Bun in my executable," think: "Bun IS my har
 
 Inspired by Plan 9 and BeOS:
 
-- **Plan 9**: Everything is a file. Database records appear as files. Network connections are files.
+- **Plan 9**: Everything is a file. Database records appear as files.
 - **BeOS**: Everything is a message. No polling—processes receive events naturally.
-- **Monk**: Both. The file IS the message channel. Writes to paths are events to watchers.
+- **Monk**: Both, with pragmatic exceptions. Files for storage, messages for events, dedicated primitives for network I/O.
+
+**Why network isn't a file:** TCP connections feel file-like (streams), but UDP is connectionless (datagrams with addresses), and listeners are factories that produce connections. Forcing `/dev/tcp/listen/8080` vs `/dev/tcp/127.0.0.1:8080` creates ugly asymmetry. Network gets its own syscalls. See [OS_NETWORK.md](./OS_NETWORK.md).
 
 ## Syscall Interface
 
@@ -74,55 +76,84 @@ interface Kernel {
 }
 ```
 
-### Message Passing
+### Network Operations
+
+Network uses dedicated syscalls, not VFS paths. See [OS_NETWORK.md](./OS_NETWORK.md) for full specification.
 
 ```typescript
 interface Kernel {
-  // Watch a path for changes
-  watch(path: string, opts?: WatchOpts): Promise<Port>;
+  // TCP client → connected stream (FileHandle)
+  connect(proto: 'tcp', host: string, port: number): Promise<FileHandle>;
 
-  // Send/receive on ports
-  send(port: Port, msg: Message): Promise<void>;
-  recv(port: Port): Promise<Message>;  // blocks until message
+  // Message-based I/O → Port
+  port(type: PortType, opts: PortOpts): Promise<Port>;
+}
 
-  // Async iterator form
-  messages(port: Port): AsyncIterable<Message>;
+type PortType = 'tcp:listen' | 'udp' | 'watch' | 'pubsub';
+```
+
+**Two primitives:**
+
+| Primitive | Addressing | Methods | Examples |
+|-----------|------------|---------|----------|
+| FileHandle | Connected to one target | `read()`, `write()` | TCP conn, file, pipe |
+| Port | Many sources/destinations | `recv()`, `send(to, data)` | UDP, TCP listener, watch, pub/sub |
+
+### Ports (Message-Based I/O)
+
+```typescript
+interface Port {
+  recv(): Promise<Message>;
+  send(to: string, data: Uint8Array): Promise<void>;
+  close(): Promise<void>;
+  [Symbol.asyncIterator](): AsyncIterator<Message>;
 }
 
 interface Message {
-  path: string;
-  op: 'create' | 'write' | 'delete' | 'rename' | 'chmod';
-  data?: unknown;
-  sender?: number;  // PID
-  timestamp: number;
+  from: string;      // source (address:port, path, topic)
+  data: Uint8Array;  // payload (or FileHandle for TCP listener)
+  meta?: unknown;    // op type, fields changed, etc.
 }
 ```
 
-### Unified Model: Paths ARE Ports
+**Examples:**
+
+```typescript
+// TCP server - listener yields FileHandles
+const listener = await kernel.port('tcp:listen', { port: 8080 });
+for await (const msg of listener) {
+  const conn: FileHandle = msg.data;  // connected socket
+  await conn.write(response);
+}
+
+// UDP - addressed datagrams
+const sock = await kernel.port('udp', { bind: 9000 });
+await sock.send('10.0.0.1:9001', data);
+const msg = await sock.recv();  // msg.from = sender address
+
+// File watch - path events
+const watcher = await kernel.port('watch', { pattern: '/users/*' });
+for await (const event of watcher) {
+  // event.from = '/users/123', event.meta = { op: 'update' }
+}
+
+// Pub/Sub - topic messages
+const bus = await kernel.port('pubsub', { subscribe: 'orders.*' });
+await bus.send('orders.created', orderData);
+```
+
+### Unified Model: Writes ARE Events
 
 ```typescript
 // Any path can be watched
-const port = await kernel.watch('/users');
+const watcher = await kernel.port('watch', { pattern: '/users/*' });
 
-// Write to path = send to all watchers
-await kernel.write(fd, data);  // Also delivers to watchers
+// Write to path = event delivered to watchers
+await kernel.write(fd, data);
 
 // Watchers receive
-const msg = await kernel.recv(port);
-// { path: '/users/123', op: 'write', data: <what was written> }
-```
-
-### Plan 9 Style: /dev/watch
-
-```typescript
-// Watch via filesystem
-const fd = await kernel.open('/dev/watch/users/*', O_RDONLY);
-
-// Blocks until something happens to /users/*
-while (true) {
-  const msg = await kernel.read(fd, 4096);
-  // msg = { path: '/users/123', op: 'write', data: {...} }
-}
+const msg = await watcher.recv();
+// { from: '/users/123', meta: { op: 'write' }, data: <what was written> }
 ```
 
 ## Process Model
@@ -181,28 +212,36 @@ The HAL is the lowest layer that can be written in TypeScript. It wraps Bun prim
 - **POSIX-style for I/O**: `read`, `write`, `stat`, `sync`
 - **Domain-specific elsewhere**: `get`/`put` for key-value, `lookup` for DNS
 
-## Kernel Message Router
+## Kernel Architecture
 
-The kernel is the central message bus. Writes to paths are delivered to all watchers.
+The kernel manages three subsystems:
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │  Kernel                                                      │
 │  ┌────────────────────────────────────────────────────────┐  │
-│  │  Message Router                                        │  │
+│  │  Message Router (Ports)                                │  │
 │  │                                                        │  │
-│  │  /users/* ──────► [IRC port, shell port, httpd port]  │  │
-│  │  /proc/42/notify ► [shell session 42]                 │  │
-│  │  /dev/net/tcp ───► [telnetd, ircd, httpd]             │  │
+│  │  watch:/users/* ──► [IRC port, shell port, httpd port]│  │
+│  │  pubsub:orders.* ─► [order-processor, audit-log]      │  │
+│  │  tcp:listen:8080 ─► [httpd]                           │  │
 │  │                                                        │  │
 │  └────────────────────────────────────────────────────────┘  │
 │                          │                                   │
-│                          ▼                                   │
-│  ┌─────────────────────────────────────────────────────────┐ │
-│  │  VFS (writes go here AND to message router)             │ │
-│  └─────────────────────────────────────────────────────────┘ │
+│         ┌────────────────┼────────────────┐                  │
+│         ▼                ▼                ▼                  │
+│  ┌────────────┐  ┌─────────────┐  ┌─────────────┐           │
+│  │    VFS     │  │   Network   │  │  Scheduler  │           │
+│  │  (files)   │  │ (sockets)   │  │ (processes) │           │
+│  └────────────┘  └─────────────┘  └─────────────┘           │
 └──────────────────────────────────────────────────────────────┘
 ```
+
+**VFS** handles storage (files, folders, devices, /proc). Writes emit events to watch ports.
+
+**Network** handles TCP/UDP via HAL. `connect()` returns FileHandle, `port()` returns Port.
+
+**Scheduler** manages processes (Workers), their state, and syscall dispatch.
 
 ## Configuration Modes
 
@@ -242,32 +281,43 @@ Mix and match. VFS for structured data, passthrough for large files, external DB
 Servers become OS processes (daemons) that access resources through syscalls:
 
 ```typescript
-// httpd - HTTP server process
+// httpd - HTTP server process (uses library over TCP)
 async function httpd(kernel: Kernel) {
-  const server = await kernel.network.serve(9001, async (req) => {
-    const fd = await kernel.open(req.path, O_RDONLY);
+  const listener = await kernel.port('tcp:listen', { port: 9001 });
+
+  for await (const msg of listener) {
+    const conn: FileHandle = msg.data;
+    // HTTP parsing is userland library over raw TCP
+    const request = await parseHttpRequest(conn);
+    const fd = await kernel.open(request.path, O_RDONLY);
     const data = await kernel.read(fd, Infinity);
-    return new Response(data);
-  });
+    await sendHttpResponse(conn, 200, data);
+    await conn.close();
+  }
 }
 
 // telnetd - Telnet server process
 async function telnetd(kernel: Kernel) {
-  const server = await kernel.network.listen(2323, {
-    open(socket) { /* create session */ },
-    data(socket, data) { /* handle input */ },
-    close(socket) { /* cleanup */ },
-  });
+  const listener = await kernel.port('tcp:listen', { port: 2323 });
+
+  for await (const msg of listener) {
+    const conn: FileHandle = msg.data;
+    // Handle telnet session with raw read/write
+    handleTelnetSession(kernel, conn);
+  }
 }
 
-// ircd - IRC server process (migrated from monk-irc)
+// ircd - IRC server process
 async function ircd(kernel: Kernel) {
-  const server = await kernel.network.listen(6667, ircHandler);
+  const listener = await kernel.port('tcp:listen', { port: 6667 });
+  const watcher = await kernel.port('watch', { pattern: '/users/*' });
+
+  // Handle new connections
+  handleConnections(listener);
 
   // Subscribe to data changes, broadcast to channels
-  const port = await kernel.watch('/users');
-  for await (const msg of kernel.messages(port)) {
-    broadcastToChannel('#users', formatIrcMessage(msg));
+  for await (const event of watcher) {
+    broadcastToChannel('#users', formatIrcMessage(event));
   }
 }
 ```
@@ -278,43 +328,50 @@ async function ircd(kernel: Kernel) {
 2. **Scale up transparently** — swap StorageEngine, same syscalls
 3. **Hybrid mounts** — `/data` in VFS, `/host/uploads` passthrough to real FS
 4. **Testability** — MemoryEngine + mock devices for fast unit tests
-5. **No polling** — message passing is native to the OS
-6. **Debugging** — `cat /dev/watch/users` shows events in real time
-7. **Composition** — `watch /users | grep admin` is valid shell
+5. **No polling** — Ports receive events naturally
+6. **Unified messaging** — file watch, pub/sub, network listeners all use Port
+7. **Clean separation** — VFS for storage, Kernel for network, libraries for protocols
 
 ## What This Changes
 
 | Old Mental Model | New Mental Model |
 |-----------------|------------------|
 | SQLite is "the database" | SQLite is raw block storage; VFS interprets it |
-| HTTP/Telnet/SSH are "servers" | They're device drivers exposing the system |
+| HTTP/Telnet/SSH are "servers" | They're userland processes over TCP Ports |
 | Event loop is "Node's thing" | It's the CPU scheduler |
 | `bun build --compile` | Burning firmware |
-| Separate pub/sub system | Writes ARE events |
+| Separate pub/sub system | Writes ARE events (via watch Ports) |
+| Network is files (`/dev/tcp/`) | Network is syscalls (`connect()`, `port()`) |
 
 ## Implementation Phases
 
-### Phase 1: HAL Interfaces
+### Phase 1: HAL Interfaces ✅
 - Define BlockDevice, StorageEngine, NetworkDevice interfaces
 - Implement SQLite and Postgres StorageEngine
-- Implement BunNetworkDevice
+- Implement all HAL devices (console, entropy, crypto, dns, etc.)
 
-### Phase 2: Kernel Core
-- Message router with path-based subscriptions
-- Unified VFS that emits events on writes
-- Process table and PID management
+### Phase 2: VFS Core ✅
+- Model interface with FileHandle
+- FileModel, FolderModel, DeviceModel, ProcModel
+- Grant-based ACL system
 
-### Phase 3: Syscall Layer
-- Define syscall interface
+### Phase 3: Kernel Network
+- Implement `connect()` syscall → FileHandle
+- Implement `port()` syscall → Port
+- Port types: `tcp:listen`, `udp`, `watch`, `pubsub`
+- See [OS_NETWORK.md](./OS_NETWORK.md)
+
+### Phase 4: Syscall Layer
+- Define complete syscall interface
 - Implement for in-process calls
 - Implement for Worker message passing
 
-### Phase 4: Server Migration
-- Refactor httpd to use syscalls
-- Refactor telnetd to use syscalls
+### Phase 5: Server Migration
+- Refactor httpd to use `port('tcp:listen')`
+- Refactor telnetd to use `port('tcp:listen')`
 - Migrate ircd from monk-irc
 
-### Phase 5: Message-Driven Features
-- Real-time updates in shell sessions
-- IRC channel auto-updates from DB changes
+### Phase 6: Message-Driven Features
+- Real-time updates via watch Ports
+- Pub/sub for cross-process events
 - Background job completion notifications

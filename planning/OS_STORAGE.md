@@ -14,9 +14,10 @@
 | FolderModel | ✅ Done | `models/folder.ts` |
 | DeviceModel | ✅ Done | `models/device.ts` |
 | ProcModel | ✅ Done | `models/proc.ts` |
-| NetworkModel | ⏳ Deferred | Awaiting question #10 resolution |
 | File Versioning | ⏳ Deferred | Optional feature, implement after core stable |
 | Quota enforcement | ⏳ Deferred | Structure in place, not enforced yet |
+
+**Note:** Network is handled by the Kernel layer (see [OS_NETWORK.md](./OS_NETWORK.md)), not VFS.
 
 **HAL dependency: COMPLETE** (`src/lib/hal/`)
 - UUID v7 generation via `EntropyDevice.uuid()`
@@ -107,10 +108,10 @@ function shortId(uuid: string): string {
 ┌─────────────────────────────────────────────────────────────┐
 │                          VFS                                │
 │                                                             │
-│   open("/dev/tcp/10.0.0.1:80")                             │
+│   open("/home/user/doc.txt")                               │
 │        │                                                    │
 │        ▼                                                    │
-│   path_to_model(path) → NetworkModel                       │
+│   path_to_model(path) → FileModel                          │
 │        │                                                    │
 │        ▼                                                    │
 │   model.open(path) → FileHandle                            │
@@ -120,16 +121,18 @@ function shortId(uuid: string): string {
            ┌──────────────────┼──────────────────┐
            ▼                  ▼                  ▼
       ┌─────────┐       ┌──────────┐       ┌──────────┐
-      │  file   │       │ network  │       │  device  │
+      │  file   │       │  device  │       │   proc   │
       │  Model  │       │  Model   │       │  Model   │
       └────┬────┘       └────┬─────┘       └────┬─────┘
            │                 │                  │
            ▼                 ▼                  ▼
       ┌─────────┐       ┌──────────┐       ┌──────────┐
-      │ Storage │       │  Socket  │       │  Kernel  │
-      │ Engine  │       │  (HAL)   │       │ Handler  │
+      │ Storage │       │   HAL    │       │  Kernel  │
+      │ Engine  │       │ Devices  │       │  State   │
       └─────────┘       └──────────┘       └──────────┘
 ```
+
+**Note:** Network I/O is not part of VFS. See [OS_NETWORK.md](./OS_NETWORK.md) for the Kernel's `connect()` and `port()` primitives.
 
 ## Core Concepts
 
@@ -270,31 +273,6 @@ Standard file storage backed by StorageEngine.
 
 **No deduplication:** Each file owns its blob. `unlink()` deletes both entity and data.
 
-### NetworkModel
-
-Network connections as files.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| proto | string | Protocol ('tcp', 'udp') |
-| local | string | Local address:port |
-| remote | string | Remote address:port |
-| state | string | Connection state |
-| rx_bytes | number | Bytes received |
-| tx_bytes | number | Bytes transmitted |
-
-**Path format:** `/dev/tcp/{host}:{port}` or `/dev/udp/{host}:{port}`
-
-**Backing store:** HAL NetworkDevice
-- `open()` → `network.connect(host, port)`
-- `read()` → `socket.read()`
-- `write()` → `socket.write()`
-
-**Flow control:** Backpressure
-- Write returns bytes actually sent
-- Caller must handle partial writes
-- Read blocks until data available (with optional timeout)
-
 ### DeviceModel
 
 Kernel device access.
@@ -360,17 +338,17 @@ interface MountTable {
 
 | Prefix | Model |
 |--------|-------|
-| `/dev/tcp/` | NetworkModel (TCP) |
-| `/dev/udp/` | NetworkModel (UDP) |
 | `/dev/` | DeviceModel |
 | `/proc/` | ProcModel |
 | `/sys/` | SysModel |
 | `/` | FileModel (default) |
 
 Resolution is longest-prefix match:
-- `/dev/tcp/localhost:80` → NetworkModel, relpath=`localhost:80`
 - `/dev/console` → DeviceModel, relpath=`console`
+- `/proc/019d.../status` → ProcModel, relpath=`019d.../status`
 - `/home/user/file.txt` → FileModel, relpath=`home/user/file.txt`
+
+**Note:** No `/dev/tcp/` or `/dev/udp/` - network is handled by Kernel syscalls, not VFS paths.
 
 ## Transactions and Atomicity
 
@@ -444,10 +422,11 @@ User-defined models are backed by FileModel (StorageEngine) but add:
 | Model | Strategy | Rationale |
 |-------|----------|-----------|
 | file | Transactions | ACID semantics for persistence |
-| network | Backpressure | Stream semantics, producer/consumer |
 | device | Per-device | Console queues, entropy immediate |
 | proc | None | Read-only snapshots |
 | user-defined | Transactions | Inherits from file model |
+
+**Note:** Network flow control (backpressure for streams, message queuing for ports) is handled at the Kernel layer. See [OS_NETWORK.md](./OS_NETWORK.md).
 
 ## Access Control
 
@@ -493,11 +472,12 @@ Each model defines what operations are valid:
 |-------|------------|
 | file | `read`, `write`, `delete`, `stat`, `*` |
 | folder | `list`, `create`, `delete`, `stat`, `*` |
-| network | `connect`, `listen`, `stat`, `*` |
 | device | `read`, `write`, `stat`, `*` |
 | proc | `signal`, `stat`, `*` |
 
 `*` grants all operations (full control).
+
+**Note:** Network ACLs are handled at the Kernel layer. See [OS_NETWORK.md](./OS_NETWORK.md).
 
 ### The `access()` Syscall
 
@@ -710,9 +690,10 @@ The Model layer sits between VFS and HAL:
 
 Models use HAL devices but don't expose them directly:
 - FileModel uses StorageEngine
-- NetworkModel uses NetworkDevice
-- DeviceModel uses various HAL devices
+- DeviceModel uses various HAL devices (console, entropy, etc.)
 - ProcModel uses kernel state (no HAL)
+
+**Note:** Network (HAL NetworkDevice) is accessed via Kernel syscalls, not VFS models. See [OS_NETWORK.md](./OS_NETWORK.md).
 
 ## File Versioning (Optional Feature)
 
@@ -802,11 +783,6 @@ When versioning is enabled:
 
 ---
 
-## Open Questions
-
-### 10. Network model - listen() semantics
-How does a server listen? Options: separate path (`/dev/tcp/listen/8080`), separate syscall, or listener as file where `read()` returns connections. TBD.
-
 ## Resolved Questions
 
 1. **Symlinks**: No symlinks. Two files sharing data have the same `data` UUID. Indirection is handled by queries or application logic, not filesystem primitives.
@@ -834,3 +810,5 @@ How does a server listen? Options: separate path (`/dev/tcp/listen/8080`), separ
 12. **Quota accounting on delete**: VFS handles quota accounting on unlink. Decrement `bytes_used` by file's size, then delete entity + data. No shared blobs, so no ownership ambiguity.
 
 13. **ProcModel pid field**: No pid. Process identity is UUID. Path is `/proc/{uuid}/...`. Consistent with everything else.
+
+14. **Network model**: Network is NOT part of VFS. TCP/UDP don't fit the file abstraction cleanly (UDP is connectionless, listeners are factories not files). Instead, network is handled by Kernel syscalls: `connect()` returns FileHandle for streams, `port()` returns Port for message-based I/O (UDP, listeners, watch, pub/sub). See [OS_NETWORK.md](./OS_NETWORK.md).
