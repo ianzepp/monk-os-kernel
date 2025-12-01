@@ -60,8 +60,8 @@ const HISTSIZE_DEFAULT = 1000;
 // Built-in commands that must run in shell process (not spawned)
 const BUILTIN_COMMANDS = ['cd', 'export', 'exit', 'history', 'set', 'unset', 'echo', 'pwd', 'true', 'false'];
 
-// Resolve bin directory from this file's location
-const BIN_PATH = new URL('.', import.meta.url).pathname;
+// VFS bin directory for command resolution
+const VFS_BIN_PATH = '/bin';
 
 // ============================================================================
 // Shell State
@@ -328,8 +328,7 @@ async function executeBuiltin(
 /**
  * Find command in PATH or as absolute/relative path
  *
- * Note: Commands are TypeScript files in the local filesystem (BIN_PATH),
- * not VFS paths. We use Bun's native file API to check existence.
+ * Searches VFS for executable TypeScript files.
  */
 async function findCommand(command: string, cwd: string): Promise<string | null> {
     // Absolute or relative path (in VFS)
@@ -343,14 +342,14 @@ async function findCommand(command: string, cwd: string): Promise<string | null>
         }
     }
 
-    // Search in BIN_PATH (local filesystem)
-    const binPath = `${BIN_PATH}/${command}.ts`;
-    const file = Bun.file(binPath);
-    if (await file.exists()) {
+    // Search in VFS /bin directory
+    const binPath = `${VFS_BIN_PATH}/${command}.ts`;
+    try {
+        await stat(binPath);
         return binPath;
+    } catch {
+        return null;
     }
-
-    return null;
 }
 
 /**
