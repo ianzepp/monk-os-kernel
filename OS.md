@@ -749,16 +749,17 @@ bun test spec/hal/          # HAL tests only
 - Shell (parsing, pipes, redirects, chaining)
 - Service management (socket activation)
 - Boot sequence
+- VFS-backed script execution (loader with import rewriting)
+- Telnet shell access (`nc localhost 2323`)
 
 ### Pending
 
-- Scheduler (Bun Workers handle scheduling)
+- Background jobs (`&`) - requires job control
 - Message router optimization
 - PostgreSQL storage engine
 - Process capabilities
 - File versioning (optional feature)
 - AI integration (needs discussion)
-- VFS-backed script execution (import resolution)
 
 ---
 
