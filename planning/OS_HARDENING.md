@@ -559,7 +559,7 @@ class BoundedQueue<T> {
 - [ ] K-006: Resource encapsulates EOF
 
 ### Phase 4: Debuggability
-- [ ] K-008: Log cleanup errors
+- [x] K-008: Log cleanup errors (completed 2024-12-01)
 - [ ] K-010: Input validation
 - [ ] K-012: chdir validation
 

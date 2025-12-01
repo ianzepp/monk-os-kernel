@@ -340,7 +340,9 @@ export class Kernel {
 
         // Close all activation ports
         for (const port of this.activationPorts.values()) {
-            await port.close().catch(() => {});
+            await port.close().catch((err) => {
+                debug('cleanup', `activation port close failed: ${(err as Error).message}`);
+            });
         }
 
         // Clear process table and all maps
@@ -424,8 +426,8 @@ export class Kernel {
         for (const [fd] of proc.fds) {
             try {
                 await this.closeResource(proc, fd);
-            } catch {
-                // Ignore errors during cleanup
+            } catch (err) {
+                debug('cleanup', `fd ${fd} close failed: ${(err as Error).message}`);
             }
         }
 
@@ -433,8 +435,8 @@ export class Kernel {
         for (const [portId] of proc.ports) {
             try {
                 await this.closePort(proc, portId);
-            } catch {
-                // Ignore errors during cleanup
+            } catch (err) {
+                debug('cleanup', `port ${portId} close failed: ${(err as Error).message}`);
             }
         }
 
@@ -442,8 +444,8 @@ export class Kernel {
         for (const [ch] of proc.channels) {
             try {
                 await this.closeChannel(proc, ch);
-            } catch {
-                // Ignore errors during cleanup
+            } catch (err) {
+                debug('cleanup', `channel ${ch} close failed: ${(err as Error).message}`);
             }
         }
 
@@ -899,7 +901,9 @@ export class Kernel {
         if (refs <= 0) {
             const resource = this.resources.get(resourceId);
             if (resource) {
-                resource.close().catch(() => {}); // Ignore errors
+                resource.close().catch((err) => {
+                    debug('cleanup', `resource ${resourceId} close failed: ${(err as Error).message}`);
+                });
                 this.resources.delete(resourceId);
             }
             this.resourceRefs.delete(resourceId);
@@ -916,7 +920,9 @@ export class Kernel {
         if (refs <= 0) {
             const port = this.ports.get(portUuid);
             if (port) {
-                port.close().catch(() => {}); // Ignore errors
+                port.close().catch((err) => {
+                    debug('cleanup', `port ${portUuid} close failed: ${(err as Error).message}`);
+                });
                 this.ports.delete(portUuid);
             }
             this.portRefs.delete(portUuid);
@@ -1055,7 +1061,9 @@ export class Kernel {
         if (refs <= 0) {
             const handle = this.handles.get(handleId);
             if (handle) {
-                handle.close().catch(() => {}); // Fire-and-forget
+                handle.close().catch((err) => {
+                    debug('cleanup', `handle ${handleId} close failed: ${(err as Error).message}`);
+                });
                 this.handles.delete(handleId);
             }
             this.handleRefs.delete(handleId);
@@ -1727,7 +1735,9 @@ export class Kernel {
                 if (signal.aborted) {
                     // Clean up the socket we just accepted
                     if (msg.socket) {
-                        await msg.socket.close().catch(() => {});
+                        await msg.socket.close().catch((err) => {
+                            debug('cleanup', `socket close on abort failed: ${(err as Error).message}`);
+                        });
                     }
                     break;
                 }
@@ -1742,7 +1752,9 @@ export class Kernel {
                         this.hal.console.error(
                             new TextEncoder().encode(`service ${name}: spawn failed: ${errMsg}\n`)
                         );
-                        msg.socket?.close().catch(() => {});
+                        msg.socket?.close().catch((closeErr) => {
+                            debug('cleanup', `socket close on spawn error failed: ${(closeErr as Error).message}`);
+                        });
                     });
                 }
             }
@@ -2088,8 +2100,10 @@ export class Kernel {
     private releaseProcessWorkers(proc: Process): void {
         const procWorkers = this.leasedWorkers.get(proc.id);
         if (procWorkers) {
-            for (const worker of procWorkers.values()) {
-                worker.release().catch(() => {}); // Best effort
+            for (const [workerId, worker] of procWorkers.entries()) {
+                worker.release().catch((err) => {
+                    debug('cleanup', `worker ${workerId} release failed: ${(err as Error).message}`);
+                });
             }
             this.leasedWorkers.delete(proc.id);
         }
