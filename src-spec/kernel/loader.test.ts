@@ -383,10 +383,9 @@ describe('VFS Script Execution', () => {
             }, new Uint8Array(0))
         );
 
-        // Should contain key exports
-        expect(content).toContain('export function open');
-        expect(content).toContain('export function write');
-        expect(content).toContain('export function spawn');
-        expect(content).toContain('export function exit');
+        // Should contain key exports (process.ts now re-exports from ./process/index)
+        expect(content).toContain("export * from './process/index'");
+        expect(content).toContain('ByteReader');
+        expect(content).toContain('ByteWriter');
     });
 });

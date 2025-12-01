@@ -4,7 +4,7 @@ Extending the streams-first architecture to file descriptor operations, and unif
 
 ## Implementation Status
 
-**Status: PHASE 1.5 COMPLETE** (2024-12-01)
+**Status: PHASE 2 COMPLETE** (2024-12-01)
 
 ### Phase 1 Notes
 
@@ -30,6 +30,22 @@ Extending the streams-first architecture to file descriptor operations, and unif
   - `cp.ts` - `copyFile()` + `readdirAll()`
   - `ls.ts`, `rm.ts`, `du.ts` - `readdirAll()`
 - Code simplification: removed manual chunk collection loops, replaced with convenience functions
+- All 525 tests passing
+
+### Phase 2 Notes
+
+- Created unified Handle interface (`src/kernel/handle.ts`)
+  - `Handle` interface with `send(Message) → AsyncIterable<Response>`
+  - Handle adapters: `FileHandleAdapter`, `SocketHandleAdapter`, `PipeHandleAdapter`, `PortHandleAdapter`, `ChannelHandleAdapter`
+- Updated Process type with unified handles table (`src/kernel/types.ts`)
+  - Added `handles: Map<number, string>` and `nextHandle: number`
+  - Added `MAX_HANDLES = 256` constant
+  - Legacy tables kept for backward compatibility
+- Updated Kernel with unified handle management (`src/kernel/kernel.ts`)
+  - Added `handles: Map<string, Handle>` and `handleRefs` for refcounting
+  - Added `getHandle()`, `allocHandle()`, `closeHandle()`, `refHandle()`, `unrefHandle()`
+  - Added `handle:send` and `handle:close` syscalls
+- Backward compatible: existing syscalls (read, write, port, channel_*) continue to work
 - All 525 tests passing
 
 ## Overview

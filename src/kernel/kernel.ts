@@ -19,7 +19,9 @@ import type {
 } from '@src/kernel/types.js';
 import { SIGTERM, SIGKILL, TERM_GRACE_MS } from '@src/kernel/types.js';
 import { ProcessTable } from '@src/kernel/process-table.js';
-import { MAX_FDS, MAX_PORTS, MAX_CHANNELS, STREAM_HIGH_WATER, STREAM_LOW_WATER, STREAM_STALL_TIMEOUT } from '@src/kernel/types.js';
+import { MAX_HANDLES, MAX_FDS, MAX_PORTS, MAX_CHANNELS, STREAM_HIGH_WATER, STREAM_LOW_WATER, STREAM_STALL_TIMEOUT } from '@src/kernel/types.js';
+import type { Handle } from '@src/kernel/handle.js';
+import { FileHandleAdapter, SocketHandleAdapter, PipeHandleAdapter, PortHandleAdapter, ChannelHandleAdapter } from '@src/kernel/handle.js';
 import {
     SyscallDispatcher,
     createFileSyscalls,
@@ -64,12 +66,20 @@ export class Kernel {
     private vfs: VFS;
     private processes: ProcessTable;
     private syscalls: SyscallDispatcher;
+
+    // Unified handle table (Phase 2 architecture)
+    private handles: Map<string, Handle> = new Map();
+    private handleRefs: Map<string, number> = new Map(); // Reference counts
+
+    // Legacy tables for backward compatibility during migration
+    // TODO: Remove after full migration to unified handles
     private resources: Map<string, Resource> = new Map();
     private resourceRefs: Map<string, number> = new Map(); // Reference counts
     private ports: Map<string, Port> = new Map();
     private portRefs: Map<string, number> = new Map(); // Reference counts
     private pubsubPorts: Set<PubsubPort> = new Set(); // All pubsub ports for routing
     private channels: Map<string, Channel> = new Map();
+
     private waiters: Map<string, ((status: ExitStatus) => void)[]> = new Map();
     private booted = false;
 
@@ -199,6 +209,31 @@ export class Kernel {
         this.syscalls.register('pool:stats', async function* (): AsyncIterable<Response> {
             yield respond.ok(poolManager.stats());
         });
+
+        // Unified handle syscalls (Phase 2)
+        this.syscalls.register('handle:send', async function* (
+            this: Kernel,
+            proc: Process,
+            h: unknown,
+            msg: unknown
+        ): AsyncIterable<Response> {
+            if (typeof h !== 'number') {
+                yield respond.error('EINVAL', 'handle must be a number');
+                return;
+            }
+
+            const handle = this.getHandle(proc, h);
+            if (!handle) {
+                yield respond.error('EBADF', `Bad handle: ${h}`);
+                return;
+            }
+
+            yield* handle.send(msg as import('@src/message.js').Message);
+        }.bind(this));
+
+        this.syscalls.register('handle:close', wrapSyscall((proc, h) =>
+            this.closeHandle(proc, h as number)
+        ));
     }
 
     /**
@@ -238,6 +273,10 @@ export class Kernel {
             cwd: '/',
             env: { ...env.env },
             args: env.initArgs ?? [env.initPath],
+            // Unified handle table (Phase 2)
+            handles: new Map(),
+            nextHandle: 3,
+            // Legacy tables for backward compatibility
             fds: new Map(),
             ports: new Map(),
             channels: new Map(),
@@ -306,6 +345,10 @@ export class Kernel {
 
         // Clear process table and all maps
         this.processes.clear();
+        // Clear unified handle table (Phase 2)
+        this.handles.clear();
+        this.handleRefs.clear();
+        // Clear legacy tables
         this.resources.clear();
         this.resourceRefs.clear();
         this.ports.clear();
@@ -337,6 +380,10 @@ export class Kernel {
             cwd: opts?.cwd ?? parent.cwd,
             env: { ...parent.env, ...opts?.env },
             args: opts?.args ?? [entry],
+            // Unified handle table (Phase 2)
+            handles: new Map(),
+            nextHandle: 3,
+            // Legacy tables for backward compatibility
             fds: new Map(),
             ports: new Map(),
             channels: new Map(),
@@ -903,6 +950,92 @@ export class Kernel {
 
         return this.resources.get(resourceId);
     }
+
+    // ========================================================================
+    // Unified Handle Operations (Phase 2)
+    // ========================================================================
+
+    /**
+     * Get a handle by process-local ID.
+     */
+    private getHandle(proc: Process, h: number): Handle | undefined {
+        const handleId = proc.handles.get(h);
+        if (!handleId) return undefined;
+        return this.handles.get(handleId);
+    }
+
+    /**
+     * Allocate a handle ID and register in process and kernel tables.
+     */
+    private allocHandle(proc: Process, handle: Handle): number {
+        if (proc.handles.size >= MAX_HANDLES) {
+            throw new EMFILE('Too many open handles');
+        }
+
+        // Register in kernel table
+        this.handles.set(handle.id, handle);
+
+        // Allocate ID in process
+        const h = proc.nextHandle++;
+        proc.handles.set(h, handle.id);
+
+        return h;
+    }
+
+    /**
+     * Close a handle with reference counting.
+     */
+    private async closeHandle(proc: Process, h: number): Promise<void> {
+        const handleId = proc.handles.get(h);
+        if (!handleId) {
+            throw new EBADF(`Bad handle: ${h}`);
+        }
+
+        // Remove from process
+        proc.handles.delete(h);
+
+        // Decrement refcount
+        const refs = (this.handleRefs.get(handleId) ?? 1) - 1;
+        if (refs <= 0) {
+            const handle = this.handles.get(handleId);
+            if (handle) {
+                await handle.close();
+                this.handles.delete(handleId);
+            }
+            this.handleRefs.delete(handleId);
+        } else {
+            this.handleRefs.set(handleId, refs);
+        }
+    }
+
+    /**
+     * Increment reference count for a handle.
+     */
+    private refHandle(handleId: string): void {
+        const refs = this.handleRefs.get(handleId) ?? 1;
+        this.handleRefs.set(handleId, refs + 1);
+    }
+
+    /**
+     * Decrement reference count, closing if last ref.
+     */
+    private unrefHandle(handleId: string): void {
+        const refs = (this.handleRefs.get(handleId) ?? 1) - 1;
+        if (refs <= 0) {
+            const handle = this.handles.get(handleId);
+            if (handle) {
+                handle.close().catch(() => {}); // Fire-and-forget
+                this.handles.delete(handleId);
+            }
+            this.handleRefs.delete(handleId);
+        } else {
+            this.handleRefs.set(handleId, refs);
+        }
+    }
+
+    // ========================================================================
+    // Legacy File Operations
+    // ========================================================================
 
     /**
      * Open a file and allocate fd.
@@ -1728,6 +1861,10 @@ export class Kernel {
             cwd: '/',
             env: {},
             args: [def.handler],
+            // Unified handle table (Phase 2)
+            handles: new Map(),
+            nextHandle: 3,
+            // Legacy tables for backward compatibility
             fds: new Map(),
             ports: new Map(),
             channels: new Map(),

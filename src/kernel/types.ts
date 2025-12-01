@@ -40,22 +40,25 @@ export interface Process {
     /** Command-line arguments */
     args: string[];
 
-    /** Open file descriptors: local fd -> resource UUID */
+    /** Open handles: local handle id -> handle UUID */
+    handles: Map<number, string>;
+
+    /** Next handle id to allocate (starts at 3, after stdio) */
+    nextHandle: number;
+
+    // Legacy aliases for backward compatibility during migration
+    // TODO: Remove after full migration
+    /** @deprecated Use handles instead */
     fds: Map<number, string>;
-
-    /** Open ports: local port id -> port UUID */
+    /** @deprecated Use handles instead */
     ports: Map<number, string>;
-
-    /** Open channels: local channel id -> channel UUID */
+    /** @deprecated Use handles instead */
     channels: Map<number, string>;
-
-    /** Next fd to allocate */
+    /** @deprecated Use nextHandle instead */
     nextFd: number;
-
-    /** Next port id to allocate */
+    /** @deprecated Use nextHandle instead */
     nextPort: number;
-
-    /** Next channel id to allocate */
+    /** @deprecated Use nextHandle instead */
     nextChannel: number;
 
     /** Exit code (when state = 'zombie') */
@@ -122,6 +125,10 @@ export const TERM_GRACE_MS = 5000;
 /**
  * Resource limits per process
  */
+export const MAX_HANDLES = 256;  // Unified limit for all handle types
+
+// Legacy limits for backward compatibility during migration
+// TODO: Remove after full migration
 export const MAX_FDS = 256;
 export const MAX_PORTS = 64;
 export const MAX_CHANNELS = 64;
