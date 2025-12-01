@@ -343,7 +343,7 @@ The issues below are grouped by severity (High/Medium/Low) and given new IDs of 
     - Treat it as a syntax error and have `parseCommand` return `null` or throw.
 - For a POSIX‑like shell UX, treating trailing `\` as a literal in some contexts or as an incomplete command (prompting for continuation) would be ideal. For Monk, a simple error + clear message is likely sufficient.
 
-**Status**: Open; minor but easy to fix.
+**Status**: Resolved. `tokenize()` now returns `null` on trailing backslash or unclosed quote. `parseCommand()` handles this and returns `null` for syntax errors.
 
 ---
 
@@ -371,7 +371,7 @@ The issues below are grouped by severity (High/Medium/Low) and given new IDs of 
   - Replace raw `new Error('…')` with `new ETIMEDOUT('…')` or map to a HAL error using a helper.
 - Ensure all externally observable network errors carry a `code` property consistent with the rest of HAL.
 
-**Status**: Low priority but good for consistency and observability.
+**Status**: Resolved. Network timeouts now throw `ETIMEDOUT`, closed socket write throws `EBADF`. All HAL errors carry consistent `code` property.
 
 ---
 
@@ -424,16 +424,16 @@ A suggested incremental plan for addressing the above issues:
   - `chdir` syscall now verifies path exists and is a folder via VFS.
 - [ ] G‑004: EOF semantics
   - Introduce a more explicit EOF contract on `Resource` and simplify `read` syscalls.
-- [ ] G‑006: Shell tokenizer trailing escape
-  - Add post‑loop handling for `escape` in `tokenize()`.
+- [x] G‑006: Shell tokenizer trailing escape
+  - `tokenize()` returns `null` on trailing escape or unclosed quote.
 
 ### Phase D – Observability and Polish
 
 - [ ] G‑005: `ByteWriter` usage guidance
   - Audit OS‑shipped scripts using `ByteWriter` to ensure they respect `full` and `waitForDrain()`.
   - Optionally add a hard maximum byte cap.
-- [ ] G‑007: Network error typing
-  - Wrap connect/read timeouts in HAL error types with consistent `code` values.
+- [x] G‑007: Network error typing
+  - Network timeouts use `ETIMEDOUT`, socket errors use `EBADF`.
 - [ ] G‑008: Host handle IDs
   - Optionally switch to UUIDs or monotonic counters.
 

@@ -16,6 +16,8 @@
  * - TLS requires key/cert paths or strings, not CryptoKey objects
  */
 
+import { ETIMEDOUT, EBADF } from './errors.js';
+
 /**
  * TLS configuration
  */
@@ -302,7 +304,7 @@ export class BunNetworkDevice implements NetworkDevice {
             if (opts?.timeout) {
                 setTimeout(() => {
                     if (!socketRef) {
-                        reject(new Error('Connection timeout'));
+                        reject(new ETIMEDOUT('Connection timeout'));
                     }
                 }, opts.timeout);
             }
@@ -492,7 +494,7 @@ class BunSocket implements Socket {
             if (opts?.timeout) {
                 timeoutId = setTimeout(() => {
                     this.setDataResolve(null);
-                    reject(new Error('ETIMEDOUT: Read timeout'));
+                    reject(new ETIMEDOUT('Read timeout'));
                 }, opts.timeout);
             }
 
@@ -505,7 +507,7 @@ class BunSocket implements Socket {
 
     async write(data: Uint8Array): Promise<void> {
         if (this.isClosed()) {
-            throw new Error('Socket closed');
+            throw new EBADF('Socket closed');
         }
 
         const written = this.socket.write(data);

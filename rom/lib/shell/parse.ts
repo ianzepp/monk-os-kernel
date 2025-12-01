@@ -63,14 +63,20 @@ export function expandVariables(
  * - Backslash escapes
  * - Space as delimiter
  *
+ * Returns null on syntax errors:
+ * - Trailing backslash (incomplete escape)
+ * - Unclosed quote
+ *
  * @param input - Command line to tokenize
- * @returns Array of tokens
+ * @returns Array of tokens, or null on syntax error
  *
  * @example
  * tokenize('echo "hello world"')  // ['echo', 'hello world']
  * tokenize("echo 'it\\'s'")       // ['echo', "it's"]
+ * tokenize('echo test\\')         // null (trailing escape)
+ * tokenize('echo "unclosed')      // null (unclosed quote)
  */
-export function tokenize(input: string): string[] {
+export function tokenize(input: string): string[] | null {
     const tokens: string[] = [];
     let current = '';
     let inQuote: string | null = null;
@@ -107,6 +113,16 @@ export function tokenize(input: string): string[] {
         }
 
         current += char;
+    }
+
+    // Syntax error: trailing backslash (incomplete escape sequence)
+    if (escape) {
+        return null;
+    }
+
+    // Syntax error: unclosed quote
+    if (inQuote !== null) {
+        return null;
     }
 
     if (current) {
@@ -276,7 +292,7 @@ export function parseCommand(input: string): ParsedCommand | null {
     }
 
     const tokens = tokenize(trimmed);
-    if (tokens.length === 0) return null;
+    if (tokens === null || tokens.length === 0) return null;
 
     const result: ParsedCommand = {
         command: tokens[0],
