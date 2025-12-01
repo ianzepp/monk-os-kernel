@@ -33,8 +33,8 @@ The Monk OS includes a `telnetd` service that provides shell access over TCP por
 
 - **Plaintext protocol**: Telnet transmits all data (including passwords) in plaintext
 - **No authentication**: Current implementation provides direct shell access without authentication
-- **Development-only**: The service is only auto-enabled when `DEBUG=1` environment variable is set
-- **Local access only**: Services bind to `127.0.0.1` by default, preventing external exposure
+- **Loopback only**: Services bind to `127.0.0.1` by default, preventing external exposure
+- **Enabled by default**: To disable, remove `/etc/services/telnetd.json`
 
 **Usage:**
 ```bash

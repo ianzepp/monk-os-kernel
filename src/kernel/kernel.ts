@@ -176,7 +176,7 @@ export class Kernel {
         );
 
         // Misc syscalls
-        this.syscalls.registerAll(createMiscSyscalls());
+        this.syscalls.registerAll(createMiscSyscalls(this.vfs));
 
         // Channel syscalls
         this.syscalls.registerAll(

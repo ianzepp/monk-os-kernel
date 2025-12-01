@@ -357,8 +357,34 @@ export function createFileSyscalls(
 
 /**
  * Create miscellaneous syscalls.
+ *
+ * @param vfs - VFS instance for path validation
  */
-export function createMiscSyscalls(): SyscallRegistry {
+export function createMiscSyscalls(vfs: VFS): SyscallRegistry {
+    /**
+     * Resolve a path relative to cwd if not absolute.
+     */
+    function resolvePath(cwd: string, path: string): string {
+        if (path.startsWith('/')) {
+            return path;
+        }
+        // Resolve relative path against cwd
+        const baseParts = cwd.split('/').filter(Boolean);
+        const relativeParts = path.split('/');
+
+        for (const part of relativeParts) {
+            if (part === '.' || part === '') {
+                continue;
+            } else if (part === '..') {
+                baseParts.pop();
+            } else {
+                baseParts.push(part);
+            }
+        }
+
+        return '/' + baseParts.join('/');
+    }
+
     return {
         async *getargs(proc: Process): AsyncIterable<Response> {
             yield respond.ok(proc.args);
@@ -373,8 +399,26 @@ export function createMiscSyscalls(): SyscallRegistry {
                 yield respond.error('EINVAL', 'path must be a string');
                 return;
             }
-            // TODO: Verify path exists and is a directory
-            proc.cwd = path;
+
+            // Resolve path relative to cwd
+            const resolvedPath = resolvePath(proc.cwd, path);
+
+            // Verify path exists and is a directory
+            try {
+                const stat = await vfs.stat(resolvedPath, proc.id);
+                if (stat.model !== 'folder') {
+                    yield respond.error('ENOTDIR', `Not a directory: ${path}`);
+                    return;
+                }
+            } catch (err) {
+                // Path doesn't exist or access denied
+                const code = (err as { code?: string }).code ?? 'ENOENT';
+                const message = (err as Error).message ?? `No such directory: ${path}`;
+                yield respond.error(code, message);
+                return;
+            }
+
+            proc.cwd = resolvedPath;
             yield respond.ok();
         },
 

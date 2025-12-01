@@ -5,8 +5,11 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
 import { SyscallDispatcher, createMiscSyscalls } from '@src/kernel/syscalls.js';
 import type { Process } from '@src/kernel/types.js';
+import type { VFS } from '@src/vfs/vfs.js';
+import type { ModelStat } from '@src/vfs/model.js';
 import { unwrapStream } from '@src/message.js';
 import { respond } from '@src/message.js';
+import { ENOENT } from '@src/hal/errors.js';
 
 /**
  * Create a mock process for testing
@@ -103,10 +106,42 @@ describe('SyscallDispatcher', () => {
 
 describe('Misc Syscalls', () => {
     let dispatcher: SyscallDispatcher;
+    let mockVfs: VFS;
 
     beforeEach(() => {
+        // Create mock VFS that returns folder for /tmp, ENOENT for /nonexistent
+        mockVfs = {
+            stat: async (path: string, _caller: string): Promise<ModelStat> => {
+                if (path === '/' || path === '/tmp' || path === '/home/user') {
+                    return {
+                        id: 'mock-id',
+                        model: 'folder',
+                        name: path.split('/').pop() || '',
+                        parent: null,
+                        owner: 'root',
+                        size: 0,
+                        mtime: Date.now(),
+                        ctime: Date.now(),
+                    };
+                }
+                if (path === '/etc/passwd') {
+                    return {
+                        id: 'mock-file-id',
+                        model: 'file',
+                        name: 'passwd',
+                        parent: null,
+                        owner: 'root',
+                        size: 100,
+                        mtime: Date.now(),
+                        ctime: Date.now(),
+                    };
+                }
+                throw new ENOENT(`No such file: ${path}`);
+            },
+        } as VFS;
+
         dispatcher = new SyscallDispatcher();
-        dispatcher.registerAll(createMiscSyscalls());
+        dispatcher.registerAll(createMiscSyscalls(mockVfs));
     });
 
     describe('getcwd', () => {
@@ -118,7 +153,7 @@ describe('Misc Syscalls', () => {
     });
 
     describe('chdir', () => {
-        it('should change working directory', async () => {
+        it('should change working directory to valid folder', async () => {
             const proc = createMockProcess({ cwd: '/home/user' });
             await unwrapStream(dispatcher.dispatch(proc, 'chdir', ['/tmp']));
             expect(proc.cwd).toBe('/tmp');
@@ -127,6 +162,22 @@ describe('Misc Syscalls', () => {
         it('should throw EINVAL on non-string path', async () => {
             const proc = createMockProcess();
             await expect(unwrapStream(dispatcher.dispatch(proc, 'chdir', [123]))).rejects.toThrow('path must be a string');
+        });
+
+        it('should throw ENOENT on non-existent path', async () => {
+            const proc = createMockProcess();
+            await expect(unwrapStream(dispatcher.dispatch(proc, 'chdir', ['/nonexistent']))).rejects.toThrow('No such file');
+        });
+
+        it('should throw ENOTDIR on file path', async () => {
+            const proc = createMockProcess();
+            await expect(unwrapStream(dispatcher.dispatch(proc, 'chdir', ['/etc/passwd']))).rejects.toThrow('Not a directory');
+        });
+
+        it('should resolve relative paths against cwd', async () => {
+            const proc = createMockProcess({ cwd: '/home/user' });
+            await unwrapStream(dispatcher.dispatch(proc, 'chdir', ['../..']));
+            expect(proc.cwd).toBe('/');
         });
     });
 

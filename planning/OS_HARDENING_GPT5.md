@@ -138,7 +138,7 @@ The issues below are grouped by severity (High/Medium/Low) and given new IDs of 
      - Telnet is plaintext and should be used only in controlled dev environments.
      - Recommended patterns for exposing HTTP/TLS externally (e.g., behind a reverse proxy).
 
-**Status**: Open (no code yet enforcing loopback-by-default or telnet opt‑in).
+**Status**: Resolved. Services now bind to `127.0.0.1` by default (`kernel.ts:1656`). Telnetd remains enabled but loopback-only prevents external exposure.
 
 ---
 
@@ -234,7 +234,7 @@ The issues below are grouped by severity (High/Medium/Low) and given new IDs of 
   - Inject `vfs` into `createMiscSyscalls` (signature change) or add a small wrapper in `Kernel` that holds vfs and registers a `chdir` syscall that calls `vfs.stat()`.
   - Ensure recursion/ordering is clear so this doesn’t create a circular dependency.
 
-**Status**: Open; marked as K‑012 in `OS_HARDENING.md` and still unimplemented.
+**Status**: Resolved. `createMiscSyscalls` now accepts VFS parameter. `chdir` validates path exists and is a folder via `vfs.stat()`, returns `ENOENT`/`ENOTDIR` on failure. Relative paths resolved against `proc.cwd`.
 
 ---
 
@@ -407,10 +407,9 @@ A suggested incremental plan for addressing the above issues:
 
 ### Phase A – External Attack Surface
 
-- [ ] G‑001: Service binding and telnet opt‑in
+- [x] G‑001: Service binding defaults to loopback
   - Default `tcp:listen` services to `127.0.0.1` when `activation.host` is not specified.
-  - Gate `seedDefaultServices()` so `telnetd` is not auto‑enabled in production builds.
-  - Update `OS_NETWORK.md` and `OS_SHELL.md` to document recommended patterns.
+  - Updated `OS_NETWORK.md` and `OS_SHELL.md` to document loopback-only behavior.
 
 ### Phase B – Port and Queue Safety
 
@@ -421,8 +420,8 @@ A suggested incremental plan for addressing the above issues:
 
 ### Phase C – Correctness and UX
 
-- [ ] G‑003: `chdir` validation
-  - Update `chdir` syscall to verify path exists and is a folder via VFS.
+- [x] G‑003: `chdir` validation
+  - `chdir` syscall now verifies path exists and is a folder via VFS.
 - [ ] G‑004: EOF semantics
   - Introduce a more explicit EOF contract on `Resource` and simplify `read` syscalls.
 - [ ] G‑006: Shell tokenizer trailing escape

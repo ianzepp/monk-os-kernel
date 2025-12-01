@@ -474,13 +474,14 @@ To bind to all interfaces (dangerous in production):
 
 ### Telnet Service
 
-The `telnetd` service provides plaintext shell access and is **disabled by default** in production builds. It is only auto-enabled when `DEBUG=1` environment variable is set.
+The `telnetd` service provides plaintext shell access. It is **enabled by default** but binds to `127.0.0.1` (loopback only), preventing external network access.
 
 **Security recommendations:**
 - Telnet transmits credentials and commands in plaintext
-- Only use in controlled development environments
+- Loopback binding prevents external exposure by default
+- To disable telnetd entirely, remove `/etc/services/telnetd.json`
 - Consider SSH or TLS-wrapped alternatives for remote access
-- Never expose telnet externally in production
+- Never configure telnetd with `"host": "0.0.0.0"` in production
 
 ### Recommended Patterns
 
