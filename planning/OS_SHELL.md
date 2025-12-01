@@ -5,14 +5,14 @@ implementation to the new `rom/bin/` syscall-based implementation.
 
 ## Summary (2024-11-30)
 
-**Completed:** 28 commands converted
+**Completed:** 29 commands converted
 - Phase 1: true, false
 - Phase 2: yes, seq, sleep, basename, dirname
 - Phase 3: head, tail, wc, nl
 - Phase 5: sort, uniq, tr, cut
 - Phase 6: cp, mv, ln, chmod, tee
 - New: grant (Monk-native ACL management)
-- Phase 8: awk
+- Phase 8: awk, sed
 - Phase 7: date, uname, whoami, printf
 - Pre-existing: cat, cd, echo, ls, mkdir, pwd, rm, rmdir, touch
 
@@ -249,6 +249,7 @@ Commands that need kernel/HAL features not yet available.
 | Command | Status | Notes |
 |---------|--------|-------|
 | awk | [x] | Full implementation: lexer, parser, interpreter |
+| sed | [x] | Stream editor with s/d/p/q/a/i/c/y commands |
 
 ---
 

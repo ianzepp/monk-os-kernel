@@ -566,6 +566,7 @@ Located in `/bin/`:
 - `mv` - move/rename files
 - `rm` - remove files
 - `rmdir` - remove directory
+- `sed` - stream editor
 - `touch` - create empty file
 - `shell` - the shell itself
 - `init` - init process
