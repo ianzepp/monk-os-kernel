@@ -811,18 +811,21 @@ export class Kernel {
         const stdinHandle = await this.vfs.open(CONSOLE_PATH, { read: true }, 'kernel');
         const stdinResource = new FileResource(stdinHandle.id, stdinHandle);
         this.resources.set(stdinResource.id, stdinResource);
+        this.resourceRefs.set(stdinResource.id, 1);
         init.fds.set(0, stdinResource.id);
 
         // Open console for stdout (write-only)
         const stdoutHandle = await this.vfs.open(CONSOLE_PATH, { write: true }, 'kernel');
         const stdoutResource = new FileResource(stdoutHandle.id, stdoutHandle);
         this.resources.set(stdoutResource.id, stdoutResource);
+        this.resourceRefs.set(stdoutResource.id, 1);
         init.fds.set(1, stdoutResource.id);
 
         // Open console for stderr (write-only)
         const stderrHandle = await this.vfs.open(CONSOLE_PATH, { write: true }, 'kernel');
         const stderrResource = new FileResource(stderrHandle.id, stderrHandle);
         this.resources.set(stderrResource.id, stderrResource);
+        this.resourceRefs.set(stderrResource.id, 1);
         init.fds.set(2, stderrResource.id);
     }
 
@@ -866,6 +869,10 @@ export class Kernel {
 
     /**
      * Increment reference count for a resource.
+     *
+     * Note: The `?? 1` fallback is a safety net that should never be hit.
+     * All resources must have their refcount explicitly initialized to 1
+     * when created.
      */
     private refResource(resourceId: string): void {
         const refs = this.resourceRefs.get(resourceId) ?? 1;
@@ -919,6 +926,8 @@ export class Kernel {
 
     /**
      * Decrement reference count for a resource, closing if last ref.
+     *
+     * Note: The `?? 1` fallback is a safety net.
      */
     private unrefResource(resourceId: string): void {
         const refs = (this.resourceRefs.get(resourceId) ?? 1) - 1;
@@ -938,6 +947,8 @@ export class Kernel {
 
     /**
      * Decrement reference count for a port, closing if last ref.
+     *
+     * Note: The `?? 1` fallback is a safety net.
      */
     private unrefPort(portUuid: string): void {
         const refs = (this.portRefs.get(portUuid) ?? 1) - 1;
@@ -1031,6 +1042,7 @@ export class Kernel {
 
         // Register in kernel table
         this.handles.set(handle.id, handle);
+        this.handleRefs.set(handle.id, 1);
 
         // Allocate ID in process
         const h = proc.nextHandle++;
@@ -1068,6 +1080,8 @@ export class Kernel {
     /**
      * Increment reference count for a handle.
      * TODO: Wire into Handle-based syscalls when ready
+     *
+     * Note: The `?? 1` fallback is a safety net.
      */
     // @ts-expect-error Scaffolding for Handle-based syscalls
     private _refHandle(handleId: string): void {
@@ -1078,6 +1092,8 @@ export class Kernel {
     /**
      * Decrement reference count, closing if last ref.
      * TODO: Wire into Handle-based syscalls when ready
+     *
+     * Note: The `?? 1` fallback is a safety net.
      */
     // @ts-expect-error Scaffolding for Handle-based syscalls
     private _unrefHandle(handleId: string): void {
@@ -1113,6 +1129,7 @@ export class Kernel {
         // Create resource wrapper
         const resource = new FileResource(handle.id, handle);
         this.resources.set(resource.id, resource);
+        this.resourceRefs.set(resource.id, 1);
 
         // Allocate fd
         const fd = proc.nextFd++;
@@ -1142,6 +1159,7 @@ export class Kernel {
             : `tcp:${socket.stat().remoteAddr}:${socket.stat().remotePort}`;
         const resource = new SocketResource(resourceId, socket, description);
         this.resources.set(resourceId, resource);
+        this.resourceRefs.set(resourceId, 1);
 
         // Allocate fd
         const fd = proc.nextFd++;
@@ -1204,6 +1222,7 @@ export class Kernel {
             `pipe:${pipeId}:read`
         );
         this.resources.set(readResource.id, readResource);
+        this.resourceRefs.set(readResource.id, 1);
         const readFd = proc.nextFd++;
         proc.fds.set(readFd, readResource.id);
 
@@ -1215,6 +1234,7 @@ export class Kernel {
             `pipe:${pipeId}:write`
         );
         this.resources.set(writeResource.id, writeResource);
+        this.resourceRefs.set(writeResource.id, 1);
         const writeFd = proc.nextFd++;
         proc.fds.set(writeFd, writeResource.id);
 
@@ -1373,6 +1393,7 @@ export class Kernel {
 
         // Register port
         this.ports.set(port.id, port);
+        this.portRefs.set(port.id, 1);
 
         // Allocate port id in process
         const localPortId = proc.nextPort++;
@@ -1415,6 +1436,7 @@ export class Kernel {
             const description = `tcp:${stat.remoteAddr}:${stat.remotePort}`;
             const resource = new SocketResource(resourceId, msg.socket, description);
             this.resources.set(resourceId, resource);
+            this.resourceRefs.set(resourceId, 1);
 
             // Allocate fd
             const fd = proc.nextFd++;
@@ -1972,6 +1994,7 @@ export class Kernel {
                 `service:${name}:stdin`
             );
             this.resources.set(readResource.id, readResource);
+            this.resourceRefs.set(readResource.id, 1);
             proc.fds.set(0, readResource.id);
 
             // fd 1 and 2 go to console
@@ -2002,6 +2025,7 @@ export class Kernel {
         const handle = await this.vfs.open(CONSOLE_PATH, flags, 'kernel');
         const resource = new FileResource(handle.id, handle);
         this.resources.set(resource.id, resource);
+        this.resourceRefs.set(resource.id, 1);
         proc.fds.set(fd, resource.id);
     }
 

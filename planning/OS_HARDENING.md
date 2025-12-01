@@ -548,8 +548,8 @@ class BoundedQueue<T> {
 ### Phase 1: Critical Security (Do First)
 - [x] K-001: Fix path traversal in normalizePath (completed 2024-12-01)
 
-### Phase 2: Resource Safety (Next)
-- [ ] K-002: Explicit refcount initialization
+### Phase 2: Resource Safety (Complete)
+- [x] K-002: Explicit refcount initialization (completed 2024-12-01)
 - [x] K-003: Bounded pipe buffers (completed 2024-12-01)
 - [x] K-007: ByteWriter backpressure (completed 2024-12-01)
 
