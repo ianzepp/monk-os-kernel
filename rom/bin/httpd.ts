@@ -11,44 +11,25 @@
  * No routing, no file serving, just a basic "it works" response.
  */
 
-import {
-    read,
-    write,
-    exit,
-    getenv,
-} from '/lib/process';
+import { write, exit, getenv } from '/lib/process';
+import { BufferedReader } from '/lib/io';
 
-/**
- * Read a line from fd 0 (until \r\n or \n)
- */
-async function readLine(): Promise<string> {
-    const chunks: number[] = [];
-
-    while (true) {
-        const chunk = await read(0, 1);
-        if (chunk.length === 0) break; // EOF
-
-        const byte = chunk[0];
-        if (byte === 0x0a) break; // LF
-        if (byte !== 0x0d) chunks.push(byte); // Skip CR
-    }
-
-    return new TextDecoder().decode(new Uint8Array(chunks));
-}
+// Buffered reader for stdin
+const reader = new BufferedReader(0);
 
 /**
  * Read HTTP request headers
  */
 async function readRequest(): Promise<{ method: string; path: string; headers: Map<string, string> }> {
     // Read request line: "GET /path HTTP/1.1"
-    const requestLine = await readLine();
-    const [method, path] = requestLine.split(' ');
+    const requestLine = await reader.readLine();
+    const [method, path] = (requestLine ?? '').split(' ');
 
     // Read headers until empty line
     const headers = new Map<string, string>();
     while (true) {
-        const line = await readLine();
-        if (line === '') break;
+        const line = await reader.readLine();
+        if (line === null || line === '') break;
 
         const colonIndex = line.indexOf(':');
         if (colonIndex !== -1) {
