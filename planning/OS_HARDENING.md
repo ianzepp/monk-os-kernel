@@ -550,7 +550,7 @@ class BoundedQueue<T> {
 
 ### Phase 2: Resource Safety (Next)
 - [ ] K-002: Explicit refcount initialization
-- [ ] K-003: Bounded pipe buffers
+- [x] K-003: Bounded pipe buffers (completed 2024-12-01)
 - [ ] K-007: ByteWriter backpressure
 
 ### Phase 3: Reliability

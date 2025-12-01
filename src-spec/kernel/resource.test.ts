@@ -4,7 +4,7 @@
 
 import { describe, it, expect, mock } from 'bun:test';
 import { FileResource, SocketResource, ListenerPort, WatchPort, UdpPort, PubsubPort, matchTopic, PipeBuffer, PipeResource } from '@src/kernel/resource.js';
-import { ENOTSUP } from '@src/kernel/errors.js';
+import { ENOTSUP, EAGAIN } from '@src/kernel/errors.js';
 import type { WatchEvent } from '@src/vfs/model.js';
 import type { FileHandle } from '@src/vfs/index.js';
 import type { Socket, Listener } from '@src/hal/index.js';
@@ -340,6 +340,51 @@ describe('PipeBuffer', () => {
 
         buffer.write(new Uint8Array([4, 5]));
         expect(buffer.size).toBe(5);
+    });
+
+    it('should throw EAGAIN when buffer exceeds high water mark', () => {
+        // Create buffer with small high water mark for testing
+        const buffer = new PipeBuffer(10);
+
+        // Write up to limit - should succeed
+        buffer.write(new Uint8Array([1, 2, 3, 4, 5]));
+        expect(buffer.size).toBe(5);
+        expect(buffer.full).toBe(false);
+
+        // Write more that would exceed - should throw EAGAIN
+        expect(() => buffer.write(new Uint8Array([6, 7, 8, 9, 10, 11]))).toThrow(EAGAIN);
+
+        // Buffer should be unchanged after failed write
+        expect(buffer.size).toBe(5);
+    });
+
+    it('should report full when at high water mark', () => {
+        const buffer = new PipeBuffer(5);
+
+        expect(buffer.full).toBe(false);
+
+        buffer.write(new Uint8Array([1, 2, 3, 4, 5]));
+        expect(buffer.full).toBe(true);
+    });
+
+    it('should allow writes after buffer drains below high water mark', async () => {
+        const buffer = new PipeBuffer(10);
+
+        // Fill buffer
+        buffer.write(new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]));
+        expect(buffer.full).toBe(true);
+
+        // Can't write more
+        expect(() => buffer.write(new Uint8Array([11]))).toThrow(EAGAIN);
+
+        // Read to drain
+        await buffer.read();
+        expect(buffer.size).toBe(0);
+        expect(buffer.full).toBe(false);
+
+        // Can write again
+        buffer.write(new Uint8Array([1, 2, 3]));
+        expect(buffer.size).toBe(3);
     });
 
     it('should report fullyClosed when both ends close', () => {

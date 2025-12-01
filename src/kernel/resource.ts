@@ -17,7 +17,7 @@
 import type { FileHandle } from '@src/vfs/index.js';
 import type { Socket, Listener } from '@src/hal/index.js';
 import type { PortType } from '@src/kernel/types.js';
-import { EBADF, EINVAL, ENOTSUP } from '@src/kernel/errors.js';
+import { EBADF, EINVAL, ENOTSUP, EAGAIN } from '@src/kernel/errors.js';
 export type { PortType } from '@src/kernel/types.js';
 
 /**
@@ -676,11 +676,15 @@ export function matchTopic(pattern: string, topic: string): boolean {
  */
 export type PipeEnd = 'read' | 'write';
 
+/** Maximum bytes buffered before backpressure is applied */
+const PIPE_BUFFER_HIGH_WATER = 64 * 1024; // 64KB
+
 /**
  * Shared buffer for pipe communication
  *
  * Provides in-memory buffering between read and write ends of a pipe.
  * Supports blocking reads when buffer is empty and EOF detection.
+ * Applies backpressure when buffer exceeds high water mark.
  */
 export class PipeBuffer {
     private chunks: Uint8Array[] = [];
@@ -688,11 +692,24 @@ export class PipeBuffer {
     private writeEndClosed = false;
     private readEndClosed = false;
     private waiters: Array<{ resolve: (data: Uint8Array) => void; reject: (err: Error) => void }> = [];
+    private readonly highWaterMark: number;
+
+    constructor(highWaterMark: number = PIPE_BUFFER_HIGH_WATER) {
+        this.highWaterMark = highWaterMark;
+    }
+
+    /**
+     * Check if buffer is at or above high water mark
+     */
+    get full(): boolean {
+        return this.totalBytes >= this.highWaterMark;
+    }
 
     /**
      * Write data to the buffer
      *
      * @throws EPIPE if read end is closed
+     * @throws EAGAIN if buffer is full (backpressure)
      */
     write(data: Uint8Array): number {
         if (this.readEndClosed) {
@@ -708,6 +725,11 @@ export class PipeBuffer {
             const waiter = this.waiters.shift()!;
             waiter.resolve(data);
             return data.length;
+        }
+
+        // Check capacity - apply backpressure if buffer is full
+        if (this.totalBytes + data.length > this.highWaterMark) {
+            throw new EAGAIN('Pipe buffer full');
         }
 
         // Otherwise buffer it

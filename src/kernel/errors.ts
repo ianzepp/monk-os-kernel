@@ -8,6 +8,7 @@
 export {
     ENOSYS,
     ENOTSUP,
+    EAGAIN,
     ECHILD,
     ESRCH,
     EBADF,
