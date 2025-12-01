@@ -28,6 +28,6 @@ export {
 } from './parse';
 
 // Re-export from /lib/* for convenience
-export { parseArgs } from '/lib/args';
-export { resolvePath, dirname } from '/lib/path';
-export { formatMode, formatSize, formatDateLs as formatDate } from '/lib/format';
+export { parseArgs } from '@rom/lib/args';
+export { resolvePath, dirname } from '@rom/lib/path';
+export { formatMode, formatSize, formatDateLs as formatDate } from '@rom/lib/format';

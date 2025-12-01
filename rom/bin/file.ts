@@ -18,14 +18,14 @@ import {
     getcwd,
     stat,
     open,
-    read,
+    head,
     close,
     println,
     eprintln,
     exit,
-} from '/lib/process';
-import { resolvePath } from '/lib/shell';
-import type { Stat } from '/lib/process';
+} from '@rom/lib/process';
+import { resolvePath } from '@rom/lib/shell';
+import type { Stat } from '@rom/lib/process';
 
 async function main(): Promise<void> {
     const args = await getargs();
@@ -73,7 +73,7 @@ async function main(): Promise<void> {
             if (entry.model === 'file' && entry.size > 0 && entry.size < 65536) {
                 try {
                     const fd = await open(resolved, { read: true });
-                    content = await read(fd, Math.min(entry.size, 512));
+                    content = await head(fd, Math.min(entry.size, 512));
                     await close(fd);
                 } catch {
                     // Ignore read errors

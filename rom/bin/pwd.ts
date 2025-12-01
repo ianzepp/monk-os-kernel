@@ -6,7 +6,7 @@
  * Prints the current working directory to stdout.
  */
 
-import { getcwd, println, exit } from '/lib/process';
+import { getcwd, println, exit } from '@rom/lib/process';
 
 async function main(): Promise<void> {
     const cwd = await getcwd();
@@ -15,7 +15,7 @@ async function main(): Promise<void> {
 }
 
 main().catch(async (err) => {
-    const { eprintln } = await import('/lib/process');
+    const { eprintln } = await import('@rom/lib/process');
     await eprintln(`pwd: ${err.message}`);
     await exit(1);
 });

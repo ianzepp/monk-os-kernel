@@ -18,8 +18,8 @@
  *   uname -sr
  */
 
-import { getargs, getenv, println, exit } from '/lib/process';
-import { parseArgs } from '/lib/shell';
+import { getargs, getenv, println, exit } from '@rom/lib/process';
+import { parseArgs } from '@rom/lib/shell';
 
 const KERNEL_NAME = 'Monk';
 const KERNEL_RELEASE = '1.0.0';

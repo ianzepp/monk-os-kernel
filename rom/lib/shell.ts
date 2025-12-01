@@ -4,4 +4,4 @@
  * Re-exports from /lib/shell/index.ts for convenience.
  */
 
-export * from '/lib/shell/index';
+export * from '@rom/lib/shell/index';

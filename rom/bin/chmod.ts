@@ -11,7 +11,7 @@
  *   grant --list /path/to/file
  */
 
-import { getargs, eprintln, exit } from '/lib/process';
+import { getargs, eprintln, exit } from '@rom/lib/process';
 
 async function main(): Promise<void> {
     const args = await getargs();

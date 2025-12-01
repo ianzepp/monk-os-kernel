@@ -17,8 +17,8 @@ import {
     rmdir,
     eprintln,
     exit,
-} from '/lib/process';
-import { parseArgs, resolvePath } from '/lib/shell';
+} from '@rom/lib/process';
+import { parseArgs, resolvePath } from '@rom/lib/shell';
 
 const argSpecs = {
     recursive: { short: 'r', desc: 'Remove directories recursively' },

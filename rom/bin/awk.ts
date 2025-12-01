@@ -66,15 +66,15 @@ import {
     exit,
     onSignal,
     SIGTERM,
-} from '/lib/process';
-import { resolvePath } from '/lib/shell';
-import { Lexer, Parser, Interpreter } from '/lib/awk';
+} from '@rom/lib/process';
+import { resolvePath } from '@rom/lib/shell';
+import { Lexer, Parser, Interpreter } from '@rom/lib/awk';
 
-let aborted = false;
+const abortController = new AbortController();
 
 onSignal((signal) => {
     if (signal === SIGTERM) {
-        aborted = true;
+        abortController.abort();
     }
 });
 
@@ -169,7 +169,7 @@ async function main(): Promise<void> {
         program,
         (text: string) => { print(text); },
         (text: string) => { eprintln(text); },
-        { get aborted() { return aborted; } }
+        abortController.signal
     );
 
     // Set field separator
@@ -189,7 +189,7 @@ async function main(): Promise<void> {
     if (positional.length > 0) {
         // Read from files
         for (const file of positional) {
-            if (aborted) {
+            if (abortController.signal.aborted) {
                 await exit(130);
             }
 

@@ -7,7 +7,7 @@
  * Exit status is always 1.
  */
 
-import { exit } from '/lib/process';
+import { exit } from '@rom/lib/process';
 
 async function main(): Promise<void> {
     await exit(1);

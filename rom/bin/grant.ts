@@ -32,9 +32,9 @@ import {
     eprintln,
     println,
     exit,
-} from '/lib/process';
-import { resolvePath } from '/lib/shell';
-import type { ACL, Grant } from '/lib/process';
+} from '@rom/lib/process';
+import { resolvePath } from '@rom/lib/shell';
+import type { ACL, Grant } from '@rom/lib/process';
 
 async function main(): Promise<void> {
     const args = await getargs();

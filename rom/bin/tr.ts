@@ -28,7 +28,7 @@ import {
     write,
     eprintln,
     exit,
-} from '/lib/process';
+} from '@rom/lib/process';
 
 async function main(): Promise<void> {
     const args = await getargs();

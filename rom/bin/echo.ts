@@ -6,7 +6,7 @@
  * Writes arguments to stdout, separated by spaces, followed by newline.
  */
 
-import { getargs, println, exit } from '/lib/process';
+import { getargs, println, exit } from '@rom/lib/process';
 
 async function main(): Promise<void> {
     const args = await getargs();

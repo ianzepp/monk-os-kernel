@@ -16,7 +16,7 @@
  *   dirname /                  # /
  */
 
-import { getargs, println, eprintln, exit } from '/lib/process';
+import { getargs, println, eprintln, exit } from '@rom/lib/process';
 
 /**
  * Get directory name of a path

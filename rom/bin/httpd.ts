@@ -11,11 +11,11 @@
  * No routing, no file serving, just a basic "it works" response.
  */
 
-import { write, exit, getenv } from '/lib/process';
-import { BufferedReader } from '/lib/io';
+import { write, exit, getenv, read } from '@rom/lib/process';
+import { ByteReader } from '@rom/lib/io';
 
 // Buffered reader for stdin
-const reader = new BufferedReader(0);
+const reader = new ByteReader(read(0));
 
 /**
  * Read HTTP request headers

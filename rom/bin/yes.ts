@@ -14,7 +14,7 @@
  *   yes hello | head -3  # Print "hello" 3 times
  */
 
-import { getargs, println, exit, onSignal, SIGTERM, sleep } from '/lib/process';
+import { getargs, println, exit, onSignal, SIGTERM, sleep } from '@rom/lib/process';
 
 async function main(): Promise<void> {
     const args = await getargs();

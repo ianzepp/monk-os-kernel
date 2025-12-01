@@ -216,6 +216,11 @@ export function resolveImport(importPath: string, fromModule: string): string {
         path = path.slice(0, -3);
     }
 
+    // Handle @rom/ alias -> / (VFS root)
+    if (path.startsWith('@rom/')) {
+        path = path.slice(4); // '@rom/lib/io' -> '/lib/io'
+    }
+
     // Absolute VFS path
     if (path.startsWith('/')) {
         return path.endsWith('.ts') ? path : path + '.ts';
@@ -256,9 +261,9 @@ function resolvePath(base: string, relative: string): string {
  * Check if a path is a VFS path (vs external/builtin).
  */
 export function isVFSPath(path: string): boolean {
-    // VFS paths start with /
+    // VFS paths start with / or @rom/
     // External paths include: bun:*, node:*, npm packages
-    return path.startsWith('/');
+    return path.startsWith('/') || path.startsWith('@rom/');
 }
 
 /**
