@@ -142,14 +142,12 @@ class DeviceHandle implements FileHandle {
 
     private _closed = false;
     private ctx: ModelContext;
-    private entityId: string;
     private device: DeviceType;
     private consoleBuffer: Uint8Array = new Uint8Array(0);
 
-    constructor(ctx: ModelContext, entityId: string, device: DeviceType, flags: OpenFlags) {
+    constructor(ctx: ModelContext, _entityId: string, device: DeviceType, flags: OpenFlags) {
         this.id = ctx.hal.entropy.uuid();
         this.ctx = ctx;
-        this.entityId = entityId;
         this.device = device;
         this.flags = flags;
     }

@@ -457,15 +457,15 @@ export class MockIPCDevice implements IPCDevice {
         return { a: channel.port1, b: channel.port2 };
     }
 
-    mutex(buf: SharedArrayBuffer, offset: number): Mutex {
+    mutex(_buf: SharedArrayBuffer, _offset: number): Mutex {
         return new MockMutex();
     }
 
-    semaphore(buf: SharedArrayBuffer, offset: number, n: number): Semaphore {
+    semaphore(_buf: SharedArrayBuffer, _offset: number, n: number): Semaphore {
         return new MockSemaphore(n);
     }
 
-    condvar(buf: SharedArrayBuffer, offset: number): CondVar {
+    condvar(_buf: SharedArrayBuffer, _offset: number): CondVar {
         return new MockCondVar();
     }
 }

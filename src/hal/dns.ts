@@ -118,7 +118,7 @@ export class BunDNSDevice implements DNSDevice {
         }
     }
 
-    async reverse(addr: string): Promise<string[]> {
+    async reverse(_addr: string): Promise<string[]> {
         // Bun doesn't have native reverse DNS
         // We could use a system call via host device, but for now return empty
         // This is a known limitation

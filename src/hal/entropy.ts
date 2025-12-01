@@ -116,10 +116,10 @@ function uuidv7(): string {
     bytes[5] = timestamp & 0xff;
 
     // Byte 6: version (0111 = 7) in high nibble, random in low nibble
-    bytes[6] = (bytes[6] & 0x0f) | 0x70;
+    bytes[6] = (bytes[6]! & 0x0f) | 0x70;
 
     // Byte 8: variant (10) in high 2 bits, random in low 6 bits
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    bytes[8] = (bytes[8]! & 0x3f) | 0x80;
 
     // Format as UUID string
     const hex = Array.from(bytes)
@@ -231,9 +231,9 @@ export class SeededEntropyDevice implements EntropyDevice {
         bytes[5] = timestamp & 0xff;
 
         // Set version 7 bits
-        bytes[6] = (bytes[6] & 0x0f) | 0x70;
+        bytes[6] = (bytes[6]! & 0x0f) | 0x70;
         // Set variant bits
-        bytes[8] = (bytes[8] & 0x3f) | 0x80;
+        bytes[8] = (bytes[8]! & 0x3f) | 0x80;
 
         const hex = Array.from(bytes)
             .map((b) => b.toString(16).padStart(2, '0'))

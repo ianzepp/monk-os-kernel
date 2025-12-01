@@ -158,7 +158,7 @@ export class BunTimerDevice implements TimerDevice {
     }
 
     cancelAll(): void {
-        for (const [id, timer] of this.timers) {
+        for (const [_id, timer] of this.timers) {
             // Check by examining the timer - intervals are tracked separately
             clearTimeout(timer as ReturnType<typeof setTimeout>);
             clearInterval(timer as ReturnType<typeof setInterval>);

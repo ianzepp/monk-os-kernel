@@ -471,7 +471,7 @@ class BunSocket implements Socket {
     constructor(
         private socket: any, // Bun socket type
         private dataQueue: Uint8Array[],
-        private getDataResolve: () => ((data: Uint8Array) => void) | null,
+        _getDataResolve: () => ((data: Uint8Array) => void) | null,
         private setDataResolve: (r: ((data: Uint8Array) => void) | null) => void,
         private isClosed: () => boolean,
         private setClosed: (c: boolean) => void

@@ -187,7 +187,6 @@ export class BunStorageEngine implements StorageEngine {
     private db: Database;
     private watchers: Map<string, Set<(event: WatchEvent) => void>> = new Map();
     private pollInterval: ReturnType<typeof setInterval> | null = null;
-    private lastPollTime: number = Date.now();
 
     /**
      * @param path - SQLite database path, or ':memory:' for in-memory
@@ -581,7 +580,7 @@ class MemoryTransaction implements Transaction {
     async get(key: string): Promise<Uint8Array | null> {
         // Check pending operations first
         for (let i = this.operations.length - 1; i >= 0; i--) {
-            const op = this.operations[i];
+            const op = this.operations[i]!;
             if (op.key === key) {
                 return op.type === 'put' ? op.value! : null;
             }
@@ -601,7 +600,6 @@ class MemoryTransaction implements Transaction {
         if (this.committed) return;
         this.committed = true;
 
-        const timestamp = Date.now();
         for (const op of this.operations) {
             if (op.type === 'put') {
                 await this.engine.put(op.key, op.value!);

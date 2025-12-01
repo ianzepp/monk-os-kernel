@@ -194,7 +194,7 @@ export function extractImports(js: string): string[] {
     for (const pattern of patterns) {
         let match;
         while ((match = pattern.exec(js)) !== null) {
-            imports.push(match[1]);
+            imports.push(match[1]!);
         }
     }
 
@@ -345,8 +345,8 @@ export function rewriteImports(js: string, fromModule: string): string {
             const assigns = items.map((n: string) => {
                 // Handle "x as y" syntax
                 const parts = n.split(/\s+as\s+/);
-                const source = parts[0].trim();
-                const exported = (parts[1] || parts[0]).trim();
+                const source = parts[0]!.trim();
+                const exported = (parts[1] ?? parts[0]!).trim();
                 return `exports.${exported} = ${tempVar}.${source}`;
             }).join('; ');
             return `const ${tempVar} = __require('${resolved}'); ${assigns};`;
@@ -361,8 +361,8 @@ export function rewriteImports(js: string, fromModule: string): string {
             return items.map((n: string) => {
                 // Handle "x as y" syntax
                 const parts = n.split(/\s+as\s+/);
-                const local = parts[0].trim();
-                const exported = (parts[1] || parts[0]).trim();
+                const local = parts[0]!.trim();
+                const exported = (parts[1] ?? parts[0]!).trim();
                 return `exports.${exported} = ${local}`;
             }).join('; ');
         }
@@ -433,14 +433,12 @@ export function rewriteImports(js: string, fromModule: string): string {
  */
 export class VFSLoader {
     private vfs: VFS;
-    private hal: HAL;
     private cache: ModuleCache;
     private transpiler: InstanceType<typeof Bun.Transpiler>;
     private aliases: Map<string, string> = new Map();
 
-    constructor(vfs: VFS, hal: HAL, cacheConfig?: ModuleCacheConfig) {
+    constructor(vfs: VFS, _hal: HAL, cacheConfig?: ModuleCacheConfig) {
         this.vfs = vfs;
-        this.hal = hal;
         this.cache = new ModuleCache(cacheConfig);
         this.transpiler = new Bun.Transpiler({ loader: 'ts' });
     }
@@ -469,6 +467,7 @@ export class VFSLoader {
     /**
      * Resolve an import path, applying aliases if applicable.
      */
+    // @ts-expect-error Scaffolding for alias resolution
     private resolveAlias(importPath: string): string {
         // Check for exact alias match
         if (this.aliases.has(importPath)) {
@@ -597,9 +596,6 @@ function __require(path) {
 
         // Add each module as a factory function
         for (const [path, mod] of modules) {
-            // Wrap in async IIFE if the module uses top-level await
-            const hasTopLevelAwait = /\bawait\s+/.test(mod.js) && !/\basync\s+function|\basync\s+\(/.test(mod.js.split('await')[0]);
-
             bundle += `
 // ${path}
 __modules['${path}'] = function(module, exports, __require) {

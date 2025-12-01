@@ -356,7 +356,7 @@ class BunWebSocketClientChannel implements Channel {
     private responseQueue: Response[] = [];
     private responseResolve: ((resp: Response) => void) | null = null;
 
-    constructor(url: string, private opts?: ChannelOpts) {
+    constructor(url: string, _opts?: ChannelOpts) {
         this.description = url;
         this.connect(url);
     }

@@ -7,6 +7,7 @@
 // Re-export HAL errors used by kernel
 export {
     ENOSYS,
+    ENOTSUP,
     ECHILD,
     ESRCH,
     EBADF,

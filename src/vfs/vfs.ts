@@ -544,18 +544,18 @@ export class VFS {
     // ========================================================================
 
     private normalizePath(path: string): string {
-        // Remove trailing slash (except for root)
-        let normalized = path.replace(/\/+$/, '') || '/';
+        const parts = path.split('/').filter(Boolean);
+        const normalized: string[] = [];
 
-        // Ensure leading slash
-        if (!normalized.startsWith('/')) {
-            normalized = '/' + normalized;
+        for (const part of parts) {
+            if (part === '..') {
+                normalized.pop(); // Go up, but never above root
+            } else if (part !== '.') {
+                normalized.push(part);
+            }
         }
 
-        // Collapse multiple slashes
-        normalized = normalized.replace(/\/+/g, '/');
-
-        return normalized;
+        return '/' + normalized.join('/');
     }
 
     private splitPath(path: string): { parentPath: string; name: string } {

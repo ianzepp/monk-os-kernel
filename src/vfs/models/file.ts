@@ -168,7 +168,7 @@ export class FileModel extends PosixModel {
         return;
     }
 
-    async *watch(ctx: ModelContext, id: string, _pattern?: string): AsyncIterable<WatchEvent> {
+    override async *watch(ctx: ModelContext, id: string, _pattern?: string): AsyncIterable<WatchEvent> {
         // Watch for changes to this specific file
         for await (const event of ctx.hal.storage.watch(`entity:${id}`)) {
             yield {
@@ -196,7 +196,6 @@ class FileHandleImpl implements FileHandle {
     private ctx: ModelContext;
     private entityId: string;
     private entity: ModelStat;
-    private opts?: OpenOptions;
 
     constructor(
         ctx: ModelContext,
@@ -204,7 +203,7 @@ class FileHandleImpl implements FileHandle {
         entity: ModelStat,
         content: Uint8Array,
         flags: OpenFlags,
-        opts?: OpenOptions
+        _opts?: OpenOptions
     ) {
         this.id = ctx.hal.entropy.uuid();
         this.ctx = ctx;
@@ -212,7 +211,6 @@ class FileHandleImpl implements FileHandle {
         this.entity = entity;
         this.content = content;
         this.flags = flags;
-        this.opts = opts;
 
         // Append mode starts at end
         if (flags.append) {

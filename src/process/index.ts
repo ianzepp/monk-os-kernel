@@ -12,7 +12,7 @@
  *   await close(fd);
  */
 
-import { syscall, onSignal as registerSignal } from '@src/process/syscall.js';
+import { syscall } from '@src/process/syscall.js';
 import { withTypedErrors } from '@src/process/errors.js';
 
 // Re-export error types for convenience

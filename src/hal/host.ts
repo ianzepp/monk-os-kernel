@@ -184,12 +184,10 @@ export class BunHostDevice implements HostDevice {
         });
 
         let running = true;
-        let exitResult: { exitCode: number; signal?: string } | null = null;
 
         // Track when process exits
-        proc.exited.then((code) => {
+        proc.exited.then(() => {
             running = false;
-            exitResult = { exitCode: code };
         });
 
         return {
@@ -378,7 +376,7 @@ export class MockHostDevice implements HostDevice {
         this._env = {};
     }
 
-    spawn(cmd: string, args: string[] = [], _opts: HostSpawnOpts = {}): HostProcess {
+    spawn(cmd: string, _args: string[] = [], _opts: HostSpawnOpts = {}): HostProcess {
         const response = this.commands.get(cmd) ?? { exitCode: 127, stdout: '', stderr: `command not found: ${cmd}` };
         let waited = false;
 
@@ -412,8 +410,8 @@ export class MockHostDevice implements HostDevice {
 
     async exec(
         cmd: string,
-        args: string[] = [],
-        opts: HostSpawnOpts = {}
+        _args: string[] = [],
+        _opts: HostSpawnOpts = {}
     ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
         const response = this.commands.get(cmd);
         if (response) {

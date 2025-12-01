@@ -17,6 +17,7 @@
 import type { FileHandle } from '@src/vfs/index.js';
 import type { Socket, Listener } from '@src/hal/index.js';
 import type { PortType } from '@src/kernel/types.js';
+import { EBADF, EINVAL, ENOTSUP } from '@src/kernel/errors.js';
 export type { PortType } from '@src/kernel/types.js';
 
 /**
@@ -269,7 +270,7 @@ export class ListenerPort implements Port {
     }
 
     async send(_to: string, _data: Uint8Array): Promise<void> {
-        throw new Error('EOPNOTSUPP: tcp:listen ports do not support send');
+        throw new ENOTSUP('tcp:listen ports do not support send');
     }
 
     async close(): Promise<void> {
@@ -372,7 +373,7 @@ export class WatchPort implements Port {
 
     async recv(): Promise<PortMessage> {
         if (this._closed) {
-            throw new Error('EBADF: Port closed');
+            throw new EBADF('Port closed');
         }
 
         // If we have queued messages, return one
@@ -392,7 +393,7 @@ export class WatchPort implements Port {
     }
 
     async send(_to: string, _data: Uint8Array): Promise<void> {
-        throw new Error('EOPNOTSUPP: watch ports do not support send');
+        throw new ENOTSUP('watch ports do not support send');
     }
 
     async close(): Promise<void> {
@@ -416,6 +417,19 @@ export interface UdpSocketOpts {
 }
 
 /**
+ * Bun UDP socket interface
+ *
+ * Typed interface for Bun.udpSocket() return value.
+ * When Bun's types stabilize, mismatches will surface as compile errors.
+ */
+interface BunUdpSocket {
+    /** Send datagram to remote host:port */
+    send(data: Uint8Array, port: number, host: string): number;
+    /** Close the socket */
+    close(): void;
+}
+
+/**
  * UDP port
  *
  * Send and receive UDP datagrams.
@@ -427,7 +441,7 @@ export class UdpPort implements Port {
     private _closed = false;
     private messageQueue: PortMessage[] = [];
     private waiters: Array<(msg: PortMessage) => void> = [];
-    private socket: ReturnType<typeof Bun.udpSocket> | null = null;
+    private socket: BunUdpSocket | null = null;
 
     constructor(
         readonly id: string,
@@ -469,12 +483,12 @@ export class UdpPort implements Port {
                     console.error('UDP socket error:', error);
                 },
             },
-        });
+        }) as unknown as BunUdpSocket;
     }
 
     async recv(): Promise<PortMessage> {
         if (this._closed) {
-            throw new Error('EBADF: Port closed');
+            throw new EBADF('Port closed');
         }
 
         // If we have queued messages, return one
@@ -490,22 +504,25 @@ export class UdpPort implements Port {
 
     async send(to: string, data: Uint8Array): Promise<void> {
         if (this._closed) {
-            throw new Error('EBADF: Port closed');
+            throw new EBADF('Port closed');
         }
 
         // Parse "host:port" format
         const lastColon = to.lastIndexOf(':');
         if (lastColon === -1) {
-            throw new Error('EINVAL: Invalid address format, expected host:port');
+            throw new EINVAL('Invalid address format, expected host:port');
         }
 
         const host = to.slice(0, lastColon);
         const port = parseInt(to.slice(lastColon + 1), 10);
 
         if (isNaN(port)) {
-            throw new Error('EINVAL: Invalid port number');
+            throw new EINVAL('Invalid port number');
         }
 
+        if (!this.socket) {
+            throw new EBADF('Socket not initialized');
+        }
         this.socket.send(data, port, host);
     }
 
@@ -580,7 +597,7 @@ export class PubsubPort implements Port {
 
     async recv(): Promise<PortMessage> {
         if (this._closed) {
-            throw new Error('EBADF: Port closed');
+            throw new EBADF('Port closed');
         }
 
         if (this.messageQueue.length > 0) {
@@ -594,7 +611,7 @@ export class PubsubPort implements Port {
 
     async send(topic: string, data: Uint8Array): Promise<void> {
         if (this._closed) {
-            throw new Error('EBADF: Port closed');
+            throw new EBADF('Port closed');
         }
 
         this.publishFn(topic, data, this.id);

@@ -73,11 +73,9 @@ export interface ClockDevice {
  * - We convert to bigint to match interface (nanoseconds can exceed Number.MAX_SAFE_INTEGER)
  */
 export class BunClockDevice implements ClockDevice {
-    private bootTime: number;
     private bootMono: number;
 
     constructor() {
-        this.bootTime = Date.now();
         this.bootMono = Bun.nanoseconds();
     }
 

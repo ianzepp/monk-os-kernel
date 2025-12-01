@@ -4,6 +4,7 @@
 
 import { describe, it, expect, mock } from 'bun:test';
 import { FileResource, SocketResource, ListenerPort, WatchPort, UdpPort, PubsubPort, matchTopic, PipeBuffer, PipeResource } from '@src/kernel/resource.js';
+import { ENOTSUP } from '@src/kernel/errors.js';
 import type { WatchEvent } from '@src/vfs/model.js';
 import type { FileHandle } from '@src/vfs/index.js';
 import type { Socket, Listener } from '@src/hal/index.js';
@@ -235,7 +236,7 @@ describe('ListenerPort', () => {
 
         await expect(
             port.send('anywhere', new Uint8Array())
-        ).rejects.toThrow('EOPNOTSUPP');
+        ).rejects.toThrow(ENOTSUP);
     });
 
     it('should delegate close to listener', async () => {
@@ -561,7 +562,7 @@ describe('WatchPort', () => {
 
         await expect(
             port.send('anywhere', new Uint8Array())
-        ).rejects.toThrow('EOPNOTSUPP');
+        ).rejects.toThrow(ENOTSUP);
     });
 
     it('should close cleanly', async () => {

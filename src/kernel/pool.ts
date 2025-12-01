@@ -226,7 +226,7 @@ export class WorkerPool {
         const now = this.hal.clock.now();
 
         while (this.idle.length > this.config.min) {
-            const oldest = this.idle[0];
+            const oldest = this.idle[0]!;
             if (now - oldest.idleSince > this.config.idleTimeout) {
                 this.idle.shift();
                 oldest.worker.terminate();
@@ -319,7 +319,7 @@ export class PoolManager {
 
         // Ensure freelance exists
         if (!this.config.freelance) {
-            this.config.freelance = DEFAULT_POOLS.freelance;
+            this.config.freelance = DEFAULT_POOLS.freelance!;
         }
     }
 
@@ -331,7 +331,7 @@ export class PoolManager {
 
         let pool = this.pools.get(name);
         if (!pool) {
-            pool = new WorkerPool(name, this.config[name], this.hal);
+            pool = new WorkerPool(name, this.config[name]!, this.hal);
             this.pools.set(name, pool);
             await pool.warmup();
         }

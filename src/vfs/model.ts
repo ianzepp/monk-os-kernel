@@ -14,7 +14,6 @@
  */
 
 import type { FileHandle, OpenFlags, OpenOptions } from '@src/vfs/handle.js';
-import type { ACL } from '@src/vfs/acl.js';
 import type { HAL } from '@src/hal/index.js';
 import type { Message, Response } from '@src/vfs/message.js';
 import { respond } from '@src/vfs/message.js';

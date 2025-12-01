@@ -219,8 +219,8 @@ export function parseSize(size: string): number {
         throw new Error(`Invalid size format: ${size}`);
     }
 
-    const value = parseFloat(match[1]);
-    const unit = (match[2] || 'B').toUpperCase();
+    const value = parseFloat(match[1]!);
+    const unit = (match[2] ?? 'B').toUpperCase();
 
     const multipliers: Record<string, number> = {
         'B': 1,
@@ -230,5 +230,9 @@ export function parseSize(size: string): number {
         'TB': 1024 * 1024 * 1024 * 1024,
     };
 
-    return Math.floor(value * multipliers[unit]);
+    const multiplier = multipliers[unit];
+    if (multiplier === undefined) {
+        throw new Error(`Unknown size unit: ${unit}`);
+    }
+    return Math.floor(value * multiplier);
 }

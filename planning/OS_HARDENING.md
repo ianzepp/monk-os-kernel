@@ -546,7 +546,7 @@ class BoundedQueue<T> {
 ## Implementation Priority
 
 ### Phase 1: Critical Security (Do First)
-- [ ] K-001: Fix path traversal in normalizePath
+- [x] K-001: Fix path traversal in normalizePath (completed 2024-12-01)
 
 ### Phase 2: Resource Safety (Next)
 - [ ] K-002: Explicit refcount initialization
@@ -596,30 +596,16 @@ Enabled strict type checking in `tsconfig.json` and `tsconfig.src.json` to catch
 
 ### Errors by File (as of 2024-12-01)
 
-After initial fixes, 54 errors remain:
+**All 54 strict mode errors have been resolved.**
 
-| File | Errors | Primary Issues |
-|------|--------|----------------|
-| src/kernel/loader.ts | 9 | Null checks, unused vars |
-| src/hal/ipc.ts | 6 | Unused parameters |
-| src/hal/storage.ts | 5 | Possibly undefined |
-| src/kernel/resource.ts | 4 | UDP socket types |
-| src/kernel/pool.ts | 4 | `PoolConfig \| undefined` |
-| src/hal/host.ts | 4 | Unused vars, undefined cwd |
-| src/hal/entropy.ts | 4 | Possibly undefined |
-| src/kernel/kernel.ts | 3 | Unused private methods (scaffolding) |
-| src/vfs/models/proc.ts | 2 | Null checks |
-| src/vfs/models/file.ts | 2 | Null checks |
-| src/kernel/mounts.ts | 2 | String \| undefined |
-| src/vfs/models/folder.ts | 1 | Null check |
-| src/vfs/models/device.ts | 1 | Null check |
-| src/vfs/model.ts | 1 | Null check |
-| src/process/index.ts | 1 | Null check |
-| src/hal/timer.ts | 1 | Signal type |
-| src/hal/network.ts | 1 | TLS options |
-| src/hal/dns.ts | 1 | Unused var |
-| src/hal/clock.ts | 1 | Unused var |
-| src/hal/channel.ts | 1 | Body type |
+Fixes applied:
+- Removed unused scaffolding variables and class members
+- Added non-null assertions where array bounds are guaranteed
+- Prefixed intentionally unused parameters with underscore
+- Added `override` modifiers for overridden methods
+- Used `@ts-expect-error` for intentional scaffolding code
+- Improved input validation (e.g., mounts.ts size unit validation)
+- Changed Bun UDP socket type to `any` (Bun types evolving)
 
 ### Key Issue: `noUncheckedIndexedAccess`
 

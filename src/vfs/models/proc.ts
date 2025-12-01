@@ -194,8 +194,6 @@ class ProcHandle implements FileHandle {
     readonly flags: OpenFlags;
 
     private _closed = false;
-    private ctx: ModelContext;
-    private entityId: string;
     private procType: ProcType;
     private processId: string;
     private registry: ProcessRegistry;
@@ -204,15 +202,13 @@ class ProcHandle implements FileHandle {
 
     constructor(
         ctx: ModelContext,
-        entityId: string,
+        _entityId: string,
         procType: ProcType,
         processId: string,
         registry: ProcessRegistry,
         flags: OpenFlags
     ) {
         this.id = ctx.hal.entropy.uuid();
-        this.ctx = ctx;
-        this.entityId = entityId;
         this.procType = procType;
         this.processId = processId;
         this.registry = registry;

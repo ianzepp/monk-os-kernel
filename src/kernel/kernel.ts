@@ -975,6 +975,7 @@ export class Kernel {
      * Allocate a handle ID and register in process and kernel tables.
      * TODO: Wire into Handle-based syscalls when ready
      */
+    // @ts-expect-error Scaffolding for Handle-based syscalls
     private _allocHandle(proc: Process, handle: Handle): number {
         if (proc.handles.size >= MAX_HANDLES) {
             throw new EMFILE('Too many open handles');
@@ -1020,6 +1021,7 @@ export class Kernel {
      * Increment reference count for a handle.
      * TODO: Wire into Handle-based syscalls when ready
      */
+    // @ts-expect-error Scaffolding for Handle-based syscalls
     private _refHandle(handleId: string): void {
         const refs = this.handleRefs.get(handleId) ?? 1;
         this.handleRefs.set(handleId, refs + 1);
@@ -1029,6 +1031,7 @@ export class Kernel {
      * Decrement reference count, closing if last ref.
      * TODO: Wire into Handle-based syscalls when ready
      */
+    // @ts-expect-error Scaffolding for Handle-based syscalls
     private _unrefHandle(handleId: string): void {
         const refs = (this.handleRefs.get(handleId) ?? 1) - 1;
         if (refs <= 0) {

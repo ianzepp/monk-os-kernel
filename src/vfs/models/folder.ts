@@ -131,7 +131,7 @@ export class FolderModel extends PosixModel {
         }
     }
 
-    async *watch(ctx: ModelContext, id: string, pattern?: string): AsyncIterable<WatchEvent> {
+    override async *watch(ctx: ModelContext, id: string, pattern?: string): AsyncIterable<WatchEvent> {
         // Watch for changes to children of this folder
         const watchPattern = pattern ?? `entity:*`;
 
