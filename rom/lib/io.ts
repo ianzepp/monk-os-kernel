@@ -204,10 +204,15 @@ export class ByteReader {
  *     return writer;
  * }
  */
+/** Default high water mark for ByteWriter backpressure (64KB) */
+const BYTE_WRITER_HIGH_WATER = 64 * 1024;
+
 export class ByteWriter implements AsyncIterable<Uint8Array> {
     private chunks: Uint8Array[] = [];
     private buffer: Uint8Array = new Uint8Array(0);
     private chunkSize: number;
+    private highWaterMark: number;
+    private queuedBytes = 0;
     private ended = false;
     private error: Error | null = null;
 
@@ -217,8 +222,41 @@ export class ByteWriter implements AsyncIterable<Uint8Array> {
         reject: (error: Error) => void;
     }> = [];
 
-    constructor(chunkSize: number = 65536) {
+    // For backpressure - resolvers waiting for drain
+    private drainWaiters: Array<() => void> = [];
+
+    constructor(chunkSize: number = 65536, highWaterMark: number = BYTE_WRITER_HIGH_WATER) {
         this.chunkSize = chunkSize;
+        this.highWaterMark = highWaterMark;
+    }
+
+    /**
+     * Returns true if the queued bytes exceed the high water mark.
+     * Producers should check this and call waitForDrain() if true.
+     */
+    get full(): boolean {
+        return this.queuedBytes >= this.highWaterMark;
+    }
+
+    /**
+     * Returns a promise that resolves when queued bytes drop below high water mark.
+     * Use this to implement backpressure in producers.
+     *
+     * @example
+     * for (const chunk of largeData) {
+     *     if (writer.full) {
+     *         await writer.waitForDrain();
+     *     }
+     *     writer.write(chunk);
+     * }
+     */
+    waitForDrain(): Promise<void> {
+        if (!this.full) {
+            return Promise.resolve();
+        }
+        return new Promise((resolve) => {
+            this.drainWaiters.push(resolve);
+        });
     }
 
     /**
@@ -296,6 +334,20 @@ export class ByteWriter implements AsyncIterable<Uint8Array> {
             waiter.resolve({ done: false, value: chunk });
         } else {
             this.chunks.push(chunk);
+            this.queuedBytes += chunk.length;
+        }
+    }
+
+    /**
+     * Notify drain waiters if buffer has space.
+     */
+    private notifyDrain(): void {
+        if (!this.full && this.drainWaiters.length > 0) {
+            const waiters = this.drainWaiters;
+            this.drainWaiters = [];
+            for (const resolve of waiters) {
+                resolve();
+            }
         }
     }
 
@@ -312,7 +364,10 @@ export class ByteWriter implements AsyncIterable<Uint8Array> {
 
                 // Return queued chunk if available
                 if (this.chunks.length > 0) {
-                    return { done: false, value: this.chunks.shift()! };
+                    const chunk = this.chunks.shift()!;
+                    this.queuedBytes -= chunk.length;
+                    this.notifyDrain();
+                    return { done: false, value: chunk };
                 }
 
                 // If ended, we're done

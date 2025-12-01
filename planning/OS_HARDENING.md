@@ -551,7 +551,7 @@ class BoundedQueue<T> {
 ### Phase 2: Resource Safety (Next)
 - [ ] K-002: Explicit refcount initialization
 - [x] K-003: Bounded pipe buffers (completed 2024-12-01)
-- [ ] K-007: ByteWriter backpressure
+- [x] K-007: ByteWriter backpressure (completed 2024-12-01)
 
 ### Phase 3: Reliability
 - [ ] K-004: Cancellable port recv
