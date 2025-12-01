@@ -236,6 +236,10 @@ export function rename(oldPath: string, newPath: string): Promise<void> {
     return withTypedErrors(syscall<void>('rename', oldPath, newPath));
 }
 
+export function symlink(target: string, linkPath: string): Promise<void> {
+    return withTypedErrors(syscall<void>('symlink', target, linkPath));
+}
+
 // ============================================================================
 // Access Control
 // ============================================================================

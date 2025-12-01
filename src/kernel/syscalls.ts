@@ -246,6 +246,17 @@ export function createFileSyscalls(
             throw new ENOSYS('rename');
         },
 
+        async symlink(proc: Process, target: unknown, linkPath: unknown): Promise<void> {
+            if (typeof target !== 'string') {
+                throw new EINVAL('target must be a string');
+            }
+            if (typeof linkPath !== 'string') {
+                throw new EINVAL('linkPath must be a string');
+            }
+
+            await vfs.symlink(target, linkPath, proc.id);
+        },
+
         async access(proc: Process, path: unknown, acl?: unknown): Promise<unknown> {
             if (typeof path !== 'string') {
                 throw new EINVAL('path must be a string');

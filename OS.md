@@ -187,6 +187,10 @@ interface FileHandle {
 | FolderModel | Directories | StorageEngine |
 | DeviceModel | Hardware devices | HAL devices |
 | ProcModel | Process info | Kernel state |
+| LinkModel | Symbolic links | StorageEngine (disabled) |
+
+**Note:** LinkModel exists but `create()` throws EPERM. Symbolic links are not currently
+supported. The model is scaffolded for future implementation.
 
 ### Entity Metadata (ModelStat)
 
@@ -247,6 +251,7 @@ Permission is checked once at `open()`. The FileHandle **is** the capability.
 - FolderModel: `src/vfs/models/folder.ts`
 - DeviceModel: `src/vfs/models/device.ts`
 - ProcModel: `src/vfs/models/proc.ts`
+- LinkModel: `src/vfs/models/link.ts`
 
 **Tests:** `spec/vfs/*.test.ts`
 
@@ -477,6 +482,7 @@ interface SyscallResponse {
 | `mkdir` | path | void | Create directory |
 | `unlink` | path | void | Delete file |
 | `readdir` | path | string[] | List directory |
+| `symlink` | target, path | void | Create symlink (disabled) |
 | `access` | path, acl? | ACL | Read/set ACL |
 
 #### Pipes
@@ -550,13 +556,17 @@ TypeScript is the native scripting language. No bash, no sh.
 
 Located in `/bin/`:
 - `cat` - concatenate files
+- `cp` - copy files
+- `ln` - create links (disabled, returns EPERM)
 - `ls` - list directory
 - `mkdir` - create directory
+- `mv` - move/rename files
 - `rm` - remove files
 - `rmdir` - remove directory
 - `touch` - create empty file
 - `shell` - the shell itself
 - `init` - init process
+- `httpd` - HTTP daemon
 - `telnetd` - telnet daemon
 
 **Source files:**

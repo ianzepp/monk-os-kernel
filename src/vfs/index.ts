@@ -31,6 +31,7 @@ export type { MountOptions, MountInfo } from '@src/vfs/vfs.js';
 export { FileModel } from '@src/vfs/models/file.js';
 export { FolderModel } from '@src/vfs/models/folder.js';
 export { DeviceModel, initStandardDevices } from '@src/vfs/models/device.js';
+export { LinkModel } from '@src/vfs/models/link.js';
 export { ProcModel, ProcessRegistry, createProcessProc } from '@src/vfs/models/proc.js';
 export type { ProcessState } from '@src/vfs/models/proc.js';
 

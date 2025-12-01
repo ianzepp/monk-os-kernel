@@ -16,6 +16,7 @@ import { checkAccess, defaultACL, encodeACL, decodeACL } from '@src/vfs/acl.js';
 import { FileModel } from '@src/vfs/models/file.js';
 import { FolderModel } from '@src/vfs/models/folder.js';
 import { DeviceModel, initStandardDevices } from '@src/vfs/models/device.js';
+import { LinkModel } from '@src/vfs/models/link.js';
 import { ENOENT, EEXIST, ENOTDIR, EACCES, EINVAL } from '@src/hal/index.js';
 import type { HostMount, HostMountOptions } from '@src/vfs/mounts/host.js';
 import {
@@ -72,6 +73,7 @@ export class VFS {
         this.registerModel(new FileModel());
         this.registerModel(new FolderModel());
         this.registerModel(new DeviceModel());
+        this.registerModel(new LinkModel());
     }
 
     /**
@@ -402,6 +404,36 @@ export class VFS {
         }
 
         await model.unlink(ctx, entityId);
+    }
+
+    /**
+     * Create a symbolic link.
+     *
+     * Note: Symbolic links are currently disabled and will throw EPERM.
+     */
+    async symlink(target: string, linkPath: string, caller: string): Promise<string> {
+        const normalPath = this.normalizePath(linkPath);
+        const { parentPath, name } = this.splitPath(normalPath);
+
+        // Resolve parent
+        const parentId = await this.resolvePath(parentPath);
+        if (!parentId) {
+            throw new ENOENT(`Parent not found: ${parentPath}`);
+        }
+
+        // Check parent is a folder
+        const ctx = this.createContext(caller);
+        const parent = await ctx.getEntity(parentId);
+        if (!parent || parent.model !== 'folder') {
+            throw new ENOTDIR(`Not a directory: ${parentPath}`);
+        }
+
+        // Check access on parent
+        await this.checkEntityAccess(parentId, caller, ['create']);
+
+        // Create link (LinkModel.create throws EPERM)
+        const linkModel = this.models.get('link')!;
+        return linkModel.create(ctx, parentId, name, { target, owner: caller });
     }
 
     /**
