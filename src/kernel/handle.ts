@@ -497,8 +497,7 @@ export class PipeHandleAdapter implements Handle {
 // Port Handle (wraps Port)
 // ============================================================================
 
-import type { Port, PortMessage } from '@src/kernel/resource.js';
-import type { Socket as HalSocket } from '@src/hal/network.js';
+import type { Port } from '@src/kernel/resource.js';
 
 /**
  * Port handle wrapping Port (listeners, watchers, pubsub).

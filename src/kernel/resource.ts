@@ -427,7 +427,7 @@ export class UdpPort implements Port {
     private _closed = false;
     private messageQueue: PortMessage[] = [];
     private waiters: Array<(msg: PortMessage) => void> = [];
-    private socket: any = null; // Bun UDP socket
+    private socket: ReturnType<typeof Bun.udpSocket> | null = null;
 
     constructor(
         readonly id: string,
@@ -452,7 +452,7 @@ export class UdpPort implements Port {
             hostname: this.opts.address ?? '0.0.0.0',
 
             socket: {
-                data(socket, buf, port, addr) {
+                data(_socket, buf, port, addr) {
                     const message: PortMessage = {
                         from: `${addr}:${port}`,
                         data: new Uint8Array(buf),
@@ -465,7 +465,7 @@ export class UdpPort implements Port {
                         self.messageQueue.push(message);
                     }
                 },
-                error(socket, error) {
+                error(_socket, error) {
                     console.error('UDP socket error:', error);
                 },
             },
@@ -743,7 +743,7 @@ export class PipeBuffer {
         let remaining = size;
 
         while (remaining > 0 && this.chunks.length > 0) {
-            const chunk = this.chunks[0];
+            const chunk = this.chunks[0]!; // Safe: checked length > 0
             if (chunk.length <= remaining) {
                 result.push(chunk);
                 remaining -= chunk.length;
@@ -766,7 +766,7 @@ export class PipeBuffer {
      */
     private mergeChunks(): Uint8Array {
         if (this.chunks.length === 1) {
-            return this.chunks[0];
+            return this.chunks[0]!; // Safe: checked length === 1
         }
         return this.mergeArrays(this.chunks);
     }
@@ -776,7 +776,7 @@ export class PipeBuffer {
      */
     private mergeArrays(arrays: Uint8Array[]): Uint8Array {
         if (arrays.length === 0) return new Uint8Array(0);
-        if (arrays.length === 1) return arrays[0];
+        if (arrays.length === 1) return arrays[0]!; // Safe: checked length === 1
 
         const total = arrays.reduce((sum, arr) => sum + arr.length, 0);
         const result = new Uint8Array(total);

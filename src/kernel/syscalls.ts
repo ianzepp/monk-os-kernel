@@ -11,7 +11,6 @@ import { DEFAULT_CHUNK_SIZE, MAX_STREAM_BYTES, MAX_STREAM_ENTRIES } from '@src/k
 import type { Resource, FileResource } from '@src/kernel/resource.js';
 import type { Message, Response } from '@src/message.js';
 import { respond } from '@src/message.js';
-import { ENOSYS, EINVAL, EBADF } from '@src/kernel/errors.js';
 
 /**
  * Syscall handler function type
@@ -103,7 +102,7 @@ export class SyscallDispatcher {
  */
 export function createFileSyscalls(
     vfs: VFS,
-    hal: HAL,
+    _hal: HAL,
     getResource: (proc: Process, fd: number) => Resource | undefined,
     openFile: (proc: Process, path: string, flags: OpenFlags) => Promise<number>,
     closeResource: (proc: Process, fd: number) => Promise<void>
@@ -164,8 +163,9 @@ export function createFileSyscalls(
 
                     yield respond.item(chunk);
 
-                    // Short read indicates EOF
-                    if (chunk.length < size) {
+                    // Short read indicates EOF for files (you've reached the end)
+                    // But for sockets/pipes, short reads are normal - only chunk.length === 0 means EOF
+                    if (resource.type === 'file' && chunk.length < size) {
                         break;
                     }
                 }
@@ -311,7 +311,7 @@ export function createFileSyscalls(
             }
         },
 
-        async *rename(proc: Process, oldPath: unknown, newPath: unknown): AsyncIterable<Response> {
+        async *rename(_proc: Process, oldPath: unknown, newPath: unknown): AsyncIterable<Response> {
             if (typeof oldPath !== 'string' || typeof newPath !== 'string') {
                 yield respond.error('EINVAL', 'paths must be strings');
                 return;
@@ -432,7 +432,7 @@ export interface ProcessPortMessage {
  * @param closePort - Function to close port
  */
 export function createNetworkSyscalls(
-    hal: HAL,
+    _hal: HAL,
     connectTcp: (proc: Process, host: string, port: number) => Promise<number>,
     createPort: (proc: Process, type: string, opts: unknown) => Promise<number>,
     getPort: (proc: Process, portId: number) => import('./resource.js').Port | undefined,
@@ -540,7 +540,7 @@ export function createNetworkSyscalls(
  * @param closeChannel - Function to close channel
  */
 export function createChannelSyscalls(
-    hal: HAL,
+    _hal: HAL,
     openChannel: (proc: Process, proto: string, url: string, opts?: ChannelOpts) => Promise<number>,
     getChannel: (proc: Process, ch: number) => Channel | undefined,
     closeChannel: (proc: Process, ch: number) => Promise<void>

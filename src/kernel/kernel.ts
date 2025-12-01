@@ -12,7 +12,6 @@ import type {
     SpawnOpts,
     ExitStatus,
     SyscallRequest,
-    SyscallResponse,
     SignalMessage,
     KernelMessage,
     BootEnv,
@@ -21,7 +20,8 @@ import { SIGTERM, SIGKILL, TERM_GRACE_MS } from '@src/kernel/types.js';
 import { ProcessTable } from '@src/kernel/process-table.js';
 import { MAX_HANDLES, MAX_FDS, MAX_PORTS, MAX_CHANNELS, STREAM_HIGH_WATER, STREAM_LOW_WATER, STREAM_STALL_TIMEOUT } from '@src/kernel/types.js';
 import type { Handle } from '@src/kernel/handle.js';
-import { FileHandleAdapter, SocketHandleAdapter, PipeHandleAdapter, PortHandleAdapter, ChannelHandleAdapter } from '@src/kernel/handle.js';
+// TODO: Wire Handle adapters into syscalls when ready
+// import { FileHandleAdapter, SocketHandleAdapter, PipeHandleAdapter, PortHandleAdapter, ChannelHandleAdapter } from '@src/kernel/handle.js';
 import {
     SyscallDispatcher,
     createFileSyscalls,
@@ -30,14 +30,14 @@ import {
     createChannelSyscalls,
 } from '@src/kernel/syscalls.js';
 import type { Channel, ChannelOpts } from '@src/hal/index.js';
-import { ESRCH, ECHILD, ProcessExited, EBADF, EPERM, EINVAL, ENOSYS, EMFILE } from '@src/kernel/errors.js';
+import { ESRCH, ECHILD, ProcessExited, EBADF, EPERM, EINVAL, EMFILE } from '@src/kernel/errors.js';
 import type { Resource, Port } from '@src/kernel/resource.js';
 import type { WatchEvent } from '@src/vfs/model.js';
 import { FileResource, SocketResource, ListenerPort, WatchPort, UdpPort, PubsubPort, matchTopic, PipeBuffer, PipeResource } from '@src/kernel/resource.js';
 import type { ProcessPortMessage } from '@src/kernel/syscalls.js';
 import { respond } from '@src/message.js';
 import type { Response } from '@src/message.js';
-import type { ServiceDef, Activation } from '@src/kernel/services.js';
+import type { ServiceDef } from '@src/kernel/services.js';
 import { loadMounts } from '@src/kernel/mounts.js';
 import { copyRomToVfs } from '@src/kernel/boot.js';
 import { VFSLoader } from '@src/kernel/loader.js';
@@ -660,7 +660,9 @@ export class Kernel {
                 }
 
                 // Check for stall (no ping for too long)
-                if (Date.now() - lastPingTime >= STREAM_STALL_TIMEOUT) {
+                // Only check stall if we've sent items - consumers can't ping for items they haven't received
+                // This prevents false timeouts when the producer (e.g., pipe) is slow to produce the first item
+                if (itemsSent > 0 && Date.now() - lastPingTime >= STREAM_STALL_TIMEOUT) {
                     proc.worker.postMessage({
                         type: 'response',
                         id: request.id,
@@ -685,6 +687,11 @@ export class Kernel {
 
                 // Track non-terminal items for backpressure
                 itemsSent++;
+
+                // Reset ping timer on first item - consumer needs time to receive and process before pinging
+                if (itemsSent === 1) {
+                    lastPingTime = Date.now();
+                }
 
                 // Backpressure: pause if too far ahead of consumer
                 const gap = itemsSent - itemsAcked;
@@ -966,8 +973,9 @@ export class Kernel {
 
     /**
      * Allocate a handle ID and register in process and kernel tables.
+     * TODO: Wire into Handle-based syscalls when ready
      */
-    private allocHandle(proc: Process, handle: Handle): number {
+    private _allocHandle(proc: Process, handle: Handle): number {
         if (proc.handles.size >= MAX_HANDLES) {
             throw new EMFILE('Too many open handles');
         }
@@ -1010,16 +1018,18 @@ export class Kernel {
 
     /**
      * Increment reference count for a handle.
+     * TODO: Wire into Handle-based syscalls when ready
      */
-    private refHandle(handleId: string): void {
+    private _refHandle(handleId: string): void {
         const refs = this.handleRefs.get(handleId) ?? 1;
         this.handleRefs.set(handleId, refs + 1);
     }
 
     /**
      * Decrement reference count, closing if last ref.
+     * TODO: Wire into Handle-based syscalls when ready
      */
-    private unrefHandle(handleId: string): void {
+    private _unrefHandle(handleId: string): void {
         const refs = (this.handleRefs.get(handleId) ?? 1) - 1;
         if (refs <= 0) {
             const handle = this.handles.get(handleId);
