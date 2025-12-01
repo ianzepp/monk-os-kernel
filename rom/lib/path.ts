@@ -182,3 +182,42 @@ export function format(parsed: Partial<ParsedPath>): string {
     if (dir === '/') return '/' + base;
     return dir + '/' + base;
 }
+
+/**
+ * Expand ~ to home directory.
+ *
+ *     expandHome('~/docs', '/home/user')  // '/home/user/docs'
+ *     expandHome('~/docs')                // '/docs' (fallback to /)
+ *     expandHome('/etc')                  // '/etc' (unchanged)
+ */
+export function expandHome(path: string, home: string = '/'): string {
+    if (path === '~') {
+        return home;
+    }
+    if (path.startsWith('~/')) {
+        return home + path.slice(1);
+    }
+    return path;
+}
+
+/**
+ * Resolve path relative to cwd, expanding ~ to root.
+ * Convenience function for shell commands.
+ *
+ *     resolvePath('/home/user', 'docs')    // '/home/user/docs'
+ *     resolvePath('/home/user', '../bin')  // '/home/bin'
+ *     resolvePath('/home/user', '~/etc')   // '/etc'
+ */
+export function resolvePath(cwd: string, path: string): string {
+    return resolve(cwd, expandHome(path));
+}
+
+/**
+ * Resolve path with home directory from environment.
+ *
+ *     resolveWithHome('/tmp', '~/docs', '/home/user')  // '/home/user/docs'
+ *     resolveWithHome('/tmp', 'foo', '/home/user')     // '/tmp/foo'
+ */
+export function resolveWithHome(cwd: string, path: string, home: string): string {
+    return resolve(cwd, expandHome(path, home));
+}

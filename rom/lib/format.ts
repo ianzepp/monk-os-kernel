@@ -414,3 +414,111 @@ export function padStart(str: string, length: number, char: string = ' '): strin
 export function padEnd(str: string, length: number, char: string = ' '): string {
     return str.padEnd(length, char);
 }
+
+// ============================================================================
+// Byte/Size Formatting
+// ============================================================================
+
+/**
+ * Format bytes as human-readable string.
+ *
+ *     formatBytes(1536)      // '1.5 KB'
+ *     formatBytes(1536000)   // '1.5 MB'
+ *     formatBytes(1024)      // '1 KB'
+ */
+export function formatBytes(bytes: number): string {
+    const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+    let size = Math.abs(bytes);
+    let unitIndex = 0;
+
+    while (size >= 1024 && unitIndex < units.length - 1) {
+        size /= 1024;
+        unitIndex++;
+    }
+
+    const formatted = unitIndex === 0
+        ? String(size)
+        : size.toFixed(size < 10 ? 1 : 0);
+
+    return `${bytes < 0 ? '-' : ''}${formatted} ${units[unitIndex]}`;
+}
+
+/**
+ * Format size with optional human-readable mode.
+ *
+ *     formatSize(1024, false)     // '    1024'
+ *     formatSize(1024, true)      // '  1.0K'
+ *     formatSize(1536000, true)   // '  1.5M'
+ */
+export function formatSize(bytes: number, human: boolean, padWidth: number = 8): string {
+    if (!human) {
+        return String(bytes).padStart(padWidth);
+    }
+
+    const units = ['', 'K', 'M', 'G', 'T', 'P'];
+    let size = Math.abs(bytes);
+    let unitIndex = 0;
+
+    while (size >= 1024 && unitIndex < units.length - 1) {
+        size /= 1024;
+        unitIndex++;
+    }
+
+    const formatted = unitIndex === 0
+        ? String(size)
+        : size.toFixed(size < 10 ? 1 : 0);
+
+    return (formatted + units[unitIndex]).padStart(padWidth - 2);
+}
+
+/**
+ * Format file mode as permission string (e.g., drwxr-xr-x).
+ *
+ *     formatMode('directory', 0o755)  // 'drwxr-xr-x'
+ *     formatMode('file', 0o644)       // '-rw-r--r--'
+ */
+export function formatMode(type: string, mode: number): string {
+    const typeChar = type === 'directory' ? 'd'
+        : type === 'symlink' ? 'l'
+        : type === 'device' ? 'c'
+        : '-';
+
+    const perms = [
+        (mode & 0o400) ? 'r' : '-',
+        (mode & 0o200) ? 'w' : '-',
+        (mode & 0o100) ? 'x' : '-',
+        (mode & 0o040) ? 'r' : '-',
+        (mode & 0o020) ? 'w' : '-',
+        (mode & 0o010) ? 'x' : '-',
+        (mode & 0o004) ? 'r' : '-',
+        (mode & 0o002) ? 'w' : '-',
+        (mode & 0o001) ? 'x' : '-',
+    ].join('');
+
+    return typeChar + perms;
+}
+
+/**
+ * Format date for ls-style output.
+ * Recent files show "MMM DD HH:MM", older files show "YYYY-MM-DD".
+ */
+export function formatDateLs(date: Date | undefined): string {
+    if (!date) {
+        return '          ';
+    }
+
+    const now = new Date();
+    const sixMonthsAgo = new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000);
+
+    if (date > sixMonthsAgo) {
+        // Recent: "Mon DD HH:MM"
+        const month = MONTHS_SHORT[date.getMonth()];
+        const day = String(date.getDate()).padStart(2);
+        const hours = String(date.getHours()).padStart(2, '0');
+        const mins = String(date.getMinutes()).padStart(2, '0');
+        return `${month} ${day} ${hours}:${mins}`;
+    }
+
+    // Older: "YYYY-MM-DD"
+    return date.toISOString().slice(0, 10);
+}
