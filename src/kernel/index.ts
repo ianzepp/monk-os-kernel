@@ -71,3 +71,7 @@ export type {
     BootActivation,
     HandlerEntry,
 } from '@src/kernel/services.js';
+
+// Worker Pools
+export { PoolManager, WorkerPool } from '@src/kernel/pool.js';
+export type { PoolConfig, LeasedWorker } from '@src/kernel/pool.js';

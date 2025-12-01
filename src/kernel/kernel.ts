@@ -35,6 +35,7 @@ import type { ServiceDef, Activation } from '@src/kernel/services.js';
 import { loadMounts } from '@src/kernel/mounts.js';
 import { copyRomToVfs } from '@src/kernel/boot.js';
 import { VFSLoader } from '@src/kernel/loader.js';
+import { PoolManager, type LeasedWorker } from '@src/kernel/pool.js';
 
 /**
  * Debug logging - enabled via DEBUG=1 environment variable
@@ -75,12 +76,19 @@ export class Kernel {
     // VFS module loader for dynamic script execution
     private loader: VFSLoader;
 
+    // Worker pool manager
+    private poolManager: PoolManager;
+
+    // Leased workers by process: processId -> workerUUID -> LeasedWorker
+    private leasedWorkers: Map<string, Map<string, LeasedWorker>> = new Map();
+
     constructor(hal: HAL, vfs: VFS) {
         this.hal = hal;
         this.vfs = vfs;
         this.processes = new ProcessTable();
         this.syscalls = new SyscallDispatcher();
         this.loader = new VFSLoader(vfs, hal);
+        this.poolManager = new PoolManager(hal);
 
         this.registerSyscalls();
     }
@@ -137,6 +145,26 @@ export class Kernel {
             const { target, saved } = args as { target: number; saved: string };
             return this.restoreFd(proc, target, saved);
         });
+
+        // Worker pool syscalls
+        this.syscalls.register('lease', (proc, pool) =>
+            this.leaseWorker(proc, pool as string | undefined)
+        );
+        this.syscalls.register('worker:load', (proc, args) => {
+            const { workerId, path } = args as { workerId: string; path: string };
+            return this.workerLoad(proc, workerId, path);
+        });
+        this.syscalls.register('worker:send', (proc, args) => {
+            const { workerId, msg } = args as { workerId: string; msg: unknown };
+            return this.workerSend(proc, workerId, msg);
+        });
+        this.syscalls.register('worker:recv', (proc, workerId) =>
+            this.workerRecv(proc, workerId as string)
+        );
+        this.syscalls.register('worker:release', (proc, workerId) =>
+            this.workerRelease(proc, workerId as string)
+        );
+        this.syscalls.register('pool:stats', () => this.poolManager.stats());
     }
 
     /**
@@ -158,6 +186,9 @@ export class Kernel {
 
         // Load and apply mounts from /etc/mounts.json
         await loadMounts({ vfs: this.vfs, hal: this.hal, loader: this.loader });
+
+        // Load worker pool configuration from /etc/pools.json
+        await this.poolManager.loadConfig(this.vfs);
 
         // Load and activate services
         await this.loadServices();
@@ -245,6 +276,10 @@ export class Kernel {
         this.services.clear();
         this.activationPorts.clear();
         this.activationAborts.clear();
+
+        // Shutdown worker pools
+        this.poolManager.shutdown();
+        this.leasedWorkers.clear();
 
         this.booted = false;
     }
@@ -609,6 +644,9 @@ export class Kernel {
             this.unrefPort(portUuid);
         }
         proc.ports.clear();
+
+        // Release any leased workers back to pool
+        this.releaseProcessWorkers(proc);
 
         // Reparent children
         this.processes.reparentOrphans(proc.id);
@@ -1557,5 +1595,106 @@ export class Kernel {
      */
     getServices(): Map<string, ServiceDef> {
         return this.services;
+    }
+
+    // ========================================================================
+    // Worker Pool Syscalls
+    // ========================================================================
+
+    /**
+     * Lease a worker from a named pool.
+     *
+     * @param proc - Calling process
+     * @param pool - Pool name (defaults to 'freelance')
+     * @returns Worker UUID
+     */
+    private async leaseWorker(proc: Process, pool?: string): Promise<string> {
+        const worker = await this.poolManager.lease(pool);
+
+        // Track worker ownership
+        let procWorkers = this.leasedWorkers.get(proc.id);
+        if (!procWorkers) {
+            procWorkers = new Map();
+            this.leasedWorkers.set(proc.id, procWorkers);
+        }
+        procWorkers.set(worker.id, worker);
+
+        return worker.id;
+    }
+
+    /**
+     * Load a script into a leased worker.
+     */
+    private async workerLoad(proc: Process, workerId: string, path: string): Promise<void> {
+        const worker = this.getLeasedWorker(proc, workerId);
+        await worker.load(path);
+    }
+
+    /**
+     * Send a message to a leased worker.
+     */
+    private async workerSend(proc: Process, workerId: string, msg: unknown): Promise<void> {
+        const worker = this.getLeasedWorker(proc, workerId);
+        await worker.send(msg);
+    }
+
+    /**
+     * Receive a message from a leased worker.
+     */
+    private async workerRecv(proc: Process, workerId: string): Promise<unknown> {
+        const worker = this.getLeasedWorker(proc, workerId);
+        return worker.recv();
+    }
+
+    /**
+     * Release a leased worker back to the pool.
+     */
+    private async workerRelease(proc: Process, workerId: string): Promise<void> {
+        const procWorkers = this.leasedWorkers.get(proc.id);
+        if (!procWorkers) {
+            throw new EBADF(`No workers leased by process ${proc.id}`);
+        }
+
+        const worker = procWorkers.get(workerId);
+        if (!worker) {
+            throw new EBADF(`Worker not found: ${workerId}`);
+        }
+
+        await worker.release();
+        procWorkers.delete(workerId);
+
+        if (procWorkers.size === 0) {
+            this.leasedWorkers.delete(proc.id);
+        }
+    }
+
+    /**
+     * Get a leased worker by ID.
+     */
+    private getLeasedWorker(proc: Process, workerId: string): LeasedWorker {
+        const procWorkers = this.leasedWorkers.get(proc.id);
+        if (!procWorkers) {
+            throw new EBADF(`No workers leased by process ${proc.id}`);
+        }
+
+        const worker = procWorkers.get(workerId);
+        if (!worker) {
+            throw new EBADF(`Worker not found: ${workerId}`);
+        }
+
+        return worker;
+    }
+
+    /**
+     * Release all workers when a process exits.
+     */
+    private releaseProcessWorkers(proc: Process): void {
+        const procWorkers = this.leasedWorkers.get(proc.id);
+        if (procWorkers) {
+            for (const worker of procWorkers.values()) {
+                worker.release().catch(() => {}); // Best effort
+            }
+            this.leasedWorkers.delete(proc.id);
+        }
     }
 }
