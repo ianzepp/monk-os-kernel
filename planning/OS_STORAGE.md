@@ -2,7 +2,7 @@
 
 ## Implementation Status
 
-**Core VFS: COMPLETE** (`src/lib/vfs/`)
+**Core VFS: COMPLETE** (`src/vfs/`)
 
 | Component | Status | Location |
 |-----------|--------|----------|
@@ -19,7 +19,7 @@
 
 **Note:** Network is handled by the Kernel layer (see [OS_NETWORK.md](./OS_NETWORK.md)), not VFS.
 
-**HAL dependency: COMPLETE** (`src/lib/hal/`)
+**HAL dependency: COMPLETE** (`src/hal/`)
 - UUID v7 generation via `EntropyDevice.uuid()`
 - All TypeScript strictness errors resolved
 
