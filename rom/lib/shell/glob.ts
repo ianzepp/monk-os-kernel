@@ -1,15 +1,12 @@
 /**
  * Shell Glob Expansion
  *
- * Provides glob pattern matching and expansion for shell commands.
- * Uses /lib/glob for pattern matching, adds fs-integrated expansion.
+ * Filesystem-integrated glob expansion for shell commands.
+ * Uses /lib/glob for pattern matching.
  */
 
 import { resolvePath } from '/lib/path';
-import { match, isGlob, toRegex } from '/lib/glob';
-
-// Re-export core glob functions
-export { match as matchGlob, isGlob as hasGlobChars, toRegex as globToRegex } from '/lib/glob';
+import { match, isGlob } from '/lib/glob';
 
 /**
  * Directory entry for glob expansion
@@ -104,13 +101,6 @@ export async function expandGlobs(
 
 /**
  * Expand glob patterns in a single argument
- *
- * Convenience wrapper for single argument expansion.
- *
- * @param arg - Argument to expand
- * @param cwd - Current working directory
- * @param readdir - Function to read directory entries
- * @returns Expanded arguments (may be multiple)
  */
 export async function expandGlob(
     arg: string,
@@ -118,36 +108,4 @@ export async function expandGlob(
     readdir: ReaddirFn
 ): Promise<string[]> {
     return expandGlobs([arg], cwd, readdir);
-}
-
-/**
- * Check if a path matches a glob pattern
- *
- * Supports multi-segment patterns like 'src/*.ts'.
- *
- * @param pattern - Glob pattern
- * @param path - Path to test
- * @returns True if path matches pattern
- */
-export function pathMatchesGlob(pattern: string, path: string): boolean {
-    // For simple patterns, use the main glob match
-    if (!pattern.includes('/')) {
-        return match(path, pattern);
-    }
-
-    // Split both into segments
-    const patternParts = pattern.split('/').filter(Boolean);
-    const pathParts = path.split('/').filter(Boolean);
-
-    if (patternParts.length !== pathParts.length) {
-        return false;
-    }
-
-    for (let i = 0; i < patternParts.length; i++) {
-        if (!match(pathParts[i], patternParts[i])) {
-            return false;
-        }
-    }
-
-    return true;
 }

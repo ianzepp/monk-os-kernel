@@ -1,8 +1,7 @@
 /**
- * Shell Argument Parsing
+ * Command-Line Argument Parsing for VFS Scripts
  *
- * Provides command-line argument parsing for shell commands.
- * Ported from src/lib/tty/commands/shared.ts for use in Monk OS binaries.
+ * Generic argument parser for CLI tools. Pure functions, no I/O.
  */
 
 /**
@@ -182,8 +181,13 @@ export function parseArgs(
 }
 
 /**
- * Parse duration string into milliseconds
+ * Parse duration string into milliseconds.
  * Supports: 5 (seconds), 5s, 500ms, 1m, 1h
+ *
+ * @example
+ * parseDuration('5s')    // 5000
+ * parseDuration('500ms') // 500
+ * parseDuration('1m')    // 60000
  */
 export function parseDuration(str: string): number | null {
     const match = str.match(/^(\d+(?:\.\d+)?)(ms|s|m|h)?$/);
