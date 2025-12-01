@@ -5,7 +5,7 @@
  * Responsibilities:
  * - Spawn the shell on console
  * - Reap zombie children
- * - Cannot be killed (ignores SIGTERM)
+ * - Shutdown when console shell exits
  *
  * This is a minimal init - no daemon management, no service config.
  * Those are userland concerns for later.
@@ -30,7 +30,7 @@ const children = new Map<number, string>(); // pid -> entry name
 let consoleShellPid: number | null = null;
 
 /**
- * Spawn or respawn the console shell
+ * Spawn the console shell
  */
 async function spawnConsoleShell(): Promise<void> {
     const pid = await spawn('/bin/shell.ts');
@@ -75,10 +75,10 @@ async function reapLoop(): Promise<void> {
                 await println(`init: reaped ${entry} (pid ${pid}) with code ${status.code}`);
                 children.delete(pid);
 
-                // Respawn console shell if it exited
+                // Console shell exited - shutdown
                 if (pid === consoleShellPid) {
-                    consoleShellPid = null;
-                    await spawnConsoleShell();
+                    await println('init: console shell exited, shutting down');
+                    await exit(status.code);
                 }
             } catch (error) {
                 // ESRCH means process doesn't exist or isn't zombie yet
