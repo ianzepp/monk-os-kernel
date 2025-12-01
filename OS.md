@@ -559,14 +559,19 @@ Located in `/bin/`:
 - `cat` - concatenate files
 - `chmod` - change permissions (disabled, use `grant`)
 - `cp` - copy files
+- `df` - filesystem space usage
+- `du` - disk usage
+- `file` - determine file type
 - `grant` - manage ACLs (Monk-native)
 - `ln` - create links (disabled, returns EPERM)
 - `ls` - list directory
 - `mkdir` - create directory
 - `mv` - move/rename files
+- `realpath` - resolve absolute path
 - `rm` - remove files
 - `rmdir` - remove directory
 - `sed` - stream editor
+- `stat` - display file status
 - `touch` - create empty file
 - `shell` - the shell itself
 - `init` - init process

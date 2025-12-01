@@ -5,13 +5,14 @@ implementation to the new `rom/bin/` syscall-based implementation.
 
 ## Summary (2024-11-30)
 
-**Completed:** 29 commands converted
+**Completed:** 34 commands converted
 - Phase 1: true, false
 - Phase 2: yes, seq, sleep, basename, dirname
 - Phase 3: head, tail, wc, nl
 - Phase 5: sort, uniq, tr, cut
 - Phase 6: cp, mv, ln, chmod, tee
 - New: grant (Monk-native ACL management)
+- Phase 4: stat, file, realpath, du, df
 - Phase 8: awk, sed
 - Phase 7: date, uname, whoami, printf
 - Pre-existing: cat, cd, echo, ls, mkdir, pwd, rm, rmdir, touch
@@ -124,12 +125,12 @@ Commands that report file metadata.
 
 | Command | Status | Args | Description |
 |---------|--------|------|-------------|
-| stat | [ ] | file... | Display file status |
-| file | [ ] | file... | Determine file type |
-| readlink | [ ] | [-f] link... | Print symlink target |
-| realpath | [ ] | path... | Print resolved path |
-| du | [ ] | [-sh] [path...] | Disk usage |
-| df | [ ] | [-h] | Filesystem space |
+| stat | [x] | file... | Display file status |
+| file | [x] | file... | Determine file type |
+| readlink | [-] | [-f] link... | Symlinks disabled |
+| realpath | [x] | path... | Print resolved path |
+| du | [x] | [-sh] [path...] | Disk usage |
+| df | [x] | [-h] | Filesystem space (simulated) |
 
 ---
 
