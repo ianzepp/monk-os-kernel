@@ -158,6 +158,32 @@ export interface TcpListenOpts {
     backlog?: number;
 }
 
+export interface ChannelOpts {
+    headers?: Record<string, string>;
+    keepAlive?: boolean;
+    timeout?: number;
+    database?: string;
+}
+
+export interface HttpRequest {
+    method: string;
+    path: string;
+    query?: Record<string, unknown>;
+    headers?: Record<string, string>;
+    body?: unknown;
+    accept?: string;
+}
+
+export interface Message {
+    op: string;
+    data?: unknown;
+}
+
+export interface Response {
+    op: 'ok' | 'error' | 'item' | 'chunk' | 'event' | 'progress' | 'done' | 'redirect';
+    data?: unknown;
+}
+
 export interface Grant {
     to: string;
     ops: string[];
@@ -293,6 +319,83 @@ export function send(portId: number, to: string, data: Uint8Array): Promise<void
 
 export function pclose(portId: number): Promise<void> {
     return withTypedErrors(syscall<void>('pclose', portId));
+}
+
+// ============================================================================
+// Channel Operations
+// ============================================================================
+
+/**
+ * Channel API for protocol-aware message passing.
+ */
+export const channel = {
+    /**
+     * Open a channel to a remote service.
+     */
+    async open(proto: string, url: string, opts?: ChannelOpts): Promise<number> {
+        return withTypedErrors(syscall<number>('channel_open', proto, url, opts));
+    },
+
+    /**
+     * Send a request and receive a single response.
+     */
+    async call<T = unknown>(ch: number, msg: Message): Promise<Response & { data?: T }> {
+        return withTypedErrors(syscall<Response & { data?: T }>('channel_call', ch, msg));
+    },
+
+    /**
+     * Send a request and iterate streaming responses.
+     */
+    async *stream(ch: number, msg: Message): AsyncIterable<Response> {
+        const result = await withTypedErrors(syscall<Response[]>('channel_stream', ch, msg));
+        if (Array.isArray(result)) {
+            for (const response of result) {
+                yield response;
+            }
+        }
+    },
+
+    /**
+     * Push a response to the remote (server-side channels).
+     */
+    async push(ch: number, response: Response): Promise<void> {
+        return withTypedErrors(syscall<void>('channel_push', ch, response));
+    },
+
+    /**
+     * Receive a message from the remote (bidirectional channels).
+     */
+    async recv(ch: number): Promise<Message> {
+        return withTypedErrors(syscall<Message>('channel_recv', ch));
+    },
+
+    /**
+     * Close a channel.
+     */
+    async close(ch: number): Promise<void> {
+        return withTypedErrors(syscall<void>('channel_close', ch));
+    },
+};
+
+/**
+ * Create an HTTP request message.
+ */
+export function httpRequest(request: HttpRequest): Message {
+    return { op: 'request', data: request };
+}
+
+/**
+ * Create a SQL query message.
+ */
+export function sqlQuery(sql: string, params?: unknown[], cursor?: boolean): Message {
+    return { op: 'query', data: { sql, params, cursor } };
+}
+
+/**
+ * Create a SQL execute message.
+ */
+export function sqlExecute(sql: string): Message {
+    return { op: 'execute', data: { sql } };
 }
 
 // ============================================================================
