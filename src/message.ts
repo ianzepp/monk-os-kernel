@@ -27,7 +27,7 @@ export interface Message {
  */
 export interface Response {
     /** Response type */
-    op: 'ok' | 'error' | 'item' | 'chunk' | 'event' | 'progress' | 'done';
+    op: 'ok' | 'error' | 'item' | 'chunk' | 'event' | 'progress' | 'done' | 'redirect';
     /** Response data */
     data?: unknown;
 }
@@ -79,6 +79,18 @@ export namespace Responses {
     export interface Done extends Response {
         op: 'done';
     }
+
+    export interface Redirect extends Response {
+        op: 'redirect';
+        data: {
+            /** Target location (URL, path, or protocol-specific address) */
+            location: string;
+            /** Whether this is permanent (cacheable) or temporary */
+            permanent?: boolean;
+            /** Optional reason/hint */
+            reason?: string;
+        };
+    }
 }
 
 /**
@@ -107,6 +119,11 @@ export const respond = {
     }),
 
     done: (): Responses.Done => ({ op: 'done' }),
+
+    redirect: (location: string, permanent = false, reason?: string): Responses.Redirect => ({
+        op: 'redirect',
+        data: { location, permanent, reason },
+    }),
 };
 
 /**
