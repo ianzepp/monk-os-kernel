@@ -21,9 +21,8 @@
 import {
     getargs,
     getcwd,
-    open,
-    read,
-    close,
+    readText,
+    readFile,
     println,
     eprintln,
     exit,
@@ -78,45 +77,14 @@ async function main(): Promise<void> {
         const path = resolvePath(cwd, file);
 
         try {
-            const fd = await open(path, { read: true });
-            try {
-                const chunks: Uint8Array[] = [];
-                while (true) {
-                    const chunk = await read(fd, 65536);
-                    if (chunk.length === 0) break;
-                    chunks.push(chunk);
-                }
-                const total = chunks.reduce((sum, c) => sum + c.length, 0);
-                const buffer = new Uint8Array(total);
-                let offset = 0;
-                for (const chunk of chunks) {
-                    buffer.set(chunk, offset);
-                    offset += chunk.length;
-                }
-                content = new TextDecoder().decode(buffer);
-            } finally {
-                await close(fd);
-            }
+            content = await readFile(path);
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             await eprintln(`cut: ${file}: ${msg}`);
             await exit(1);
         }
     } else {
-        const chunks: Uint8Array[] = [];
-        while (true) {
-            const chunk = await read(0, 4096);
-            if (chunk.length === 0) break;
-            chunks.push(chunk);
-        }
-        const total = chunks.reduce((sum, c) => sum + c.length, 0);
-        const buffer = new Uint8Array(total);
-        let offset = 0;
-        for (const chunk of chunks) {
-            buffer.set(chunk, offset);
-            offset += chunk.length;
-        }
-        content = new TextDecoder().decode(buffer);
+        content = await readText(0);
     }
 
     // Process lines

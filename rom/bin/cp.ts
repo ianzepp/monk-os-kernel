@@ -22,13 +22,10 @@
 import {
     getargs,
     getcwd,
-    open,
-    read,
-    write,
-    close,
     stat,
     mkdir,
-    readdir,
+    readdirAll,
+    copyFile as copyFileFn,
     eprintln,
     exit,
 } from '/lib/process';
@@ -101,34 +98,7 @@ async function copyFile(src: string, dest: string): Promise<void> {
         // Dest doesn't exist, use as-is
     }
 
-    // Read source
-    const fd = await open(src, { read: true });
-    try {
-        const chunks: Uint8Array[] = [];
-        while (true) {
-            const chunk = await read(fd, 65536);
-            if (chunk.length === 0) break;
-            chunks.push(chunk);
-        }
-
-        const total = chunks.reduce((sum, c) => sum + c.length, 0);
-        const buffer = new Uint8Array(total);
-        let offset = 0;
-        for (const chunk of chunks) {
-            buffer.set(chunk, offset);
-            offset += chunk.length;
-        }
-
-        // Write to destination
-        const destFd = await open(finalDest, { write: true, create: true, truncate: true });
-        try {
-            await write(destFd, buffer);
-        } finally {
-            await close(destFd);
-        }
-    } finally {
-        await close(fd);
-    }
+    await copyFileFn(src, finalDest);
 }
 
 /**
@@ -154,7 +124,7 @@ async function copyDirectory(src: string, dest: string, srcArg: string): Promise
     }
 
     // Copy contents
-    const entries = await readdir(src);
+    const entries = await readdirAll(src);
 
     for (const entry of entries) {
         const srcPath = src + '/' + entry;

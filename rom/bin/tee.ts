@@ -22,6 +22,7 @@ import {
     getcwd,
     open,
     read,
+    readFileBytes,
     write,
     close,
     eprintln,
@@ -45,13 +46,10 @@ async function main(): Promise<void> {
 
     const cwd = await getcwd();
 
-    // Read all stdin
+    // Read stdin and write to stdout simultaneously, collecting for files
     const chunks: Uint8Array[] = [];
-    while (true) {
-        const chunk = await read(0, 4096);
-        if (chunk.length === 0) break;
+    for await (const chunk of read(0)) {
         chunks.push(chunk);
-        // Also write to stdout as we receive it
         await write(1, chunk);
     }
 
@@ -76,27 +74,11 @@ async function main(): Promise<void> {
             if (append) {
                 // Read existing content and append
                 try {
-                    const fd = await open(filePath, { read: true });
-                    try {
-                        const existingChunks: Uint8Array[] = [];
-                        while (true) {
-                            const chunk = await read(fd, 65536);
-                            if (chunk.length === 0) break;
-                            existingChunks.push(chunk);
-                        }
-
-                        if (existingChunks.length > 0) {
-                            const existingTotal = existingChunks.reduce((sum, c) => sum + c.length, 0);
-                            finalContent = new Uint8Array(existingTotal + total);
-                            let off = 0;
-                            for (const chunk of existingChunks) {
-                                finalContent.set(chunk, off);
-                                off += chunk.length;
-                            }
-                            finalContent.set(content, off);
-                        }
-                    } finally {
-                        await close(fd);
+                    const existing = await readFileBytes(filePath);
+                    if (existing.length > 0) {
+                        finalContent = new Uint8Array(existing.length + total);
+                        finalContent.set(existing, 0);
+                        finalContent.set(content, existing.length);
                     }
                 } catch {
                     // File doesn't exist, that's fine

@@ -24,7 +24,7 @@ import {
     getargs,
     getcwd,
     stat,
-    readdir,
+    readdirAll,
     println,
     eprintln,
     exit,
@@ -134,7 +134,7 @@ async function calculateSize(
         return entry.size;
     }
 
-    const entries = await readdir(path);
+    const entries = await readdirAll(path);
     let totalSize = 0;
 
     for (const child of entries) {

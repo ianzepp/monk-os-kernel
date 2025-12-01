@@ -12,7 +12,7 @@ import {
     getargs,
     getcwd,
     stat,
-    readdir,
+    readdirAll,
     unlink,
     rmdir,
     eprintln,
@@ -31,7 +31,7 @@ async function removeRecursive(path: string): Promise<void> {
 
     if (info.model === 'folder') {
         // Remove contents first
-        const entries = await readdir(path);
+        const entries = await readdirAll(path);
         for (const name of entries) {
             const childPath = path === '/' ? `/${name}` : `${path}/${name}`;
             await removeRecursive(childPath);

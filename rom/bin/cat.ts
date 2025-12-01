@@ -14,7 +14,6 @@ import {
     read,
     write,
     close,
-    print,
     eprintln,
     exit,
 } from '/lib/process';
@@ -26,9 +25,7 @@ async function main(): Promise<void> {
 
     // No files: pass through stdin
     if (files.length === 0) {
-        while (true) {
-            const chunk = await read(0, 4096);
-            if (chunk.length === 0) break;
+        for await (const chunk of read(0)) {
             await write(1, chunk);
         }
         await exit(0);
@@ -43,9 +40,7 @@ async function main(): Promise<void> {
         try {
             const fd = await open(path, { read: true });
             try {
-                while (true) {
-                    const chunk = await read(fd, 65536);
-                    if (chunk.length === 0) break;
+                for await (const chunk of read(fd)) {
                     await write(1, chunk);
                 }
             } finally {

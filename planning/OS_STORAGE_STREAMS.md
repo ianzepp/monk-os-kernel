@@ -4,7 +4,7 @@ Extending the streams-first architecture to file descriptor operations, and unif
 
 ## Implementation Status
 
-**Status: PHASE 1 COMPLETE** (2024-12-01)
+**Status: PHASE 1.5 COMPLETE** (2024-12-01)
 
 ### Phase 1 Notes
 
@@ -15,6 +15,21 @@ Extending the streams-first architecture to file descriptor operations, and unif
 - Convenience functions added: `readAll`, `readText`, `readLines`, `readdirAll`, `copy`, `copyFile`, `readFileBytes`
 - Shell migrated to use new API (`ByteReader` for stdin, `readText` for scripts, `readdirAll` for globs)
 - Fixed `src/kernel/loader.ts` to handle `export async function*` and `export function*` syntax
+- All 525 tests passing
+
+### Phase 1.5 Notes
+
+- Migrated all userspace bin commands to use new streaming APIs
+- Commands migrated (16 total):
+  - `cat.ts` - `for await (const chunk of read(fd))`
+  - `head.ts`, `tail.ts` - `readText()` / `readFile()`
+  - `wc.ts`, `sort.ts`, `uniq.ts`, `cut.ts`, `nl.ts` - `readText()` / `readFile()`
+  - `awk.ts`, `sed.ts` - `readText()` / `readFile()`
+  - `tr.ts` - `readText()`
+  - `tee.ts` - `for await (const chunk of read(0))` + `readFileBytes()`
+  - `cp.ts` - `copyFile()` + `readdirAll()`
+  - `ls.ts`, `rm.ts`, `du.ts` - `readdirAll()`
+- Code simplification: removed manual chunk collection loops, replaced with convenience functions
 - All 525 tests passing
 
 ## Overview

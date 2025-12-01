@@ -24,7 +24,7 @@
 
 import {
     getargs,
-    read,
+    readText,
     write,
     eprintln,
     exit,
@@ -67,22 +67,7 @@ async function main(): Promise<void> {
     }
 
     // Read all stdin
-    const chunks: Uint8Array[] = [];
-    while (true) {
-        const chunk = await read(0, 4096);
-        if (chunk.length === 0) break;
-        chunks.push(chunk);
-    }
-
-    const total = chunks.reduce((sum, c) => sum + c.length, 0);
-    const buffer = new Uint8Array(total);
-    let offset = 0;
-    for (const chunk of chunks) {
-        buffer.set(chunk, offset);
-        offset += chunk.length;
-    }
-
-    const input = new TextDecoder().decode(buffer);
+    const input = await readText(0);
     let output: string;
 
     if (deleteMode) {

@@ -14,7 +14,7 @@
 import {
     getargs,
     getcwd,
-    readdir,
+    readdirAll,
     stat,
     println,
     eprintln,
@@ -38,7 +38,7 @@ async function listDirectory(
             await println(`${path}:`);
         }
 
-        const entries = await readdir(path);
+        const entries = await readdirAll(path);
 
         // Filter hidden files unless -a
         const filtered = options.all

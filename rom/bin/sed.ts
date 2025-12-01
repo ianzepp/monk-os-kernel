@@ -47,7 +47,8 @@ import {
     getargs,
     getcwd,
     open,
-    read,
+    readText,
+    readFile,
     write,
     close,
     println,
@@ -580,25 +581,7 @@ async function main(): Promise<void> {
 }
 
 async function readFileContent(path: string): Promise<string> {
-    const fd = await open(path, { read: true });
-    try {
-        const chunks: Uint8Array[] = [];
-        while (true) {
-            const chunk = await read(fd, 65536);
-            if (chunk.length === 0) break;
-            chunks.push(chunk);
-        }
-        const total = chunks.reduce((sum, c) => sum + c.length, 0);
-        const result = new Uint8Array(total);
-        let offset = 0;
-        for (const chunk of chunks) {
-            result.set(chunk, offset);
-            offset += chunk.length;
-        }
-        return new TextDecoder().decode(result);
-    } finally {
-        await close(fd);
-    }
+    return readFile(path);
 }
 
 async function writeFileContent(path: string, content: string): Promise<void> {
@@ -611,20 +594,7 @@ async function writeFileContent(path: string, content: string): Promise<void> {
 }
 
 async function readStdin(): Promise<string> {
-    const chunks: Uint8Array[] = [];
-    while (true) {
-        const chunk = await read(0, 65536);
-        if (chunk.length === 0) break;
-        chunks.push(chunk);
-    }
-    const total = chunks.reduce((sum, c) => sum + c.length, 0);
-    const result = new Uint8Array(total);
-    let offset = 0;
-    for (const chunk of chunks) {
-        result.set(chunk, offset);
-        offset += chunk.length;
-    }
-    return new TextDecoder().decode(result);
+    return readText(0);
 }
 
 async function showHelp(): Promise<void> {
