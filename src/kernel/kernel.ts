@@ -30,7 +30,7 @@ import {
     createChannelSyscalls,
 } from '@src/kernel/syscalls.js';
 import type { Channel, ChannelOpts } from '@src/hal/index.js';
-import { ESRCH, ECHILD, ProcessExited, EBADF, EPERM, EINVAL, EMFILE } from '@src/kernel/errors.js';
+import { ESRCH, ECHILD, ProcessExited, EBADF, EPERM, EINVAL, EMFILE, ETIMEDOUT } from '@src/kernel/errors.js';
 import type { Resource, Port } from '@src/kernel/resource.js';
 import type { WatchEvent } from '@src/vfs/model.js';
 import { FileResource, SocketResource, ListenerPort, WatchPort, UdpPort, PubsubPort, matchTopic, PipeBuffer, PipeResource } from '@src/kernel/resource.js';
@@ -131,8 +131,8 @@ export class Kernel {
             kill: wrapSyscall((proc, pid, signal) =>
                 this.kill(proc, pid as number, signal as number | undefined)
             ),
-            wait: wrapSyscall((proc, pid) =>
-                this.wait(proc, pid as number)
+            wait: wrapSyscall((proc, pid, timeout) =>
+                this.wait(proc, pid as number, timeout as number | undefined)
             ),
             getpid: wrapSyscall((proc) => this.getpid(proc)),
             getppid: wrapSyscall((proc) => this.getppid(proc)),
@@ -493,8 +493,12 @@ export class Kernel {
 
     /**
      * Wait for a child process to exit.
+     *
+     * @param caller - The calling process
+     * @param pid - Process ID to wait for
+     * @param timeout - Optional timeout in milliseconds. If exceeded, throws ETIMEDOUT.
      */
-    private async wait(caller: Process, pid: number): Promise<ExitStatus> {
+    private async wait(caller: Process, pid: number, timeout?: number): Promise<ExitStatus> {
         const target = this.processes.resolvePid(caller, pid);
         if (!target) {
             throw new ESRCH(`No such process: ${pid}`);
@@ -514,8 +518,8 @@ export class Kernel {
             return status;
         }
 
-        // Wait for exit
-        return new Promise(resolve => {
+        // Create the wait promise
+        const waitPromise = new Promise<ExitStatus>((resolve) => {
             const waiters = this.waiters.get(target.id) ?? [];
             waiters.push((status) => {
                 // Reap the zombie
@@ -524,6 +528,20 @@ export class Kernel {
             });
             this.waiters.set(target.id, waiters);
         });
+
+        // If no timeout, wait indefinitely
+        if (timeout === undefined || timeout <= 0) {
+            return waitPromise;
+        }
+
+        // Race wait against timeout
+        const timeoutPromise = new Promise<never>((_resolve, reject) => {
+            setTimeout(() => {
+                reject(new ETIMEDOUT(`wait() timed out after ${timeout}ms`));
+            }, timeout);
+        });
+
+        return Promise.race([waitPromise, timeoutPromise]);
     }
 
     /**

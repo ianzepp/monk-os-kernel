@@ -555,7 +555,7 @@ class BoundedQueue<T> {
 
 ### Phase 3: Reliability
 - [ ] K-004: Cancellable port recv
-- [ ] K-005: Timeout on wait syscall
+- [x] K-005: Timeout on wait syscall (completed 2024-12-01)
 - [ ] K-006: Resource encapsulates EOF
 
 ### Phase 4: Debuggability
