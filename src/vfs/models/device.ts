@@ -13,7 +13,8 @@
  * - /dev/clock     - Read returns current timestamp
  */
 
-import type { Model, ModelStat, ModelContext, FieldDef } from '@src/vfs/model.js';
+import { PosixModel } from '@src/vfs/model.js';
+import type { ModelStat, ModelContext, FieldDef } from '@src/vfs/model.js';
 import type { FileHandle, OpenFlags, OpenOptions, SeekWhence } from '@src/vfs/handle.js';
 import { ENOENT, EBADF, EACCES, EINVAL, ENOTSUP } from '@src/hal/index.js';
 
@@ -33,7 +34,7 @@ const DEVICE_FIELDS: FieldDef[] = [
  */
 type DeviceType = 'null' | 'zero' | 'random' | 'urandom' | 'console' | 'clock';
 
-export class DeviceModel implements Model {
+export class DeviceModel extends PosixModel {
     readonly name = 'device';
 
     fields(): FieldDef[] {

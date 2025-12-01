@@ -11,7 +11,8 @@
  * - /proc/{uuid}/fd/     - Open file descriptors
  */
 
-import type { Model, ModelStat, ModelContext, FieldDef } from '@src/vfs/model.js';
+import { PosixModel } from '@src/vfs/model.js';
+import type { ModelStat, ModelContext, FieldDef } from '@src/vfs/model.js';
 import type { FileHandle, OpenFlags, OpenOptions, SeekWhence } from '@src/vfs/handle.js';
 import { ENOENT, EBADF, EACCES, EROFS, ENOTSUP } from '@src/hal/index.js';
 
@@ -81,11 +82,12 @@ export class ProcessRegistry {
 
 type ProcType = 'stat' | 'env' | 'cwd' | 'fd';
 
-export class ProcModel implements Model {
+export class ProcModel extends PosixModel {
     readonly name = 'proc';
     private registry: ProcessRegistry;
 
     constructor(registry: ProcessRegistry) {
+        super();
         this.registry = registry;
     }
 

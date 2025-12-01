@@ -5,7 +5,8 @@
  * Files have metadata (entity) and content (data blob).
  */
 
-import type { Model, ModelStat, ModelContext, FieldDef, WatchEvent } from '@src/vfs/model.js';
+import { PosixModel } from '@src/vfs/model.js';
+import type { ModelStat, ModelContext, FieldDef, WatchEvent } from '@src/vfs/model.js';
 import type { FileHandle, OpenFlags, OpenOptions, SeekWhence } from '@src/vfs/handle.js';
 import { ENOENT, EBADF, EACCES, EINVAL } from '@src/hal/index.js';
 
@@ -31,7 +32,7 @@ const FILE_FIELDS: FieldDef[] = [
     { name: 'version', type: 'number' },
 ];
 
-export class FileModel implements Model {
+export class FileModel extends PosixModel {
     readonly name = 'file';
 
     fields(): FieldDef[] {

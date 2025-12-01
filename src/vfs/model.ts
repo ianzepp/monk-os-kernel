@@ -7,11 +7,17 @@
  * - Where bytes come from on read
  * - Where bytes go on write
  * - How flow control works
+ *
+ * Two paradigms are supported:
+ * - MessageModel: Native message-based interface (streaming, events)
+ * - PosixModel: POSIX-style open/read/write/close (adapts to MessageModel)
  */
 
 import type { FileHandle, OpenFlags, OpenOptions } from '@src/vfs/handle.js';
 import type { ACL } from '@src/vfs/acl.js';
 import type { HAL } from '@src/hal/index.js';
+import type { Message, Response } from '@src/vfs/message.js';
+import { respond } from '@src/vfs/message.js';
 
 /**
  * Field definition for model schema
@@ -174,4 +180,160 @@ export interface Model {
      * @returns Stream of watch events
      */
     watch?(ctx: ModelContext, id: string, pattern?: string): AsyncIterable<WatchEvent>;
+
+    /**
+     * Handle a message (native message-based interface).
+     *
+     * Models can implement this directly for streaming/event support,
+     * or extend PosixModel to get automatic dispatch to POSIX methods.
+     *
+     * @param ctx - Model context
+     * @param id - Entity UUID
+     * @param msg - Message to handle
+     * @returns Stream of response messages
+     */
+    handle?(ctx: ModelContext, id: string, msg: Message): AsyncIterable<Response>;
+}
+
+/**
+ * MessageModel interface.
+ *
+ * Native message-based model for streaming and events.
+ * Implement this directly for full control over message handling.
+ */
+export interface MessageModel {
+    /** Model identifier */
+    readonly name: string;
+
+    /** Schema definition */
+    fields(): FieldDef[];
+
+    /**
+     * Handle a message.
+     *
+     * @param ctx - Model context
+     * @param id - Entity UUID
+     * @param msg - Message to handle
+     * @returns Stream of response messages
+     */
+    handle(ctx: ModelContext, id: string, msg: Message): AsyncIterable<Response>;
+}
+
+/**
+ * PosixModel abstract class.
+ *
+ * Provides POSIX-style open/read/write/close interface with automatic
+ * adaptation to message-based handle().
+ *
+ * Extend this class and implement the abstract methods. The handle()
+ * method dispatches to the appropriate POSIX method based on msg.op.
+ */
+export abstract class PosixModel implements Model {
+    abstract readonly name: string;
+
+    abstract fields(): FieldDef[];
+
+    abstract open(
+        ctx: ModelContext,
+        id: string,
+        flags: OpenFlags,
+        opts?: OpenOptions
+    ): Promise<FileHandle>;
+
+    abstract stat(ctx: ModelContext, id: string): Promise<ModelStat>;
+
+    abstract setstat(ctx: ModelContext, id: string, fields: Partial<ModelStat>): Promise<void>;
+
+    abstract create(
+        ctx: ModelContext,
+        parent: string,
+        name: string,
+        fields?: Partial<ModelStat>
+    ): Promise<string>;
+
+    abstract unlink(ctx: ModelContext, id: string): Promise<void>;
+
+    abstract list(ctx: ModelContext, id: string): AsyncIterable<string>;
+
+    watch?(ctx: ModelContext, id: string, pattern?: string): AsyncIterable<WatchEvent>;
+
+    /**
+     * Handle a message by dispatching to POSIX methods.
+     */
+    async *handle(ctx: ModelContext, id: string, msg: Message): AsyncIterable<Response> {
+        try {
+            switch (msg.op) {
+                case 'open': {
+                    const data = msg.data as { flags: OpenFlags; opts?: OpenOptions };
+                    const handle = await this.open(ctx, id, data.flags, data.opts);
+                    yield respond.ok({ handle: handle.id });
+                    break;
+                }
+
+                case 'stat': {
+                    const stat = await this.stat(ctx, id);
+                    yield respond.ok(stat);
+                    break;
+                }
+
+                case 'setstat': {
+                    const fields = msg.data as Partial<ModelStat>;
+                    await this.setstat(ctx, id, fields);
+                    yield respond.ok();
+                    break;
+                }
+
+                case 'create': {
+                    const data = msg.data as { name: string; fields?: Partial<ModelStat> };
+                    const newId = await this.create(ctx, id, data.name, data.fields);
+                    yield respond.ok({ id: newId });
+                    break;
+                }
+
+                case 'delete': {
+                    await this.unlink(ctx, id);
+                    yield respond.ok();
+                    break;
+                }
+
+                case 'list': {
+                    for await (const childId of this.list(ctx, id)) {
+                        const child = await ctx.getEntity(childId);
+                        if (child) {
+                            yield respond.item(child);
+                        }
+                    }
+                    yield respond.done();
+                    break;
+                }
+
+                case 'watch': {
+                    if (!this.watch) {
+                        yield respond.error('ENOSYS', 'Watch not supported');
+                        break;
+                    }
+                    const data = msg.data as { pattern?: string } | undefined;
+                    for await (const event of this.watch(ctx, id, data?.pattern)) {
+                        yield respond.event(
+                            event.op,
+                            event.entity,
+                            event.path,
+                            event.timestamp,
+                            event.fields
+                        );
+                    }
+                    break;
+                }
+
+                default:
+                    yield respond.error('ENOSYS', `Unknown operation: ${msg.op}`);
+            }
+        } catch (err) {
+            const error = err as Error & { code?: string };
+            yield respond.error(
+                error.code ?? 'EIO',
+                error.message ?? 'Unknown error'
+            );
+        }
+    }
 }

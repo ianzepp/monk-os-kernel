@@ -5,7 +5,8 @@
  * Folders have no data blob - children are derived via query.
  */
 
-import type { Model, ModelStat, ModelContext, FieldDef, WatchEvent } from '@src/vfs/model.js';
+import { PosixModel } from '@src/vfs/model.js';
+import type { ModelStat, ModelContext, FieldDef, WatchEvent } from '@src/vfs/model.js';
 import type { FileHandle, OpenFlags, OpenOptions } from '@src/vfs/handle.js';
 import { EISDIR, ENOENT, ENOTEMPTY } from '@src/hal/index.js';
 
@@ -24,7 +25,7 @@ const FOLDER_FIELDS: FieldDef[] = [
     { name: 'ctime', type: 'number', required: true },
 ];
 
-export class FolderModel implements Model {
+export class FolderModel extends PosixModel {
     readonly name = 'folder';
 
     fields(): FieldDef[] {

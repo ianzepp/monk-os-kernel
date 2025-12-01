@@ -14,9 +14,14 @@
  */
 
 // Core interfaces
-export type { Model, ModelStat, FieldDef } from '@src/vfs/model.js';
+export type { Model, ModelStat, FieldDef, MessageModel } from '@src/vfs/model.js';
+export { PosixModel } from '@src/vfs/model.js';
 export type { FileHandle, OpenFlags, SeekWhence } from '@src/vfs/handle.js';
 export type { ACL, Grant } from '@src/vfs/acl.js';
+
+// Message-based interface
+export type { Message, Response } from '@src/vfs/message.js';
+export { respond } from '@src/vfs/message.js';
 
 // VFS class
 export { VFS } from '@src/vfs/vfs.js';
