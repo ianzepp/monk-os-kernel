@@ -173,3 +173,24 @@ export async function collectItems<T = unknown>(
     }
     return items;
 }
+
+/**
+ * Unwrap a stream to a single value (first 'ok' response data).
+ * Throws on 'error' response.
+ */
+export async function unwrapStream<T = unknown>(
+    stream: AsyncIterable<Response>
+): Promise<T> {
+    for await (const response of stream) {
+        if (response.op === 'ok') {
+            return response.data as T;
+        }
+        if (response.op === 'error') {
+            const err = response.data as { code: string; message: string };
+            const error = new Error(err.message) as Error & { code: string };
+            error.code = err.code;
+            throw error;
+        }
+    }
+    throw new Error('No ok response received');
+}

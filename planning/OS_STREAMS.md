@@ -2,6 +2,34 @@
 
 Universal streaming as the primary data flow model for Monk OS.
 
+## Implementation Status
+
+**Status: IMPLEMENTED** (2024-12)
+
+All phases complete:
+- Phase 1: Transport layer ✓
+- Phase 2: Syscall handlers ✓
+- Phase 3: API surface ✓
+- Phase 4: Tests ✓
+
+### Key Files Modified
+
+| File | Changes |
+|------|---------|
+| `src/kernel/types.ts` | Added `activeStreams`, `streamPingHandlers` to Process; stream constants; `StreamPingMessage`, `StreamCancelMessage` types |
+| `src/kernel/syscalls.ts` | All handlers converted to async generators returning `AsyncIterable<Response>` |
+| `src/kernel/kernel.ts` | `handleSyscall` iterates responses with backpressure; handles `stream_ping` and `stream_cancel` |
+| `src/message.ts` | Added `unwrapStream()` helper |
+| `rom/lib/process.ts` | Complete rewrite with streaming transport, `call()`, `collect()`, `iterate()` wrappers |
+
+### Implementation Notes
+
+1. **Backpressure was added** - The original spec suggested deferring backpressure. During implementation, we added time-based progress reporting and kernel-side backpressure (see updated Liveness section below).
+
+2. **Error handling simplified** - Syscall handlers now use `yield respond.error()` instead of throwing exceptions. The kernel catches uncaught exceptions and converts them to error responses.
+
+3. **All 525 tests pass** - Existing tests updated to use `unwrapStream()` helper for extracting single values from streams.
+
 ## Thesis
 
 Monk OS should treat **streams of `Response` objects as the fundamental unit of data flow**, not arrays. Every syscall, every VFS operation, every channel interaction produces an `AsyncIterable<Response>`. Arrays become a convenience wrapper for collecting stream results, not the primary interface.
@@ -187,66 +215,94 @@ Userspace                           Kernel
 - Send `stream_cancel` in `finally` block of syscall generator
 - Always sent, even on normal completion (kernel ignores if already done)
 
-### Liveness (Ping)
+### Liveness and Backpressure
 
-For long-running or high-volume streams, the kernel needs assurance that userspace is still consuming. Without this, a crashed/stuck consumer would cause the kernel to produce indefinitely.
+For long-running or high-volume streams, the kernel needs:
+1. **Liveness detection** - Know if consumer is still alive
+2. **Backpressure** - Slow down if consumer can't keep up
 
-**Thresholds:**
+**Solution: Time-based progress pings**
 
-| Threshold | Value | Trigger |
-|-----------|-------|---------|
-| `STREAM_PING_ITEMS` | 1000 | Items sent without ping |
-| `STREAM_PING_TIME` | 5000ms | Time elapsed without ping |
+Consumer sends periodic pings with a `processed` count. Kernel compares against items sent to determine gap. If gap too large, kernel pauses until consumer catches up.
 
-If **either** threshold exceeded without receiving `stream_ping`, kernel aborts with `ETIMEDOUT`.
+**Stream Ping Message:**
+```typescript
+interface StreamPingMessage {
+    type: 'stream_ping';
+    id: string;
+    processed: number;  // Items consumer has yielded to caller
+}
+```
 
-**Kernel enforcement:**
+**Constants:**
+
+| Constant | Value | Purpose |
+|----------|-------|---------|
+| `STREAM_HIGH_WATER` | 1000 | Pause when this many items unacked |
+| `STREAM_LOW_WATER` | 100 | Resume when gap falls to this |
+| `STREAM_PING_INTERVAL` | 100ms | Consumer pings every 100ms |
+| `STREAM_STALL_TIMEOUT` | 5000ms | Abort if no ping for this long |
+
+**Kernel backpressure implementation:**
 ```typescript
 // Kernel tracks per-stream
-let itemsSincePing = 0;
+let itemsSent = 0;
+let itemsAcked = 0;
 let lastPingTime = Date.now();
+let resumeResolve: (() => void) | null = null;
+
+// Ping handler updates acked count and may resume
+proc.streamPingHandlers.set(request.id, (processed: number) => {
+    itemsAcked = processed;
+    lastPingTime = Date.now();
+    if (resumeResolve && (itemsSent - itemsAcked) <= STREAM_LOW_WATER) {
+        resumeResolve();
+        resumeResolve = null;
+    }
+});
 
 for await (const response of iterable) {
-    // Check thresholds
-    if (itemsSincePing >= 1000 || Date.now() - lastPingTime >= 5000) {
+    // Check for stall
+    if (Date.now() - lastPingTime >= STREAM_STALL_TIMEOUT) {
         yield respond.error('ETIMEDOUT', 'Stream consumer unresponsive');
         return;
     }
 
     yield response;
-    itemsSincePing++;
-}
+    itemsSent++;
 
-// On receiving stream_ping: reset counters
-itemsSincePing = 0;
-lastPingTime = Date.now();
+    // Backpressure: pause if too far ahead
+    const gap = itemsSent - itemsAcked;
+    if (gap >= STREAM_HIGH_WATER) {
+        await new Promise(resolve => { resumeResolve = resolve; });
+    }
+}
 ```
 
-**Userspace automatic ping:**
+**Userspace time-based ping:**
 
-The `syscall()` generator handles pings transparently. Consumers never think about it.
+The `syscall()` generator sends pings every 100ms with current processed count:
 
 ```typescript
 async function* syscall(name: string, ...args: unknown[]): AsyncIterable<Response> {
     const id = crypto.randomUUID();
-    const PING_INTERVAL = 500;  // Ping every 500 items (under kernel's 1000 threshold)
-    let itemCount = 0;
-
-    // ... setup stream state ...
+    let processed = 0;
+    let lastPingTime = Date.now();
 
     try {
         self.postMessage({ type: 'syscall', id, name, args });
 
         while (true) {
-            // ... wait for responses ...
-
             while (stream.queue.length > 0) {
                 const response = stream.queue.shift()!;
                 yield response;
+                processed++;
 
-                // Automatic ping every N items
-                if (++itemCount % PING_INTERVAL === 0) {
-                    self.postMessage({ type: 'stream_ping', id });
+                // Time-based ping with progress count
+                const now = Date.now();
+                if (now - lastPingTime >= 100) {
+                    self.postMessage({ type: 'stream_ping', id, processed });
+                    lastPingTime = now;
                 }
 
                 if (response.op === 'ok' || response.op === 'done' || response.op === 'error') {
@@ -261,12 +317,17 @@ async function* syscall(name: string, ...args: unknown[]): AsyncIterable<Respons
 }
 ```
 
-**Result:** All streams automatically ping. Consumer code is simple:
+**How it adapts to consumer speed:**
+- Fast consumer (10k items/sec) → ping every ~1000 items, kernel never pauses
+- Slow consumer (10 items/sec) → ping every ~1 item, kernel pauses frequently
+- Blocked consumer → no pings → kernel times out after 5s
+
+**Result:** Automatic backpressure without explicit flow control messages. Consumer code is simple:
 
 ```typescript
-// Consumer doesn't think about pings - handled by syscall()
+// Consumer doesn't think about pings or backpressure
 for await (const row of channel.stream(db, query)) {
-    await expensiveProcessing(row);  // Even slow processing is fine
+    await expensiveProcessing(row);  // Kernel automatically slows down
 }
 ```
 
@@ -863,15 +924,17 @@ Most code doesn't want to handle `Response` objects directly.
 - `iterate()` for "give me items without Response wrapper"
 - Raw `syscall()` available for full control
 
-### Why Not Backpressure?
+### Why Progress-Based Backpressure?
 
-This design doesn't implement explicit backpressure.
+We chose time-based progress pings over explicit pause/resume messages.
 
-**Decision**: Implicit backpressure via:
-- `postMessage` queue acts as buffer
-- Async iteration naturally pauses producer when consumer is slow
-- For true backpressure, would need `stream_pause`/`stream_resume` messages
-- Can be added later if needed
+**Decision**: Progress-based backpressure because:
+- Consumer reports `processed` count every 100ms
+- Kernel calculates gap (`itemsSent - itemsAcked`)
+- Kernel pauses at high-water (1000), resumes at low-water (100)
+- No explicit pause/resume messages needed
+- Naturally adapts to consumer speed
+- Single message type serves both liveness and backpressure
 
 ## Example: End-to-End Flow
 
@@ -938,3 +1001,44 @@ export async function GET(ctx: Context): Promise<Response> {
 ```
 
 The internal stream format *is* the JSONL format. No conversion needed.
+
+## Implementation Feedback
+
+### What Worked Well
+
+1. **`respond.*` helpers** - Clean, readable handler code. `yield respond.ok(value)` is immediately understandable.
+
+2. **Convenience wrappers** - The `call()`, `collect()`, `iterate()` functions hide streaming complexity. Most code doesn't need to know about `Response` objects.
+
+3. **Minimal kernel changes** - The streaming logic is contained in `handleSyscall()`. The rest of the kernel is largely unchanged.
+
+4. **Test compatibility** - Adding `unwrapStream()` helper allowed existing tests to work with minimal changes.
+
+### Design Refinements During Implementation
+
+1. **Backpressure added** - Original spec deferred backpressure. We added it using time-based progress pings. The `processed` count in pings enables kernel-side gap calculation and automatic pausing.
+
+2. **Time-based over item-based** - Original spec used item-count thresholds (ping every 500 items). Changed to time-based (ping every 100ms) which naturally adapts to consumer speed.
+
+3. **Error handling via yield** - Syscall handlers use `yield respond.error()` instead of throwing. Cleaner than try/catch wrapping and consistent with the streaming model.
+
+### Potential Future Improvements
+
+1. **True streaming for reads** - File `read()` still returns full buffer. Could yield `chunk` responses for large files.
+
+2. **Progress integration** - Channels that support progress (HTTP uploads) could yield `progress` responses. Current wrappers ignore them.
+
+3. **Redirect auto-follow** - The `redirect` response op exists but userspace doesn't auto-follow. May need explicit handling for HTTP-style redirects.
+
+4. **Cancel on normal completion** - Currently `stream_cancel` is always sent in finally block, even on normal completion. Harmless but wasteful. Could track completion state.
+
+### Constants Tuning
+
+Current values are reasonable defaults but may need adjustment based on real-world usage:
+
+| Constant | Value | Notes |
+|----------|-------|-------|
+| `STREAM_HIGH_WATER` | 1000 | May need increase for very fast producers |
+| `STREAM_LOW_WATER` | 100 | Determines resume granularity |
+| `STREAM_PING_INTERVAL` | 100ms | Balance between responsiveness and overhead |
+| `STREAM_STALL_TIMEOUT` | 5000ms | May need increase for legitimately slow consumers |

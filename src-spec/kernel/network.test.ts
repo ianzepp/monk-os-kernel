@@ -7,7 +7,7 @@ import { SyscallDispatcher, createNetworkSyscalls } from '@src/kernel/syscalls.j
 import type { Process } from '@src/kernel/types.js';
 import type { HAL } from '@src/hal/index.js';
 import type { Port } from '@src/kernel/resource.js';
-import { EINVAL } from '@src/kernel/errors.js';
+import { unwrapStream } from '@src/message.js';
 
 /**
  * Create a mock process for testing
@@ -30,6 +30,8 @@ function createMockProcess(overrides: Partial<Process> = {}): Process {
         nextChannel: 0,
         children: new Map(),
         nextPid: 1,
+        activeStreams: new Map(),
+        streamPingHandlers: new Map(),
         ...overrides,
     };
 }
@@ -111,7 +113,7 @@ describe('Network Syscalls', () => {
     describe('connect', () => {
         it('should connect to TCP server and return fd', async () => {
             const proc = createMockProcess();
-            const fd = await dispatcher.dispatch(proc, 'connect', ['tcp', 'example.com', 80]);
+            const fd = await unwrapStream<number>(dispatcher.dispatch(proc, 'connect', ['tcp', 'example.com', 80]));
 
             expect(typeof fd).toBe('number');
             expect(fd).toBe(3); // First fd after 0,1,2
@@ -120,8 +122,8 @@ describe('Network Syscalls', () => {
         it('should increment fd for each connection', async () => {
             const proc = createMockProcess();
 
-            const fd1 = await dispatcher.dispatch(proc, 'connect', ['tcp', 'host1.com', 80]);
-            const fd2 = await dispatcher.dispatch(proc, 'connect', ['tcp', 'host2.com', 80]);
+            const fd1 = await unwrapStream<number>(dispatcher.dispatch(proc, 'connect', ['tcp', 'host1.com', 80]));
+            const fd2 = await unwrapStream<number>(dispatcher.dispatch(proc, 'connect', ['tcp', 'host2.com', 80]));
 
             expect(fd1).toBe(3);
             expect(fd2).toBe(4);
@@ -129,7 +131,7 @@ describe('Network Syscalls', () => {
 
         it('should connect to Unix socket and return fd', async () => {
             const proc = createMockProcess();
-            const fd = await dispatcher.dispatch(proc, 'connect', ['unix', '/var/run/app.sock', 0]);
+            const fd = await unwrapStream<number>(dispatcher.dispatch(proc, 'connect', ['unix', '/var/run/app.sock', 0]));
 
             expect(typeof fd).toBe('number');
             expect(fd).toBe(3);
@@ -138,7 +140,7 @@ describe('Network Syscalls', () => {
         it('should connect to Unix socket without port argument', async () => {
             const proc = createMockProcess();
             // Unix sockets ignore port, kernel passes 0
-            const fd = await dispatcher.dispatch(proc, 'connect', ['unix', '/tmp/test.sock', undefined]);
+            const fd = await unwrapStream<number>(dispatcher.dispatch(proc, 'connect', ['unix', '/tmp/test.sock', undefined]));
 
             expect(typeof fd).toBe('number');
             expect(fd).toBe(3);
@@ -148,7 +150,7 @@ describe('Network Syscalls', () => {
             const proc = createMockProcess();
 
             await expect(
-                dispatcher.dispatch(proc, 'connect', ['udp', 'example.com', 53])
+                unwrapStream(dispatcher.dispatch(proc, 'connect', ['udp', 'example.com', 53]))
             ).rejects.toThrow('unsupported protocol');
         });
 
@@ -156,31 +158,31 @@ describe('Network Syscalls', () => {
             const proc = createMockProcess();
 
             await expect(
-                dispatcher.dispatch(proc, 'connect', [123, 'example.com', 80])
-            ).rejects.toBeInstanceOf(EINVAL);
+                unwrapStream(dispatcher.dispatch(proc, 'connect', [123, 'example.com', 80]))
+            ).rejects.toThrow('proto must be a string');
         });
 
         it('should throw EINVAL when host is not string', async () => {
             const proc = createMockProcess();
 
             await expect(
-                dispatcher.dispatch(proc, 'connect', ['tcp', 123, 80])
-            ).rejects.toBeInstanceOf(EINVAL);
+                unwrapStream(dispatcher.dispatch(proc, 'connect', ['tcp', 123, 80]))
+            ).rejects.toThrow('host must be a string');
         });
 
         it('should throw EINVAL when port is not number', async () => {
             const proc = createMockProcess();
 
             await expect(
-                dispatcher.dispatch(proc, 'connect', ['tcp', 'example.com', '80'])
-            ).rejects.toBeInstanceOf(EINVAL);
+                unwrapStream(dispatcher.dispatch(proc, 'connect', ['tcp', 'example.com', '80']))
+            ).rejects.toThrow('port must be a number');
         });
     });
 
     describe('port', () => {
         it('should create port and return port id', async () => {
             const proc = createMockProcess();
-            const portId = await dispatcher.dispatch(proc, 'port', ['tcp:listen', { port: 8080 }]);
+            const portId = await unwrapStream<number>(dispatcher.dispatch(proc, 'port', ['tcp:listen', { port: 8080 }]));
 
             expect(typeof portId).toBe('number');
             expect(portId).toBe(0); // First port
@@ -190,8 +192,8 @@ describe('Network Syscalls', () => {
             const proc = createMockProcess();
 
             await expect(
-                dispatcher.dispatch(proc, 'port', [123, {}])
-            ).rejects.toBeInstanceOf(EINVAL);
+                unwrapStream(dispatcher.dispatch(proc, 'port', [123, {}]))
+            ).rejects.toThrow('type must be a string');
         });
     });
 
@@ -200,8 +202,8 @@ describe('Network Syscalls', () => {
             const proc = createMockProcess();
 
             await expect(
-                dispatcher.dispatch(proc, 'pclose', ['not-a-number'])
-            ).rejects.toBeInstanceOf(EINVAL);
+                unwrapStream(dispatcher.dispatch(proc, 'pclose', ['not-a-number']))
+            ).rejects.toThrow('portId must be a number');
         });
     });
 });

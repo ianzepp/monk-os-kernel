@@ -19,7 +19,7 @@ import type {
 } from '@src/kernel/types.js';
 import { SIGTERM, SIGKILL, TERM_GRACE_MS } from '@src/kernel/types.js';
 import { ProcessTable } from '@src/kernel/process-table.js';
-import { MAX_FDS, MAX_PORTS, MAX_CHANNELS } from '@src/kernel/types.js';
+import { MAX_FDS, MAX_PORTS, MAX_CHANNELS, STREAM_HIGH_WATER, STREAM_LOW_WATER, STREAM_STALL_TIMEOUT } from '@src/kernel/types.js';
 import {
     SyscallDispatcher,
     createFileSyscalls,
@@ -33,6 +33,8 @@ import type { Resource, Port } from '@src/kernel/resource.js';
 import type { WatchEvent } from '@src/vfs/model.js';
 import { FileResource, SocketResource, ListenerPort, WatchPort, UdpPort, PubsubPort, matchTopic, PipeBuffer, PipeResource } from '@src/kernel/resource.js';
 import type { ProcessPortMessage } from '@src/kernel/syscalls.js';
+import { respond } from '@src/message.js';
+import type { Response } from '@src/message.js';
 import type { ServiceDef, Activation } from '@src/kernel/services.js';
 import { loadMounts } from '@src/kernel/mounts.js';
 import { copyRomToVfs } from '@src/kernel/boot.js';
@@ -100,14 +102,30 @@ export class Kernel {
      * Register all syscall handlers.
      */
     private registerSyscalls(): void {
+        // Helper to wrap async functions as async generators
+        const wrapSyscall = <T>(fn: (proc: Process, ...args: unknown[]) => Promise<T> | T) => {
+            return async function* (proc: Process, ...args: unknown[]): AsyncIterable<Response> {
+                const result = await fn(proc, ...args);
+                yield respond.ok(result);
+            };
+        };
+
         // Process syscalls
         this.syscalls.registerAll({
-            spawn: (proc, entry, opts) => this.spawn(proc, entry as string, opts as SpawnOpts),
-            exit: (proc, code) => this.exit(proc, code as number),
-            kill: (proc, pid, signal) => this.kill(proc, pid as number, signal as number | undefined),
-            wait: (proc, pid) => this.wait(proc, pid as number),
-            getpid: (proc) => this.getpid(proc),
-            getppid: (proc) => this.getppid(proc),
+            spawn: wrapSyscall((proc, entry, opts) =>
+                this.spawn(proc, entry as string, opts as SpawnOpts)
+            ),
+            exit: wrapSyscall((proc, code) =>
+                this.exit(proc, code as number)
+            ),
+            kill: wrapSyscall((proc, pid, signal) =>
+                this.kill(proc, pid as number, signal as number | undefined)
+            ),
+            wait: wrapSyscall((proc, pid) =>
+                this.wait(proc, pid as number)
+            ),
+            getpid: wrapSyscall((proc) => this.getpid(proc)),
+            getppid: wrapSyscall((proc) => this.getppid(proc)),
         });
 
         // File syscalls
@@ -147,37 +165,40 @@ export class Kernel {
         );
 
         // Pipe syscall
-        this.syscalls.register('pipe', (proc) => this.createPipe(proc));
+        this.syscalls.register('pipe', wrapSyscall((proc) => this.createPipe(proc)));
 
         // Redirect syscalls
-        this.syscalls.register('redirect', (proc, args) => {
+        this.syscalls.register('redirect', wrapSyscall((proc, args) => {
             const { target, source } = args as { target: number; source: number };
             return this.redirectFd(proc, target, source);
-        });
-        this.syscalls.register('restore', (proc, args) => {
+        }));
+        this.syscalls.register('restore', wrapSyscall((proc, args) => {
             const { target, saved } = args as { target: number; saved: string };
             return this.restoreFd(proc, target, saved);
-        });
+        }));
 
         // Worker pool syscalls
-        this.syscalls.register('lease', (proc, pool) =>
+        this.syscalls.register('lease', wrapSyscall((proc, pool) =>
             this.leaseWorker(proc, pool as string | undefined)
-        );
-        this.syscalls.register('worker:load', (proc, args) => {
+        ));
+        this.syscalls.register('worker:load', wrapSyscall((proc, args) => {
             const { workerId, path } = args as { workerId: string; path: string };
             return this.workerLoad(proc, workerId, path);
-        });
-        this.syscalls.register('worker:send', (proc, args) => {
+        }));
+        this.syscalls.register('worker:send', wrapSyscall((proc, args) => {
             const { workerId, msg } = args as { workerId: string; msg: unknown };
             return this.workerSend(proc, workerId, msg);
-        });
-        this.syscalls.register('worker:recv', (proc, workerId) =>
+        }));
+        this.syscalls.register('worker:recv', wrapSyscall((proc, workerId) =>
             this.workerRecv(proc, workerId as string)
-        );
-        this.syscalls.register('worker:release', (proc, workerId) =>
+        ));
+        this.syscalls.register('worker:release', wrapSyscall((proc, workerId) =>
             this.workerRelease(proc, workerId as string)
-        );
-        this.syscalls.register('pool:stats', () => this.poolManager.stats());
+        ));
+        const poolManager = this.poolManager;
+        this.syscalls.register('pool:stats', async function* (): AsyncIterable<Response> {
+            yield respond.ok(poolManager.stats());
+        });
     }
 
     /**
@@ -225,6 +246,8 @@ export class Kernel {
             nextChannel: 0,
             children: new Map(),
             nextPid: 1,
+            activeStreams: new Map(),
+            streamPingHandlers: new Map(),
         };
 
         // Setup stdio for init - open /dev/console
@@ -322,6 +345,8 @@ export class Kernel {
             nextChannel: 0,
             children: new Map(),
             nextPid: 1,
+            activeStreams: new Map(),
+            streamPingHandlers: new Map(),
         };
 
         // Setup stdio
@@ -538,38 +563,144 @@ export class Kernel {
      * Handle message from process.
      */
     private async handleMessage(proc: Process, msg: KernelMessage): Promise<void> {
-        if (msg.type !== 'syscall') {
-            return;
+        switch (msg.type) {
+            case 'syscall':
+                await this.handleSyscall(proc, msg as SyscallRequest);
+                break;
+            case 'stream_ping':
+                this.handleStreamPing(proc, msg.id, msg.processed);
+                break;
+            case 'stream_cancel':
+                this.handleStreamCancel(proc, msg.id);
+                break;
         }
+    }
 
-        const request = msg as SyscallRequest;
-        let response: SyscallResponse;
-
+    /**
+     * Handle syscall request with streaming response and backpressure.
+     */
+    private async handleSyscall(proc: Process, request: SyscallRequest): Promise<void> {
         debug('syscall', `${proc.cmd}: ${request.name}(${JSON.stringify(request.args).slice(0, 100)})`);
 
-        try {
-            const result = await this.syscalls.dispatch(proc, request.name, request.args);
-            response = {
-                type: 'response',
-                id: request.id,
-                result,
-            };
-            debug('syscall', `${proc.cmd}: ${request.name} -> ok`);
-        } catch (error) {
-            const err = error as Error & { code?: string };
-            response = {
-                type: 'response',
-                id: request.id,
-                error: {
-                    code: err.code ?? 'UNKNOWN',
-                    message: err.message,
-                },
-            };
-            debug('syscall', `${proc.cmd}: ${request.name} -> error: ${err.code ?? 'UNKNOWN'}`);
-        }
+        // Create abort controller for this stream
+        const abort = new AbortController();
+        proc.activeStreams.set(request.id, abort);
 
-        // Send response back to process
-        proc.worker.postMessage(response);
+        // Backpressure state
+        let itemsSent = 0;
+        let itemsAcked = 0;
+        let lastPingTime = Date.now();
+        let resumeResolve: (() => void) | null = null;
+
+        // Create ping handler that updates acked count and may resume
+        proc.streamPingHandlers.set(request.id, (processed: number) => {
+            itemsAcked = processed;
+            lastPingTime = Date.now();
+            // Resume if we were paused and gap is now acceptable
+            if (resumeResolve && (itemsSent - itemsAcked) <= STREAM_LOW_WATER) {
+                resumeResolve();
+                resumeResolve = null;
+            }
+        });
+
+        try {
+            const iterable = this.syscalls.dispatch(proc, request.name, request.args);
+
+            for await (const response of iterable) {
+                // Check if stream was cancelled
+                if (abort.signal.aborted) {
+                    break;
+                }
+
+                // Check for stall (no ping for too long)
+                if (Date.now() - lastPingTime >= STREAM_STALL_TIMEOUT) {
+                    proc.worker.postMessage({
+                        type: 'response',
+                        id: request.id,
+                        result: { op: 'error', data: { code: 'ETIMEDOUT', message: 'Stream consumer unresponsive' } },
+                    });
+                    debug('syscall', `${proc.cmd}: ${request.name} -> timeout (stall)`);
+                    return;
+                }
+
+                // Send response to process
+                proc.worker.postMessage({
+                    type: 'response',
+                    id: request.id,
+                    result: response,
+                });
+
+                // Terminal ops end the stream
+                if (response.op === 'ok' || response.op === 'done' || response.op === 'error' || response.op === 'redirect') {
+                    debug('syscall', `${proc.cmd}: ${request.name} -> ${response.op}`);
+                    return;
+                }
+
+                // Track non-terminal items for backpressure
+                itemsSent++;
+
+                // Backpressure: pause if too far ahead of consumer
+                const gap = itemsSent - itemsAcked;
+                if (gap >= STREAM_HIGH_WATER) {
+                    debug('syscall', `${proc.cmd}: ${request.name} -> backpressure (gap=${gap})`);
+                    await new Promise<void>(resolve => {
+                        resumeResolve = resolve;
+                        // Also set a timeout to avoid permanent block
+                        setTimeout(() => {
+                            if (resumeResolve === resolve) {
+                                resolve();
+                                resumeResolve = null;
+                            }
+                        }, STREAM_STALL_TIMEOUT);
+                    });
+                    // Re-check stall after resume
+                    if (Date.now() - lastPingTime >= STREAM_STALL_TIMEOUT) {
+                        proc.worker.postMessage({
+                            type: 'response',
+                            id: request.id,
+                            result: { op: 'error', data: { code: 'ETIMEDOUT', message: 'Stream consumer unresponsive' } },
+                        });
+                        debug('syscall', `${proc.cmd}: ${request.name} -> timeout (backpressure stall)`);
+                        return;
+                    }
+                }
+            }
+        } catch (error) {
+            // Uncaught exceptions become error responses
+            const err = error as Error & { code?: string };
+            proc.worker.postMessage({
+                type: 'response',
+                id: request.id,
+                result: { op: 'error', data: { code: err.code ?? 'EIO', message: err.message } },
+            });
+            debug('syscall', `${proc.cmd}: ${request.name} -> error: ${err.code ?? 'EIO'}`);
+        } finally {
+            // Clean up stream tracking
+            proc.activeStreams.delete(request.id);
+            proc.streamPingHandlers.delete(request.id);
+        }
+    }
+
+    /**
+     * Handle stream ping (progress report from userspace).
+     */
+    private handleStreamPing(proc: Process, requestId: string, processed: number): void {
+        const handler = proc.streamPingHandlers.get(requestId);
+        if (handler) {
+            handler(processed);
+        }
+    }
+
+    /**
+     * Handle stream cancel (stop producing, cleanup).
+     */
+    private handleStreamCancel(proc: Process, requestId: string): void {
+        const abort = proc.activeStreams.get(requestId);
+        if (abort) {
+            abort.abort();
+            proc.activeStreams.delete(requestId);
+            proc.streamPingHandlers.delete(requestId);
+        }
     }
 
     /**
@@ -658,6 +789,13 @@ export class Kernel {
 
         // Terminate worker immediately
         proc.worker.terminate();
+
+        // Abort all active streams
+        for (const abort of proc.activeStreams.values()) {
+            abort.abort();
+        }
+        proc.activeStreams.clear();
+        proc.streamPingHandlers.clear();
 
         // Clean up resources with refcounting (fire-and-forget, don't await)
         for (const resourceId of proc.fds.values()) {
@@ -1598,6 +1736,8 @@ export class Kernel {
             nextChannel: 0,
             children: new Map(),
             nextPid: 1,
+            activeStreams: new Map(),
+            streamPingHandlers: new Map(),
         };
 
         // Setup fd 0 based on activation type

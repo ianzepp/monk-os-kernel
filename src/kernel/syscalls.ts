@@ -9,15 +9,20 @@ import type { VFS, SeekWhence } from '@src/vfs/index.js';
 import type { Process, OpenFlags } from '@src/kernel/types.js';
 import type { Resource, FileResource } from '@src/kernel/resource.js';
 import type { Message, Response } from '@src/message.js';
+import { respond } from '@src/message.js';
 import { ENOSYS, EINVAL, EBADF } from '@src/kernel/errors.js';
 
 /**
  * Syscall handler function type
+ *
+ * All handlers are async generators yielding Response objects.
+ * Single-value handlers yield respond.ok(value).
+ * Collection handlers yield respond.item(x) per item, then respond.done().
  */
 export type SyscallHandler = (
     proc: Process,
     ...args: unknown[]
-) => Promise<unknown> | unknown;
+) => AsyncIterable<Response>;
 
 /**
  * Syscall registry
@@ -57,13 +62,15 @@ export class SyscallDispatcher {
      * @param proc - Calling process
      * @param name - Syscall name
      * @param args - Syscall arguments
-     * @returns Syscall result
-     * @throws ENOSYS if syscall not found
+     * @returns AsyncIterable of Response objects
      */
-    async dispatch(proc: Process, name: string, args: unknown[]): Promise<unknown> {
+    dispatch(proc: Process, name: string, args: unknown[]): AsyncIterable<Response> {
         const handler = this.handlers[name];
         if (!handler) {
-            throw new ENOSYS(`Function not implemented: ${name}`);
+            // Return a single-shot iterable yielding error
+            return (async function* () {
+                yield { op: 'error', data: { code: 'ENOSYS', message: `Function not implemented: ${name}` } } as Response;
+            })();
         }
 
         return handler(proc, ...args);
@@ -101,176 +108,211 @@ export function createFileSyscalls(
     closeResource: (proc: Process, fd: number) => Promise<void>
 ): SyscallRegistry {
     return {
-        async open(proc: Process, path: unknown, flags: unknown): Promise<number> {
+        async *open(proc: Process, path: unknown, flags: unknown): AsyncIterable<Response> {
             if (typeof path !== 'string') {
-                throw new EINVAL('path must be a string');
+                yield respond.error('EINVAL', 'path must be a string');
+                return;
             }
 
             const openFlags: OpenFlags = typeof flags === 'object' && flags !== null
                 ? flags as OpenFlags
                 : { read: true };
 
-            return openFile(proc, path, openFlags);
+            const fd = await openFile(proc, path, openFlags);
+            yield respond.ok(fd);
         },
 
-        async close(proc: Process, fd: unknown): Promise<void> {
+        async *close(proc: Process, fd: unknown): AsyncIterable<Response> {
             if (typeof fd !== 'number') {
-                throw new EINVAL('fd must be a number');
+                yield respond.error('EINVAL', 'fd must be a number');
+                return;
             }
             await closeResource(proc, fd);
+            yield respond.ok();
         },
 
-        async read(proc: Process, fd: unknown, size?: unknown): Promise<Uint8Array> {
+        async *read(proc: Process, fd: unknown, size?: unknown): AsyncIterable<Response> {
             if (typeof fd !== 'number') {
-                throw new EINVAL('fd must be a number');
+                yield respond.error('EINVAL', 'fd must be a number');
+                return;
             }
 
             const resource = getResource(proc, fd);
             if (!resource) {
-                throw new EBADF(`Bad file descriptor: ${fd}`);
+                yield respond.error('EBADF', `Bad file descriptor: ${fd}`);
+                return;
             }
 
             const readSize = typeof size === 'number' ? size : undefined;
-            return resource.read(readSize);
+            const data = await resource.read(readSize);
+            yield respond.ok(data);
         },
 
-        async write(proc: Process, fd: unknown, data: unknown): Promise<number> {
+        async *write(proc: Process, fd: unknown, data: unknown): AsyncIterable<Response> {
             if (typeof fd !== 'number') {
-                throw new EINVAL('fd must be a number');
+                yield respond.error('EINVAL', 'fd must be a number');
+                return;
             }
 
             const resource = getResource(proc, fd);
             if (!resource) {
-                throw new EBADF(`Bad file descriptor: ${fd}`);
+                yield respond.error('EBADF', `Bad file descriptor: ${fd}`);
+                return;
             }
 
             if (!(data instanceof Uint8Array)) {
-                throw new EINVAL('data must be Uint8Array');
+                yield respond.error('EINVAL', 'data must be Uint8Array');
+                return;
             }
 
-            return resource.write(data);
+            const written = await resource.write(data);
+            yield respond.ok(written);
         },
 
-        async seek(proc: Process, fd: unknown, offset: unknown, whence: unknown): Promise<number> {
+        async *seek(proc: Process, fd: unknown, offset: unknown, whence: unknown): AsyncIterable<Response> {
             if (typeof fd !== 'number') {
-                throw new EINVAL('fd must be a number');
+                yield respond.error('EINVAL', 'fd must be a number');
+                return;
             }
 
             const resource = getResource(proc, fd);
             if (!resource) {
-                throw new EBADF(`Bad file descriptor: ${fd}`);
+                yield respond.error('EBADF', `Bad file descriptor: ${fd}`);
+                return;
             }
 
             // Only file resources support seek
             if (resource.type !== 'file') {
-                throw new EINVAL('Illegal seek on socket');
+                yield respond.error('EINVAL', 'Illegal seek on socket');
+                return;
             }
 
             if (typeof offset !== 'number') {
-                throw new EINVAL('offset must be a number');
+                yield respond.error('EINVAL', 'offset must be a number');
+                return;
             }
 
             const seekWhence: SeekWhence = (whence as SeekWhence) || 'start';
-            return (resource as FileResource).getHandle().seek(offset, seekWhence);
+            const pos = await (resource as FileResource).getHandle().seek(offset, seekWhence);
+            yield respond.ok(pos);
         },
 
-        async stat(proc: Process, path: unknown): Promise<unknown> {
+        async *stat(proc: Process, path: unknown): AsyncIterable<Response> {
             if (typeof path !== 'string') {
-                throw new EINVAL('path must be a string');
+                yield respond.error('EINVAL', 'path must be a string');
+                return;
             }
 
-            return vfs.stat(path, proc.id);
+            const statResult = await vfs.stat(path, proc.id);
+            yield respond.ok(statResult);
         },
 
-        async fstat(proc: Process, fd: unknown): Promise<unknown> {
+        async *fstat(proc: Process, fd: unknown): AsyncIterable<Response> {
             if (typeof fd !== 'number') {
-                throw new EINVAL('fd must be a number');
+                yield respond.error('EINVAL', 'fd must be a number');
+                return;
             }
 
             const resource = getResource(proc, fd);
             if (!resource) {
-                throw new EBADF(`Bad file descriptor: ${fd}`);
+                yield respond.error('EBADF', `Bad file descriptor: ${fd}`);
+                return;
             }
 
             // Only file resources have path-based stat
             if (resource.type !== 'file') {
-                throw new EINVAL('fstat not supported on sockets');
+                yield respond.error('EINVAL', 'fstat not supported on sockets');
+                return;
             }
 
-            return vfs.stat(resource.description, proc.id);
+            const statResult = await vfs.stat(resource.description, proc.id);
+            yield respond.ok(statResult);
         },
 
-        async mkdir(proc: Process, path: unknown, opts?: unknown): Promise<void> {
+        async *mkdir(proc: Process, path: unknown, opts?: unknown): AsyncIterable<Response> {
             if (typeof path !== 'string') {
-                throw new EINVAL('path must be a string');
+                yield respond.error('EINVAL', 'path must be a string');
+                return;
             }
 
             const options = opts as { recursive?: boolean } | undefined;
             await vfs.mkdir(path, proc.id, options);
+            yield respond.ok();
         },
 
-        async unlink(proc: Process, path: unknown): Promise<void> {
+        async *unlink(proc: Process, path: unknown): AsyncIterable<Response> {
             if (typeof path !== 'string') {
-                throw new EINVAL('path must be a string');
+                yield respond.error('EINVAL', 'path must be a string');
+                return;
             }
 
             await vfs.unlink(path, proc.id);
+            yield respond.ok();
         },
 
-        async rmdir(proc: Process, path: unknown): Promise<void> {
+        async *rmdir(proc: Process, path: unknown): AsyncIterable<Response> {
             // rmdir is same as unlink for directories
             if (typeof path !== 'string') {
-                throw new EINVAL('path must be a string');
+                yield respond.error('EINVAL', 'path must be a string');
+                return;
             }
 
             await vfs.unlink(path, proc.id);
+            yield respond.ok();
         },
 
-        async readdir(proc: Process, path: unknown): Promise<string[]> {
+        async *readdir(proc: Process, path: unknown): AsyncIterable<Response> {
             if (typeof path !== 'string') {
-                throw new EINVAL('path must be a string');
+                yield respond.error('EINVAL', 'path must be a string');
+                return;
             }
 
-            const entries: string[] = [];
             for await (const entry of vfs.readdir(path, proc.id)) {
-                entries.push(entry.name);
+                yield respond.item(entry.name);
             }
-            return entries;
+            yield respond.done();
         },
 
-        async rename(proc: Process, oldPath: unknown, newPath: unknown): Promise<void> {
+        async *rename(proc: Process, oldPath: unknown, newPath: unknown): AsyncIterable<Response> {
             if (typeof oldPath !== 'string' || typeof newPath !== 'string') {
-                throw new EINVAL('paths must be strings');
+                yield respond.error('EINVAL', 'paths must be strings');
+                return;
             }
 
             // TODO: Implement rename in VFS
-            throw new ENOSYS('rename');
+            yield respond.error('ENOSYS', 'rename');
         },
 
-        async symlink(proc: Process, target: unknown, linkPath: unknown): Promise<void> {
+        async *symlink(proc: Process, target: unknown, linkPath: unknown): AsyncIterable<Response> {
             if (typeof target !== 'string') {
-                throw new EINVAL('target must be a string');
+                yield respond.error('EINVAL', 'target must be a string');
+                return;
             }
             if (typeof linkPath !== 'string') {
-                throw new EINVAL('linkPath must be a string');
+                yield respond.error('EINVAL', 'linkPath must be a string');
+                return;
             }
 
             await vfs.symlink(target, linkPath, proc.id);
+            yield respond.ok();
         },
 
-        async access(proc: Process, path: unknown, acl?: unknown): Promise<unknown> {
+        async *access(proc: Process, path: unknown, acl?: unknown): AsyncIterable<Response> {
             if (typeof path !== 'string') {
-                throw new EINVAL('path must be a string');
+                yield respond.error('EINVAL', 'path must be a string');
+                return;
             }
 
             if (acl !== undefined) {
                 // Set ACL
                 await vfs.setAccess(path, proc.id, acl as import('@src/vfs/index.js').ACL | null);
+                yield respond.ok();
                 return;
             }
 
             // Get ACL
-            return vfs.access(path, proc.id);
+            const result = await vfs.access(path, proc.id);
+            yield respond.ok(result);
         },
     };
 }
@@ -280,37 +322,43 @@ export function createFileSyscalls(
  */
 export function createMiscSyscalls(): SyscallRegistry {
     return {
-        getargs(proc: Process): string[] {
-            return proc.args;
+        async *getargs(proc: Process): AsyncIterable<Response> {
+            yield respond.ok(proc.args);
         },
 
-        getcwd(proc: Process): string {
-            return proc.cwd;
+        async *getcwd(proc: Process): AsyncIterable<Response> {
+            yield respond.ok(proc.cwd);
         },
 
-        chdir(proc: Process, path: unknown): void {
+        async *chdir(proc: Process, path: unknown): AsyncIterable<Response> {
             if (typeof path !== 'string') {
-                throw new EINVAL('path must be a string');
+                yield respond.error('EINVAL', 'path must be a string');
+                return;
             }
             // TODO: Verify path exists and is a directory
             proc.cwd = path;
+            yield respond.ok();
         },
 
-        getenv(proc: Process, name: unknown): string | undefined {
+        async *getenv(proc: Process, name: unknown): AsyncIterable<Response> {
             if (typeof name !== 'string') {
-                throw new EINVAL('name must be a string');
+                yield respond.error('EINVAL', 'name must be a string');
+                return;
             }
-            return proc.env[name];
+            yield respond.ok(proc.env[name]);
         },
 
-        setenv(proc: Process, name: unknown, value: unknown): void {
+        async *setenv(proc: Process, name: unknown, value: unknown): AsyncIterable<Response> {
             if (typeof name !== 'string') {
-                throw new EINVAL('name must be a string');
+                yield respond.error('EINVAL', 'name must be a string');
+                return;
             }
             if (typeof value !== 'string') {
-                throw new EINVAL('value must be a string');
+                yield respond.error('EINVAL', 'value must be a string');
+                return;
             }
             proc.env[name] = value;
+            yield respond.ok();
         },
     };
 }
@@ -354,76 +402,93 @@ export function createNetworkSyscalls(
     closePort: (proc: Process, portId: number) => Promise<void>
 ): SyscallRegistry {
     return {
-        async connect(proc: Process, proto: unknown, host: unknown, port: unknown): Promise<number> {
+        async *connect(proc: Process, proto: unknown, host: unknown, port: unknown): AsyncIterable<Response> {
             if (typeof proto !== 'string') {
-                throw new EINVAL('proto must be a string');
+                yield respond.error('EINVAL', 'proto must be a string');
+                return;
             }
             if (typeof host !== 'string') {
-                throw new EINVAL('host must be a string');
+                yield respond.error('EINVAL', 'host must be a string');
+                return;
             }
 
             switch (proto) {
                 case 'tcp':
                     if (typeof port !== 'number') {
-                        throw new EINVAL('port must be a number');
+                        yield respond.error('EINVAL', 'port must be a number');
+                        return;
                     }
-                    return connectTcp(proc, host, port);
+                    yield respond.ok(await connectTcp(proc, host, port));
+                    return;
 
                 case 'unix':
                     // Unix sockets use path as host, port=0
-                    return connectTcp(proc, host, 0);
+                    yield respond.ok(await connectTcp(proc, host, 0));
+                    return;
 
                 default:
-                    throw new EINVAL(`unsupported protocol: ${proto}`);
+                    yield respond.error('EINVAL', `unsupported protocol: ${proto}`);
             }
         },
 
-        async port(proc: Process, type: unknown, opts: unknown): Promise<number> {
+        async *port(proc: Process, type: unknown, opts: unknown): AsyncIterable<Response> {
             if (typeof type !== 'string') {
-                throw new EINVAL('type must be a string');
+                yield respond.error('EINVAL', 'type must be a string');
+                return;
             }
 
-            return createPort(proc, type, opts);
+            const portId = await createPort(proc, type, opts);
+            yield respond.ok(portId);
         },
 
-        async recv(proc: Process, portId: unknown): Promise<ProcessPortMessage> {
+        async *recv(proc: Process, portId: unknown): AsyncIterable<Response> {
             if (typeof portId !== 'number') {
-                throw new EINVAL('portId must be a number');
+                yield respond.error('EINVAL', 'portId must be a number');
+                return;
             }
 
             const port = getPort(proc, portId);
             if (!port) {
-                throw new EBADF(`Bad port: ${portId}`);
+                yield respond.error('EBADF', `Bad port: ${portId}`);
+                return;
             }
 
-            return recvPort(proc, portId);
+            const msg = await recvPort(proc, portId);
+            yield respond.ok(msg);
         },
 
-        async send(proc: Process, portId: unknown, to: unknown, data: unknown): Promise<void> {
+        async *send(proc: Process, portId: unknown, to: unknown, data: unknown): AsyncIterable<Response> {
             if (typeof portId !== 'number') {
-                throw new EINVAL('portId must be a number');
+                yield respond.error('EINVAL', 'portId must be a number');
+                return;
             }
             if (typeof to !== 'string') {
-                throw new EINVAL('to must be a string');
+                yield respond.error('EINVAL', 'to must be a string');
+                return;
             }
             if (!(data instanceof Uint8Array)) {
-                throw new EINVAL('data must be Uint8Array');
+                yield respond.error('EINVAL', 'data must be Uint8Array');
+                return;
             }
 
             const port = getPort(proc, portId);
             if (!port) {
-                throw new EBADF(`Bad port: ${portId}`);
+                yield respond.error('EBADF', `Bad port: ${portId}`);
+                return;
             }
 
             await port.send(to, data);
+            yield respond.ok();
         },
 
-        async pclose(proc: Process, portId: unknown): Promise<void> {
+        async *pclose(proc: Process, portId: unknown): AsyncIterable<Response> {
             if (typeof portId !== 'number') {
-                throw new EINVAL('portId must be a number');
+                yield respond.error('EINVAL', 'portId must be a number');
+                return;
             }
 
             await closePort(proc, portId);
+            yield respond.ok();
         },
     };
 }
@@ -443,80 +508,97 @@ export function createChannelSyscalls(
     closeChannel: (proc: Process, ch: number) => Promise<void>
 ): SyscallRegistry {
     return {
-        async channel_open(proc: Process, proto: unknown, url: unknown, opts?: unknown): Promise<number> {
+        async *channel_open(proc: Process, proto: unknown, url: unknown, opts?: unknown): AsyncIterable<Response> {
             if (typeof proto !== 'string') {
-                throw new EINVAL('proto must be a string');
+                yield respond.error('EINVAL', 'proto must be a string');
+                return;
             }
             if (typeof url !== 'string') {
-                throw new EINVAL('url must be a string');
+                yield respond.error('EINVAL', 'url must be a string');
+                return;
             }
 
-            return openChannel(proc, proto, url, opts as ChannelOpts | undefined);
+            const ch = await openChannel(proc, proto, url, opts as ChannelOpts | undefined);
+            yield respond.ok(ch);
         },
 
-        async channel_call(proc: Process, ch: unknown, msg: unknown): Promise<Response> {
+        async *channel_call(proc: Process, ch: unknown, msg: unknown): AsyncIterable<Response> {
             if (typeof ch !== 'number') {
-                throw new EINVAL('ch must be a number');
+                yield respond.error('EINVAL', 'ch must be a number');
+                return;
             }
 
             const channel = getChannel(proc, ch);
             if (!channel) {
-                throw new EBADF(`Bad channel: ${ch}`);
+                yield respond.error('EBADF', `Bad channel: ${ch}`);
+                return;
             }
 
-            // Get first response from handle()
+            // Yield until terminal response
             for await (const response of channel.handle(msg as Message)) {
-                return response;
+                yield response;
+                if (response.op === 'ok' || response.op === 'error' || response.op === 'done') {
+                    return;
+                }
             }
-
-            return { op: 'error', data: { code: 'EIO', message: 'No response' } };
+            yield respond.error('EIO', 'No response from channel');
         },
 
         async *channel_stream(proc: Process, ch: unknown, msg: unknown): AsyncIterable<Response> {
             if (typeof ch !== 'number') {
-                throw new EINVAL('ch must be a number');
+                yield respond.error('EINVAL', 'ch must be a number');
+                return;
             }
 
             const channel = getChannel(proc, ch);
             if (!channel) {
-                throw new EBADF(`Bad channel: ${ch}`);
+                yield respond.error('EBADF', `Bad channel: ${ch}`);
+                return;
             }
 
             yield* channel.handle(msg as Message);
         },
 
-        async channel_push(proc: Process, ch: unknown, response: unknown): Promise<void> {
+        async *channel_push(proc: Process, ch: unknown, response: unknown): AsyncIterable<Response> {
             if (typeof ch !== 'number') {
-                throw new EINVAL('ch must be a number');
+                yield respond.error('EINVAL', 'ch must be a number');
+                return;
             }
 
             const channel = getChannel(proc, ch);
             if (!channel) {
-                throw new EBADF(`Bad channel: ${ch}`);
+                yield respond.error('EBADF', `Bad channel: ${ch}`);
+                return;
             }
 
             await channel.push(response as Response);
+            yield respond.ok();
         },
 
-        async channel_recv(proc: Process, ch: unknown): Promise<Message> {
+        async *channel_recv(proc: Process, ch: unknown): AsyncIterable<Response> {
             if (typeof ch !== 'number') {
-                throw new EINVAL('ch must be a number');
+                yield respond.error('EINVAL', 'ch must be a number');
+                return;
             }
 
             const channel = getChannel(proc, ch);
             if (!channel) {
-                throw new EBADF(`Bad channel: ${ch}`);
+                yield respond.error('EBADF', `Bad channel: ${ch}`);
+                return;
             }
 
-            return channel.recv();
+            const msg = await channel.recv();
+            yield respond.ok(msg);
         },
 
-        async channel_close(proc: Process, ch: unknown): Promise<void> {
+        async *channel_close(proc: Process, ch: unknown): AsyncIterable<Response> {
             if (typeof ch !== 'number') {
-                throw new EINVAL('ch must be a number');
+                yield respond.error('EINVAL', 'ch must be a number');
+                return;
             }
 
             await closeChannel(proc, ch);
+            yield respond.ok();
         },
     };
 }

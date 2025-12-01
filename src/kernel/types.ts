@@ -66,6 +66,12 @@ export interface Process {
 
     /** Next PID to assign to children */
     nextPid: number;
+
+    /** Active streaming syscalls: request id -> abort controller */
+    activeStreams: Map<string, AbortController>;
+
+    /** Ping handlers for active streams: request id -> handler(processed) */
+    streamPingHandlers: Map<string, (processed: number) => void>;
 }
 
 /**
@@ -121,6 +127,22 @@ export const MAX_PORTS = 64;
 export const MAX_CHANNELS = 64;
 
 /**
+ * Stream backpressure thresholds
+ *
+ * TODO: These are item-count based, but memory pressure depends on message size.
+ * A stream of 1000 small integers uses far less memory than 1000 1MB chunks.
+ * Consider switching to byte-based thresholds:
+ *   - HIGH_WATER = 64KB, LOW_WATER = 8KB
+ *   - Track bytesSent/bytesAcked instead of item counts
+ *   - Ping reports bytesProcessed
+ *   - estimateSize(data): Uint8Array.length, string.length*2, JSON.stringify for objects
+ */
+export const STREAM_HIGH_WATER = 1000; // Pause when this many items unacked
+export const STREAM_LOW_WATER = 100;   // Resume when gap falls to this
+export const STREAM_PING_INTERVAL = 100; // Consumer pings every 100ms
+export const STREAM_STALL_TIMEOUT = 5000; // Abort if no ping for this long
+
+/**
  * Syscall message from process to kernel
  */
 export interface SyscallRequest {
@@ -152,9 +174,32 @@ export interface SignalMessage {
 }
 
 /**
+ * Stream ping message from userspace to kernel (progress report)
+ */
+export interface StreamPingMessage {
+    type: 'stream_ping';
+    id: string;
+    /** Number of items consumer has processed */
+    processed: number;
+}
+
+/**
+ * Stream cancel message from userspace to kernel (stop producing, cleanup)
+ */
+export interface StreamCancelMessage {
+    type: 'stream_cancel';
+    id: string;
+}
+
+/**
  * Message types between kernel and processes
  */
-export type KernelMessage = SyscallRequest | SyscallResponse | SignalMessage;
+export type KernelMessage =
+    | SyscallRequest
+    | SyscallResponse
+    | SignalMessage
+    | StreamPingMessage
+    | StreamCancelMessage;
 
 /**
  * File stat structure

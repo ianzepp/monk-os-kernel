@@ -21,35 +21,27 @@ class SyscallError extends Error {
     }
 }
 
-function reconstructError(error: Error & { code?: string }): Error {
-    if (error.code) {
-        return new SyscallError(error.code, error.message);
-    }
-    return error;
-}
-
-async function withTypedErrors<T>(promise: Promise<T>): Promise<T> {
-    try {
-        return await promise;
-    } catch (error) {
-        throw reconstructError(error as Error & { code?: string });
-    }
-}
-
 // ============================================================================
-// Syscall Transport
+// Syscall Transport (Streams-First Architecture)
 // ============================================================================
 
-interface PendingRequest {
-    resolve: (result: unknown) => void;
-    reject: (error: Error) => void;
+/**
+ * Stream state for accumulating responses from kernel
+ */
+interface StreamState {
+    queue: Response[];
+    resolve: (() => void) | null;
+    done: boolean;
 }
 
 type SignalHandler = (signal: number) => void;
 
-const pending = new Map<string, PendingRequest>();
+const streams = new Map<string, StreamState>();
 let signalHandler: SignalHandler | null = null;
 let initialized = false;
+
+/** Time-based ping interval in milliseconds */
+const PING_INTERVAL_MS = 100;
 
 function initTransport(): void {
     if (initialized) return;
@@ -58,16 +50,16 @@ function initTransport(): void {
         const msg = event.data;
 
         if (msg.type === 'response') {
-            const req = pending.get(msg.id);
-            if (req) {
-                pending.delete(msg.id);
-                if (msg.error) {
-                    const error = new Error(msg.error.message) as Error & { code: string };
-                    error.code = msg.error.code;
-                    req.reject(error);
-                } else {
-                    req.resolve(msg.result);
+            const stream = streams.get(msg.id);
+            if (stream) {
+                stream.queue.push(msg.result as Response);
+                // Check for terminal ops
+                const op = (msg.result as Response).op;
+                if (op === 'ok' || op === 'done' || op === 'error' || op === 'redirect') {
+                    stream.done = true;
                 }
+                stream.resolve?.();
+                stream.resolve = null;
             }
         } else if (msg.type === 'signal') {
             if (signalHandler) {
@@ -87,23 +79,102 @@ function initTransport(): void {
     initialized = true;
 }
 
-function syscall<T>(name: string, ...args: unknown[]): Promise<T> {
+/**
+ * Core syscall function - yields Response objects.
+ * Includes automatic time-based ping with progress count for backpressure.
+ */
+async function* syscall(name: string, ...args: unknown[]): AsyncIterable<Response> {
     if (!initialized) {
         initTransport();
     }
 
     const id = crypto.randomUUID();
+    const stream: StreamState = { queue: [], resolve: null, done: false };
+    streams.set(id, stream);
 
-    return new Promise((resolve, reject) => {
-        pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
+    let processed = 0;
+    let lastPingTime = Date.now();
 
-        self.postMessage({
-            type: 'syscall',
-            id,
-            name,
-            args,
-        });
-    });
+    try {
+        self.postMessage({ type: 'syscall', id, name, args });
+
+        while (true) {
+            // Wait for responses
+            while (stream.queue.length === 0 && !stream.done) {
+                await new Promise<void>(r => { stream.resolve = r; });
+            }
+
+            // Yield all queued responses
+            while (stream.queue.length > 0) {
+                const response = stream.queue.shift()!;
+                yield response;
+                processed++;
+
+                // Time-based ping with progress count
+                const now = Date.now();
+                if (now - lastPingTime >= PING_INTERVAL_MS) {
+                    self.postMessage({ type: 'stream_ping', id, processed });
+                    lastPingTime = now;
+                }
+
+                // Terminal ops end the stream
+                if (response.op === 'ok' || response.op === 'done' || response.op === 'error' || response.op === 'redirect') {
+                    return;
+                }
+            }
+
+            if (stream.done) return;
+        }
+    } finally {
+        streams.delete(id);
+        self.postMessage({ type: 'stream_cancel', id });
+    }
+}
+
+/**
+ * Convenience: unwrap single ok value (most common case)
+ */
+async function call<T>(name: string, ...args: unknown[]): Promise<T> {
+    for await (const response of syscall(name, ...args)) {
+        if (response.op === 'ok') return response.data as T;
+        if (response.op === 'error') {
+            const err = response.data as { code: string; message: string };
+            throw new SyscallError(err.code, err.message);
+        }
+    }
+    throw new SyscallError('EIO', 'No response');
+}
+
+/**
+ * Convenience: collect items to array
+ */
+async function collect<T>(name: string, ...args: unknown[]): Promise<T[]> {
+    const items: T[] = [];
+    for await (const response of syscall(name, ...args)) {
+        if (response.op === 'item') items.push(response.data as T);
+        if (response.op === 'done') return items;
+        if (response.op === 'error') {
+            const err = response.data as { code: string; message: string };
+            throw new SyscallError(err.code, err.message);
+        }
+        if (response.op === 'ok') return [response.data as T]; // Single value as array
+    }
+    return items;
+}
+
+/**
+ * Convenience: iterate items (hide Response wrapper)
+ */
+async function* iterate<T>(name: string, ...args: unknown[]): AsyncIterable<T> {
+    for await (const response of syscall(name, ...args)) {
+        if (response.op === 'item') yield response.data as T;
+        if (response.op === 'ok') { yield response.data as T; return; }
+        if (response.op === 'done') return;
+        if (response.op === 'error') {
+            const err = response.data as { code: string; message: string };
+            throw new SyscallError(err.code, err.message);
+        }
+    }
 }
 
 // ============================================================================
@@ -215,55 +286,62 @@ export function onSignal(handler: SignalHandler): void {
 // ============================================================================
 
 export function open(path: string, flags?: OpenFlags): Promise<number> {
-    return withTypedErrors(syscall<number>('open', path, flags ?? { read: true }));
+    return call<number>('open', path, flags ?? { read: true });
 }
 
 export function close(fd: number): Promise<void> {
-    return withTypedErrors(syscall<void>('close', fd));
+    return call<void>('close', fd);
 }
 
 export function read(fd: number, size?: number): Promise<Uint8Array> {
-    return withTypedErrors(syscall<Uint8Array>('read', fd, size));
+    return call<Uint8Array>('read', fd, size);
 }
 
 export function write(fd: number, data: Uint8Array): Promise<number> {
-    return withTypedErrors(syscall<number>('write', fd, data));
+    return call<number>('write', fd, data);
 }
 
 export function seek(fd: number, offset: number, whence?: SeekWhence): Promise<number> {
-    return withTypedErrors(syscall<number>('seek', fd, offset, whence ?? 'start'));
+    return call<number>('seek', fd, offset, whence ?? 'start');
 }
 
 export function stat(path: string): Promise<Stat> {
-    return withTypedErrors(syscall<Stat>('stat', path));
+    return call<Stat>('stat', path);
 }
 
 export function fstat(fd: number): Promise<Stat> {
-    return withTypedErrors(syscall<Stat>('fstat', fd));
+    return call<Stat>('fstat', fd);
 }
 
 export function mkdir(path: string, opts?: MkdirOpts): Promise<void> {
-    return withTypedErrors(syscall<void>('mkdir', path, opts));
+    return call<void>('mkdir', path, opts);
 }
 
 export function unlink(path: string): Promise<void> {
-    return withTypedErrors(syscall<void>('unlink', path));
+    return call<void>('unlink', path);
 }
 
 export function rmdir(path: string): Promise<void> {
-    return withTypedErrors(syscall<void>('rmdir', path));
+    return call<void>('rmdir', path);
 }
 
 export function readdir(path: string): Promise<string[]> {
-    return withTypedErrors(syscall<string[]>('readdir', path));
+    return collect<string>('readdir', path);
+}
+
+/**
+ * Stream directory entries (for large directories).
+ */
+export function readdirStream(path: string): AsyncIterable<string> {
+    return iterate<string>('readdir', path);
 }
 
 export function rename(oldPath: string, newPath: string): Promise<void> {
-    return withTypedErrors(syscall<void>('rename', oldPath, newPath));
+    return call<void>('rename', oldPath, newPath);
 }
 
 export function symlink(target: string, linkPath: string): Promise<void> {
-    return withTypedErrors(syscall<void>('symlink', target, linkPath));
+    return call<void>('symlink', target, linkPath);
 }
 
 // ============================================================================
@@ -274,9 +352,9 @@ export function access(path: string): Promise<ACL>;
 export function access(path: string, acl: ACL | null): Promise<void>;
 export function access(path: string, acl?: ACL | null): Promise<ACL | void> {
     if (acl === undefined) {
-        return withTypedErrors(syscall<ACL>('access', path));
+        return call<ACL>('access', path);
     }
-    return withTypedErrors(syscall<void>('access', path, acl));
+    return call<void>('access', path, acl);
 }
 
 // ============================================================================
@@ -284,16 +362,14 @@ export function access(path: string, acl?: ACL | null): Promise<ACL | void> {
 // ============================================================================
 
 export function pipe(): Promise<[number, number]> {
-    return withTypedErrors(syscall<[number, number]>('pipe'));
+    return call<[number, number]>('pipe');
 }
 
 export async function redirect(targetFd: number, sourceFd: number): Promise<() => Promise<void>> {
-    const saved = await withTypedErrors(
-        syscall<string>('redirect', { target: targetFd, source: sourceFd })
-    );
+    const saved = await call<string>('redirect', { target: targetFd, source: sourceFd });
 
     return async () => {
-        await withTypedErrors(syscall('restore', { target: targetFd, saved }));
+        await call('restore', { target: targetFd, saved });
     };
 }
 
@@ -302,23 +378,23 @@ export async function redirect(targetFd: number, sourceFd: number): Promise<() =
 // ============================================================================
 
 export function connect(host: string, port: number): Promise<number> {
-    return withTypedErrors(syscall<number>('connect', 'tcp', host, port));
+    return call<number>('connect', 'tcp', host, port);
 }
 
 export function listen(opts: TcpListenOpts): Promise<number> {
-    return withTypedErrors(syscall<number>('port', 'tcp:listen', opts));
+    return call<number>('port', 'tcp:listen', opts);
 }
 
 export function recv(portId: number): Promise<PortMessage> {
-    return withTypedErrors(syscall<PortMessage>('recv', portId));
+    return call<PortMessage>('recv', portId);
 }
 
 export function send(portId: number, to: string, data: Uint8Array): Promise<void> {
-    return withTypedErrors(syscall<void>('send', portId, to, data));
+    return call<void>('send', portId, to, data);
 }
 
 export function pclose(portId: number): Promise<void> {
-    return withTypedErrors(syscall<void>('pclose', portId));
+    return call<void>('pclose', portId);
 }
 
 // ============================================================================
@@ -332,48 +408,50 @@ export const channel = {
     /**
      * Open a channel to a remote service.
      */
-    async open(proto: string, url: string, opts?: ChannelOpts): Promise<number> {
-        return withTypedErrors(syscall<number>('channel_open', proto, url, opts));
+    open(proto: string, url: string, opts?: ChannelOpts): Promise<number> {
+        return call<number>('channel_open', proto, url, opts);
     },
 
     /**
      * Send a request and receive a single response.
+     * Handles streaming under the hood (progress, events, etc).
      */
     async call<T = unknown>(ch: number, msg: Message): Promise<Response & { data?: T }> {
-        return withTypedErrors(syscall<Response & { data?: T }>('channel_call', ch, msg));
+        for await (const response of syscall('channel_call', ch, msg)) {
+            // Pass through progress/events but keep waiting for terminal
+            if (response.op === 'ok' || response.op === 'error' || response.op === 'done' || response.op === 'redirect') {
+                return response as Response & { data?: T };
+            }
+        }
+        throw new SyscallError('EIO', 'No response from channel');
     },
 
     /**
      * Send a request and iterate streaming responses.
      */
-    async *stream(ch: number, msg: Message): AsyncIterable<Response> {
-        const result = await withTypedErrors(syscall<Response[]>('channel_stream', ch, msg));
-        if (Array.isArray(result)) {
-            for (const response of result) {
-                yield response;
-            }
-        }
+    stream(ch: number, msg: Message): AsyncIterable<Response> {
+        return syscall('channel_stream', ch, msg);
     },
 
     /**
      * Push a response to the remote (server-side channels).
      */
-    async push(ch: number, response: Response): Promise<void> {
-        return withTypedErrors(syscall<void>('channel_push', ch, response));
+    push(ch: number, response: Response): Promise<void> {
+        return call<void>('channel_push', ch, response);
     },
 
     /**
      * Receive a message from the remote (bidirectional channels).
      */
-    async recv(ch: number): Promise<Message> {
-        return withTypedErrors(syscall<Message>('channel_recv', ch));
+    recv(ch: number): Promise<Message> {
+        return call<Message>('channel_recv', ch);
     },
 
     /**
      * Close a channel.
      */
-    async close(ch: number): Promise<void> {
-        return withTypedErrors(syscall<void>('channel_close', ch));
+    close(ch: number): Promise<void> {
+        return call<void>('channel_close', ch);
     },
 };
 
@@ -403,31 +481,31 @@ export function sqlExecute(sql: string): Message {
 // ============================================================================
 
 export function spawn(entry: string, opts?: SpawnOpts): Promise<number> {
-    return withTypedErrors(syscall<number>('spawn', entry, opts));
+    return call<number>('spawn', entry, opts);
 }
 
 export function exit(code: number): Promise<never> {
-    return syscall<never>('exit', code);
+    return call<never>('exit', code);
 }
 
 export function kill(pid: number, signal?: number): Promise<void> {
-    return withTypedErrors(syscall<void>('kill', pid, signal ?? SIGTERM));
+    return call<void>('kill', pid, signal ?? SIGTERM);
 }
 
 export function wait(pid: number): Promise<ExitStatus> {
-    return withTypedErrors(syscall<ExitStatus>('wait', pid));
+    return call<ExitStatus>('wait', pid);
 }
 
 export function getpid(): Promise<number> {
-    return withTypedErrors(syscall<number>('getpid'));
+    return call<number>('getpid');
 }
 
 export function getppid(): Promise<number> {
-    return withTypedErrors(syscall<number>('getppid'));
+    return call<number>('getppid');
 }
 
 export function getargs(): Promise<string[]> {
-    return withTypedErrors(syscall<string[]>('getargs'));
+    return call<string[]>('getargs');
 }
 
 // ============================================================================
@@ -435,19 +513,19 @@ export function getargs(): Promise<string[]> {
 // ============================================================================
 
 export function getcwd(): Promise<string> {
-    return withTypedErrors(syscall<string>('getcwd'));
+    return call<string>('getcwd');
 }
 
 export function chdir(path: string): Promise<void> {
-    return withTypedErrors(syscall<void>('chdir', path));
+    return call<void>('chdir', path);
 }
 
 export function getenv(name: string): Promise<string | undefined> {
-    return withTypedErrors(syscall<string | undefined>('getenv', name));
+    return call<string | undefined>('getenv', name);
 }
 
 export function setenv(name: string, value: string): Promise<void> {
-    return withTypedErrors(syscall<void>('setenv', name, value));
+    return call<void>('setenv', name, value);
 }
 
 // ============================================================================

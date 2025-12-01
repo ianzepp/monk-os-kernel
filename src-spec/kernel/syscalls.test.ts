@@ -5,7 +5,8 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
 import { SyscallDispatcher, createMiscSyscalls } from '@src/kernel/syscalls.js';
 import type { Process } from '@src/kernel/types.js';
-import { EINVAL } from '@src/kernel/errors.js';
+import { unwrapStream } from '@src/message.js';
+import { respond } from '@src/message.js';
 
 /**
  * Create a mock process for testing
@@ -28,6 +29,8 @@ function createMockProcess(overrides: Partial<Process> = {}): Process {
         nextChannel: 0,
         children: new Map(),
         nextPid: 1,
+        activeStreams: new Map(),
+        streamPingHandlers: new Map(),
         ...overrides,
     };
 }
@@ -41,7 +44,7 @@ describe('SyscallDispatcher', () => {
 
     describe('register', () => {
         it('should register a syscall handler', () => {
-            dispatcher.register('test', () => 'result');
+            dispatcher.register('test', async function* () { yield respond.ok('result'); });
             expect(dispatcher.has('test')).toBe(true);
         });
     });
@@ -49,8 +52,8 @@ describe('SyscallDispatcher', () => {
     describe('registerAll', () => {
         it('should register multiple handlers', () => {
             dispatcher.registerAll({
-                foo: () => 'foo',
-                bar: () => 'bar',
+                foo: async function* () { yield respond.ok('foo'); },
+                bar: async function* () { yield respond.ok('bar'); },
             });
 
             expect(dispatcher.has('foo')).toBe(true);
@@ -61,23 +64,25 @@ describe('SyscallDispatcher', () => {
     describe('dispatch', () => {
         it('should call the registered handler', async () => {
             const proc = createMockProcess();
-            dispatcher.register('add', (_proc, a, b) => (a as number) + (b as number));
+            dispatcher.register('add', async function* (_proc, a, b) {
+                yield respond.ok((a as number) + (b as number));
+            });
 
-            const result = await dispatcher.dispatch(proc, 'add', [1, 2]);
+            const result = await unwrapStream<number>(dispatcher.dispatch(proc, 'add', [1, 2]));
             expect(result).toBe(3);
         });
 
-        it('should throw ENOSYS for unknown syscall', async () => {
+        it('should return error for unknown syscall', async () => {
             const proc = createMockProcess();
 
-            await expect(dispatcher.dispatch(proc, 'unknown', [])).rejects.toThrow('not implemented');
+            await expect(unwrapStream(dispatcher.dispatch(proc, 'unknown', []))).rejects.toThrow('not implemented');
         });
 
         it('should pass process to handler', async () => {
             const proc = createMockProcess({ cwd: '/special' });
-            dispatcher.register('getcwd', (p) => p.cwd);
+            dispatcher.register('getcwd', async function* (p) { yield respond.ok(p.cwd); });
 
-            const result = await dispatcher.dispatch(proc, 'getcwd', []);
+            const result = await unwrapStream<string>(dispatcher.dispatch(proc, 'getcwd', []));
             expect(result).toBe('/special');
         });
     });
@@ -85,8 +90,8 @@ describe('SyscallDispatcher', () => {
     describe('list', () => {
         it('should return registered syscall names', () => {
             dispatcher.registerAll({
-                alpha: () => {},
-                beta: () => {},
+                alpha: async function* () { yield respond.ok(); },
+                beta: async function* () { yield respond.ok(); },
             });
 
             const list = dispatcher.list();
@@ -107,7 +112,7 @@ describe('Misc Syscalls', () => {
     describe('getcwd', () => {
         it('should return current working directory', async () => {
             const proc = createMockProcess({ cwd: '/home/user' });
-            const result = await dispatcher.dispatch(proc, 'getcwd', []);
+            const result = await unwrapStream<string>(dispatcher.dispatch(proc, 'getcwd', []));
             expect(result).toBe('/home/user');
         });
     });
@@ -115,26 +120,26 @@ describe('Misc Syscalls', () => {
     describe('chdir', () => {
         it('should change working directory', async () => {
             const proc = createMockProcess({ cwd: '/home/user' });
-            await dispatcher.dispatch(proc, 'chdir', ['/tmp']);
+            await unwrapStream(dispatcher.dispatch(proc, 'chdir', ['/tmp']));
             expect(proc.cwd).toBe('/tmp');
         });
 
         it('should throw EINVAL on non-string path', async () => {
             const proc = createMockProcess();
-            await expect(dispatcher.dispatch(proc, 'chdir', [123])).rejects.toBeInstanceOf(EINVAL);
+            await expect(unwrapStream(dispatcher.dispatch(proc, 'chdir', [123]))).rejects.toThrow('path must be a string');
         });
     });
 
     describe('getenv', () => {
         it('should return environment variable', async () => {
             const proc = createMockProcess({ env: { FOO: 'bar' } });
-            const result = await dispatcher.dispatch(proc, 'getenv', ['FOO']);
+            const result = await unwrapStream<string>(dispatcher.dispatch(proc, 'getenv', ['FOO']));
             expect(result).toBe('bar');
         });
 
         it('should return undefined for missing variable', async () => {
             const proc = createMockProcess({ env: {} });
-            const result = await dispatcher.dispatch(proc, 'getenv', ['MISSING']);
+            const result = await unwrapStream<string | undefined>(dispatcher.dispatch(proc, 'getenv', ['MISSING']));
             expect(result).toBeUndefined();
         });
     });
@@ -142,18 +147,18 @@ describe('Misc Syscalls', () => {
     describe('setenv', () => {
         it('should set environment variable', async () => {
             const proc = createMockProcess({ env: {} });
-            await dispatcher.dispatch(proc, 'setenv', ['FOO', 'bar']);
+            await unwrapStream(dispatcher.dispatch(proc, 'setenv', ['FOO', 'bar']));
             expect(proc.env.FOO).toBe('bar');
         });
 
         it('should throw EINVAL on non-string name', async () => {
             const proc = createMockProcess();
-            await expect(dispatcher.dispatch(proc, 'setenv', [123, 'value'])).rejects.toBeInstanceOf(EINVAL);
+            await expect(unwrapStream(dispatcher.dispatch(proc, 'setenv', [123, 'value']))).rejects.toThrow('name must be a string');
         });
 
         it('should throw EINVAL on non-string value', async () => {
             const proc = createMockProcess();
-            await expect(dispatcher.dispatch(proc, 'setenv', ['name', 123])).rejects.toBeInstanceOf(EINVAL);
+            await expect(unwrapStream(dispatcher.dispatch(proc, 'setenv', ['name', 123]))).rejects.toThrow('value must be a string');
         });
     });
 });
