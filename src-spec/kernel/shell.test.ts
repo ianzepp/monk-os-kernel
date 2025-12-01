@@ -85,8 +85,6 @@ describe('Shell', () => {
         await new Promise(resolve => setTimeout(resolve, 1000));
 
         const output = hal.console.getOutput();
-        console.log('Output:', output);
-
         expect(output).toContain('hello world');
     });
 

@@ -370,9 +370,27 @@ export function rewriteImports(js: string, fromModule: string): string {
 
     const exportedNames: string[] = [];
 
+    // Handle async generator functions: export async function* x -> async function* x
+    result = result.replace(
+        /export\s+(async\s+function\s*\*)\s*(\w+)/g,
+        (_, type, name) => {
+            exportedNames.push(name);
+            return `${type} ${name}`;
+        }
+    );
+
     // Handle async functions: export async function x -> async function x
     result = result.replace(
         /export\s+(async\s+function)\s+(\w+)/g,
+        (_, type, name) => {
+            exportedNames.push(name);
+            return `${type} ${name}`;
+        }
+    );
+
+    // Handle generator functions: export function* x -> function* x
+    result = result.replace(
+        /export\s+(function\s*\*)\s*(\w+)/g,
         (_, type, name) => {
             exportedNames.push(name);
             return `${type} ${name}`;

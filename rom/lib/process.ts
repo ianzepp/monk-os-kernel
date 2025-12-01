@@ -293,8 +293,91 @@ export function close(fd: number): Promise<void> {
     return call<void>('close', fd);
 }
 
-export function read(fd: number, size?: number): Promise<Uint8Array> {
-    return call<Uint8Array>('read', fd, size);
+/**
+ * Stream chunks from a file descriptor until EOF.
+ *
+ * @param fd - File descriptor to read from
+ * @param chunkSize - Optional hint for chunk size (kernel may ignore)
+ */
+export function read(fd: number, chunkSize?: number): AsyncIterable<Uint8Array> {
+    return iterate<Uint8Array>('read', fd, chunkSize);
+}
+
+const DEFAULT_MAX_READ = 10 * 1024 * 1024;      // 10MB
+const DEFAULT_MAX_ENTRIES = 10_000;              // 10k directory entries
+
+/**
+ * Read entire file descriptor contents into a single buffer.
+ *
+ * @param fd - File descriptor to read from
+ * @param maxSize - Maximum bytes to read (default 10MB, kernel limit 100MB)
+ */
+export async function readAll(fd: number, maxSize: number = DEFAULT_MAX_READ): Promise<Uint8Array> {
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+
+    for await (const chunk of read(fd)) {
+        total += chunk.length;
+        if (total > maxSize) {
+            throw new SyscallError('EFBIG', `Read exceeded ${maxSize} bytes`);
+        }
+        chunks.push(chunk);
+    }
+
+    // Fast path: single chunk
+    if (chunks.length === 1) {
+        return chunks[0];
+    }
+
+    // Fast path: no data
+    if (chunks.length === 0) {
+        return new Uint8Array(0);
+    }
+
+    // Concatenate chunks
+    const result = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+        result.set(chunk, offset);
+        offset += chunk.length;
+    }
+    return result;
+}
+
+/**
+ * Stream lines from a text file.
+ * Each yielded string is one line without the newline character.
+ */
+export async function* readLines(fd: number): AsyncIterable<string> {
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    for await (const chunk of read(fd)) {
+        buffer += decoder.decode(chunk, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop()!; // Keep incomplete line in buffer
+
+        for (const line of lines) {
+            yield line;
+        }
+    }
+
+    // Flush remaining buffer (file without trailing newline)
+    buffer += decoder.decode(); // Flush decoder
+    if (buffer) {
+        yield buffer;
+    }
+}
+
+/**
+ * Read entire file descriptor contents as a string.
+ *
+ * @param fd - File descriptor to read from
+ * @param maxSize - Maximum bytes to read (default 10MB, kernel limit 100MB)
+ */
+export async function readText(fd: number, maxSize: number = DEFAULT_MAX_READ): Promise<string> {
+    const data = await readAll(fd, maxSize);
+    return new TextDecoder().decode(data);
 }
 
 export function write(fd: number, data: Uint8Array): Promise<number> {
@@ -325,15 +408,28 @@ export function rmdir(path: string): Promise<void> {
     return call<void>('rmdir', path);
 }
 
-export function readdir(path: string): Promise<string[]> {
-    return collect<string>('readdir', path);
+/**
+ * Stream directory entries.
+ */
+export function readdir(path: string): AsyncIterable<string> {
+    return iterate<string>('readdir', path);
 }
 
 /**
- * Stream directory entries (for large directories).
+ * Read all directory entries into an array.
+ *
+ * @param path - Directory path
+ * @param maxEntries - Maximum entries to read (default 10k, kernel limit 100k)
  */
-export function readdirStream(path: string): AsyncIterable<string> {
-    return iterate<string>('readdir', path);
+export async function readdirAll(path: string, maxEntries: number = DEFAULT_MAX_ENTRIES): Promise<string[]> {
+    const entries: string[] = [];
+    for await (const entry of readdir(path)) {
+        if (entries.length >= maxEntries) {
+            throw new SyscallError('EFBIG', `Directory listing exceeded ${maxEntries} entries`);
+        }
+        entries.push(entry);
+    }
+    return entries;
 }
 
 export function rename(oldPath: string, newPath: string): Promise<void> {
@@ -532,34 +628,80 @@ export function setenv(name: string, value: string): Promise<void> {
 // Convenience Functions
 // ============================================================================
 
-export async function readFile(path: string): Promise<string> {
+/**
+ * Read entire file as string. Opens, reads, and closes.
+ *
+ * @param path - File path
+ * @param maxSize - Maximum bytes to read (default 10MB, kernel limit 100MB)
+ */
+export async function readFile(path: string, maxSize: number = DEFAULT_MAX_READ): Promise<string> {
     const fd = await open(path, { read: true });
     try {
-        const chunks: Uint8Array[] = [];
-        while (true) {
-            const chunk = await read(fd, 65536);
-            if (chunk.length === 0) break;
-            chunks.push(chunk);
-        }
-        const total = chunks.reduce((sum, c) => sum + c.length, 0);
-        const result = new Uint8Array(total);
-        let offset = 0;
-        for (const chunk of chunks) {
-            result.set(chunk, offset);
-            offset += chunk.length;
-        }
-        return new TextDecoder().decode(result);
+        return await readText(fd, maxSize);
     } finally {
         await close(fd);
     }
 }
 
+/**
+ * Read entire file as bytes. Opens, reads, and closes.
+ *
+ * @param path - File path
+ * @param maxSize - Maximum bytes to read (default 10MB, kernel limit 100MB)
+ */
+export async function readFileBytes(path: string, maxSize: number = DEFAULT_MAX_READ): Promise<Uint8Array> {
+    const fd = await open(path, { read: true });
+    try {
+        return await readAll(fd, maxSize);
+    } finally {
+        await close(fd);
+    }
+}
+
+/**
+ * Write string to file. Opens, writes, and closes.
+ */
 export async function writeFile(path: string, content: string): Promise<void> {
     const fd = await open(path, { write: true, create: true, truncate: true });
     try {
         await write(fd, new TextEncoder().encode(content));
     } finally {
         await close(fd);
+    }
+}
+
+/**
+ * Copy data from one file descriptor to another.
+ * Streams chunks to avoid memory issues with large files.
+ *
+ * @returns Total bytes copied
+ */
+export async function copy(srcFd: number, dstFd: number): Promise<number> {
+    let total = 0;
+    for await (const chunk of read(srcFd)) {
+        await write(dstFd, chunk);
+        total += chunk.length;
+    }
+    return total;
+}
+
+/**
+ * Copy a file from source path to destination path.
+ * Opens both files, copies data, and closes both.
+ *
+ * @returns Total bytes copied
+ */
+export async function copyFile(srcPath: string, dstPath: string): Promise<number> {
+    const src = await open(srcPath, { read: true });
+    try {
+        const dst = await open(dstPath, { write: true, create: true, truncate: true });
+        try {
+            return await copy(src, dst);
+        } finally {
+            await close(dst);
+        }
+    } finally {
+        await close(src);
     }
 }
 
@@ -582,3 +724,9 @@ export async function eprintln(text: string): Promise<void> {
 export function sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
+
+// ============================================================================
+// Re-exports from io.ts
+// ============================================================================
+
+export { ByteReader, ByteWriter } from '/lib/io';

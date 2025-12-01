@@ -4,7 +4,18 @@ Extending the streams-first architecture to file descriptor operations, and unif
 
 ## Implementation Status
 
-**Status: PLANNED**
+**Status: PHASE 1 COMPLETE** (2024-12-01)
+
+### Phase 1 Notes
+
+- Streaming `read()` syscall implemented with `MAX_STREAM_BYTES` enforcement
+- Streaming `readdir()` syscall implemented with `MAX_STREAM_ENTRIES` enforcement
+- `ByteReader` and `ByteWriter` classes added to `rom/lib/io.ts`
+- Userspace API updated: `read()` returns `AsyncIterable<Uint8Array>`, `readdir()` returns `AsyncIterable<string>`
+- Convenience functions added: `readAll`, `readText`, `readLines`, `readdirAll`, `copy`, `copyFile`, `readFileBytes`
+- Shell migrated to use new API (`ByteReader` for stdin, `readText` for scripts, `readdirAll` for globs)
+- Fixed `src/kernel/loader.ts` to handle `export async function*` and `export function*` syntax
+- All 525 tests passing
 
 ## Overview
 

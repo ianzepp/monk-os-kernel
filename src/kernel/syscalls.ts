@@ -7,6 +7,7 @@
 import type { HAL, Channel, ChannelOpts } from '@src/hal/index.js';
 import type { VFS, SeekWhence } from '@src/vfs/index.js';
 import type { Process, OpenFlags } from '@src/kernel/types.js';
+import { DEFAULT_CHUNK_SIZE, MAX_STREAM_BYTES, MAX_STREAM_ENTRIES } from '@src/kernel/types.js';
 import type { Resource, FileResource } from '@src/kernel/resource.js';
 import type { Message, Response } from '@src/message.js';
 import { respond } from '@src/message.js';
@@ -131,7 +132,7 @@ export function createFileSyscalls(
             yield respond.ok();
         },
 
-        async *read(proc: Process, fd: unknown, size?: unknown): AsyncIterable<Response> {
+        async *read(proc: Process, fd: unknown, chunkSize?: unknown): AsyncIterable<Response> {
             if (typeof fd !== 'number') {
                 yield respond.error('EINVAL', 'fd must be a number');
                 return;
@@ -143,9 +144,36 @@ export function createFileSyscalls(
                 return;
             }
 
-            const readSize = typeof size === 'number' ? size : undefined;
-            const data = await resource.read(readSize);
-            yield respond.ok(data);
+            const size = typeof chunkSize === 'number' ? chunkSize : DEFAULT_CHUNK_SIZE;
+            let totalYielded = 0;
+
+            try {
+                while (true) {
+                    const chunk = await resource.read(size);
+
+                    // EOF
+                    if (chunk.length === 0) {
+                        break;
+                    }
+
+                    totalYielded += chunk.length;
+                    if (totalYielded > MAX_STREAM_BYTES) {
+                        yield respond.error('EFBIG', `Read stream exceeded ${MAX_STREAM_BYTES} bytes`);
+                        return;
+                    }
+
+                    yield respond.item(chunk);
+
+                    // Short read indicates EOF
+                    if (chunk.length < size) {
+                        break;
+                    }
+                }
+
+                yield respond.done();
+            } catch (err) {
+                yield respond.error('EIO', (err as Error).message);
+            }
         },
 
         async *write(proc: Process, fd: unknown, data: unknown): AsyncIterable<Response> {
@@ -267,10 +295,20 @@ export function createFileSyscalls(
                 return;
             }
 
-            for await (const entry of vfs.readdir(path, proc.id)) {
-                yield respond.item(entry.name);
+            let count = 0;
+            try {
+                for await (const entry of vfs.readdir(path, proc.id)) {
+                    count++;
+                    if (count > MAX_STREAM_ENTRIES) {
+                        yield respond.error('EFBIG', `Directory listing exceeded ${MAX_STREAM_ENTRIES} entries`);
+                        return;
+                    }
+                    yield respond.item(entry.name);
+                }
+                yield respond.done();
+            } catch (err) {
+                yield respond.error('ENOENT', (err as Error).message);
             }
-            yield respond.done();
         },
 
         async *rename(proc: Process, oldPath: unknown, newPath: unknown): AsyncIterable<Response> {

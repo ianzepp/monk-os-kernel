@@ -23,11 +23,12 @@ import {
     getcwd,
     chdir,
     stat,
-    readdir,
+    readdirAll,
     spawn,
     wait,
     open,
     read,
+    readText,
     write,
     close,
     exit,
@@ -36,6 +37,7 @@ import {
     eprintln,
     pipe,
     redirect,
+    ByteReader,
 } from '/lib/process';
 
 import {
@@ -120,53 +122,25 @@ async function createShellState(): Promise<ShellState> {
 // Readline (Simple Implementation)
 // ============================================================================
 
+// Shared ByteReader for stdin - created lazily
+let stdinReader: ByteReader | null = null;
+
+function getStdinReader(): ByteReader {
+    if (!stdinReader) {
+        stdinReader = new ByteReader(read(0));
+    }
+    return stdinReader;
+}
+
 /**
  * Read a line from stdin
  *
- * Simple implementation - reads character by character until newline.
+ * Uses ByteReader for efficient buffered reading.
  * TODO: Add line editing, history navigation, tab completion
  */
 async function readline(): Promise<string | null> {
-    const chunks: Uint8Array[] = [];
-
-    while (true) {
-        const chunk = await read(0, 1);
-        if (chunk.length === 0) {
-            // EOF
-            if (chunks.length === 0) return null;
-            break;
-        }
-
-        const char = chunk[0];
-
-        // CR - check for CRLF
-        if (char === 0x0d) {
-            // Peek next char - if LF, consume it too
-            const next = await read(0, 1);
-            if (next.length > 0 && next[0] !== 0x0a) {
-                // Not LF, put it back by including in next readline
-                // For now, just break - the non-LF char is lost but rare
-            }
-            break;
-        }
-
-        // LF - end of line
-        if (char === 0x0a) {
-            break;
-        }
-
-        chunks.push(chunk);
-    }
-
-    const total = chunks.reduce((sum, c) => sum + c.length, 0);
-    const result = new Uint8Array(total);
-    let offset = 0;
-    for (const chunk of chunks) {
-        result.set(chunk, offset);
-        offset += chunk.length;
-    }
-
-    return new TextDecoder().decode(result);
+    const reader = getStdinReader();
+    return reader.readLine();
 }
 
 // ============================================================================
@@ -187,7 +161,7 @@ async function printPrompt(state: ShellState): Promise<void> {
 
 async function readdirForGlob(path: string): Promise<GlobEntry[]> {
     try {
-        const names = await readdir(path);
+        const names = await readdirAll(path);
         const entries: GlobEntry[] = [];
 
         for (const name of names) {
@@ -650,23 +624,8 @@ async function executeScript(state: ShellState, scriptPath: string): Promise<num
     }
 
     try {
-        // Read entire script
-        const chunks: Uint8Array[] = [];
-        while (true) {
-            const chunk = await read(fd, 65536);
-            if (chunk.length === 0) break;
-            chunks.push(chunk);
-        }
-
-        const total = chunks.reduce((sum, c) => sum + c.length, 0);
-        const content = new Uint8Array(total);
-        let offset = 0;
-        for (const chunk of chunks) {
-            content.set(chunk, offset);
-            offset += chunk.length;
-        }
-
-        const script = new TextDecoder().decode(content);
+        // Read entire script using new streaming API
+        const script = await readText(fd);
         const lines = script.split('\n');
 
         let lastExitCode = 0;

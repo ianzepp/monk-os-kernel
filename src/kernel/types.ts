@@ -127,6 +127,13 @@ export const MAX_PORTS = 64;
 export const MAX_CHANNELS = 64;
 
 /**
+ * File I/O streaming constants
+ */
+export const DEFAULT_CHUNK_SIZE = 65536;        // 64KB default chunk size
+export const MAX_STREAM_BYTES = 100 * 1024 * 1024;  // 100MB hard cap per read stream
+export const MAX_STREAM_ENTRIES = 100_000;      // 100k entries hard cap for readdir
+
+/**
  * Stream backpressure thresholds
  *
  * TODO: These are item-count based, but memory pressure depends on message size.
