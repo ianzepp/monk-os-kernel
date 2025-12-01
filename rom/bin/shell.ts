@@ -44,11 +44,12 @@ import {
     expandCommandVariables,
     flattenPipeline,
     expandGlobs,
-    resolvePath,
-    parseArgs,
     type ParsedCommand,
     type GlobEntry,
 } from '/lib/shell';
+
+import { parseArgs } from '/lib/args';
+import { resolvePath } from '/lib/path';
 
 // ============================================================================
 // Constants
