@@ -99,6 +99,7 @@ export class SocketResource implements Resource {
     readonly type: ResourceType = 'socket';
     private _closed = false;
     private readonly _stat: { remoteAddr: string; remotePort: number; localAddr: string; localPort: number };
+    private buffer: Uint8Array = new Uint8Array(0);
 
     constructor(
         readonly id: string,
@@ -114,9 +115,33 @@ export class SocketResource implements Resource {
         return this._closed;
     }
 
-    async read(_size?: number): Promise<Uint8Array> {
-        // Socket.read() doesn't take a size parameter - it returns available data
-        return this.socket.read();
+    async read(size?: number): Promise<Uint8Array> {
+        // If we have buffered data, return from buffer first
+        if (this.buffer.length > 0) {
+            if (size === undefined || size >= this.buffer.length) {
+                const data = this.buffer;
+                this.buffer = new Uint8Array(0);
+                return data;
+            }
+            const data = this.buffer.slice(0, size);
+            this.buffer = this.buffer.slice(size);
+            return data;
+        }
+
+        // Read from socket
+        const chunk = await this.socket.read();
+        if (chunk.length === 0) {
+            return chunk; // EOF
+        }
+
+        // If no size limit or chunk fits, return it
+        if (size === undefined || chunk.length <= size) {
+            return chunk;
+        }
+
+        // Return requested size, buffer the rest
+        this.buffer = chunk.slice(size);
+        return chunk.slice(0, size);
     }
 
     async write(data: Uint8Array): Promise<number> {

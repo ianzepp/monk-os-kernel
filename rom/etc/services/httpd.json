@@ -1,0 +1,8 @@
+{
+  "handler": "/bin/httpd",
+  "activate": {
+    "type": "tcp:listen",
+    "port": 8080
+  },
+  "description": "HTTP server"
+}

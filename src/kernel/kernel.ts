@@ -37,6 +37,16 @@ import { copyRomToVfs } from '@src/kernel/boot.js';
 import { VFSLoader } from '@src/kernel/loader.js';
 
 /**
+ * Debug logging - enabled via DEBUG=1 environment variable
+ */
+const DEBUG = process.env.DEBUG === '1';
+function debug(category: string, ...args: unknown[]): void {
+    if (DEBUG) {
+        console.log(`[kernel:${category}]`, ...args);
+    }
+}
+
+/**
  * Console device path
  */
 const CONSOLE_PATH = '/dev/console';
@@ -474,6 +484,8 @@ export class Kernel {
         const request = msg as SyscallRequest;
         let response: SyscallResponse;
 
+        debug('syscall', `${proc.cmd}: ${request.name}(${JSON.stringify(request.args).slice(0, 100)})`);
+
         try {
             const result = await this.syscalls.dispatch(proc, request.name, request.args);
             response = {
@@ -481,6 +493,7 @@ export class Kernel {
                 id: request.id,
                 result,
             };
+            debug('syscall', `${proc.cmd}: ${request.name} -> ok`);
         } catch (error) {
             const err = error as Error & { code?: string };
             response = {
@@ -491,6 +504,7 @@ export class Kernel {
                     message: err.message,
                 },
             };
+            debug('syscall', `${proc.cmd}: ${request.name} -> error: ${err.code ?? 'UNKNOWN'}`);
         }
 
         // Send response back to process
@@ -1292,9 +1306,12 @@ export class Kernel {
                 }
 
                 if (msg.socket) {
+                    const stat = msg.socket.stat();
+                    debug('tcp', `${name}: accepted connection from ${stat.remoteAddr}:${stat.remotePort}`);
                     // Spawn handler with socket as fd 0
                     this.spawnServiceHandler(name, def, msg.socket).catch((err) => {
                         const errMsg = err instanceof Error ? err.message : String(err);
+                        debug('tcp', `${name}: spawn failed: ${errMsg}`);
                         this.hal.console.error(
                             new TextEncoder().encode(`service ${name}: spawn failed: ${errMsg}\n`)
                         );
@@ -1497,8 +1514,10 @@ export class Kernel {
         }
 
         // Start worker
+        debug('spawn', `${name}: spawning worker for ${entry}`);
         proc.worker = await this.spawnWorker(proc, entry);
         proc.state = 'running';
+        debug('spawn', `${name}: worker started, pid=${proc.id.slice(0, 8)}`);
 
         // Register in process table
         this.processes.register(proc);
