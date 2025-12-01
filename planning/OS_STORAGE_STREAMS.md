@@ -184,6 +184,47 @@ This mirrors the existing pattern:
 | `readFileBytes` | `(path: string, maxSize?) → Promise<Uint8Array>` | Open, read binary, close |
 | `writeFile` | `(path: string, content: string) → Promise<void>` | Open, write, close |
 
+### Buffered I/O Classes
+
+The streaming `read()` API yields chunks of arbitrary size (typically 64KB). Some use cases require finer control:
+
+- Shell readline: read byte-by-byte or line-by-line from stdin
+- Protocol parsing: read exact byte counts for headers
+- Interactive input: consume precisely what's needed, buffer the rest
+
+Two classes provide this control:
+
+| Class | Purpose | Direction |
+|-------|---------|-----------|
+| `ByteReader` | Consume AsyncIterable with precise byte control | Pull (consumer) |
+| `ByteWriter` | Produce AsyncIterable from pushed bytes | Push (producer) |
+
+#### ByteReader
+
+Wraps an `AsyncIterable<Uint8Array>` and provides precise read control:
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `constructor` | `(source: AsyncIterable<Uint8Array>)` | Wrap a byte stream |
+| `read` | `(n: number) → Promise<Uint8Array>` | Read exactly n bytes (or fewer at EOF) |
+| `readUntil` | `(delim: number) → Promise<Uint8Array \| null>` | Read until delimiter byte (inclusive) |
+| `readLine` | `() → Promise<string \| null>` | Read one line (handles CR, LF, CRLF) |
+| `peek` | `(n: number) → Promise<Uint8Array>` | Peek at next n bytes without consuming |
+| `done` | `boolean` (getter) | True if EOF reached and buffer empty |
+
+#### ByteWriter
+
+Produces an `AsyncIterable<Uint8Array>` that yields chunks as they're written:
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `constructor` | `(chunkSize?: number)` | Create writer, optional chunk size hint |
+| `write` | `(data: Uint8Array) → void` | Push bytes (may buffer) |
+| `writeLine` | `(line: string) → void` | Push line with newline |
+| `flush` | `() → void` | Force buffered data to be yielded |
+| `end` | `() → void` | Signal no more data |
+| `[Symbol.asyncIterator]` | `() → AsyncIterator<Uint8Array>` | Get the output stream |
+
 ### Removed/Changed
 
 | Old | New | Notes |
@@ -269,6 +310,134 @@ await close(dst);
 
 // Or use convenience function (opens, copies, closes)
 const bytes = await copyFile('/data/input.bin', '/data/output.bin');
+```
+
+### Buffered Reading (ByteReader)
+
+```typescript
+import { read, ByteReader } from '/lib/process';
+
+// Shell interactive input - single reader for entire session
+const stdin = new ByteReader(read(0));
+
+async function shellLoop(): Promise<void> {
+    while (true) {
+        await printPrompt();
+        const line = await stdin.readLine();
+        if (line === null) break;  // EOF
+        await executeCommand(line);
+    }
+}
+
+// Protocol parsing - read exact byte counts
+const reader = new ByteReader(read(socketFd));
+
+// Read 4-byte length prefix
+const header = await reader.read(4);
+const length = new DataView(header.buffer).getUint32(0, false);
+
+// Read exactly that many bytes for body
+const body = await reader.read(length);
+
+// Peek without consuming
+const magic = await reader.peek(2);
+if (magic[0] === 0x1f && magic[1] === 0x8b) {
+    // It's gzip - read and decompress
+}
+```
+
+### Buffered Writing (ByteWriter)
+
+```typescript
+import { write, ByteWriter } from '/lib/process';
+
+// Generate HTTP response streaming
+const response = new ByteWriter();
+
+response.writeLine('HTTP/1.1 200 OK');
+response.writeLine('Content-Type: text/event-stream');
+response.writeLine('');
+
+// Start consuming in background
+(async () => {
+    for await (const chunk of response) {
+        await write(socketFd, chunk);
+    }
+})();
+
+// Producer sends events over time
+for (const event of events) {
+    response.writeLine(`data: ${JSON.stringify(event)}`);
+    response.writeLine('');
+    response.flush();  // Send immediately
+    await delay(1000);
+}
+response.end();
+
+// Pipe transformation - uppercase filter
+async function* uppercase(input: AsyncIterable<Uint8Array>): AsyncIterable<Uint8Array> {
+    const reader = new ByteReader(input);
+    const writer = new ByteWriter();
+
+    (async () => {
+        while (!reader.done) {
+            const line = await reader.readLine();
+            if (line !== null) {
+                writer.writeLine(line.toUpperCase());
+            }
+        }
+        writer.end();
+    })();
+
+    yield* writer;
+}
+
+// Usage: cat file | uppercase
+for await (const chunk of uppercase(read(inputFd))) {
+    await write(outputFd, chunk);
+}
+```
+
+### Connecting ByteReader and ByteWriter (Pipelines)
+
+```typescript
+import { read, write, ByteReader, ByteWriter } from '/lib/process';
+
+// Build a pipeline: input → transform1 → transform2 → output
+async function pipeline(
+    input: AsyncIterable<Uint8Array>,
+    ...transforms: Array<(input: AsyncIterable<Uint8Array>) => AsyncIterable<Uint8Array>>
+): Promise<void> {
+    let stream = input;
+    for (const transform of transforms) {
+        stream = transform(stream);
+    }
+    for await (const chunk of stream) {
+        await write(1, chunk);  // stdout
+    }
+}
+
+// Line-numbered output
+function* lineNumbers(input: AsyncIterable<Uint8Array>): AsyncIterable<Uint8Array> {
+    const reader = new ByteReader(input);
+    const writer = new ByteWriter();
+
+    (async () => {
+        let n = 1;
+        while (!reader.done) {
+            const line = await reader.readLine();
+            if (line !== null) {
+                writer.writeLine(`${String(n++).padStart(6)}  ${line}`);
+            }
+        }
+        writer.end();
+    })();
+
+    yield* writer;
+}
+
+// Usage
+await pipeline(read(fd), lineNumbers);
 ```
 
 ## Implementation
@@ -465,6 +634,323 @@ export async function copyFile(srcPath: string, dstPath: string): Promise<number
         }
     } finally {
         await close(src);
+    }
+}
+
+// ============================================================================
+// Buffered I/O Classes (rom/lib/io.ts)
+// ============================================================================
+// These classes live in rom/lib/io.ts and are re-exported from rom/lib/process.ts:
+//   export { ByteReader, ByteWriter } from '/lib/io';
+
+/**
+ * Concatenate two Uint8Arrays.
+ */
+function concat(a: Uint8Array, b: Uint8Array): Uint8Array {
+    const result = new Uint8Array(a.length + b.length);
+    result.set(a);
+    result.set(b, a.length);
+    return result;
+}
+
+/**
+ * ByteReader - Consume an AsyncIterable<Uint8Array> with precise byte control.
+ *
+ * Wraps a streaming source and provides methods to read exact byte counts,
+ * read until delimiters, or read lines. Maintains an internal buffer to
+ * handle chunk boundaries transparently.
+ *
+ * @example
+ * // Interactive shell input
+ * const stdin = new ByteReader(read(0));
+ * while (true) {
+ *     const line = await stdin.readLine();
+ *     if (line === null) break;
+ *     await execute(line);
+ * }
+ *
+ * @example
+ * // Protocol parsing - read fixed header then variable body
+ * const reader = new ByteReader(read(socketFd));
+ * const header = await reader.read(4);  // Exactly 4 bytes
+ * const length = new DataView(header.buffer).getUint32(0);
+ * const body = await reader.read(length);
+ */
+export class ByteReader {
+    private iterator: AsyncIterator<Uint8Array>;
+    private buffer: Uint8Array = new Uint8Array(0);
+    private eof = false;
+
+    constructor(source: AsyncIterable<Uint8Array>) {
+        this.iterator = source[Symbol.asyncIterator]();
+    }
+
+    /**
+     * True if EOF reached and internal buffer is empty.
+     */
+    get done(): boolean {
+        return this.eof && this.buffer.length === 0;
+    }
+
+    /**
+     * Ensure internal buffer has at least n bytes (or hit EOF).
+     */
+    private async fill(n: number): Promise<void> {
+        while (this.buffer.length < n && !this.eof) {
+            const { value, done } = await this.iterator.next();
+            if (done) {
+                this.eof = true;
+                break;
+            }
+            this.buffer = concat(this.buffer, value);
+        }
+    }
+
+    /**
+     * Read exactly n bytes (or fewer at EOF).
+     *
+     * @param n - Number of bytes to read
+     * @returns Uint8Array of length n (or less if EOF)
+     */
+    async read(n: number): Promise<Uint8Array> {
+        await this.fill(n);
+        const result = this.buffer.subarray(0, Math.min(n, this.buffer.length));
+        this.buffer = this.buffer.subarray(result.length);
+        return result;
+    }
+
+    /**
+     * Peek at the next n bytes without consuming them.
+     *
+     * @param n - Number of bytes to peek
+     * @returns Uint8Array of up to n bytes
+     */
+    async peek(n: number): Promise<Uint8Array> {
+        await this.fill(n);
+        return this.buffer.subarray(0, Math.min(n, this.buffer.length));
+    }
+
+    /**
+     * Read until delimiter byte (inclusive), or EOF.
+     *
+     * @param delim - Byte value to stop at (included in result)
+     * @returns Bytes up to and including delimiter, or null if EOF with no data
+     */
+    async readUntil(delim: number): Promise<Uint8Array | null> {
+        while (true) {
+            const idx = this.buffer.indexOf(delim);
+            if (idx !== -1) {
+                const result = this.buffer.subarray(0, idx + 1);
+                this.buffer = this.buffer.subarray(idx + 1);
+                return result;
+            }
+            if (this.eof) {
+                if (this.buffer.length === 0) return null;
+                const result = this.buffer;
+                this.buffer = new Uint8Array(0);
+                return result;
+            }
+            // Need more data - fill at least one more chunk
+            const prevLen = this.buffer.length;
+            await this.fill(prevLen + 1);
+            // If no progress, we hit EOF
+            if (this.buffer.length === prevLen) {
+                if (this.buffer.length === 0) return null;
+                const result = this.buffer;
+                this.buffer = new Uint8Array(0);
+                return result;
+            }
+        }
+    }
+
+    /**
+     * Read one line (without the newline character).
+     * Handles LF, CR, and CRLF line endings.
+     *
+     * @returns Line string, or null if EOF with no data
+     */
+    async readLine(): Promise<string | null> {
+        const bytes = await this.readUntil(0x0a); // LF
+        if (bytes === null) return null;
+
+        let end = bytes.length;
+
+        // Strip trailing LF
+        if (end > 0 && bytes[end - 1] === 0x0a) {
+            end--;
+        }
+        // Strip trailing CR (for CRLF)
+        if (end > 0 && bytes[end - 1] === 0x0d) {
+            end--;
+        }
+
+        return new TextDecoder().decode(bytes.subarray(0, end));
+    }
+}
+
+/**
+ * ByteWriter - Produce an AsyncIterable<Uint8Array> from pushed bytes.
+ *
+ * Allows imperative code to push bytes and have consumers pull them
+ * via async iteration. Useful for generating streaming output, protocol
+ * encoding, or connecting synchronous producers to async consumers.
+ *
+ * @example
+ * // Generate streaming response
+ * const writer = new ByteWriter();
+ *
+ * // Producer (can be sync or async)
+ * writer.writeLine('HTTP/1.1 200 OK');
+ * writer.writeLine('Content-Type: text/plain');
+ * writer.writeLine('');
+ * writer.writeLine('Hello, World!');
+ * writer.end();
+ *
+ * // Consumer
+ * for await (const chunk of writer) {
+ *     await socket.write(chunk);
+ * }
+ *
+ * @example
+ * // Pipe transformation
+ * async function transform(input: AsyncIterable<Uint8Array>): AsyncIterable<Uint8Array> {
+ *     const writer = new ByteWriter();
+ *
+ *     (async () => {
+ *         for await (const chunk of input) {
+ *             writer.write(processChunk(chunk));
+ *         }
+ *         writer.end();
+ *     })();
+ *
+ *     return writer;
+ * }
+ */
+export class ByteWriter implements AsyncIterable<Uint8Array> {
+    private chunks: Uint8Array[] = [];
+    private buffer: Uint8Array = new Uint8Array(0);
+    private chunkSize: number;
+    private ended = false;
+    private error: Error | null = null;
+
+    // For async iteration - resolvers for pending reads
+    private waiting: Array<{
+        resolve: (result: IteratorResult<Uint8Array>) => void;
+        reject: (error: Error) => void;
+    }> = [];
+
+    constructor(chunkSize: number = 65536) {
+        this.chunkSize = chunkSize;
+    }
+
+    /**
+     * Write bytes to the stream.
+     * Data may be buffered until chunkSize is reached or flush() is called.
+     */
+    write(data: Uint8Array): void {
+        if (this.ended) {
+            throw new Error('Cannot write to ended ByteWriter');
+        }
+
+        this.buffer = concat(this.buffer, data);
+
+        // Flush complete chunks
+        while (this.buffer.length >= this.chunkSize) {
+            const chunk = this.buffer.subarray(0, this.chunkSize);
+            this.buffer = this.buffer.subarray(this.chunkSize);
+            this.emit(chunk);
+        }
+    }
+
+    /**
+     * Write a string line (with trailing newline).
+     */
+    writeLine(line: string): void {
+        this.write(new TextEncoder().encode(line + '\n'));
+    }
+
+    /**
+     * Force any buffered data to be emitted immediately.
+     */
+    flush(): void {
+        if (this.buffer.length > 0) {
+            this.emit(this.buffer);
+            this.buffer = new Uint8Array(0);
+        }
+    }
+
+    /**
+     * Signal that no more data will be written.
+     * Flushes any remaining buffer and completes the stream.
+     */
+    end(): void {
+        if (this.ended) return;
+        this.flush();
+        this.ended = true;
+
+        // Resolve any waiting consumers with done
+        for (const waiter of this.waiting) {
+            waiter.resolve({ done: true, value: undefined });
+        }
+        this.waiting = [];
+    }
+
+    /**
+     * Signal an error condition.
+     * Any waiting consumers will receive the error.
+     */
+    abort(error: Error): void {
+        this.error = error;
+        this.ended = true;
+
+        for (const waiter of this.waiting) {
+            waiter.reject(error);
+        }
+        this.waiting = [];
+    }
+
+    /**
+     * Emit a chunk to waiting consumers or queue it.
+     */
+    private emit(chunk: Uint8Array): void {
+        // Copy chunk to avoid shared buffer issues
+        const copy = new Uint8Array(chunk);
+
+        if (this.waiting.length > 0) {
+            const waiter = this.waiting.shift()!;
+            waiter.resolve({ done: false, value: copy });
+        } else {
+            this.chunks.push(copy);
+        }
+    }
+
+    /**
+     * AsyncIterator implementation.
+     */
+    [Symbol.asyncIterator](): AsyncIterator<Uint8Array> {
+        return {
+            next: async (): Promise<IteratorResult<Uint8Array>> => {
+                // Check for error
+                if (this.error) {
+                    throw this.error;
+                }
+
+                // Return queued chunk if available
+                if (this.chunks.length > 0) {
+                    return { done: false, value: this.chunks.shift()! };
+                }
+
+                // If ended, we're done
+                if (this.ended) {
+                    return { done: true, value: undefined };
+                }
+
+                // Wait for next chunk
+                return new Promise((resolve, reject) => {
+                    this.waiting.push({ resolve, reject });
+                });
+            },
+        };
     }
 }
 ```
@@ -804,8 +1290,32 @@ const slice = mapped.slice(1024, 2048);  // Zero-copy view
 | File | Changes |
 |------|---------|
 | `rom/lib/process.ts` | New streaming read API, flip readdir default, add `maxSize`/`maxEntries` params |
+| `rom/lib/io.ts` | New file: `ByteReader`, `ByteWriter` classes, `concat()` helper |
 | `src/kernel/syscalls.ts` | `read` handler yields chunks with `MAX_STREAM_BYTES` enforcement |
 | `src/kernel/types.ts` | Add `DEFAULT_CHUNK_SIZE`, `MAX_STREAM_BYTES`, `MAX_STREAM_ENTRIES` constants |
+
+### Phase 1.5: Userspace Command Migration
+
+| File | Changes |
+|------|---------|
+| `rom/bin/shell.ts` | Replace `readline()` with `ByteReader`, use `readLines()` for scripts |
+| `rom/bin/cat.ts` | Use `read()` iterator or `readAll()` |
+| `rom/bin/head.ts` | Use `ByteReader.readLine()` with count |
+| `rom/bin/tail.ts` | Use `ByteReader.readLine()` with ring buffer |
+| `rom/bin/wc.ts` | Stream with `read()`, count incrementally |
+| `rom/bin/sort.ts` | Use `readAll()` then sort |
+| `rom/bin/uniq.ts` | Use `readLines()` |
+| `rom/bin/cut.ts` | Use `readLines()` |
+| `rom/bin/awk.ts` | Use `readLines()` |
+| `rom/bin/sed.ts` | Use `readLines()` |
+| `rom/bin/tr.ts` | Stream with `read()` |
+| `rom/bin/nl.ts` | Use `readLines()` |
+| `rom/bin/tee.ts` | Stream with `read()` |
+| `rom/bin/cp.ts` | Use `copy()` or `copyFile()` |
+| `rom/bin/ls.ts` | Use `readdirAll()` |
+| `rom/bin/rm.ts` | Use `readdirAll()` for recursive |
+| `rom/bin/du.ts` | Use `readdirAll()` for tree walk |
+| `rom/lib/shell/*.ts` | Update `readdirForGlob()` to use `readdirAll()` |
 
 ### Phase 2: Unified Handle Architecture (Future)
 
@@ -821,6 +1331,8 @@ const slice = mapped.slice(1024, 2048);  // Zero-copy view
 
 ## Testing
 
+### Core Streaming API
+
 1. **Streaming reads** - Verify chunks arrive incrementally for large files
 2. **EOF handling** - Empty files yield `done` immediately
 3. **Short reads** - Pipes and sockets may yield smaller chunks
@@ -833,3 +1345,39 @@ const slice = mapped.slice(1024, 2048);  // Zero-copy view
 10. **Limit override** - `readAll(fd, 50*1024*1024)` allows up to 50MB
 11. **Infinite sources** - `/dev/zero` hits kernel limit, doesn't OOM
 12. **Directory limits** - Large directories hit entry count limits
+
+### ByteReader
+
+13. **read(n)** - Returns exactly n bytes when available
+14. **read(n) at EOF** - Returns fewer bytes at end of stream
+15. **readLine()** - Handles LF, CR, CRLF line endings
+16. **readLine() across chunks** - Line split across multiple source chunks
+17. **readLine() no trailing newline** - Final line without newline returned
+18. **readUntil()** - Stops at delimiter, includes delimiter in result
+19. **readUntil() at EOF** - Returns remaining bytes if no delimiter
+20. **peek()** - Returns bytes without consuming them
+21. **peek() then read()** - Same bytes returned, then consumed
+22. **done getter** - True only when EOF and buffer empty
+23. **Multi-line paste** - Multiple lines buffered, consumed one at a time
+24. **Shared iterator** - Single ByteReader used across multiple readline calls
+
+### ByteWriter
+
+25. **write() + iteration** - Written bytes appear in async iteration
+26. **writeLine()** - Appends newline character
+27. **Chunk buffering** - Small writes buffered until chunkSize
+28. **flush()** - Forces immediate emission of buffered data
+29. **end()** - Completes iteration, flushes remaining buffer
+30. **end() with waiting consumer** - Resolves pending next() with done
+31. **abort()** - Rejects pending consumers with error
+32. **Write after end** - Throws error
+33. **Multiple consumers** - Only one consumer supported (or document behavior)
+34. **Concurrent produce/consume** - Producer and consumer in separate async contexts
+
+### Integration
+
+35. **Shell readline** - ByteReader on stdin works for interactive input
+36. **Shell script** - readLines() on file fd processes all lines
+37. **Pipeline transform** - ByteReader → process → ByteWriter chain works
+38. **Copy via streams** - `copy(src, dst)` matches `copyFile()` output
+39. **httpd streaming** - ByteWriter produces chunked HTTP responses
