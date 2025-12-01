@@ -276,7 +276,7 @@ The issues below are grouped by severity (High/Medium/Low) and given new IDs of 
   - Then remove explicit checks against `resource.type` from `createFileSyscalls().read`.
 - As a transitional step, add a comment and a guard to fail fast if an unexpected resource type is encountered instead of silently misbehaving.
 
-**Status**: Open; design is documented in `OS_HARDENING.md`, but current code still branches on `resource.type`.
+**Status**: Resolved. Added `eofOnShortRead` property to Resource interface. FileResource returns `true`, SocketResource and PipeResource return `false`. Syscall layer now uses this property instead of branching on `resource.type`.
 
 ---
 
@@ -422,8 +422,8 @@ A suggested incremental plan for addressing the above issues:
 
 - [x] G‑003: `chdir` validation
   - `chdir` syscall now verifies path exists and is a folder via VFS.
-- [ ] G‑004: EOF semantics
-  - Introduce a more explicit EOF contract on `Resource` and simplify `read` syscalls.
+- [x] G‑004: EOF semantics
+  - Added `eofOnShortRead` property to Resource; syscall uses it instead of checking type.
 - [x] G‑006: Shell tokenizer trailing escape
   - `tokenize()` returns `null` on trailing escape or unclosed quote.
 

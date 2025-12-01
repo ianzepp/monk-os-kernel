@@ -163,9 +163,9 @@ export function createFileSyscalls(
 
                     yield respond.item(chunk);
 
-                    // Short read indicates EOF for files (you've reached the end)
-                    // But for sockets/pipes, short reads are normal - only chunk.length === 0 means EOF
-                    if (resource.type === 'file' && chunk.length < size) {
+                    // Short read indicates EOF for some resources (e.g., files)
+                    // For sockets/pipes, short reads are normal - only chunk.length === 0 means EOF
+                    if (resource.eofOnShortRead && chunk.length < size) {
                         break;
                     }
                 }

@@ -49,6 +49,16 @@ export interface Resource {
 
     /** Check if closed */
     readonly closed: boolean;
+
+    /**
+     * Whether a short read (less than requested bytes) implies EOF.
+     *
+     * - true for files: short read means end of file reached
+     * - false for sockets/pipes: short reads are normal, only 0-length means EOF
+     *
+     * This allows the syscall layer to determine EOF without branching on resource type.
+     */
+    readonly eofOnShortRead: boolean;
 }
 
 /**
@@ -56,6 +66,7 @@ export interface Resource {
  */
 export class FileResource implements Resource {
     readonly type: ResourceType = 'file';
+    readonly eofOnShortRead = true;
     private _closed = false;
 
     constructor(
@@ -98,6 +109,7 @@ export class FileResource implements Resource {
  */
 export class SocketResource implements Resource {
     readonly type: ResourceType = 'socket';
+    readonly eofOnShortRead = false;
     private _closed = false;
     private readonly _stat: { remoteAddr: string; remotePort: number; localAddr: string; localPort: number };
     private buffer: Uint8Array = new Uint8Array(0);
@@ -883,6 +895,7 @@ export class PipeBuffer {
  */
 export class PipeResource implements Resource {
     readonly type: ResourceType = 'pipe';
+    readonly eofOnShortRead = false;
     private _closed = false;
 
     constructor(
