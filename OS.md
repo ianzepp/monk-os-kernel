@@ -556,7 +556,9 @@ TypeScript is the native scripting language. No bash, no sh.
 
 Located in `/bin/`:
 - `cat` - concatenate files
+- `chmod` - change permissions (disabled, use `grant`)
 - `cp` - copy files
+- `grant` - manage ACLs (Monk-native)
 - `ln` - create links (disabled, returns EPERM)
 - `ls` - list directory
 - `mkdir` - create directory

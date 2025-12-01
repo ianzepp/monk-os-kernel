@@ -5,19 +5,21 @@ implementation to the new `rom/bin/` syscall-based implementation.
 
 ## Summary (2024-11-30)
 
-**Completed:** 24 commands converted
+**Completed:** 27 commands converted
 - Phase 1: true, false
 - Phase 2: yes, seq, sleep, basename, dirname
 - Phase 3: head, tail, wc, nl
 - Phase 5: sort, uniq, tr, cut
-- Phase 6: cp, mv, tee
+- Phase 6: cp, mv, ln, chmod, tee
+- New: grant (Monk-native ACL management)
 - Phase 7: date, uname, whoami, printf
 - Pre-existing: cat, cd, echo, ls, mkdir, pwd, rm, rmdir, touch
 
 **Blocked (need syscalls):**
-- ln: needs `symlink` syscall
-- chmod: needs `chmod` syscall
 - env: needs `listenv` syscall (to enumerate all environment variables)
+
+**New Monk-native commands:**
+- grant: ACL management (replaces chmod)
 
 **Not started:** grep, find, tree, xargs, diff, sed, test, stat, file, readlink, realpath, du, df, mktemp
 
@@ -152,8 +154,8 @@ Commands that modify files.
 |---------|--------|------|-------------|
 | cp | [x] | [-r] src... dest | Copy files |
 | mv | [x] | src... dest | Move/rename files |
-| ln | [!] | [-s] target link | Create links (needs symlink syscall) |
-| chmod | [!] | mode file... | Change permissions (needs chmod syscall) |
+| ln | [x] | [-s] target link | Create links (returns EPERM - disabled) |
+| chmod | [x] | mode file... | Returns EPERM (use 'grant' instead) |
 | tee | [x] | [-a] file... | Duplicate to files |
 | mktemp | [ ] | [-d] [template] | Create temp file/dir |
 
