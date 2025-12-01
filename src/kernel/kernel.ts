@@ -1580,9 +1580,6 @@ export class Kernel {
             await this.vfs.stat('/etc/services', 'kernel');
         } catch {
             await this.vfs.mkdir('/etc/services', 'kernel', { recursive: true });
-
-            // Seed default services
-            await this.seedDefaultServices();
         }
 
         // Read service definitions
@@ -1637,37 +1634,9 @@ export class Kernel {
         }
     }
 
-    /**
-     * Seed default service definitions.
-     *
-     * Called when /etc/services is first created.
-     */
-    private async seedDefaultServices(): Promise<void> {
-        // Default telnetd service
-        const telnetd: ServiceDef = {
-            handler: '/bin/telnetd',
-            activate: {
-                type: 'tcp:listen',
-                port: 2323,
-            },
-            description: 'Telnet server for shell access',
-        };
 
-        await this.writeServiceFile('telnetd', telnetd);
-    }
 
-    /**
-     * Write a service definition file to VFS.
-     */
-    private async writeServiceFile(name: string, def: ServiceDef): Promise<void> {
-        const path = `/etc/services/${name}.json`;
-        const content = JSON.stringify(def, null, 2);
-        const data = new TextEncoder().encode(content);
 
-        const handle = await this.vfs.open(path, { write: true, create: true }, 'kernel');
-        await handle.write(data);
-        await handle.close();
-    }
 
     /**
      * Activate a service based on its definition.
@@ -1683,8 +1652,10 @@ export class Kernel {
 
             case 'tcp:listen': {
                 // Create listener and spawn on each connection
+                // Default to loopback for security - services must explicitly opt-in to bind to all interfaces
+                const hostname = activation.host ?? '127.0.0.1';
                 const listener = await this.hal.network.listen(activation.port, {
-                    hostname: activation.host,
+                    hostname,
                 });
 
                 const portId = this.hal.entropy.uuid();

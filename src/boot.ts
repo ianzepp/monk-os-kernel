@@ -66,7 +66,7 @@ async function boot(): Promise<void> {
     }
 
     console.log('\nMonk OS ready.');
-    console.log('Connect with: nc localhost 2323\n');
+    console.log('Connect with: nc localhost 2323 (if telnetd service is enabled)\n');
 
     // Handle shutdown
     const shutdown = async () => {

@@ -109,7 +109,7 @@ type PortType = 'tcp:listen' | 'udp' | 'watch' | 'pubsub';
 interface PortOpts {
   // tcp:listen
   port?: number;
-  host?: string;        // bind address, default '0.0.0.0'
+  host?: string;        // bind address, default '127.0.0.1' (loopback for security)
   backlog?: number;     // listen backlog, default 128
 
   // udp
@@ -453,6 +453,53 @@ VFS and Network are peers under the Kernel:
 ```
 
 **Watch ports** are the bridge: they're created via `kernel.port('watch', ...)` but receive events from VFS writes. The Kernel's message router connects VFS mutations to watch port subscribers.
+
+## Security Considerations
+
+### Service Binding Defaults
+
+**Services bind to loopback by default** (`127.0.0.1`) for security. This prevents accidental exposure of services to external networks in development or containerized environments.
+
+To bind to all interfaces (dangerous in production):
+```json
+{
+  "handler": "/bin/httpd",
+  "activate": {
+    "type": "tcp:listen",
+    "port": 8080,
+    "host": "0.0.0.0"
+  }
+}
+```
+
+### Telnet Service
+
+The `telnetd` service provides plaintext shell access and is **disabled by default** in production builds. It is only auto-enabled when `DEBUG=1` environment variable is set.
+
+**Security recommendations:**
+- Telnet transmits credentials and commands in plaintext
+- Only use in controlled development environments
+- Consider SSH or TLS-wrapped alternatives for remote access
+- Never expose telnet externally in production
+
+### Recommended Patterns
+
+**Internal services** (development/localhost only):
+```json
+{
+  "activate": { "type": "tcp:listen", "port": 8080 }
+}
+```
+
+**External services** (behind reverse proxy):
+- Bind to `127.0.0.1` and use nginx/haproxy/caddy as reverse proxy
+- Configure TLS termination at the proxy layer
+- Apply authentication and rate limiting at proxy
+
+**Containerized deployments:**
+- Services default to loopback, preventing accidental external exposure
+- Use container networking (`--publish` or `EXPOSE`) to explicitly expose ports
+- Apply network policies at container orchestration level
 
 ## Open Questions
 

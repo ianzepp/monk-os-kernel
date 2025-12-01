@@ -25,6 +25,29 @@ implementation to the new `rom/bin/` syscall-based implementation.
 
 **Not started:** grep, find, tree, xargs, diff, sed, test, stat, file, readlink, realpath, du, df, mktemp
 
+## Security Considerations
+
+### Telnet Service
+
+The Monk OS includes a `telnetd` service that provides shell access over TCP port 2323. **Important security notes:**
+
+- **Plaintext protocol**: Telnet transmits all data (including passwords) in plaintext
+- **No authentication**: Current implementation provides direct shell access without authentication
+- **Development-only**: The service is only auto-enabled when `DEBUG=1` environment variable is set
+- **Local access only**: Services bind to `127.0.0.1` by default, preventing external exposure
+
+**Usage:**
+```bash
+# Connect locally (development only)
+nc localhost 2323
+```
+
+**Security recommendations:**
+- Never expose telnet externally in production environments
+- Use SSH or TLS-wrapped alternatives for remote shell access
+- The telnet service is intended for local development and debugging only
+- Consider implementing authentication if telnet-like functionality is needed
+
 ## Architecture Differences
 
 ### Old (api/lib/tty/commands/)
