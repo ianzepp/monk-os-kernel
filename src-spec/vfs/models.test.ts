@@ -14,6 +14,7 @@ import {
     MockHostDevice,
     MockIPCDevice,
     BunCryptoDevice,
+    BunChannelDevice,
     ENOENT,
     EISDIR,
     ENOTEMPTY,
@@ -39,6 +40,7 @@ function createMockHAL(): HAL {
         dns: new MockDNSDevice(),
         host: new MockHostDevice(),
         ipc: new MockIPCDevice(),
+        channel: new BunChannelDevice(),
         async shutdown() {
             await storage.close();
         },

@@ -77,6 +77,7 @@ interface Response {
 | `event` | Pushed event notification | Server-sent events, LISTEN/NOTIFY |
 | `progress` | Progress update | Long operations |
 | `done` | Stream complete | End of streaming response |
+| `redirect` | Resource is over there | HTTP 301, database sharding, symlink | 
 
 ### Core Types Location
 
@@ -96,15 +97,15 @@ This unification means: **Everything is a message. Files respond to messages. Ch
 
 Internal syscall names use `channel_` prefix for namespacing:
 
-| Syscall | Direction | Purpose |
-|---------|-----------|---------|
-| `channel_open` | Client | Connect to remote service |
-| `channel_accept` | Server | Wrap accepted socket with protocol |
-| `channel_call` | Client | Request → single Response |
-| `channel_stream` | Client | Request → streaming Response |
-| `channel_push` | Server | Push event to client |
-| `channel_recv` | Server | Receive from client (bidirectional) |
-| `channel_close` | Both | Close channel |
+| Syscall | Direction | Purpose | Status |
+|---------|-----------|---------|--------|
+| `channel_open` | Client | Connect to remote service | Implemented |
+| `channel_accept` | Server | Wrap accepted socket with protocol | Not implemented |
+| `channel_call` | Client | Request → single Response | Implemented |
+| `channel_stream` | Client | Request → streaming Response | Implemented |
+| `channel_push` | Server | Push event to client | Implemented |
+| `channel_recv` | Server | Receive from client (bidirectional) | Implemented |
+| `channel_close` | Both | Close channel | Implemented |
 
 ### Syscall Signatures
 
@@ -112,8 +113,8 @@ Internal syscall names use `channel_` prefix for namespacing:
 // Connect to a remote service (client-side)
 channel_open(proto: string, url: string, opts?: ChannelOpts): Promise<number>
 
-// Wrap accepted socket with protocol (server-side)
-channel_accept(socketFd: number, proto: string, opts?: ChannelOpts): Promise<number>
+// Wrap accepted socket with protocol (server-side) - NOT YET IMPLEMENTED
+// channel_accept(socketFd: number, proto: string, opts?: ChannelOpts): Promise<number>
 
 // Send request, receive single response (waits for ok/error)
 channel_call(ch: number, msg: Message): Promise<Response>
@@ -137,48 +138,65 @@ channel_close(ch: number): Promise<void>
 // src/process/channel.ts
 export const channel = {
     async open(proto: string, url: string, opts?: ChannelOpts): Promise<number> {
-        return syscall('channel_open', proto, url, opts);
+        return withTypedErrors(syscall('channel_open', proto, url, opts));
     },
 
-    async accept(socketFd: number, proto: string, opts?: ChannelOpts): Promise<number> {
-        return syscall('channel_accept', socketFd, proto, opts);
-    },
+    // Note: accept() not yet implemented - requires HTTP server integration
 
-    async call<T = unknown>(ch: number, msg: Message): Promise<Response<T>> {
-        return syscall('channel_call', ch, msg);
+    async call<T = unknown>(ch: number, msg: Message): Promise<Response & { data?: T }> {
+        return withTypedErrors(syscall('channel_call', ch, msg));
     },
 
     async *stream(ch: number, msg: Message): AsyncIterable<Response> {
-        yield* syscall('channel_stream', ch, msg);
+        // Note: Requires kernel support for streaming syscalls
+        const result = await withTypedErrors(syscall('channel_stream', ch, msg));
+        if (Array.isArray(result)) {
+            for (const response of result) {
+                yield response;
+            }
+        }
     },
 
     async push(ch: number, response: Response): Promise<void> {
-        return syscall('channel_push', ch, response);
+        return withTypedErrors(syscall('channel_push', ch, response));
     },
 
     async recv(ch: number): Promise<Message> {
-        return syscall('channel_recv', ch);
+        return withTypedErrors(syscall('channel_recv', ch));
     },
 
     async close(ch: number): Promise<void> {
-        return syscall('channel_close', ch);
+        return withTypedErrors(syscall('channel_close', ch));
     },
 };
+
+// Helper functions
+export function httpRequest(request: HttpRequest): Message {
+    return { op: 'request', data: request };
+}
+
+export function sqlQuery(sql: string, params?: unknown[], cursor?: boolean): Message {
+    return { op: 'query', data: { sql, params, cursor } };
+}
+
+export function sqlExecute(sql: string): Message {
+    return { op: 'execute', data: { sql } };
+}
 ```
 
 ## Protocol Types
 
 ### Supported Protocols
 
-| Protocol | Client Ops | Server Ops | Transport | Bun Primitive |
-|----------|------------|------------|-----------|---------------|
-| `http` / `https` | `call`, `stream` | `push` | fetch | `fetch()` |
-| `sse` | `stream` | `push` | EventSource | `Bun.serve()` |
-| `websocket` | `call`, `stream`, `push` | `push`, `recv` | WebSocket | `Bun.serve()` |
-| `postgres` | `call`, `stream` | — | pg wire | `Bun.sql()` |
-| `mysql` | `call`, `stream` | — | mysql wire | `Bun.sql()` |
-| `redis` | `call`, `stream` | — | RESP | future |
-| `jsonrpc` | `call` | `push` | varies | future |
+| Protocol | Client Ops | Server Ops | Transport | Bun Primitive | Status |
+|----------|------------|------------|-----------|---------------|--------|
+| `http` / `https` | `call`, `stream` | — | fetch | `fetch()` | Implemented |
+| `websocket` / `ws` / `wss` | `call`, `stream`, `push`, `recv` | — | WebSocket | `new WebSocket()` | Implemented |
+| `sse` | — | `push` | EventSource | Socket write | Implemented |
+| `postgres` / `postgresql` | `call`, `stream` | — | pg wire | `Bun.sql()` | Placeholder |
+| `mysql` | `call`, `stream` | — | mysql wire | `Bun.sql()` | Future |
+| `redis` | `call`, `stream` | — | RESP | — | Future |
+| `jsonrpc` | `call` | `push` | varies | — | Future |
 
 ### Protocol-Specific Message Ops
 
@@ -447,6 +465,18 @@ export interface ChannelDevice {
 }
 
 export interface Channel {
+    /** Unique channel ID */
+    readonly id: string;
+
+    /** Protocol type */
+    readonly proto: string;
+
+    /** Description (URL or connection info) */
+    readonly description: string;
+
+    /** Whether the channel is closed */
+    readonly closed: boolean;
+
     /**
      * Handle a message (internal).
      * Both call() and stream() use this; call() just takes first response.
@@ -492,12 +522,16 @@ export class BunChannelDevice implements ChannelDevice {
             case 'http':
             case 'https':
                 return new BunHttpChannel(url, opts);
-            case 'postgres':
-                return new BunPostgresChannel(url, opts);
-            case 'mysql':
-                return new BunMySqlChannel(url, opts);
+
             case 'websocket':
-                return new BunWebSocketChannel(url, opts);
+            case 'ws':
+            case 'wss':
+                return new BunWebSocketClientChannel(url, opts);
+
+            case 'postgres':
+            case 'postgresql':
+                return new BunPostgresChannel(url, opts);  // Placeholder
+
             default:
                 throw new Error(`Unsupported protocol: ${proto}`);
         }
@@ -506,9 +540,12 @@ export class BunChannelDevice implements ChannelDevice {
     async accept(socket: Socket, proto: string, opts?: ChannelOpts): Promise<Channel> {
         switch (proto) {
             case 'sse':
-                return new BunSSEChannel(socket, opts);
+                return new BunSSEServerChannel(socket, opts);
+
             case 'websocket':
-                return new BunWebSocketServerChannel(socket, opts);
+                // WebSocket server-side requires HTTP upgrade
+                throw new Error('WebSocket server channels should be created via HTTP upgrade');
+
             default:
                 throw new Error(`Unsupported server protocol: ${proto}`);
         }
@@ -616,47 +653,38 @@ class BunHttpChannel implements Channel {
 
 ### PostgreSQL Channel
 
+> **Note**: PostgreSQL support is currently a placeholder. Full implementation pending Bun.sql stability.
+
 ```typescript
 class BunPostgresChannel implements Channel {
-    private db: ReturnType<typeof Bun.sql>;
+    readonly id = randomUUID();
+    readonly proto = 'postgres';
+    readonly description: string;
+    private _closed = false;
 
     constructor(url: string, _opts?: ChannelOpts) {
-        this.db = Bun.sql(url);
+        this.description = url;
+        // TODO: Initialize Bun.sql connection when available
+    }
+
+    get closed(): boolean {
+        return this._closed;
     }
 
     async *handle(msg: Message): AsyncIterable<Response> {
-        try {
-            switch (msg.op) {
-                case 'query': {
-                    const { sql, params, cursor } = msg.data as SqlRequest;
+        if (this._closed) {
+            yield respond.error('EBADF', 'Channel closed');
+            return;
+        }
 
-                    if (cursor) {
-                        // Stream rows via cursor
-                        for await (const row of this.db.query(sql, params).cursor()) {
-                            yield { op: 'item', data: row };
-                        }
-                        yield { op: 'done' };
-                    } else {
-                        // Return all rows
-                        const rows = await this.db.query(sql, params);
-                        yield { op: 'ok', data: rows };
-                    }
-                    break;
-                }
-
-                case 'execute': {
-                    const { sql } = msg.data as { sql: string };
-                    await this.db.exec(sql);
-                    yield { op: 'ok' };
-                    break;
-                }
-
-                default:
-                    yield { op: 'error', data: { code: 'EINVAL', message: `Unknown op: ${msg.op}` } };
-            }
-        } catch (err) {
-            const error = err as Error;
-            yield { op: 'error', data: { code: 'EIO', message: error.message } };
+        // Placeholder - returns ENOSYS until Bun.sql integration
+        switch (msg.op) {
+            case 'query':
+            case 'execute':
+                yield respond.error('ENOSYS', 'PostgreSQL support not yet implemented');
+                break;
+            default:
+                yield respond.error('EINVAL', `Unknown op: ${msg.op}`);
         }
     }
 
@@ -669,7 +697,7 @@ class BunPostgresChannel implements Channel {
     }
 
     async close(): Promise<void> {
-        await this.db.close();
+        this._closed = true;
     }
 }
 ```
@@ -830,14 +858,14 @@ export function createChannelSyscalls(
 | `seek` | fd, offset, whence | number |
 | `stat` | path | Stat |
 
-### Port Operations (renamed for consistency)
+### Port Operations
 
 | Syscall | Arguments | Returns |
 |---------|-----------|---------|
-| `port_open` | type, opts | portId |
-| `port_recv` | portId | PortMessage |
-| `port_send` | portId, to, data | void |
-| `port_close` | portId | void |
+| `port` | type, opts | portId |
+| `recv` | portId | PortMessage |
+| `send` | portId, to, data | void |
+| `pclose` | portId | void |
 
 ### Channel Operations (new)
 
@@ -925,7 +953,10 @@ const [users, posts] = await Promise.all([
 |------|---------|
 | `src/message.ts` | Core Message/Response types (universal) |
 | `src/hal/channel.ts` | ChannelDevice interface and Bun implementations |
-| `src/kernel/syscalls.ts` | Channel syscall handlers |
-| `src/kernel/resource.ts` | Channel resource tracking (alongside fd, port) |
+| `src/hal/index.ts` | HAL aggregate interface (exports channel device) |
+| `src/kernel/types.ts` | Process.channels, MAX_CHANNELS constant |
+| `src/kernel/syscalls.ts` | Channel syscall handlers (createChannelSyscalls) |
+| `src/kernel/kernel.ts` | Channel resource tracking and lifecycle |
 | `src/process/channel.ts` | Userspace channel API |
+| `src/process/index.ts` | Process library exports (includes channel) |
 | `src/vfs/message.ts` | VFS-specific typed messages (extends core) |

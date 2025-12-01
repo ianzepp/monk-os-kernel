@@ -46,11 +46,17 @@ export interface Process {
     /** Open ports: local port id -> port UUID */
     ports: Map<number, string>;
 
+    /** Open channels: local channel id -> channel UUID */
+    channels: Map<number, string>;
+
     /** Next fd to allocate */
     nextFd: number;
 
     /** Next port id to allocate */
     nextPort: number;
+
+    /** Next channel id to allocate */
+    nextChannel: number;
 
     /** Exit code (when state = 'zombie') */
     exitCode?: number;
@@ -112,6 +118,7 @@ export const TERM_GRACE_MS = 5000;
  */
 export const MAX_FDS = 256;
 export const MAX_PORTS = 64;
+export const MAX_CHANNELS = 64;
 
 /**
  * Syscall message from process to kernel

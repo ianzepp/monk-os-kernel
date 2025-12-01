@@ -25,6 +25,7 @@ import {
     BunDNSDevice,
     BunHostDevice,
     MockIPCDevice,
+    BunChannelDevice,
 } from '@src/hal/index.js';
 
 /**
@@ -47,6 +48,7 @@ function createTestHAL(): HAL & { console: BufferConsoleDevice } {
         dns: new BunDNSDevice(),
         host: new BunHostDevice(),
         ipc: new MockIPCDevice(),
+        channel: new BunChannelDevice(),
 
         async shutdown(): Promise<void> {
             timer.cancelAll();

@@ -21,6 +21,10 @@ export * from '@src/process/errors.js';
 // Re-export signal registration
 export { onSignal } from '@src/process/syscall.js';
 
+// Re-export channel API
+export { channel, httpRequest, sqlQuery, sqlExecute } from '@src/process/channel.js';
+export type { ChannelOpts, HttpRequest } from '@src/process/channel.js';
+
 // ============================================================================
 // Types
 // ============================================================================

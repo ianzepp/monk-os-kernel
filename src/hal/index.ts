@@ -83,6 +83,7 @@ export type { ConsoleDevice } from './console.js';
 export type { DNSDevice } from './dns.js';
 export type { HostDevice, HostProcess, HostSpawnOpts, HostStat } from './host.js';
 export type { IPCDevice, Mutex, MutexLockOpts, Semaphore, CondVar } from './ipc.js';
+export type { ChannelDevice, Channel, ChannelOpts } from './channel.js';
 
 // Bun implementations
 export { BunBlockDevice, MemoryBlockDevice } from './block.js';
@@ -96,6 +97,7 @@ export { BunConsoleDevice, BufferConsoleDevice } from './console.js';
 export { BunDNSDevice, MockDNSDevice } from './dns.js';
 export { BunHostDevice, MockHostDevice } from './host.js';
 export { BunIPCDevice, MockIPCDevice } from './ipc.js';
+export { BunChannelDevice } from './channel.js';
 
 /**
  * HAL aggregate interface.
@@ -115,6 +117,7 @@ export interface HAL {
     readonly dns: import('./dns.js').DNSDevice;
     readonly host: import('./host.js').HostDevice;
     readonly ipc: import('./ipc.js').IPCDevice;
+    readonly channel: import('./channel.js').ChannelDevice;
 
     /**
      * Gracefully shut down all devices.
@@ -168,6 +171,7 @@ export async function createBunHAL(config?: HALConfig): Promise<HAL> {
     const { BunDNSDevice } = await import('./dns.js');
     const { BunHostDevice } = await import('./host.js');
     const { BunIPCDevice } = await import('./ipc.js');
+    const { BunChannelDevice } = await import('./channel.js');
 
     // Block device
     const block = config?.blockPath
@@ -205,6 +209,7 @@ export async function createBunHAL(config?: HALConfig): Promise<HAL> {
         dns: new BunDNSDevice(),
         host: new BunHostDevice(),
         ipc: new BunIPCDevice(),
+        channel: new BunChannelDevice(),
 
         async shutdown(): Promise<void> {
             // Cancel all pending timers

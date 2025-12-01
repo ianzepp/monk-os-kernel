@@ -19,13 +19,15 @@ import type {
 } from '@src/kernel/types.js';
 import { SIGTERM, SIGKILL, TERM_GRACE_MS } from '@src/kernel/types.js';
 import { ProcessTable } from '@src/kernel/process-table.js';
-import { MAX_FDS, MAX_PORTS } from '@src/kernel/types.js';
+import { MAX_FDS, MAX_PORTS, MAX_CHANNELS } from '@src/kernel/types.js';
 import {
     SyscallDispatcher,
     createFileSyscalls,
     createMiscSyscalls,
     createNetworkSyscalls,
+    createChannelSyscalls,
 } from '@src/kernel/syscalls.js';
+import type { Channel, ChannelOpts } from '@src/hal/index.js';
 import { ESRCH, ECHILD, ProcessExited, EBADF, EPERM, EINVAL, ENOSYS, EMFILE } from '@src/kernel/errors.js';
 import type { Resource, Port } from '@src/kernel/resource.js';
 import type { WatchEvent } from '@src/vfs/model.js';
@@ -65,6 +67,7 @@ export class Kernel {
     private ports: Map<string, Port> = new Map();
     private portRefs: Map<string, number> = new Map(); // Reference counts
     private pubsubPorts: Set<PubsubPort> = new Set(); // All pubsub ports for routing
+    private channels: Map<string, Channel> = new Map();
     private waiters: Map<string, ((status: ExitStatus) => void)[]> = new Map();
     private booted = false;
 
@@ -132,6 +135,16 @@ export class Kernel {
 
         // Misc syscalls
         this.syscalls.registerAll(createMiscSyscalls());
+
+        // Channel syscalls
+        this.syscalls.registerAll(
+            createChannelSyscalls(
+                this.hal,
+                (proc, proto, url, opts) => this.openChannel(proc, proto, url, opts),
+                (proc, ch) => this.getChannel(proc, ch),
+                (proc, ch) => this.closeChannel(proc, ch)
+            )
+        );
 
         // Pipe syscall
         this.syscalls.register('pipe', (proc) => this.createPipe(proc));
@@ -206,8 +219,10 @@ export class Kernel {
             args: env.initArgs ?? [env.initPath],
             fds: new Map(),
             ports: new Map(),
+            channels: new Map(),
             nextFd: 3,
             nextPort: 0,
+            nextChannel: 0,
             children: new Map(),
             nextPid: 1,
         };
@@ -301,8 +316,10 @@ export class Kernel {
             args: opts?.args ?? [entry],
             fds: new Map(),
             ports: new Map(),
+            channels: new Map(),
             nextFd: 3,
             nextPort: 0,
+            nextChannel: 0,
             children: new Map(),
             nextPid: 1,
         };
@@ -344,6 +361,15 @@ export class Kernel {
         for (const [portId] of proc.ports) {
             try {
                 await this.closePort(proc, portId);
+            } catch {
+                // Ignore errors during cleanup
+            }
+        }
+
+        // Close all channels
+        for (const [ch] of proc.channels) {
+            try {
+                await this.closeChannel(proc, ch);
             } catch {
                 // Ignore errors during cleanup
             }
@@ -1093,6 +1119,67 @@ export class Kernel {
         proc.ports.delete(portId);
     }
 
+    // =========================================================================
+    // Channel Management
+    // =========================================================================
+
+    /**
+     * Open a channel.
+     */
+    private async openChannel(
+        proc: Process,
+        proto: string,
+        url: string,
+        opts?: ChannelOpts
+    ): Promise<number> {
+        if (proc.channels.size >= MAX_CHANNELS) {
+            throw new EMFILE('Too many open channels');
+        }
+
+        const channel = await this.hal.channel.open(proto, url, opts);
+        this.channels.set(channel.id, channel);
+
+        const localChannelId = proc.nextChannel++;
+        proc.channels.set(localChannelId, channel.id);
+
+        debug('channel', `opened ${channel.proto}:${channel.description} as ch ${localChannelId}`);
+        return localChannelId;
+    }
+
+    /**
+     * Get a channel by process-local ID.
+     */
+    private getChannel(proc: Process, ch: number): Channel | undefined {
+        const channelUuid = proc.channels.get(ch);
+        if (!channelUuid) {
+            return undefined;
+        }
+        return this.channels.get(channelUuid);
+    }
+
+    /**
+     * Close a channel.
+     */
+    private async closeChannel(proc: Process, ch: number): Promise<void> {
+        const channelUuid = proc.channels.get(ch);
+        if (!channelUuid) {
+            throw new EBADF(`Bad channel: ${ch}`);
+        }
+
+        const channel = this.channels.get(channelUuid);
+        if (channel) {
+            await channel.close();
+            this.channels.delete(channelUuid);
+        }
+
+        proc.channels.delete(ch);
+        debug('channel', `closed ch ${ch}`);
+    }
+
+    // =========================================================================
+    // Pubsub
+    // =========================================================================
+
     /**
      * Publish a message to all matching pubsub subscribers.
      *
@@ -1505,8 +1592,10 @@ export class Kernel {
             args: [def.handler],
             fds: new Map(),
             ports: new Map(),
+            channels: new Map(),
             nextFd: 3,
             nextPort: 0,
+            nextChannel: 0,
             children: new Map(),
             nextPid: 1,
         };

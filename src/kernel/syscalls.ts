@@ -4,10 +4,11 @@
  * Routes syscall requests to appropriate handlers.
  */
 
-import type { HAL } from '@src/hal/index.js';
+import type { HAL, Channel, ChannelOpts } from '@src/hal/index.js';
 import type { VFS, SeekWhence } from '@src/vfs/index.js';
 import type { Process, OpenFlags } from '@src/kernel/types.js';
 import type { Resource, FileResource } from '@src/kernel/resource.js';
+import type { Message, Response } from '@src/message.js';
 import { ENOSYS, EINVAL, EBADF } from '@src/kernel/errors.js';
 
 /**
@@ -423,6 +424,99 @@ export function createNetworkSyscalls(
             }
 
             await closePort(proc, portId);
+        },
+    };
+}
+
+/**
+ * Create channel syscalls.
+ *
+ * @param hal - HAL instance
+ * @param openChannel - Function to open a channel and allocate channel id
+ * @param getChannel - Function to get channel from channel id
+ * @param closeChannel - Function to close channel
+ */
+export function createChannelSyscalls(
+    hal: HAL,
+    openChannel: (proc: Process, proto: string, url: string, opts?: ChannelOpts) => Promise<number>,
+    getChannel: (proc: Process, ch: number) => Channel | undefined,
+    closeChannel: (proc: Process, ch: number) => Promise<void>
+): SyscallRegistry {
+    return {
+        async channel_open(proc: Process, proto: unknown, url: unknown, opts?: unknown): Promise<number> {
+            if (typeof proto !== 'string') {
+                throw new EINVAL('proto must be a string');
+            }
+            if (typeof url !== 'string') {
+                throw new EINVAL('url must be a string');
+            }
+
+            return openChannel(proc, proto, url, opts as ChannelOpts | undefined);
+        },
+
+        async channel_call(proc: Process, ch: unknown, msg: unknown): Promise<Response> {
+            if (typeof ch !== 'number') {
+                throw new EINVAL('ch must be a number');
+            }
+
+            const channel = getChannel(proc, ch);
+            if (!channel) {
+                throw new EBADF(`Bad channel: ${ch}`);
+            }
+
+            // Get first response from handle()
+            for await (const response of channel.handle(msg as Message)) {
+                return response;
+            }
+
+            return { op: 'error', data: { code: 'EIO', message: 'No response' } };
+        },
+
+        async *channel_stream(proc: Process, ch: unknown, msg: unknown): AsyncIterable<Response> {
+            if (typeof ch !== 'number') {
+                throw new EINVAL('ch must be a number');
+            }
+
+            const channel = getChannel(proc, ch);
+            if (!channel) {
+                throw new EBADF(`Bad channel: ${ch}`);
+            }
+
+            yield* channel.handle(msg as Message);
+        },
+
+        async channel_push(proc: Process, ch: unknown, response: unknown): Promise<void> {
+            if (typeof ch !== 'number') {
+                throw new EINVAL('ch must be a number');
+            }
+
+            const channel = getChannel(proc, ch);
+            if (!channel) {
+                throw new EBADF(`Bad channel: ${ch}`);
+            }
+
+            await channel.push(response as Response);
+        },
+
+        async channel_recv(proc: Process, ch: unknown): Promise<Message> {
+            if (typeof ch !== 'number') {
+                throw new EINVAL('ch must be a number');
+            }
+
+            const channel = getChannel(proc, ch);
+            if (!channel) {
+                throw new EBADF(`Bad channel: ${ch}`);
+            }
+
+            return channel.recv();
+        },
+
+        async channel_close(proc: Process, ch: unknown): Promise<void> {
+            if (typeof ch !== 'number') {
+                throw new EINVAL('ch must be a number');
+            }
+
+            await closeChannel(proc, ch);
         },
     };
 }
