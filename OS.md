@@ -555,6 +555,7 @@ TypeScript is the native scripting language. No bash, no sh.
 ### External Commands
 
 Located in `/bin/`:
+- `awk` - pattern scanning and text processing
 - `cat` - concatenate files
 - `chmod` - change permissions (disabled, use `grant`)
 - `cp` - copy files
