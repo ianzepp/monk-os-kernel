@@ -42,6 +42,14 @@ import { loadMounts } from '@src/kernel/mounts.js';
 import { copyRomToVfs } from '@src/kernel/boot.js';
 import { VFSLoader } from '@src/kernel/loader.js';
 import { PoolManager, type LeasedWorker } from '@src/kernel/pool.js';
+import {
+    assertString,
+    assertNonNegativeInt,
+    assertPositiveInt,
+    assertObject,
+    optionalString,
+    optionalPositiveInt,
+} from '@src/kernel/validate.js';
 
 /**
  * Debug logging - enabled via DEBUG=1 environment variable
@@ -122,18 +130,24 @@ export class Kernel {
 
         // Process syscalls
         this.syscalls.registerAll({
-            spawn: wrapSyscall((proc, entry, opts) =>
-                this.spawn(proc, entry as string, opts as SpawnOpts)
-            ),
-            exit: wrapSyscall((proc, code) =>
-                this.exit(proc, code as number)
-            ),
-            kill: wrapSyscall((proc, pid, signal) =>
-                this.kill(proc, pid as number, signal as number | undefined)
-            ),
-            wait: wrapSyscall((proc, pid, timeout) =>
-                this.wait(proc, pid as number, timeout as number | undefined)
-            ),
+            spawn: wrapSyscall((proc, entry, opts) => {
+                assertString(entry, 'entry');
+                return this.spawn(proc, entry, opts as SpawnOpts);
+            }),
+            exit: wrapSyscall((proc, code) => {
+                assertNonNegativeInt(code, 'code');
+                return this.exit(proc, code);
+            }),
+            kill: wrapSyscall((proc, pid, signal) => {
+                assertPositiveInt(pid, 'pid');
+                const sig = optionalPositiveInt(signal, 'signal');
+                return this.kill(proc, pid, sig);
+            }),
+            wait: wrapSyscall((proc, pid, timeout) => {
+                assertPositiveInt(pid, 'pid');
+                const ms = optionalPositiveInt(timeout, 'timeout');
+                return this.wait(proc, pid, ms);
+            }),
             getpid: wrapSyscall((proc) => this.getpid(proc)),
             getppid: wrapSyscall((proc) => this.getppid(proc)),
         });
@@ -179,32 +193,42 @@ export class Kernel {
 
         // Redirect syscalls
         this.syscalls.register('redirect', wrapSyscall((proc, args) => {
-            const { target, source } = args as { target: number; source: number };
-            return this.redirectFd(proc, target, source);
+            assertObject(args, 'args');
+            assertNonNegativeInt(args['target'], 'target');
+            assertNonNegativeInt(args['source'], 'source');
+            return this.redirectFd(proc, args['target'] as number, args['source'] as number);
         }));
         this.syscalls.register('restore', wrapSyscall((proc, args) => {
-            const { target, saved } = args as { target: number; saved: string };
-            return this.restoreFd(proc, target, saved);
+            assertObject(args, 'args');
+            assertNonNegativeInt(args['target'], 'target');
+            assertString(args['saved'], 'saved');
+            return this.restoreFd(proc, args['target'] as number, args['saved'] as string);
         }));
 
         // Worker pool syscalls
-        this.syscalls.register('lease', wrapSyscall((proc, pool) =>
-            this.leaseWorker(proc, pool as string | undefined)
-        ));
+        this.syscalls.register('lease', wrapSyscall((proc, pool) => {
+            const poolName = optionalString(pool, 'pool');
+            return this.leaseWorker(proc, poolName);
+        }));
         this.syscalls.register('worker:load', wrapSyscall((proc, args) => {
-            const { workerId, path } = args as { workerId: string; path: string };
-            return this.workerLoad(proc, workerId, path);
+            assertObject(args, 'args');
+            assertString(args['workerId'], 'workerId');
+            assertString(args['path'], 'path');
+            return this.workerLoad(proc, args['workerId'] as string, args['path'] as string);
         }));
         this.syscalls.register('worker:send', wrapSyscall((proc, args) => {
-            const { workerId, msg } = args as { workerId: string; msg: unknown };
-            return this.workerSend(proc, workerId, msg);
+            assertObject(args, 'args');
+            assertString(args['workerId'], 'workerId');
+            return this.workerSend(proc, args['workerId'] as string, args['msg']);
         }));
-        this.syscalls.register('worker:recv', wrapSyscall((proc, workerId) =>
-            this.workerRecv(proc, workerId as string)
-        ));
-        this.syscalls.register('worker:release', wrapSyscall((proc, workerId) =>
-            this.workerRelease(proc, workerId as string)
-        ));
+        this.syscalls.register('worker:recv', wrapSyscall((proc, workerId) => {
+            assertString(workerId, 'workerId');
+            return this.workerRecv(proc, workerId);
+        }));
+        this.syscalls.register('worker:release', wrapSyscall((proc, workerId) => {
+            assertString(workerId, 'workerId');
+            return this.workerRelease(proc, workerId);
+        }));
         const poolManager = this.poolManager;
         this.syscalls.register('pool:stats', async function* (): AsyncIterable<Response> {
             yield respond.ok(poolManager.stats());

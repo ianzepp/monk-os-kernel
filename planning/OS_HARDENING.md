@@ -560,7 +560,7 @@ class BoundedQueue<T> {
 
 ### Phase 4: Debuggability
 - [x] K-008: Log cleanup errors (completed 2024-12-01)
-- [ ] K-010: Input validation
+- [x] K-010: Input validation (completed 2024-12-01)
 - [ ] K-012: chdir validation
 
 ### Phase 5: Polish
