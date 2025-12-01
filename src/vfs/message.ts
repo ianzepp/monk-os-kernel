@@ -1,38 +1,22 @@
 /**
- * Message
+ * VFS Message Types
  *
- * Universal message format for VFS operations.
- * Replaces method-based Model interface with message passing.
- *
- * Philosophy: Everything is a message with an op and optional data.
- * Responses stream back as async iterables of messages.
+ * VFS-specific message definitions built on the core Message/Response types.
+ * Re-exports core types for backwards compatibility.
  */
 
 import type { OpenFlags, OpenOptions } from '@src/vfs/handle.js';
 import type { ModelStat } from '@src/vfs/model.js';
 
-/**
- * Message sent to a Model.
- */
-export interface Message {
-    /** Operation to perform */
-    op: string;
-    /** Operation-specific data */
-    data?: unknown;
-}
+// Re-export core message types
+export type { Message, Response, Responses } from '@src/message.js';
+export { respond, isResponseOp, unwrapResponse, collectItems } from '@src/message.js';
+
+// Import for local use
+import type { Message, Response } from '@src/message.js';
 
 /**
- * Response message from a Model.
- */
-export interface Response {
-    /** Response type */
-    op: 'ok' | 'error' | 'item' | 'chunk' | 'event' | 'progress' | 'done';
-    /** Response data */
-    data?: unknown;
-}
-
-/**
- * Typed message definitions for standard operations.
+ * Typed message definitions for VFS operations.
  */
 export namespace Messages {
     // ========================================================================
@@ -97,7 +81,7 @@ export namespace Messages {
     }
 
     // ========================================================================
-    // Responses
+    // Responses (VFS-specific typed versions)
     // ========================================================================
 
     export interface Ok extends Response {
@@ -147,37 +131,3 @@ export namespace Messages {
         op: 'done';
     }
 }
-
-/**
- * Helper to create response messages.
- */
-export const respond = {
-    ok: (data?: unknown): Messages.Ok => ({ op: 'ok', data }),
-
-    error: (code: string, message: string): Messages.Error => ({
-        op: 'error',
-        data: { code, message },
-    }),
-
-    item: (data: unknown): Messages.Item => ({ op: 'item', data }),
-
-    chunk: (data: Uint8Array): Messages.Chunk => ({ op: 'chunk', data }),
-
-    event: (
-        type: 'create' | 'update' | 'delete',
-        entity: string,
-        path: string,
-        timestamp: number,
-        fields?: string[]
-    ): Messages.Event => ({
-        op: 'event',
-        data: { type, entity, path, timestamp, fields },
-    }),
-
-    progress: (percent?: number, current?: number, total?: number): Messages.Progress => ({
-        op: 'progress',
-        data: { percent, current, total },
-    }),
-
-    done: (): Messages.Done => ({ op: 'done' }),
-};

@@ -314,13 +314,12 @@ export abstract class PosixModel implements Model {
                     }
                     const data = msg.data as { pattern?: string } | undefined;
                     for await (const event of this.watch(ctx, id, data?.pattern)) {
-                        yield respond.event(
-                            event.op,
-                            event.entity,
-                            event.path,
-                            event.timestamp,
-                            event.fields
-                        );
+                        yield respond.event(event.op, {
+                            entity: event.entity,
+                            path: event.path,
+                            timestamp: event.timestamp,
+                            fields: event.fields,
+                        });
                     }
                     break;
                 }
