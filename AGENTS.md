@@ -1,0 +1,726 @@
+# Monk OS - Agent Instructions & Technical Architecture
+
+> **Quick Context**: Monk OS reframes API architecture as an operating system where **Bun is the hardware**. The single-executable deployment (`bun build --compile`) isn't packaging an app—it's burning firmware.
+
+## 1. Core Philosophy & Architecture
+
+### System Design Principles
+- **Everything is a file**: Uniform namespace following Plan 9's paradigm
+- **Files are queryable**: BeOS-style database-centric filesystem (files have UUIDs, indexed)
+- **Process isolation**: Each process is a Bun Worker with isolated memory
+- **Message-driven**: All internal communication uses structured `Message` and `Response` objects
+- **Streams-first**: Default API is `AsyncIterable<Response>`, not arrays
+
+### Layered Architecture
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Userland Applications (rom/bin/*, user services)           │
+├─────────────────────────────────────────────────────────────┤
+│  Process Library & Syscall API (rom/lib/process/)           │
+├─────────────────────────────────────────────────────────────┤
+│  OS Public API (src/os/)                                    │
+│  ├── OS class (boot, shutdown, configuration)               │
+│  └── FilesystemAPI (host mounts, file operations)           │
+├─────────────────────────────────────────────────────────────┤
+│  Kernel Layer (src/kernel/)                                 │
+│  ├── Syscall Dispatcher & Execution                         │
+│  ├── Process Manager (Worker scheduling, lifecycle)         │
+│  ├── Handle System (file, socket, pipe, port, channel)     │
+│  ├── Worker Pools (PoolManager, auto-scaling)              │
+│  └── Service Activation (boot, tcp, udp, pubsub, watch)    │
+├─────────────────────────────────────────────────────────────┤
+│  VFS - Virtual File System (src/vfs/)                       │
+│  ├── Path resolution, mount table, model coordination       │
+│  └── Models: File, Folder, Device, Proc, Link              │
+├─────────────────────────────────────────────────────────────┤
+│  HAL - Hardware Abstraction (src/hal/)                      │
+│  ├── BlockDevice, StorageEngine, NetworkDevice              │
+│  ├── Timer, Clock, Entropy, Crypto, Console                │
+│  ├── DNS, Host, IPC, Channel, Compression                  │
+│  └── BunHAL implementation                                  │
+├─────────────────────────────────────────────────────────────┤
+│  Bun Runtime (Host OS, Workers, primitives)                 │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 2. Key Subsystems
+
+### A. Kernel (`src/kernel/`)
+
+**Process Model**:
+- Each process is a Bun Worker with UUID identity (not PID)
+- Process states: starting → running → stopped → zombie
+- File descriptors: integers (0-255) mapped to handle UUIDs per-process
+- Standard fds: 0=stdin, 1=stdout, 2=stderr
+- Signals: SIGTERM (graceful), SIGKILL (immediate)
+
+**Key Directory Structure**:
+- `kernel.ts` - Boot sequence, syscall dispatch, resource lifecycle
+- `process-table.ts` - Process registry
+- `types.ts` - Process, SpawnOpts, ExitStatus, etc.
+- `errors.ts` - Re-exports HAL errors + ProcessExited
+- `syscalls/` - Syscall handlers organized by domain:
+  - `dispatcher.ts` - Central syscall routing
+  - `file.ts` - File syscalls (open, read, write, stat, etc.)
+  - `network.ts` - Network syscalls (connect, listen, recv, send)
+  - `channel.ts` - Channel syscalls (HTTP, WebSocket, PostgreSQL)
+  - `misc.ts` - Miscellaneous syscalls (chdir, getcwd, getenv)
+  - `types.ts` - Syscall handler types
+- `handle/` - Unified handle architecture:
+  - `types.ts` - Handle interface and HandleType
+  - `file.ts` - FileHandleAdapter (VFS files)
+  - `socket.ts` - SocketHandleAdapter (TCP connections)
+  - `pipe.ts` - PipeHandleAdapter (inter-process pipes)
+  - `port.ts` - PortHandleAdapter (listeners, watchers, pubsub)
+  - `channel.ts` - ChannelHandleAdapter (protocol-aware I/O)
+  - `process-io.ts` - ProcessIOHandle (service I/O routing)
+- `resource/` - Port implementations:
+  - `types.ts` - Port, PortMessage interfaces
+  - `listener-port.ts` - TCP listener
+  - `watch-port.ts` - VFS file watcher
+  - `udp-port.ts` - UDP socket
+  - `pubsub-port.ts` - Topic-based messaging
+  - `pipe-buffer.ts` - In-memory pipe buffer
+- `loader/` - VFS module loader:
+  - `vfs-loader.ts` - Transpilation, bundling
+  - `imports.ts` - Import resolution
+  - `cache.ts` - Module caching
+- `services.ts` - Service definitions (activation types, I/O config)
+- `pool.ts` - Worker pool management (PoolManager, WorkerPool)
+- `boot.ts` - ROM → VFS copy at boot
+- `mounts.ts` - Mount configuration loader
+
+**Execution Model**:
+- Syscalls return `AsyncIterable<Response>` (generators)
+- Each `Response` is: `{ op: 'ok'|'error'|'item'|'chunk'|'event'|'done'|'redirect', data?: object }`
+- Terminal ops (`ok`, `error`, `done`) signal stream completion
+- Non-terminal ops (`item`, `event`, `progress`, `chunk`) may yield multiple times
+- Kernel implements backpressure via `stream_ping` every 100ms
+
+### B. Hardware Abstraction Layer - HAL (`src/hal/`)
+
+**13 Device Interfaces**:
+
+| Device | File | Purpose |
+|--------|------|---------|
+| **BlockDevice** | `block.ts` | Raw byte storage (files, S3, databases) |
+| **StorageEngine** | `storage.ts` | Key-value with transactions (SQLite, PostgreSQL, memory) |
+| **NetworkDevice** | `network.ts` | TCP/UDP/HTTP (listen, connect, socket operations) |
+| **TimerDevice** | `timer.ts` | Scheduling (setTimeout, setInterval) |
+| **ClockDevice** | `clock.ts` | Time sources (Date.now, Bun.nanoseconds) |
+| **EntropyDevice** | `entropy.ts` | Random bytes, UUIDs |
+| **CryptoDevice** | `crypto.ts` | Hash, encryption, key derivation |
+| **ConsoleDevice** | `console.ts` | stdin/stdout/stderr |
+| **DNSDevice** | `dns.ts` | Hostname resolution |
+| **HostDevice** | `host.ts` | Escape to host OS (Bun.spawn) |
+| **IPCDevice** | `ipc.ts` | Shared memory, message ports |
+| **ChannelDevice** | `channel.ts` | Protocol-aware messaging (HTTP, WebSocket, PostgreSQL) |
+| **CompressionDevice** | `compression.ts` | Gzip/deflate compression |
+
+**Key Files**:
+- `index.ts` - HAL interface, BunHAL class, error exports
+- `errors.ts` - POSIX-style error classes (ENOENT, EBADF, EPERM, etc.)
+- Each device in its own file: `block.ts`, `storage.ts`, `network.ts`, etc.
+
+**Key Principles**:
+- All operations are `async`/`await`
+- Naming: POSIX for I/O (`read`, `write`, `stat`, `sync`), domain-specific elsewhere
+- `BunHAL` is the main implementation, `init()` and `shutdown()` for lifecycle
+
+### C. Virtual File System - VFS (`src/vfs/`)
+
+**Philosophy**: Everything is a file, everything has a UUID, everything can be queried as a database row.
+
+**Core Models** (5 total):
+- **FileModel** (`models/file.ts`) - Regular files backed by StorageEngine
+- **FolderModel** (`models/folder.ts`) - Directories (children computed via query)
+- **DeviceModel** (`models/device.ts`) - Kernel devices (/dev/console, /dev/random, /dev/null, /dev/zero, /dev/clock)
+- **ProcModel** (`models/proc.ts`) - Process info (/proc/{uuid}/stat, /proc/{uuid}/env, etc.)
+- **LinkModel** (`models/link.ts`) - Symbolic links (currently disabled, throws EPERM)
+
+**Key Files**:
+- `index.ts` - Exports VFS class and types
+- `vfs.ts` - Path resolution, mount table, model coordination, host mounts
+- `model.ts` - PosixModel base class, ModelStat, ModelContext, FieldDef
+- `handle.ts` - FileHandle interface, OpenFlags, SeekWhence, OpenOptions
+- `models/*.ts` - Model implementations
+
+**Design Features**:
+- Identity: UUID (generated via hal.entropy.uuid())
+- Path: computed from (parent_id, name) - renames are atomic
+- Permissions: Grant-based ACL system (not UNIX rwx)
+- Host mounts: `mountHost(osPath, hostPath, opts)` for host filesystem access
+- Transactions: atomic create/update/delete
+
+**Model Interface** (extends PosixModel):
+```typescript
+abstract class PosixModel {
+    abstract readonly name: string;  // 'file', 'folder', 'device', 'proc', 'link'
+    abstract fields(): FieldDef[];
+    abstract open(ctx, id, flags, opts?): Promise<FileHandle>;
+    abstract stat(ctx, id): Promise<ModelStat>;
+    abstract setstat(ctx, id, fields): Promise<void>;
+    abstract create(ctx, parent, name, fields?): Promise<string>;
+    abstract unlink(ctx, id): Promise<void>;
+    abstract list(ctx, id): AsyncIterable<string>;
+    watch?(ctx, id, pattern?): AsyncIterable<WatchEvent>;  // optional
+}
+```
+
+### D. OS Public API (`src/os/`)
+
+**Purpose**: Main entry point for external applications consuming Monk OS.
+
+**Key Files**:
+- `index.ts` - Exports OS class, types, FilesystemAPI
+- `os.ts` - OS class with boot(), shutdown(), getters for HAL/VFS/Kernel
+- `fs.ts` - FilesystemAPI for file operations
+- `types.ts` - OSConfig, BootOpts, MountOpts, StorageConfig, Stat
+
+**OS Class**:
+```typescript
+class OS {
+    readonly fs: FilesystemAPI;
+
+    constructor(config?: OSConfig);
+    alias(name: string, path: string): this;  // Add path alias
+    resolvePath(path: string): string;        // Expand aliases
+
+    async boot(opts?: BootOpts): Promise<void>;
+    async shutdown(): Promise<void>;
+    isBooted(): boolean;
+
+    getHAL(): HAL;
+    getVFS(): VFS;
+    getKernel(): Kernel;
+    getServices(): Map<string, ServiceDef>;
+}
+```
+
+**FilesystemAPI**:
+```typescript
+class FilesystemAPI {
+    mount(hostPath, osPath, opts?): void;
+    unmount(osPath): void;
+
+    read(path): Promise<Uint8Array>;
+    readText(path): Promise<string>;
+    write(path, data): Promise<void>;
+    stat(path): Promise<Stat>;
+    readdir(path): Promise<string[]>;
+    readdirStat(path): Promise<Stat[]>;
+    mkdir(path, opts?): Promise<void>;
+    unlink(path): Promise<void>;
+    exists(path): Promise<boolean>;
+}
+```
+
+**Configuration**:
+```typescript
+interface OSConfig {
+    aliases?: Record<string, string>;  // '@app' -> '/vol/app'
+    storage?: StorageConfig;           // memory, sqlite, postgres
+    env?: Record<string, string>;      // Environment variables
+}
+
+interface BootOpts {
+    main?: string;    // Init script path
+    debug?: boolean;  // Enable kernel debug logging
+}
+```
+
+### E. Network Layer (Kernel, not VFS)
+
+**Two Primitive Abstractions**:
+
+1. **Handle** - Unified I/O interface
+   - Methods: `exec(msg)` → `AsyncIterable<Response>`, `close()`
+   - Types: file, socket, pipe, port, channel
+   - Used for: All I/O operations
+
+2. **Port** - Message endpoints (subset of Handle)
+   - Methods: `recv()`, `send(to, data)`, `close()`
+   - Returns: structured messages with from/meta
+   - Used for: UDP datagrams, TCP listeners, file watch, pub/sub topics
+
+**Port Types**:
+- `tcp:listen` - Accept TCP connections (yields socket handle)
+- `udp` - UDP socket (send/receive datagrams)
+- `watch` - File system event stream (matches patterns)
+- `pubsub` - Topic-based messaging (subscribe/publish)
+
+**Handle Types**:
+- `file` - VFS files, folders, devices (FileHandleAdapter)
+- `socket` - TCP connections (SocketHandleAdapter)
+- `pipe` - In-memory pipes between processes (PipeHandleAdapter)
+- `port` - Listeners, watchers, pubsub (PortHandleAdapter)
+- `channel` - Protocol-aware connections (ChannelHandleAdapter)
+
+### F. Channels - Protocol-Aware I/O (`src/hal/channel.ts`)
+
+**Purpose**: Enable message-based communication with external systems without exposing wire protocols to userland.
+
+**Supported Protocols**:
+- HTTP/HTTPS (via `fetch()`)
+- WebSocket (via `new WebSocket()`)
+- PostgreSQL (via `Bun.sql()`)
+- Server-Sent Events / event streams
+
+**Syscalls**:
+- `channel:open(proto, url, opts)` → channelHandle
+- `handle:send(ch, msg)` → Response stream
+- `handle:close(ch)` → void
+
+### G. Process Library (`rom/lib/process/`)
+
+**Directory Structure**:
+- `index.ts` - Re-exports all modules
+- `types.ts` - OpenFlags, Stat, SpawnOpts, Message, Response, etc.
+- `syscall.ts` - Core syscall transport (postMessage, stream handling)
+- `error.ts` - SyscallError class
+- `file.ts` - File operations (open, read, write, stat, etc.)
+- `dir.ts` - Directory operations (mkdir, readdir, unlink, etc.)
+- `net.ts` - Network operations (connect, listen, recv, send, etc.)
+- `proc.ts` - Process operations (spawn, exit, wait, getpid, etc.)
+- `env.ts` - Environment (getcwd, chdir, getenv, setenv)
+- `io.ts` - Convenience I/O (readFile, writeFile, print, println)
+- `pipe.ts` - Pipe operations
+- `channel.ts` - Channel operations (httpRequest, sqlQuery)
+- `worker.ts` - Worker pool operations
+- `access.ts` - Access control
+- `head.ts`, `tail.ts` - Stream utilities
+
+**Transport**:
+- Messages format: `{ type: 'syscall'|'response'|'signal', id, data }`
+- Syscalls via `postMessage()` (IPC)
+- Automatic stream ping every 100ms for backpressure
+- Signal handling via `onSignal(handler)`
+
+**Convenience Wrappers**:
+- `call<T>()` - Single request/response (awaits `ok` response)
+- `collect<T>()` - Collect all items into array
+- `iterate<T>()` - AsyncIterable (hides Response wrapper)
+
+### H. Worker Pools (`src/kernel/pool.ts`)
+
+**Purpose**: Kernel-managed worker pools for efficient process execution.
+
+**Configuration** (`/etc/pools.json`):
+```json
+{
+    "freelance": { "min": 2, "max": 32, "idleTimeout": 15000 },
+    "compute": { "min": 4, "max": 64, "idleTimeout": 30000 }
+}
+```
+
+**Features**:
+- Named pools with isolation between workloads
+- Auto-scaling: grows under pressure, shrinks when idle
+- Backpressure: waiters queue when pool is exhausted
+- Default 'freelance' pool as fallback
+
+**Syscalls**:
+- `pool:lease(pool?)` → workerId
+- `worker:load(workerId, path)` → void
+- `worker:send(workerId, msg)` → void
+- `worker:recv(workerId)` → msg
+- `worker:release(workerId)` → void
+- `pool:stats()` → stats array
+
+---
+
+## 3. Message-Driven Architecture
+
+### Core Principle
+All internal kernel communication uses structured `Message` and `Response` objects. Byte serialization only at true I/O boundaries (disk, network).
+
+### Message Format
+
+```typescript
+interface Message {
+    op: string;              // Operation name: 'read', 'write', 'query', etc.
+    data?: unknown;          // Operation-specific data (structured, not bytes)
+}
+
+interface Response {
+    op: 'ok'|'error'|'item'|'chunk'|'event'|'progress'|'done'|'redirect';
+    data?: object;           // Structured response data
+}
+```
+
+### Response Semantics
+
+| Op | Meaning | Terminal? | Usage |
+|----|---------|-----------|-------|
+| `ok` | Success, optional value | Y | Single-value syscalls (getpid, getcwd) |
+| `error` | Failure with code/message | Y | Any syscall error (ENOENT, EBADF, etc.) |
+| `item` | One item in sequence | N | Streaming: readdir, pubsub, database rows |
+| `chunk` | Binary data (Uint8Array only) | N | File reads, network reads (at I/O boundary) |
+| `event` | Async notification | N | File watch events, signals, server pushes |
+| `progress` | Progress indicator | N | Long operations, download status |
+| `done` | Sequence complete | Y | Marks end of streaming (readdir done, etc.) |
+| `redirect` | Go elsewhere | Y | Path traversal (symlinks, mounts) |
+
+### Handle Interface (Unified for all I/O)
+
+```typescript
+interface Handle {
+    readonly id: string;
+    readonly type: HandleType;  // 'file' | 'socket' | 'pipe' | 'port' | 'channel'
+    readonly description: string;
+    readonly closed: boolean;
+    exec(msg: Message): AsyncIterable<Response>;
+    close(): Promise<void>;
+}
+```
+
+---
+
+## 4. Streams & Backpressure
+
+### Streams-First Philosophy
+Streams of `Response` objects are the fundamental data flow unit. Arrays are a convenience wrapper.
+
+### Transport Protocol
+
+1. **Kernel sends multiple messages per syscall**: Each `Response` is a separate message
+2. **Message format**: `{ type: 'response', id: string, result: Response }`
+3. **Terminal ops signal completion**: Consumer knows stream ended at `ok`, `error`, `done`, or `redirect`
+4. **Consumer acknowledges with ping**: `stream_ping` every 100ms for backpressure
+5. **Consumer cancels when needed**: `stream_cancel` to abort stream
+
+### Backpressure Mechanism
+
+**Constants** (in `src/kernel/types.ts`):
+- STREAM_HIGH_WATER = 1000 items queued
+- STREAM_LOW_WATER = 100 items remaining
+- STREAM_PING_INTERVAL = 100ms
+- STREAM_STALL_TIMEOUT = 5000ms (abort if no ping)
+
+**Behavior**:
+- Kernel tracks items sent vs. acknowledged by consumer
+- Pauses yielding at high-water mark
+- Resumes yielding at low-water mark
+- Aborts stream if no ping for 5s (consumer dead)
+
+---
+
+## 5. Technology Stack
+
+### Core Technologies
+| Layer | Technology | Purpose |
+|-------|-----------|---------|
+| **Runtime** | Bun 1.0+ | JavaScript/TypeScript, Workers, primitives |
+| **Language** | TypeScript 5.5+ | Strict type safety (target: ES2022) |
+| **Storage** | SQLite 3 / PostgreSQL 14+ | Key-value, transactions, persistence |
+| **HTTP** | Bun.serve, fetch | Server and client networking |
+| **Networking** | Bun.listen, Bun.connect | TCP/UDP, raw sockets, Unix domain |
+| **IPC** | SharedArrayBuffer, MessagePort | Inter-process synchronization |
+| **Crypto** | Bun's WebCrypto | Hash, encryption, key derivation |
+| **Serialization** | JSON only at I/O boundaries | Message objects internally |
+
+### Directory Structure
+```
+.
+├── src/                          # Kernel & core
+│   ├── kernel/                   # Process, syscalls, resources
+│   │   ├── kernel.ts            # Boot, dispatch, lifecycle
+│   │   ├── process-table.ts      # Process registry
+│   │   ├── types.ts              # Process, SpawnOpts, etc.
+│   │   ├── errors.ts             # Error re-exports
+│   │   ├── services.ts           # Service definitions
+│   │   ├── pool.ts               # Worker pool management
+│   │   ├── boot.ts               # ROM → VFS copy
+│   │   ├── mounts.ts             # Mount configuration
+│   │   ├── syscalls/             # Syscall handlers
+│   │   │   ├── dispatcher.ts
+│   │   │   ├── file.ts
+│   │   │   ├── network.ts
+│   │   │   ├── channel.ts
+│   │   │   ├── misc.ts
+│   │   │   └── types.ts
+│   │   ├── handle/               # Unified handle system
+│   │   │   ├── types.ts
+│   │   │   ├── file.ts
+│   │   │   ├── socket.ts
+│   │   │   ├── pipe.ts
+│   │   │   ├── port.ts
+│   │   │   ├── channel.ts
+│   │   │   └── process-io.ts
+│   │   ├── resource/             # Port implementations
+│   │   │   ├── types.ts
+│   │   │   ├── listener-port.ts
+│   │   │   ├── watch-port.ts
+│   │   │   ├── udp-port.ts
+│   │   │   ├── pubsub-port.ts
+│   │   │   └── pipe-buffer.ts
+│   │   └── loader/               # VFS module loader
+│   │       ├── vfs-loader.ts
+│   │       ├── imports.ts
+│   │       ├── cache.ts
+│   │       └── types.ts
+│   ├── vfs/                      # Virtual filesystem
+│   │   ├── index.ts              # Exports
+│   │   ├── vfs.ts               # Path resolution, mounts
+│   │   ├── model.ts              # Model interface
+│   │   ├── handle.ts             # FileHandle interface
+│   │   └── models/               # Model implementations
+│   │       ├── file.ts
+│   │       ├── folder.ts
+│   │       ├── device.ts
+│   │       ├── proc.ts
+│   │       └── link.ts
+│   ├── hal/                      # Hardware abstraction
+│   │   ├── index.ts              # HAL interface, BunHAL
+│   │   ├── errors.ts             # POSIX error classes
+│   │   ├── block.ts              # BlockDevice
+│   │   ├── storage.ts            # StorageEngine
+│   │   ├── network.ts            # NetworkDevice
+│   │   ├── timer.ts              # TimerDevice
+│   │   ├── clock.ts              # ClockDevice
+│   │   ├── entropy.ts            # EntropyDevice
+│   │   ├── crypto.ts             # CryptoDevice
+│   │   ├── console.ts            # ConsoleDevice
+│   │   ├── dns.ts                # DNSDevice
+│   │   ├── host.ts               # HostDevice
+│   │   ├── ipc.ts                # IPCDevice
+│   │   ├── channel.ts            # ChannelDevice
+│   │   └── compression.ts        # CompressionDevice
+│   ├── os/                       # Public API
+│   │   ├── index.ts              # Exports
+│   │   ├── os.ts                 # OS class
+│   │   ├── fs.ts                 # FilesystemAPI
+│   │   └── types.ts              # OSConfig, BootOpts, etc.
+│   └── message.ts                # Message, Response, respond helpers
+├── rom/                          # Read-only bundled code (userspace)
+│   ├── lib/                      # Libraries for processes
+│   │   ├── process.ts            # Re-exports from process/
+│   │   ├── process/              # Syscall wrappers
+│   │   │   ├── index.ts
+│   │   │   ├── types.ts
+│   │   │   ├── syscall.ts
+│   │   │   ├── error.ts
+│   │   │   ├── file.ts
+│   │   │   ├── dir.ts
+│   │   │   ├── net.ts
+│   │   │   ├── proc.ts
+│   │   │   ├── env.ts
+│   │   │   ├── io.ts
+│   │   │   ├── pipe.ts
+│   │   │   ├── channel.ts
+│   │   │   ├── worker.ts
+│   │   │   └── ...
+│   │   ├── shell/                # Shell utilities
+│   │   │   ├── index.ts
+│   │   │   ├── parse.ts
+│   │   │   ├── glob.ts
+│   │   │   └── types.ts
+│   │   ├── awk/                  # AWK interpreter
+│   │   │   ├── index.ts
+│   │   │   ├── lexer.ts
+│   │   │   ├── parser.ts
+│   │   │   ├── interpreter.ts
+│   │   │   └── ...
+│   │   ├── args.ts               # Argument parsing
+│   │   ├── path.ts               # Path utilities
+│   │   ├── glob.ts               # Glob matching
+│   │   ├── io.ts                 # ByteReader, ByteWriter
+│   │   ├── format.ts             # Formatting utilities
+│   │   └── validator.ts          # Input validation
+│   ├── bin/                      # Executable programs
+│   │   ├── init.ts               # Init process
+│   │   ├── shell.ts              # Interactive shell
+│   │   ├── cat.ts, ls.ts, ...   # UNIX utilities (45+)
+│   │   ├── telnetd.ts            # Telnet daemon
+│   │   └── logd.ts               # Log daemon
+│   └── etc/                      # Configuration
+│       ├── mounts.json           # Mount configuration
+│       └── services/             # Service definitions
+│           └── logd.json
+├── spec/                         # Tests
+│   ├── kernel.test.ts
+│   ├── vfs.test.ts
+│   └── ...
+├── AGENTS.md                    # This file
+├── package.json
+├── tsconfig.json
+└── bunfig.toml
+```
+
+### ROM Utilities (`rom/bin/`)
+
+UNIX-like utilities available:
+- **File**: cat, cp, mv, rm, touch, ln, chmod, head, tail, tee, wc, file
+- **Directory**: ls, mkdir, rmdir, cd, pwd, stat
+- **Text**: echo, printf, sed, awk, tr, cut, sort, uniq, nl, yes
+- **Path**: basename, dirname, realpath
+- **Info**: date, uname, whoami, df, du
+- **Process**: sleep
+- **Misc**: true, false, seq, grant
+- **Daemons**: shell, init, telnetd, logd
+
+---
+
+## 6. Key Patterns & Best Practices
+
+### Pattern: HAL Abstraction
+- Define interface in device file (e.g., `block.ts`)
+- BunHAL aggregates all devices
+- Inject via `new BunHAL(config)`
+- `init()` and `shutdown()` for lifecycle
+
+### Pattern: Model-Based VFS
+- Each filesystem category is a Model (file, folder, device, proc, link)
+- Model implements `open()`, `stat()`, `list()`, `unlink()`, `watch()`
+- VFS routes paths to correct model via mount table
+- FileHandles provide I/O, Models provide metadata
+
+### Pattern: Message-Passing Syscalls
+- Syscalls return `AsyncIterable<Response>` (generators)
+- Yield `item` for each element, `done` to finish
+- Yield `error` (throw) for failures
+- Yield `ok` for single values
+- Kernel handles streaming, backpressure, and transport
+
+### Pattern: Unified Handle Architecture
+- All I/O primitives are Handles with `exec(msg)` → `AsyncIterable<Response>`
+- Handle types: file, socket, pipe, port, channel
+- Kernel maintains global handle table with reference counting
+- Process maintains local fd → handle ID mapping
+
+### Pattern: Streaming Over Arrays
+- Default: `async function* iter(): AsyncIterable<T>`
+- Convenience: `collect()` wrapper for small datasets
+- Benefits: O(1) memory, natural for databases/files, natural for backpressure
+
+### Pattern: Process Identity
+- Each process has UUID (via hal.entropy.uuid())
+- File descriptor table maps small integers (0-255) to handle UUIDs
+- Ports have IDs (tcp:listen, pubsub, etc.)
+- Everything is globally addressable via UUID
+
+---
+
+## 7. Implementation Constraints & Rules
+
+### Non-Negotiable Rules
+1. **No JSON serialization in kernel** - Only at true I/O boundaries (disk, network)
+2. **Message objects everywhere internally** - Not byte strings
+3. **All async operations yield responses** - Not Promise<T>, but `AsyncIterable<Response>`
+4. **Streams are primary, arrays are convenience** - Use `collect()` for arrays when needed
+5. **File descriptors are per-process integers** - They map to global handle UUIDs
+6. **Permissions checked at open-time** - Once authorized, Handle is capability
+7. **Workers are process boundaries** - Communication via syscalls/postMessage only
+8. **UUID identity for everything** - Files, processes, handles, ports
+
+### Error Handling
+- Syscalls throw typed errors (ENOENT, EBADF, EPERM, etc.) from `src/hal/errors.ts`
+- Kernel catches, converts to `{ op: 'error', code, message }` response
+- Process library unwraps via SyscallError class
+- Tests should verify error codes, not just catch/ignore
+
+### Testing Strategy
+- **Unit tests**: Mock HAL, test kernel in isolation
+- **Integration tests**: Real processes, real syscalls
+- **Stream tests**: Verify ping, cancel, timeout behavior
+- **Error tests**: Verify error codes and messages
+
+---
+
+## 8. Service Activation & Configuration
+
+**Service Configuration** (`/etc/services/*.json`):
+```json
+{
+    "handler": "/bin/logd",
+    "activate": {
+        "type": "boot"
+    },
+    "io": {
+        "stdin": { "type": "pubsub", "subscribe": ["log.*"] },
+        "stdout": { "type": "file", "path": "/var/log/system.log" },
+        "stderr": { "type": "console" }
+    }
+}
+```
+
+**Activation Types**:
+- `boot` - Service starts on kernel boot
+- `tcp:listen` - Socket activation on TCP listen (port, host optional)
+- `udp` - UDP socket activation
+- `pubsub` - Topic-based activation
+- `watch` - File system event activation
+
+**I/O Source Types** (for stdin):
+- `console` - Read from console
+- `file` - Read from file path
+- `null` - Always EOF
+- `pubsub` - Subscribe to topics
+- `watch` - Watch file patterns
+- `udp` - Receive UDP datagrams
+
+**I/O Target Types** (for stdout/stderr):
+- `console` - Write to console
+- `file` - Write to file path (with create/append options)
+- `null` - Discard writes
+
+---
+
+## 9. Quick Reference: Common Syscalls
+
+```typescript
+// File I/O
+fd = await open('/path', { read: true });     // Open file
+for await (const chunk of read(fd)) { ... }   // Read bytes (streaming)
+n = await write(fd, data);                     // Write bytes
+await close(fd);                               // Close
+stat = await stat('/path');                    // Get metadata
+for await (const entry of readdir('/path')) { ... }  // List directory
+await mkdir('/path');                          // Create directory
+await unlink('/path');                         // Delete file
+
+// Process Management
+pid = await spawn('/bin/prog', opts);          // Create process
+status = await wait(pid);                      // Wait for exit
+await kill(pid, signal);                       // Send signal
+await exit(code);                              // Exit process
+pid = await getpid();                          // Get own PID
+ppid = await getppid();                        // Get parent PID
+
+// Networking
+fd = await connect('host', port);              // TCP connect
+portId = await listen({ port: 8080 });         // TCP listen
+msg = await recv(portId);                      // Receive message
+await send(portId, to, data);                  // Send message
+await pclose(portId);                          // Close port
+
+// Pipes
+[readFd, writeFd] = await pipe();              // Create pipe
+
+// Environment
+cwd = await getcwd();                          // Get working directory
+await chdir(path);                             // Change directory
+val = await getenv(name);                      // Get env var
+await setenv(name, val);                       // Set env var
+
+// Channels (protocol-aware I/O)
+ch = await channel('postgres', url);           // Open connection
+result = await httpRequest(ch, req);           // HTTP request
+rows = await sqlQuery(ch, sql, params);        // SQL query
+await close(ch);                               // Close connection
+
+// Worker Pools
+workerId = await pool.lease('compute');        // Lease worker
+await worker.load(workerId, '/script.ts');     // Load script
+await worker.send(workerId, msg);              // Send message
+result = await worker.recv(workerId);          // Receive message
+await worker.release(workerId);                // Release to pool
+```
+
+---
+
+**Last Updated**: December 2024
+**Next Review**: After shell implementation phase
+**Maintainer**: @monk-api/os team
