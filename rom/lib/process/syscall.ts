@@ -179,6 +179,9 @@ export async function collect<T>(name: string, ...args: unknown[]): Promise<T[]>
 export async function* iterate<T>(name: string, ...args: unknown[]): AsyncIterable<T> {
     for await (const response of syscall(name, ...args)) {
         if (response.op === 'item') yield response.data as T;
+        if (response.op === 'chunk') {
+            yield (response.data as { bytes: Uint8Array }).bytes as T;
+        }
         if (response.op === 'ok') { yield response.data as T; return; }
         if (response.op === 'done') return;
         if (response.op === 'error') {

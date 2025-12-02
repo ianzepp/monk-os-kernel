@@ -69,7 +69,7 @@ export function createNetworkSyscalls(
             yield respond.ok(portId);
         },
 
-        async *recv(proc: Process, portId: unknown): AsyncIterable<Response> {
+        async *'port:recv'(proc: Process, portId: unknown): AsyncIterable<Response> {
             if (typeof portId !== 'number') {
                 yield respond.error('EINVAL', 'portId must be a number');
                 return;
@@ -85,7 +85,7 @@ export function createNetworkSyscalls(
             yield respond.ok(msg);
         },
 
-        async *send(proc: Process, portId: unknown, to: unknown, data: unknown): AsyncIterable<Response> {
+        async *'port:send'(proc: Process, portId: unknown, to: unknown, data: unknown): AsyncIterable<Response> {
             if (typeof portId !== 'number') {
                 yield respond.error('EINVAL', 'portId must be a number');
                 return;

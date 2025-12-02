@@ -97,6 +97,17 @@ export interface Response {
     data?: unknown;
 }
 
+/**
+ * Helper to create Response messages.
+ */
+export const respond = {
+    ok: (data?: unknown): Response => ({ op: 'ok', data }),
+    error: (code: string, message: string): Response => ({ op: 'error', data: { code, message } }),
+    item: (data: unknown): Response => ({ op: 'item', data }),
+    chunk: (bytes: Uint8Array): Response => ({ op: 'chunk', data: { bytes } }),
+    done: (): Response => ({ op: 'done' }),
+};
+
 export interface Grant {
     to: string;
     ops: string[];

@@ -234,5 +234,43 @@ export function createFileSyscalls(
             const result = await vfs.access(path, proc.id);
             yield respond.ok(result);
         },
+
+        /**
+         * Receive messages from fd (message-based I/O).
+         * Used for fd 0/1/2 (recv/send/warn) which are MessagePipe handles.
+         */
+        async *recv(proc: Process, fd: unknown): AsyncIterable<Response> {
+            if (typeof fd !== 'number') {
+                yield respond.error('EINVAL', 'fd must be a number');
+                return;
+            }
+
+            const handle = getHandle(proc, fd);
+            if (!handle) {
+                yield respond.error('EBADF', `Bad file descriptor: ${fd}`);
+                return;
+            }
+
+            yield* handle.exec({ op: 'recv' });
+        },
+
+        /**
+         * Send a message to fd (message-based I/O).
+         * Used for fd 0/1/2 (recv/send/warn) which are MessagePipe handles.
+         */
+        async *send(proc: Process, fd: unknown, msg: unknown): AsyncIterable<Response> {
+            if (typeof fd !== 'number') {
+                yield respond.error('EINVAL', 'fd must be a number');
+                return;
+            }
+
+            const handle = getHandle(proc, fd);
+            if (!handle) {
+                yield respond.error('EBADF', `Bad file descriptor: ${fd}`);
+                return;
+            }
+
+            yield* handle.exec({ op: 'send', data: msg as Response });
+        },
     };
 }

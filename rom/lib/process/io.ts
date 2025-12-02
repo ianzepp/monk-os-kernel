@@ -3,6 +3,8 @@
  */
 
 import { open, close, read, readAll, readText, write } from './file';
+import { send } from './pipe';
+import { respond } from './types';
 
 const DEFAULT_MAX_READ = 10 * 1024 * 1024; // 10MB
 
@@ -84,19 +86,19 @@ export async function copyFile(srcPath: string, dstPath: string): Promise<number
 }
 
 export async function print(text: string): Promise<void> {
-    await write(1, new TextEncoder().encode(text));
+    await send(1, respond.item({ text }));
 }
 
 export async function println(text: string): Promise<void> {
-    await write(1, new TextEncoder().encode(text + '\n'));
+    await send(1, respond.item({ text: text + '\n' }));
 }
 
 export async function eprint(text: string): Promise<void> {
-    await write(2, new TextEncoder().encode(text));
+    await send(2, respond.item({ text }));
 }
 
 export async function eprintln(text: string): Promise<void> {
-    await write(2, new TextEncoder().encode(text + '\n'));
+    await send(2, respond.item({ text: text + '\n' }));
 }
 
 export function sleep(ms: number): Promise<void> {

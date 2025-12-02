@@ -27,6 +27,9 @@ export type {
     SignalHandler,
 } from './types';
 
+// Response helper
+export { respond } from './types';
+
 // Error
 export { SyscallError } from './error';
 
@@ -42,11 +45,11 @@ export { mkdir, unlink, rmdir, readdir, readdirAll, rename, symlink } from './di
 // Access control
 export { access } from './access';
 
-// Pipe operations
-export { pipe, redirect } from './pipe';
+// Pipe operations (message-based I/O)
+export { pipe, redirect, recv, send } from './pipe';
 
 // Network operations
-export { connect, unix, listen, watch, udp, pubsub, recv, send, pclose } from './net';
+export { connect, unix, listen, watch, udp, pubsub, portRecv, portSend, pclose } from './net';
 
 // Worker pool operations
 export { pool, worker } from './worker';

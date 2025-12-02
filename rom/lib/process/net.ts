@@ -68,8 +68,8 @@ export function pubsub(opts?: PubsubOpts): Promise<number> {
  * @param portId - Port handle
  * @returns Port message with from, data, fd, meta
  */
-export function recv(portId: number): Promise<PortMessage> {
-    return call<PortMessage>('recv', portId);
+export function portRecv(portId: number): Promise<PortMessage> {
+    return call<PortMessage>('port:recv', portId);
 }
 
 /**
@@ -78,8 +78,8 @@ export function recv(portId: number): Promise<PortMessage> {
  * @param to - Destination address or topic
  * @param data - Data to send
  */
-export function send(portId: number, to: string, data: Uint8Array): Promise<void> {
-    return call<void>('send', portId, to, data);
+export function portSend(portId: number, to: string, data: Uint8Array): Promise<void> {
+    return call<void>('port:send', portId, to, data);
 }
 
 /**
