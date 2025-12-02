@@ -210,6 +210,107 @@ describe('rewriteImports', () => {
         expect(result).toContain(`const VERSION = '1.0';`);
         expect(result).toContain(`exports.VERSION = VERSION`);
     });
+
+    // Edge case tests from OS_TRANSPILER.md
+    test('should handle multi-line imports', () => {
+        const js = `import {
+    foo,
+    bar,
+    baz,
+} from '/lib/utils';`;
+        const result = rewriteImports(js, '/bin/app.ts');
+        expect(result).toContain(`__require('/lib/utils.ts')`);
+        expect(result).toContain('foo');
+        expect(result).toContain('bar');
+        expect(result).toContain('baz');
+    });
+
+    test('should handle mixed default and named imports', () => {
+        const js = `import Config, { version, name } from '/lib/config';`;
+        const result = rewriteImports(js, '/bin/app.ts');
+        expect(result).toContain(`__require('/lib/config.ts')`);
+        expect(result).toContain('.default');
+        expect(result).toContain('version');
+        expect(result).toContain('name');
+    });
+
+    test('should handle export * from path', () => {
+        const js = `export * from '/lib/utils';`;
+        const result = rewriteImports(js, '/bin/app.ts');
+        expect(result).toContain(`Object.assign(exports, __require('/lib/utils.ts'))`);
+    });
+
+    test('should handle re-exports with aliasing', () => {
+        const js = `export { foo as bar } from '/lib/utils';`;
+        const result = rewriteImports(js, '/bin/app.ts');
+        expect(result).toContain(`__require('/lib/utils.ts')`);
+        expect(result).toContain('exports.bar');
+        expect(result).toContain('.foo');
+    });
+
+    test('should handle local export aliasing', () => {
+        const js = `export { localName as exportedName };`;
+        const result = rewriteImports(js, '/bin/app.ts');
+        expect(result).toContain('exports.exportedName = localName');
+    });
+
+    test('should handle import aliasing', () => {
+        const js = `import { foo as bar } from '/lib/utils';`;
+        const result = rewriteImports(js, '/bin/app.ts');
+        expect(result).toContain(`__require('/lib/utils.ts')`);
+        expect(result).toContain('foo: bar');
+    });
+
+    test('should handle async function exports', () => {
+        const js = `export async function fetchData() { return await fetch('/api'); }`;
+        const result = rewriteImports(js, '/bin/app.ts');
+        expect(result).toContain('async function fetchData()');
+        expect(result).toContain('exports.fetchData = fetchData');
+    });
+
+    test('should handle generator function exports', () => {
+        const js = `export function* generate() { yield 1; yield 2; }`;
+        const result = rewriteImports(js, '/bin/app.ts');
+        expect(result).toContain('function* generate()');
+        expect(result).toContain('exports.generate = generate');
+    });
+
+    test('should handle async generator exports', () => {
+        const js = `export async function* stream() { yield 1; }`;
+        const result = rewriteImports(js, '/bin/app.ts');
+        expect(result).toContain('async function* stream()');
+        expect(result).toContain('exports.stream = stream');
+    });
+
+    test('should handle class exports', () => {
+        const js = `export class Service { constructor() {} }`;
+        const result = rewriteImports(js, '/bin/app.ts');
+        expect(result).toContain('class Service');
+        expect(result).toContain('exports.Service = Service');
+    });
+
+    test('should handle export default class', () => {
+        const js = `export default class MyClass {}`;
+        const result = rewriteImports(js, '/bin/app.ts');
+        expect(result).toContain('exports.default = class MyClass');
+    });
+
+    test('should handle export default expression', () => {
+        const js = `export default { foo: 1, bar: 2 };`;
+        const result = rewriteImports(js, '/bin/app.ts');
+        expect(result).toContain('exports.default = { foo: 1, bar: 2 }');
+    });
+
+    test('should preserve code outside imports/exports', () => {
+        const js = `import { foo } from '/lib/utils';
+const x = 1;
+function helper() { return foo + x; }
+export { helper };`;
+        const result = rewriteImports(js, '/bin/app.ts');
+        expect(result).toContain('const x = 1');
+        expect(result).toContain('function helper()');
+        expect(result).toContain('exports.helper = helper');
+    });
 });
 
 describe('VFSLoader', () => {

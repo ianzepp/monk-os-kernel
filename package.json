@@ -27,5 +27,9 @@
     },
     "engines": {
         "bun": ">=1.0.0"
+    },
+    "dependencies": {
+        "acorn": "^8.15.0",
+        "acorn-loose": "^8.5.2"
     }
 }

@@ -4,6 +4,8 @@
  * Functions for extracting, resolving, and rewriting ES imports.
  */
 
+import { rewriteImportsAST } from './rewriter.js';
+
 /**
  * Extract import paths from JavaScript code.
  *
@@ -116,6 +118,8 @@ export function isVFSPath(path: string): boolean {
 /**
  * Rewrite ES imports to use CommonJS-style __require().
  *
+ * Uses AST-based transformation for robust handling of all edge cases.
+ *
  * Transforms:
  * - import { x, y } from '/path' -> const { x, y } = __require('/path')
  * - import x from '/path' -> const x = __require('/path').default
@@ -126,151 +130,5 @@ export function isVFSPath(path: string): boolean {
  * - export default x -> exports.default = x
  */
 export function rewriteImports(js: string, fromModule: string): string {
-    let result = js;
-
-    // import { x, y } from '/path' -> const { x, y } = __require('/path')
-    result = result.replace(
-        /import\s+\{([^}]+)\}\s+from\s+['"]([^'"]+)['"]/g,
-        (_, imports, path) => {
-            const resolved = resolveImport(path, fromModule);
-            return `const {${imports}} = __require('${resolved}')`;
-        }
-    );
-
-    // import x from '/path' -> const x = __require('/path').default
-    result = result.replace(
-        /import\s+(\w+)\s+from\s+['"]([^'"]+)['"]/g,
-        (_, name, path) => {
-            const resolved = resolveImport(path, fromModule);
-            return `const ${name} = __require('${resolved}').default`;
-        }
-    );
-
-    // import * as x from '/path' -> const x = __require('/path')
-    result = result.replace(
-        /import\s+\*\s+as\s+(\w+)\s+from\s+['"]([^'"]+)['"]/g,
-        (_, name, path) => {
-            const resolved = resolveImport(path, fromModule);
-            return `const ${name} = __require('${resolved}')`;
-        }
-    );
-
-    // import '/path' -> __require('/path')
-    result = result.replace(
-        /import\s+['"]([^'"]+)['"]\s*;?/g,
-        (_, path) => {
-            const resolved = resolveImport(path, fromModule);
-            return `__require('${resolved}');`;
-        }
-    );
-
-    // export default x -> exports.default = x
-    result = result.replace(
-        /export\s+default\s+/g,
-        'exports.default = '
-    );
-
-    // export * from '/path' -> Object.assign(exports, __require('/path'))
-    result = result.replace(
-        /export\s+\*\s+from\s+['"]([^'"]+)['"]\s*;?/g,
-        (_, path) => {
-            const resolved = resolveImport(path, fromModule);
-            return `Object.assign(exports, __require('${resolved}'));`;
-        }
-    );
-
-    // export { x, y } from '/path' -> const __reexport = __require('/path'); exports.x = __reexport.x; ...
-    result = result.replace(
-        /export\s+\{([^}]+)\}\s+from\s+['"]([^'"]+)['"]\s*;?/g,
-        (_, names, path) => {
-            const resolved = resolveImport(path, fromModule);
-            const items = names.split(',')
-                .map((n: string) => n.trim())
-                .filter((n: string) => n && !n.startsWith('type '));
-            if (items.length === 0) return ''; // Type-only exports
-            const tempVar = `__reexport_${Math.random().toString(36).slice(2, 8)}`;
-            const assigns = items.map((n: string) => {
-                // Handle "x as y" syntax
-                const parts = n.split(/\s+as\s+/);
-                const source = parts[0]!.trim();
-                const exported = (parts[1] ?? parts[0]!).trim();
-                return `exports.${exported} = ${tempVar}.${source}`;
-            }).join('; ');
-            return `const ${tempVar} = __require('${resolved}'); ${assigns};`;
-        }
-    );
-
-    // export { x, y } -> exports.x = x; exports.y = y
-    result = result.replace(
-        /export\s+\{([^}]+)\}/g,
-        (_, names) => {
-            const items = names.split(',').map((n: string) => n.trim()).filter(Boolean);
-            return items.map((n: string) => {
-                // Handle "x as y" syntax
-                const parts = n.split(/\s+as\s+/);
-                const local = parts[0]!.trim();
-                const exported = (parts[1] ?? parts[0]!).trim();
-                return `exports.${exported} = ${local}`;
-            }).join('; ');
-        }
-    );
-
-    // export function x() -> function x() ... (track for later export)
-    // export class X -> class X ...
-    // export const/let/var x -> const/let/var x ...
-    // These need post-processing to add exports
-
-    const exportedNames: string[] = [];
-
-    // Handle async generator functions: export async function* x -> async function* x
-    result = result.replace(
-        /export\s+(async\s+function\s*\*)\s*(\w+)/g,
-        (_, type, name) => {
-            exportedNames.push(name);
-            return `${type} ${name}`;
-        }
-    );
-
-    // Handle async functions: export async function x -> async function x
-    result = result.replace(
-        /export\s+(async\s+function)\s+(\w+)/g,
-        (_, type, name) => {
-            exportedNames.push(name);
-            return `${type} ${name}`;
-        }
-    );
-
-    // Handle generator functions: export function* x -> function* x
-    result = result.replace(
-        /export\s+(function\s*\*)\s*(\w+)/g,
-        (_, type, name) => {
-            exportedNames.push(name);
-            return `${type} ${name}`;
-        }
-    );
-
-    // Handle sync functions and classes: export function x -> function x
-    result = result.replace(
-        /export\s+(function|class)\s+(\w+)/g,
-        (_, type, name) => {
-            exportedNames.push(name);
-            return `${type} ${name}`;
-        }
-    );
-
-    result = result.replace(
-        /export\s+(const|let|var)\s+(\w+)/g,
-        (_, kind, name) => {
-            exportedNames.push(name);
-            return `${kind} ${name}`;
-        }
-    );
-
-    // Append exports for named function/class/variable exports
-    if (exportedNames.length > 0) {
-        const exportStatements = exportedNames.map(name => `exports.${name} = ${name};`).join('\n');
-        result += '\n' + exportStatements;
-    }
-
-    return result;
+    return rewriteImportsAST(js, fromModule);
 }
