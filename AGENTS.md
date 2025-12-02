@@ -298,16 +298,16 @@ interface ExecOpts {
 
 **Directory Structure**:
 - `index.ts` - Re-exports all modules
-- `types.ts` - OpenFlags, Stat, SpawnOpts, Message, Response, etc.
+- `types.ts` - OpenFlags, Stat, SpawnOpts, Message, Response, respond helper
 - `syscall.ts` - Core syscall transport (postMessage, stream handling)
 - `error.ts` - SyscallError class
 - `file.ts` - File operations (open, read, write, stat, etc.)
 - `dir.ts` - Directory operations (mkdir, readdir, unlink, etc.)
-- `net.ts` - Network operations (connect, listen, recv, send, etc.)
+- `net.ts` - Network operations (connect, listen, portRecv, portSend, etc.)
 - `proc.ts` - Process operations (spawn, exit, wait, getpid, etc.)
 - `env.ts` - Environment (getcwd, chdir, getenv, setenv)
 - `io.ts` - Convenience I/O (readFile, writeFile, print, println)
-- `pipe.ts` - Pipe operations
+- `pipe.ts` - Pipe and message I/O (pipe, recv, send)
 - `channel.ts` - Channel operations (httpRequest, sqlQuery)
 - `worker.ts` - Worker pool operations
 - `access.ts` - Access control
@@ -727,9 +727,14 @@ ppid = await getppid();                        // Get parent PID
 // Networking
 fd = await connect('host', port);              // TCP connect
 portId = await listen({ port: 8080 });         // TCP listen
-msg = await recv(portId);                      // Receive message
-await send(portId, to, data);                  // Send message
+msg = await portRecv(portId);                  // Receive from port
+await portSend(portId, to, data);              // Send to port
 await pclose(portId);                          // Close port
+
+// Message-based I/O (fd 0/1/2)
+for await (const msg of recv(0)) { ... }       // Receive messages from fd
+await send(1, respond.item({ text }));         // Send message to fd
+await println('hello');                        // Convenience: send text + newline
 
 // Pipes (message-based)
 [recvFd, sendFd] = await pipe();               // Create message pipe

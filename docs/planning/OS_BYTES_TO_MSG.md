@@ -80,7 +80,7 @@ The kernel was designed around message-passing (`Message` and `Response` objects
 │  ls -l                                                                       │
 │    entries[] (structured data)                                               │
 │         ↓                                                                    │
-│    yield Response { op: 'item', data: { line: name } }                      │
+│    yield Response { op: 'item', data: { text: name + '\n' } }               │
 └─────────────────────────────────────────────────────────────────────────────┘
                                                      ↓
                               ┌───────────────────────────────────────┐
@@ -91,9 +91,9 @@ The kernel was designed around message-passing (`Message` and `Response` objects
                                                      ↓
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │  grep pattern                                                                │
-│    for await (const msg of stdin)                                           │
-│      if (msg.data.line.includes(pattern))                                   │
-│        yield msg                                                             │
+│    for await (const msg of recv(0))                                         │
+│      if (msg.data.text.includes(pattern))                                   │
+│        send(1, msg)                                                          │
 └─────────────────────────────────────────────────────────────────────────────┘
                                                      ↓
                               ┌───────────────────────────────────────┐
@@ -102,13 +102,13 @@ The kernel was designed around message-passing (`Message` and `Response` objects
                                                      ↓
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │  sort                                                                        │
-│    collect all items  →  sort by data.line  →  yield sorted items           │
+│    collect all items  →  sort by data.text  →  yield sorted items           │
 └─────────────────────────────────────────────────────────────────────────────┘
                                                      ↓
                               ┌───────────────────────────────────────┐
                               │  /dev/console                         │
                               │  ONLY HERE: Response → bytes          │
-                              │  TextEncoder.encode(item.data.line)   │
+                              │  TextEncoder.encode(item.data.text)   │
                               └───────────────────────────────────────┘
 ```
 
@@ -369,23 +369,39 @@ export class MessagePipe implements Handle {
 }
 ```
 
-### Phase 2: Process Library I/O
+### Phase 2: Process Library I/O ✓ COMPLETED
 
-1. Add message-oriented I/O functions:
-   ```typescript
-   // New: yields Response items
-   export async function* readItems(fd: number): AsyncIterable<Response> { ... }
+> **Status**: Implemented. Process library now uses message-based I/O for fd 0/1/2.
 
-   // New: sends Response item
-   export async function writeItem(fd: number, item: Response): Promise<void> { ... }
+**Changes made:**
 
-   // Updated: internally uses writeItem
-   export async function println(text: string): Promise<void> {
-       await writeItem(1, respond.item({ line: text }));
-   }
-   ```
+| File | Change |
+|------|--------|
+| `rom/lib/process/pipe.ts` | Added `recv()` and `send()` for message I/O |
+| `rom/lib/process/io.ts` | Updated `print`/`println`/`eprint`/`eprintln` to send messages |
+| `rom/lib/process/types.ts` | Added `respond` helper |
+| `rom/lib/process/syscall.ts` | Fixed `iterate()` to handle `chunk` responses |
+| `rom/lib/process/net.ts` | Renamed `recv`/`send` → `portRecv`/`portSend` |
+| `rom/lib/process/index.ts` | Export `recv`, `send`, `respond` |
+| `src/kernel/syscalls/file.ts` | Added `recv`/`send` syscalls |
+| `src/kernel/syscalls/network.ts` | Renamed to `port:recv`/`port:send` |
 
-2. Keep byte-oriented functions for file I/O (actual disk reads/writes need bytes)
+**API:**
+
+```typescript
+// Receive messages from fd (typically fd 0)
+export async function* recv(fd: number = 0): AsyncIterable<Response>
+
+// Send a message to fd (typically fd 1)
+export async function send(fd: number, msg: Response): Promise<void>
+
+// Convenience functions now use message I/O
+export async function println(s: string): Promise<void> {
+    await send(1, respond.item({ text: s + '\n' }));
+}
+```
+
+**Note**: Byte-oriented `read()`/`write()` remain for file I/O (fd 3+)
 
 ### Phase 3: Update Streaming Utilities
 
@@ -402,11 +418,11 @@ export class MessagePipe implements Handle {
 
 ## Response Item Format for Text Streams
 
-Proposed standard format for line-oriented text in pipes:
+Standard format for text in pipes:
 
 ```typescript
-// Single line of text
-{ op: 'item', data: { line: string } }
+// Text (includes newline if needed)
+{ op: 'item', data: { text: string } }
 
 // Binary chunk (for file copies, etc.)
 { op: 'chunk', data: { bytes: Uint8Array } }
@@ -419,10 +435,12 @@ Proposed standard format for line-oriented text in pipes:
 ```
 
 Utilities can check `response.op`:
-- `'item'` → text line, access via `response.data.line`
+- `'item'` → text, access via `response.data.text`
 - `'chunk'` → binary data, access via `response.data.bytes`
 - `'done'` → EOF
 - `'error'` → handle error
+
+**Note**: The `text` field contains exactly what should be output, including any trailing newline. `println("hello")` sends `{ text: "hello\n" }`.
 
 ---
 
