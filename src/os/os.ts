@@ -12,8 +12,10 @@ import { BunHAL } from '@src/hal/index.js';
 import { VFS } from '@src/vfs/vfs.js';
 import { Kernel } from '@src/kernel/kernel.js';
 import type { ServiceDef } from '@src/kernel/services.js';
-import type { OSConfig, BootOpts } from './types.js';
+import type { OSConfig, BootOpts, ExecOpts } from './types.js';
 import { FilesystemAPI } from './fs.js';
+import { ProcessAPI } from './process.js';
+import { ServiceAPI } from './service.js';
 
 /**
  * OS class - main entry point for Monk OS
@@ -33,8 +35,20 @@ export class OS {
      */
     readonly fs: FilesystemAPI;
 
+    /**
+     * Process API for spawning and running processes.
+     */
+    readonly process: ProcessAPI;
+
+    /**
+     * Service API for managing services.
+     */
+    readonly service: ServiceAPI;
+
     constructor(config?: OSConfig) {
         this.fs = new FilesystemAPI(this);
+        this.process = new ProcessAPI(this);
+        this.service = new ServiceAPI(this);
         this.config = config ?? {};
 
         // Initialize aliases from config
@@ -115,6 +129,39 @@ export class OS {
         }
 
         this.booted = true;
+    }
+
+    /**
+     * Execute the OS in takeover mode.
+     *
+     * Boots the OS and blocks the calling thread until the init process exits.
+     * The App's main thread becomes the OS - this is the "takeover" mode.
+     *
+     * @param opts - Exec options (main is required)
+     * @returns Exit code from the init process
+     *
+     * @example
+     * ```typescript
+     * const os = new OS({ aliases: { '@app': '/vol/app' } });
+     * os.mount('./src', '@app');
+     *
+     * // This line blocks until init exits
+     * const exitCode = await os.exec({ main: '@app/init.ts' });
+     * process.exit(exitCode);
+     * ```
+     */
+    async exec(opts: ExecOpts): Promise<number> {
+        // 1. Boot the OS with the main script
+        await this.boot({ main: opts.main, debug: opts.debug });
+
+        // 2. Wait for init (PID 1) to exit
+        // TODO: Implement init process tracking and wait
+        // - Get handle to init process from kernel
+        // - Block until init exits
+        // - Forward signals (SIGTERM, SIGINT) to init
+        // - Return init's exit code
+
+        throw new Error('os.exec() takeover mode not implemented');
     }
 
     /**

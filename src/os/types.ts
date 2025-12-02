@@ -52,6 +52,22 @@ export interface BootOpts {
 }
 
 /**
+ * Exec options for takeover mode
+ */
+export interface ExecOpts {
+    /**
+     * Path to init script (inside OS).
+     * Required for exec() takeover mode.
+     */
+    main: string;
+
+    /**
+     * Enable kernel debug logging (printk).
+     */
+    debug?: boolean;
+}
+
+/**
  * Mount options for host filesystem mounts
  */
 export interface MountOpts {
@@ -77,4 +93,105 @@ export interface Stat {
     mtime: number;
     /** Created time (ms since epoch) */
     ctime: number;
+}
+
+// ============================================================================
+// Process API Types
+// ============================================================================
+
+/**
+ * Options for spawning a process
+ */
+export interface SpawnOpts {
+    /** Command-line arguments */
+    args?: string[];
+    /** Environment variables */
+    env?: Record<string, string>;
+    /** Working directory */
+    cwd?: string;
+    /** Standard input */
+    stdin?: 'pipe' | 'inherit' | 'null';
+    /** Standard output */
+    stdout?: 'pipe' | 'inherit' | 'null';
+    /** Standard error */
+    stderr?: 'pipe' | 'inherit' | 'null';
+}
+
+/**
+ * Options for running a command to completion
+ */
+export interface RunOpts extends SpawnOpts {
+    /** Timeout in milliseconds */
+    timeout?: number;
+    /** Maximum output buffer size in bytes */
+    maxBuffer?: number;
+}
+
+/**
+ * Handle to a running process
+ */
+export interface ProcessHandle {
+    /** Process ID */
+    pid: number;
+    /** Process path/command */
+    cmd: string;
+    /** Send signal to process */
+    kill(signal?: number): Promise<void>;
+    /** Wait for process to exit */
+    wait(): Promise<ProcessResult>;
+    /** Write to stdin (if piped) */
+    stdin?: WritableStream<Uint8Array>;
+    /** Read from stdout (if piped) */
+    stdout?: ReadableStream<Uint8Array>;
+    /** Read from stderr (if piped) */
+    stderr?: ReadableStream<Uint8Array>;
+}
+
+/**
+ * Result of a completed process
+ */
+export interface ProcessResult {
+    /** Exit code */
+    exitCode: number;
+    /** Signal that terminated the process, if any */
+    signal?: string;
+}
+
+/**
+ * Result of running a command to completion
+ */
+export interface RunResult extends ProcessResult {
+    /** Buffered stdout */
+    stdout: string;
+    /** Buffered stderr */
+    stderr: string;
+}
+
+// ============================================================================
+// Service API Types
+// ============================================================================
+
+/**
+ * Service status
+ */
+export type ServiceStatus = 'stopped' | 'starting' | 'running' | 'stopping' | 'failed';
+
+/**
+ * Service information returned by list/get operations
+ */
+export interface ServiceInfo {
+    /** Service name (derived from handler path or explicit) */
+    name: string;
+    /** Handler path */
+    handler: string;
+    /** Current status */
+    status: ServiceStatus;
+    /** Process ID if running */
+    pid?: number;
+    /** Activation type */
+    activationType: string;
+    /** Error message if failed */
+    error?: string;
+    /** Start time (ms since epoch) */
+    startedAt?: number;
 }
