@@ -66,6 +66,14 @@ interfaces. This document ensures we leverage Bun's capabilities fully.
 | `process.stdout` | ConsoleDevice | Standard output |
 | `process.stderr` | ConsoleDevice | Standard error |
 
+### Compression
+| Primitive | HAL Device | Usage |
+|-----------|------------|-------|
+| `Bun.gzipSync()` | CompressionDevice | Gzip compress |
+| `Bun.gunzipSync()` | CompressionDevice | Gzip decompress |
+| `Bun.deflateSync()` | CompressionDevice | Deflate compress |
+| `Bun.inflateSync()` | CompressionDevice | Deflate decompress |
+
 ---
 
 ## Recommendations
@@ -75,11 +83,15 @@ interfaces. This document ensures we leverage Bun's capabilities fully.
 #### 1. Compression Device
 **Primitives:** `Bun.gzipSync()`, `Bun.gunzipSync()`, `Bun.deflateSync()`, `Bun.inflateSync()`
 
+**Status:** DONE - Implemented in `src/hal/compression.ts`
+
 ```typescript
 interface CompressionDevice {
-    gzip(data: Uint8Array, level?: number): Uint8Array;
+    compress(alg: 'gzip' | 'deflate', data: Uint8Array, opts?: { level?: 0-9 }): Uint8Array;
+    decompress(alg: 'gzip' | 'deflate', data: Uint8Array): Uint8Array;
+    gzip(data: Uint8Array, opts?): Uint8Array;
     gunzip(data: Uint8Array): Uint8Array;
-    deflate(data: Uint8Array, level?: number): Uint8Array;
+    deflate(data: Uint8Array, opts?): Uint8Array;
     inflate(data: Uint8Array): Uint8Array;
 }
 ```
@@ -90,33 +102,28 @@ interface CompressionDevice {
 - Log rotation / archival
 - Backup/export optimization
 
-**Complexity:** Easy
-
 #### 2. Native Glob Matching
 **Primitive:** `Bun.Glob`
 
-**Current issue:** Manual regex conversion in `src/hal/storage.ts:339-346`
+**Status:** Limited usefulness - host filesystem only
 
-```typescript
-// Before (current)
-private matchPattern(pattern: string, key: string): boolean {
-    const regex = pattern
-        .replace(/\*\*/g, '<<<DOUBLESTAR>>>')
-        .replace(/\*/g, '[^/]*')
-        .replace(/<<<DOUBLESTAR>>>/g, '.*');
-    return new RegExp(`^${regex}$`).test(key);
-}
+`Bun.Glob` has two modes:
+- `glob.match(path)` - Pure pattern matching (usable)
+- `glob.scan(dir)` - File system scanning (host FS only, unusable for VFS)
 
-// After (proposed)
-private matchPattern(pattern: string, key: string): boolean {
-    const glob = new Bun.Glob(pattern);
-    return glob.match(key);
-}
-```
+**Limitation:** The VFS is an in-memory abstraction backed by SQLite/PostgreSQL,
+not the host filesystem. `Bun.Glob.scan()` cannot walk the VFS.
 
-**Benefits:** Native performance, correct semantics, less code
+**Potential use case:** HostMount / LocalMount that exposes host filesystem paths
+could benefit from `Bun.Glob.scan()` for efficient directory traversal.
 
-**Complexity:** Easy
+**Current approach:** Userspace `rom/lib/glob.ts` provides pure pattern matching.
+Shell does `readdir()` + filter with `glob.match()`. This works with the VFS.
+
+**Minor optimization:** Could replace manual regex in `src/hal/storage.ts:339-346`
+with `Bun.Glob.match()` for pattern matching, but low priority.
+
+**Complexity:** N/A (not recommended for kernel/VFS)
 
 #### 3. Memory-Mapped Files
 **Primitive:** `Bun.mmap()`
@@ -296,14 +303,14 @@ Could be a VFS mount type for cloud storage.
 
 ## Code Improvement Targets
 
-| File | Lines | Issue | Solution |
-|------|-------|-------|----------|
-| `src/hal/storage.ts` | 339-346 | Manual glob regex | `Bun.Glob` |
-| `src/hal/block.ts` | 177-231 | Read-modify-write | `Bun.mmap()` |
-| `src/hal/network.ts` | 508-518 | Manual buffering | `ArrayBufferSink` |
-| `src/hal/crypto.ts` | 170-187 | Missing algorithms | Add blake2b256, md5 |
-| `src/hal/dns.ts` | 84-112 | No caching | Add TTL cache |
-| `src/hal/index.ts` | 192 | PostgreSQL stub | `Bun.sql()` |
+| File | Lines | Issue | Solution | Status |
+|------|-------|-------|----------|--------|
+| `src/hal/storage.ts` | 339-346 | Manual glob regex | `Bun.Glob.match()` | Low priority (VFS limitation) |
+| `src/hal/block.ts` | 177-231 | Read-modify-write | `Bun.mmap()` | Pending |
+| `src/hal/network.ts` | 508-518 | Manual buffering | `ArrayBufferSink` | Pending |
+| `src/hal/crypto.ts` | 170-187 | Missing algorithms | Add blake2b256, md5 | Pending |
+| `src/hal/dns.ts` | 84-112 | No caching | Add TTL cache | Pending |
+| `src/hal/index.ts` | 192 | PostgreSQL stub | `Bun.sql()` | Pending |
 
 ---
 
@@ -313,14 +320,14 @@ Could be a VFS mount type for cloud storage.
 |----------|------|-----------|----------|
 | File I/O | 2 | 3 (+ mmap) | 67% |
 | Storage | 1 | 4 (+ pg, mysql, redis) | 25% |
-| Compression | 0 | 3 | 0% |
-| Pattern Matching | 0 | 1 | 0% |
+| Compression | 3 | 3 | 100% |
+| Pattern Matching | 0 | 1 | N/A (VFS limitation) |
 | Transpilation | 0 | 1 | 0% |
 | Cloud | 0 | 1 | 0% |
 | Buffering | 0 | 1 | 0% |
 | Native Code | 0 | 1 | 0% |
 
-**Overall:** ~30% of available Bun capabilities leveraged
+**Overall:** ~35% of available Bun capabilities leveraged
 
 ---
 
