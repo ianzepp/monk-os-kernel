@@ -128,22 +128,21 @@ with `Bun.Glob.match()` for pattern matching, but low priority.
 #### 3. Memory-Mapped Files
 **Primitive:** `Bun.mmap()`
 
-```typescript
-interface MmapDevice {
-    map(path: string, opts?: { shared?: boolean }): Uint8Array;
-    unmap(mapped: Uint8Array): void;
-}
-```
+**Status:** Limited usefulness - host filesystem only
 
-**Use cases:**
-- Zero-copy large file access
-- Shared memory between processes
-- Efficient VFS for large files
-- Database-like random access
+**Limitation:** Like `Bun.Glob`, `Bun.mmap()` operates on the host filesystem,
+not the VFS. The VFS is backed by SQLite/PostgreSQL storage.
 
-**Current issue:** Read-modify-write cycle in `src/hal/block.ts:177-231`
+Additionally, the VFS already streams chunks, supporting effectively infinite
+file sizes. mmap requires the entire file to fit in virtual address space.
 
-**Complexity:** Medium
+**Potential use cases:**
+- Inter-worker shared memory (but `SharedArrayBuffer` already exists in IPCDevice)
+- HostMount/LocalMount for host filesystem access
+
+**Not recommended:** No clear use case for kernel/VFS at this time.
+
+**Complexity:** N/A
 
 ### Medium Priority
 
@@ -306,7 +305,7 @@ Could be a VFS mount type for cloud storage.
 | File | Lines | Issue | Solution | Status |
 |------|-------|-------|----------|--------|
 | `src/hal/storage.ts` | 339-346 | Manual glob regex | `Bun.Glob.match()` | Low priority (VFS limitation) |
-| `src/hal/block.ts` | 177-231 | Read-modify-write | `Bun.mmap()` | Pending |
+| `src/hal/block.ts` | 177-231 | Read-modify-write | `Bun.mmap()` | N/A (host FS only) |
 | `src/hal/network.ts` | 508-518 | Manual buffering | `ArrayBufferSink` | Pending |
 | `src/hal/crypto.ts` | 170-187 | Missing algorithms | Add blake2b256, md5 | Pending |
 | `src/hal/dns.ts` | 84-112 | No caching | Add TTL cache | Pending |
@@ -318,16 +317,17 @@ Could be a VFS mount type for cloud storage.
 
 | Category | Used | Available | Coverage |
 |----------|------|-----------|----------|
-| File I/O | 2 | 3 (+ mmap) | 67% |
+| File I/O | 2 | 2 | 100% |
+| Memory Map | 0 | 1 | N/A (host FS only) |
 | Storage | 1 | 4 (+ pg, mysql, redis) | 25% |
 | Compression | 3 | 3 | 100% |
-| Pattern Matching | 0 | 1 | N/A (VFS limitation) |
+| Pattern Matching | 0 | 1 | N/A (host FS only) |
 | Transpilation | 0 | 1 | 0% |
 | Cloud | 0 | 1 | 0% |
 | Buffering | 0 | 1 | 0% |
 | Native Code | 0 | 1 | 0% |
 
-**Overall:** ~35% of available Bun capabilities leveraged
+**Overall:** ~40% of applicable Bun capabilities leveraged (excluding host-FS-only primitives)
 
 ---
 
