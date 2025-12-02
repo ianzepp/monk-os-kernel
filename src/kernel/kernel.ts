@@ -51,16 +51,6 @@ import {
 } from '@src/kernel/validate.js';
 
 /**
- * Debug logging - enabled via DEBUG=1 environment variable
- */
-const DEBUG = process.env.DEBUG === '1';
-function debug(category: string, ...args: unknown[]): void {
-    if (DEBUG) {
-        console.log(`[kernel:${category}]`, ...args);
-    }
-}
-
-/**
  * Console device path
  */
 const CONSOLE_PATH = '/dev/console';
@@ -95,6 +85,7 @@ export class Kernel {
 
     private waiters: Map<string, ((status: ExitStatus) => void)[]> = new Map();
     private booted = false;
+    private debugEnabled = false;
 
     // Service management
     private services: Map<string, ServiceDef> = new Map(); // name -> def
@@ -269,6 +260,22 @@ export class Kernel {
     }
 
     // ========================================================================
+    // Debug
+    // ========================================================================
+
+    /**
+     * Kernel debug logging (like Linux printk).
+     *
+     * Only outputs when debug mode is enabled via boot flag.
+     * Output goes directly to console, not through logd.
+     */
+    private printk(category: string, message: string): void {
+        if (this.debugEnabled) {
+            console.log(`[kernel:${category}] ${message}`);
+        }
+    }
+
+    // ========================================================================
     // Lifecycle
     // ========================================================================
 
@@ -281,6 +288,9 @@ export class Kernel {
         if (this.booted) {
             throw new Error('Kernel already booted');
         }
+
+        // Enable debug logging if requested
+        this.debugEnabled = env.debug ?? false;
 
         // Initialize VFS (creates root folder, /dev devices)
         await this.vfs.init();
@@ -361,7 +371,7 @@ export class Kernel {
         // Close all activation ports
         for (const port of this.activationPorts.values()) {
             await port.close().catch((err) => {
-                debug('cleanup', `activation port close failed: ${(err as Error).message}`);
+                this.printk('cleanup', `activation port close failed: ${(err as Error).message}`);
             });
         }
 
@@ -457,7 +467,7 @@ export class Kernel {
             try {
                 await this.closeHandle(proc, h);
             } catch (err) {
-                debug('cleanup', `handle ${h} close failed: ${(err as Error).message}`);
+                this.printk('cleanup', `handle ${h} close failed: ${(err as Error).message}`);
             }
         }
 
@@ -663,7 +673,7 @@ export class Kernel {
      * Handle syscall request with streaming response and backpressure.
      */
     private async handleSyscall(proc: Process, request: SyscallRequest): Promise<void> {
-        debug('syscall', `${proc.cmd}: ${request.name}(${JSON.stringify(request.args).slice(0, 100)})`);
+        this.printk('syscall', `${proc.cmd}: ${request.name}`);
 
         // Create abort controller for this stream
         const abort = new AbortController();
@@ -704,7 +714,7 @@ export class Kernel {
                         id: request.id,
                         result: { op: 'error', data: { code: 'ETIMEDOUT', message: 'Stream consumer unresponsive' } },
                     });
-                    debug('syscall', `${proc.cmd}: ${request.name} -> timeout (stall)`);
+                    this.printk('syscall', `${proc.cmd}: ${request.name} -> timeout (stall)`);
                     return;
                 }
 
@@ -717,7 +727,7 @@ export class Kernel {
 
                 // Terminal ops end the stream
                 if (response.op === 'ok' || response.op === 'done' || response.op === 'error' || response.op === 'redirect') {
-                    debug('syscall', `${proc.cmd}: ${request.name} -> ${response.op}`);
+                    this.printk('syscall', `${proc.cmd}: ${request.name} -> ${response.op}`);
                     return;
                 }
 
@@ -732,7 +742,7 @@ export class Kernel {
                 // Backpressure: pause if too far ahead of consumer
                 const gap = itemsSent - itemsAcked;
                 if (gap >= STREAM_HIGH_WATER) {
-                    debug('syscall', `${proc.cmd}: ${request.name} -> backpressure (gap=${gap})`);
+                    this.printk('syscall', `${proc.cmd}: ${request.name} -> backpressure (gap=${gap})`);
                     await new Promise<void>(resolve => {
                         resumeResolve = resolve;
                         // Also set a timeout to avoid permanent block
@@ -750,7 +760,7 @@ export class Kernel {
                             id: request.id,
                             result: { op: 'error', data: { code: 'ETIMEDOUT', message: 'Stream consumer unresponsive' } },
                         });
-                        debug('syscall', `${proc.cmd}: ${request.name} -> timeout (backpressure stall)`);
+                        this.printk('syscall', `${proc.cmd}: ${request.name} -> timeout (backpressure stall)`);
                         return;
                     }
                 }
@@ -763,7 +773,7 @@ export class Kernel {
                 id: request.id,
                 result: { op: 'error', data: { code: err.code ?? 'EIO', message: err.message } },
             });
-            debug('syscall', `${proc.cmd}: ${request.name} -> error: ${err.code ?? 'EIO'}`);
+            this.printk('syscall', `${proc.cmd}: ${request.name} -> error: ${err.code ?? 'EIO'}`);
         } finally {
             // Clean up stream tracking
             proc.activeStreams.delete(request.id);
@@ -996,7 +1006,7 @@ export class Kernel {
             const handle = this.handles.get(handleId);
             if (handle) {
                 handle.close().catch((err) => {
-                    debug('cleanup', `handle ${handleId} close failed: ${(err as Error).message}`);
+                    this.printk('cleanup', `handle ${handleId} close failed: ${(err as Error).message}`);
                 });
                 this.handles.delete(handleId);
             }
@@ -1309,7 +1319,7 @@ export class Kernel {
         const adapter = new ChannelHandleAdapter(channel.id, channel, `${channel.proto}:${channel.description}`);
         const h = this.allocHandle(proc, adapter);
 
-        debug('channel', `opened ${channel.proto}:${channel.description} as h ${h}`);
+        this.printk('channel', `opened ${channel.proto}:${channel.description} as h ${h}`);
         return h;
     }
 
@@ -1468,7 +1478,7 @@ export class Kernel {
                 this.runActivationLoop(name, def, port, abort.signal, (msg) => {
                     if (msg.socket) {
                         const stat = msg.socket.stat();
-                        debug('tcp', `${name}: accepted from ${stat.remoteAddr}:${stat.remotePort}`);
+                        this.printk('tcp', `${name}: accepted from ${stat.remoteAddr}:${stat.remotePort}`);
                         return {
                             socket: msg.socket,
                             activation: {
@@ -1592,7 +1602,7 @@ export class Kernel {
                     // Clean up socket if present (for TCP activation)
                     if (msg.socket) {
                         await msg.socket.close().catch((err) => {
-                            debug('cleanup', `socket close on abort failed: ${formatError(err)}`);
+                            this.printk('cleanup', `socket close on abort failed: ${formatError(err)}`);
                         });
                     }
                     break;
@@ -1605,7 +1615,7 @@ export class Kernel {
                         // Clean up socket on spawn failure (for TCP activation)
                         if (input.socket) {
                             input.socket.close().catch((closeErr) => {
-                                debug('cleanup', `socket close on spawn error failed: ${formatError(closeErr)}`);
+                                this.printk('cleanup', `socket close on spawn error failed: ${formatError(closeErr)}`);
                             });
                         }
                     });
@@ -1661,10 +1671,10 @@ export class Kernel {
         }
 
         // Start worker
-        debug('spawn', `${name}: spawning worker for ${entry}`);
+        this.printk('spawn', `${name}: spawning worker for ${entry}`);
         proc.worker = await this.spawnWorker(proc, entry);
         proc.state = 'running';
-        debug('spawn', `${name}: worker started, pid=${proc.id.slice(0, 8)}`);
+        this.printk('spawn', `${name}: worker started, pid=${proc.id.slice(0, 8)}`);
 
         // Register in process table
         this.processes.register(proc);
@@ -1957,7 +1967,7 @@ export class Kernel {
         if (procWorkers) {
             for (const [workerId, worker] of procWorkers.entries()) {
                 worker.release().catch((err) => {
-                    debug('cleanup', `worker ${workerId} release failed: ${(err as Error).message}`);
+                    this.printk('cleanup', `worker ${workerId} release failed: ${(err as Error).message}`);
                 });
             }
             this.leasedWorkers.delete(proc.id);

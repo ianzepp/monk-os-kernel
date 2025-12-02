@@ -46,6 +46,40 @@ main() {
 
     log_info "Starting compilation process..."
 
+    # Step 0: Validate message-pure kernel (no JSON serialization in kernel code)
+    # Exemptions:
+    #   - hal/channel/     : network boundary (TCP/UDP/WebSocket)
+    #   - vfs/             : storage boundary (entity/ACL persistence)
+    #   - kernel/mounts.ts : parses /etc/mounts.json config
+    #   - kernel/pool.ts   : parses /etc/pools.json config
+    #   - kernel/kernel.ts : parses service .json definitions
+    log_info "Validating message-pure kernel architecture..."
+    local json_violations=$(grep -rn 'JSON\.parse\|JSON\.stringify' src/ \
+        --include='*.ts' \
+        --exclude-dir='channel' \
+        --exclude-dir='vfs' \
+        2>/dev/null \
+        | grep -v 'hal/crypto.ts' \
+        | grep -v 'kernel/mounts.ts' \
+        | grep -v 'kernel/pool.ts' \
+        | grep -v 'kernel/kernel.ts' \
+        | grep -v 'kernel/types.ts' \
+        || true)
+    if [[ -n "$json_violations" ]]; then
+        log_error "Kernel code must be message-pure (no JSON serialization)"
+        log_error "Found JSON.parse/JSON.stringify in non-exempted code:"
+        echo "$json_violations" | while read -r line; do
+            log_error "  $line"
+        done
+        log_error "JSON serialization is only allowed at:"
+        log_error "  - Network boundaries (hal/channel/)"
+        log_error "  - Storage boundaries (vfs/)"
+        log_error "  - Config file parsing (kernel/mounts.ts, kernel/pool.ts)"
+        log_error "  - Service definitions (kernel/kernel.ts)"
+        exit 1
+    fi
+    log_info "Message-pure validation passed"
+
     # Clean existing dist directory
     if [[ -d "dist" ]]; then
         log_info "Cleaning existing dist/ directory"

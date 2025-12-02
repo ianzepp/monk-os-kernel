@@ -7,6 +7,7 @@
  * Usage:
  *   bun run boot              # In-memory storage
  *   bun run boot --sqlite     # SQLite storage in .data/
+ *   bun run boot --debug      # Enable kernel debug logging (printk)
  */
 
 import { createBunHAL } from '@src/hal/index.js';
@@ -16,6 +17,7 @@ import { Kernel } from '@src/kernel/kernel.js';
 // Parse args
 const args = process.argv.slice(2);
 const useSqlite = args.includes('--sqlite');
+const useDebug = args.includes('--debug');
 
 async function boot(): Promise<void> {
     console.log('Monk OS booting...');
@@ -47,6 +49,7 @@ async function boot(): Promise<void> {
             TERM: 'xterm-256color',
             HOSTNAME: 'monk',
         },
+        debug: useDebug,
     });
     console.log('  Kernel: booted');
 

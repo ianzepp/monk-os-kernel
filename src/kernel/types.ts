@@ -290,4 +290,7 @@ export interface BootEnv {
 
     /** Initial environment variables */
     env?: Record<string, string>;
+
+    /** Enable kernel debug logging (printk) */
+    debug?: boolean;
 }
