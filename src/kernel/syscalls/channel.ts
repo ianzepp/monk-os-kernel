@@ -25,7 +25,7 @@ export function createChannelSyscalls(
     closeHandle: (proc: Process, ch: number) => Promise<void>
 ): SyscallRegistry {
     return {
-        async *channel_open(proc: Process, proto: unknown, url: unknown, opts?: unknown): AsyncIterable<Response> {
+        async *'channel:open'(proc: Process, proto: unknown, url: unknown, opts?: unknown): AsyncIterable<Response> {
             if (typeof proto !== 'string') {
                 yield respond.error('EINVAL', 'proto must be a string');
                 return;
@@ -39,7 +39,7 @@ export function createChannelSyscalls(
             yield respond.ok(ch);
         },
 
-        async *channel_call(proc: Process, ch: unknown, msg: unknown): AsyncIterable<Response> {
+        async *'channel:call'(proc: Process, ch: unknown, msg: unknown): AsyncIterable<Response> {
             if (typeof ch !== 'number') {
                 yield respond.error('EINVAL', 'ch must be a number');
                 return;
@@ -61,7 +61,7 @@ export function createChannelSyscalls(
             yield respond.error('EIO', 'No response from channel');
         },
 
-        async *channel_stream(proc: Process, ch: unknown, msg: unknown): AsyncIterable<Response> {
+        async *'channel:stream'(proc: Process, ch: unknown, msg: unknown): AsyncIterable<Response> {
             if (typeof ch !== 'number') {
                 yield respond.error('EINVAL', 'ch must be a number');
                 return;
@@ -76,7 +76,7 @@ export function createChannelSyscalls(
             yield* channel.handle(msg as Message);
         },
 
-        async *channel_push(proc: Process, ch: unknown, response: unknown): AsyncIterable<Response> {
+        async *'channel:push'(proc: Process, ch: unknown, response: unknown): AsyncIterable<Response> {
             if (typeof ch !== 'number') {
                 yield respond.error('EINVAL', 'ch must be a number');
                 return;
@@ -92,7 +92,7 @@ export function createChannelSyscalls(
             yield respond.ok();
         },
 
-        async *channel_recv(proc: Process, ch: unknown): AsyncIterable<Response> {
+        async *'channel:recv'(proc: Process, ch: unknown): AsyncIterable<Response> {
             if (typeof ch !== 'number') {
                 yield respond.error('EINVAL', 'ch must be a number');
                 return;
@@ -108,7 +108,7 @@ export function createChannelSyscalls(
             yield respond.ok(msg);
         },
 
-        async *channel_close(proc: Process, ch: unknown): AsyncIterable<Response> {
+        async *'channel:close'(proc: Process, ch: unknown): AsyncIterable<Response> {
             if (typeof ch !== 'number') {
                 yield respond.error('EINVAL', 'ch must be a number');
                 return;

@@ -15,7 +15,7 @@ export const channel = {
      * Open a channel to a remote service.
      */
     open(proto: string, url: string, opts?: ChannelOpts): Promise<number> {
-        return call<number>('channel_open', proto, url, opts);
+        return call<number>('channel:open', proto, url, opts);
     },
 
     /**
@@ -23,7 +23,7 @@ export const channel = {
      * Handles streaming under the hood (progress, events, etc).
      */
     async call<T = unknown>(ch: number, msg: Message): Promise<Response & { data?: T }> {
-        for await (const response of syscall('channel_call', ch, msg)) {
+        for await (const response of syscall('channel:call', ch, msg)) {
             // Pass through progress/events but keep waiting for terminal
             if (response.op === 'ok' || response.op === 'error' || response.op === 'done' || response.op === 'redirect') {
                 return response as Response & { data?: T };
@@ -36,28 +36,28 @@ export const channel = {
      * Send a request and iterate streaming responses.
      */
     stream(ch: number, msg: Message): AsyncIterable<Response> {
-        return syscall('channel_stream', ch, msg);
+        return syscall('channel:stream', ch, msg);
     },
 
     /**
      * Push a response to the remote (server-side channels).
      */
     push(ch: number, response: Response): Promise<void> {
-        return call<void>('channel_push', ch, response);
+        return call<void>('channel:push', ch, response);
     },
 
     /**
      * Receive a message from the remote (bidirectional channels).
      */
     recv(ch: number): Promise<Message> {
-        return call<Message>('channel_recv', ch);
+        return call<Message>('channel:recv', ch);
     },
 
     /**
      * Close a channel.
      */
     close(ch: number): Promise<void> {
-        return call<void>('channel_close', ch);
+        return call<void>('channel:close', ch);
     },
 };
 

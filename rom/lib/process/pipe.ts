@@ -9,9 +9,9 @@ export function pipe(): Promise<[number, number]> {
 }
 
 export async function redirect(targetFd: number, sourceFd: number): Promise<() => Promise<void>> {
-    const saved = await call<string>('redirect', { target: targetFd, source: sourceFd });
+    const saved = await call<string>('handle:redirect', { target: targetFd, source: sourceFd });
 
     return async () => {
-        await call('restore', { target: targetFd, saved });
+        await call('handle:restore', { target: targetFd, saved });
     };
 }

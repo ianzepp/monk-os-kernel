@@ -1,7 +1,7 @@
 /**
  * Channel Syscall Tests
  *
- * Tests for channel_open, channel_call, channel_stream, channel_close syscalls.
+ * Tests for channel:open, channel:call, channel:stream, channel:close syscalls.
  */
 
 import { describe, it, expect, beforeEach } from 'bun:test';
@@ -126,11 +126,11 @@ describe('Channel Syscalls', () => {
         dispatcher.registerAll(createChannelSyscalls(mockHal, openChannel, getChannel, closeHandle));
     });
 
-    describe('channel_open', () => {
+    describe('channel:open', () => {
         it('should open a channel and return handle', async () => {
             const proc = createMockProcess();
             const ch = await unwrapStream<number>(
-                dispatcher.dispatch(proc, 'channel_open', ['http', 'https://api.example.com'])
+                dispatcher.dispatch(proc, 'channel:open', ['http', 'https://api.example.com'])
             );
             expect(ch).toBe(10);
             expect(channels.has(10)).toBe(true);
@@ -139,7 +139,7 @@ describe('Channel Syscalls', () => {
         it('should pass options to channel', async () => {
             const proc = createMockProcess();
             const ch = await unwrapStream<number>(
-                dispatcher.dispatch(proc, 'channel_open', ['http', 'https://api.example.com', { timeout: 5000 }])
+                dispatcher.dispatch(proc, 'channel:open', ['http', 'https://api.example.com', { timeout: 5000 }])
             );
             expect(ch).toBeNumber();
         });
@@ -147,19 +147,19 @@ describe('Channel Syscalls', () => {
         it('should reject non-string proto', async () => {
             const proc = createMockProcess();
             await expect(
-                unwrapStream(dispatcher.dispatch(proc, 'channel_open', [123, 'url']))
+                unwrapStream(dispatcher.dispatch(proc, 'channel:open', [123, 'url']))
             ).rejects.toThrow('proto must be a string');
         });
 
         it('should reject non-string url', async () => {
             const proc = createMockProcess();
             await expect(
-                unwrapStream(dispatcher.dispatch(proc, 'channel_open', ['http', 123]))
+                unwrapStream(dispatcher.dispatch(proc, 'channel:open', ['http', 123]))
             ).rejects.toThrow('url must be a string');
         });
     });
 
-    describe('channel_call', () => {
+    describe('channel:call', () => {
         it('should send message and return response', async () => {
             const proc = createMockProcess();
 
@@ -167,7 +167,7 @@ describe('Channel Syscalls', () => {
             channels.set(5, createMockChannel([respond.ok({ data: 'test' })]));
 
             const response = await unwrapStream<{ data: string }>(
-                dispatcher.dispatch(proc, 'channel_call', [5, { op: 'request', data: {} }])
+                dispatcher.dispatch(proc, 'channel:call', [5, { op: 'request', data: {} }])
             );
             expect(response).toEqual({ data: 'test' });
         });
@@ -182,7 +182,7 @@ describe('Channel Syscalls', () => {
             ]));
 
             const response = await unwrapStream<{ result: string }>(
-                dispatcher.dispatch(proc, 'channel_call', [5, { op: 'request', data: {} }])
+                dispatcher.dispatch(proc, 'channel:call', [5, { op: 'request', data: {} }])
             );
             expect(response).toEqual({ result: 'done' });
         });
@@ -193,26 +193,26 @@ describe('Channel Syscalls', () => {
             channels.set(5, createMockChannel([respond.error('ENOENT', 'Not found')]));
 
             await expect(
-                unwrapStream(dispatcher.dispatch(proc, 'channel_call', [5, { op: 'request', data: {} }]))
+                unwrapStream(dispatcher.dispatch(proc, 'channel:call', [5, { op: 'request', data: {} }]))
             ).rejects.toThrow('Not found');
         });
 
         it('should reject invalid channel handle', async () => {
             const proc = createMockProcess();
             await expect(
-                unwrapStream(dispatcher.dispatch(proc, 'channel_call', [999, { op: 'request', data: {} }]))
+                unwrapStream(dispatcher.dispatch(proc, 'channel:call', [999, { op: 'request', data: {} }]))
             ).rejects.toThrow('Bad channel: 999');
         });
 
         it('should reject non-number channel', async () => {
             const proc = createMockProcess();
             await expect(
-                unwrapStream(dispatcher.dispatch(proc, 'channel_call', ['not-a-number', {}]))
+                unwrapStream(dispatcher.dispatch(proc, 'channel:call', ['not-a-number', {}]))
             ).rejects.toThrow('ch must be a number');
         });
     });
 
-    describe('channel_stream', () => {
+    describe('channel:stream', () => {
         it('should yield all responses from channel', async () => {
             const proc = createMockProcess();
 
@@ -223,7 +223,7 @@ describe('Channel Syscalls', () => {
             ]));
 
             const items = await collectItems<{ id: number; name: string }>(
-                dispatcher.dispatch(proc, 'channel_stream', [5, { op: 'query', data: {} }])
+                dispatcher.dispatch(proc, 'channel:stream', [5, { op: 'query', data: {} }])
             );
 
             expect(items).toHaveLength(3);
@@ -238,7 +238,7 @@ describe('Channel Syscalls', () => {
             channels.set(5, createStreamingChannel(['a', 'b', 'c']));
 
             const responses: Response[] = [];
-            for await (const r of dispatcher.dispatch(proc, 'channel_stream', [5, { op: 'query', data: {} }])) {
+            for await (const r of dispatcher.dispatch(proc, 'channel:stream', [5, { op: 'query', data: {} }])) {
                 responses.push(r);
             }
 
@@ -269,7 +269,7 @@ describe('Channel Syscalls', () => {
             });
 
             const responses: Response[] = [];
-            for await (const r of dispatcher.dispatch(proc, 'channel_stream', [5, { op: 'query', data: {} }])) {
+            for await (const r of dispatcher.dispatch(proc, 'channel:stream', [5, { op: 'query', data: {} }])) {
                 responses.push(r);
             }
 
@@ -282,7 +282,7 @@ describe('Channel Syscalls', () => {
             const proc = createMockProcess();
 
             const responses: Response[] = [];
-            for await (const r of dispatcher.dispatch(proc, 'channel_stream', [999, { op: 'query', data: {} }])) {
+            for await (const r of dispatcher.dispatch(proc, 'channel:stream', [999, { op: 'query', data: {} }])) {
                 responses.push(r);
             }
 
@@ -292,14 +292,14 @@ describe('Channel Syscalls', () => {
         });
     });
 
-    describe('channel_close', () => {
+    describe('channel:close', () => {
         it('should close the channel', async () => {
             const proc = createMockProcess();
 
             const mockChannel = createMockChannel([respond.ok()]);
             channels.set(5, mockChannel);
 
-            await unwrapStream(dispatcher.dispatch(proc, 'channel_close', [5]));
+            await unwrapStream(dispatcher.dispatch(proc, 'channel:close', [5]));
 
             expect(mockChannel.closed).toBe(true);
             expect(channels.has(5)).toBe(false);
@@ -308,12 +308,12 @@ describe('Channel Syscalls', () => {
         it('should reject non-number channel', async () => {
             const proc = createMockProcess();
             await expect(
-                unwrapStream(dispatcher.dispatch(proc, 'channel_close', ['not-a-number']))
+                unwrapStream(dispatcher.dispatch(proc, 'channel:close', ['not-a-number']))
             ).rejects.toThrow('ch must be a number');
         });
     });
 
-    describe('channel_push', () => {
+    describe('channel:push', () => {
         it('should push response to channel', async () => {
             const proc = createMockProcess();
 
@@ -335,7 +335,7 @@ describe('Channel Syscalls', () => {
             });
 
             await unwrapStream(
-                dispatcher.dispatch(proc, 'channel_push', [5, { op: 'event', data: { type: 'test' } }])
+                dispatcher.dispatch(proc, 'channel:push', [5, { op: 'event', data: { type: 'test' } }])
             );
 
             expect(pushedResponse).toEqual({ op: 'event', data: { type: 'test' } });
@@ -344,12 +344,12 @@ describe('Channel Syscalls', () => {
         it('should reject invalid channel', async () => {
             const proc = createMockProcess();
             await expect(
-                unwrapStream(dispatcher.dispatch(proc, 'channel_push', [999, { op: 'ok' }]))
+                unwrapStream(dispatcher.dispatch(proc, 'channel:push', [999, { op: 'ok' }]))
             ).rejects.toThrow('Bad channel: 999');
         });
     });
 
-    describe('channel_recv', () => {
+    describe('channel:recv', () => {
         it('should receive message from channel', async () => {
             const proc = createMockProcess();
 
@@ -370,7 +370,7 @@ describe('Channel Syscalls', () => {
             });
 
             const msg = await unwrapStream<Message>(
-                dispatcher.dispatch(proc, 'channel_recv', [5])
+                dispatcher.dispatch(proc, 'channel:recv', [5])
             );
 
             expect(msg).toEqual({ op: 'message', data: { text: 'hello' } });
@@ -379,7 +379,7 @@ describe('Channel Syscalls', () => {
         it('should reject invalid channel', async () => {
             const proc = createMockProcess();
             await expect(
-                unwrapStream(dispatcher.dispatch(proc, 'channel_recv', [999]))
+                unwrapStream(dispatcher.dispatch(proc, 'channel:recv', [999]))
             ).rejects.toThrow('Bad channel: 999');
         });
     });

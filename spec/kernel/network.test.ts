@@ -194,12 +194,12 @@ describe('Network Syscalls', () => {
         });
     });
 
-    describe('pclose', () => {
+    describe('port:close', () => {
         it('should throw EINVAL when portId is not number', async () => {
             const proc = createMockProcess();
 
             await expect(
-                unwrapStream(dispatcher.dispatch(proc, 'pclose', ['not-a-number']))
+                unwrapStream(dispatcher.dispatch(proc, 'port:close', ['not-a-number']))
             ).rejects.toThrow('portId must be a number');
         });
     });

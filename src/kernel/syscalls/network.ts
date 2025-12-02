@@ -109,7 +109,7 @@ export function createNetworkSyscalls(
             yield respond.ok();
         },
 
-        async *pclose(proc: Process, portId: unknown): AsyncIterable<Response> {
+        async *'port:close'(proc: Process, portId: unknown): AsyncIterable<Response> {
             if (typeof portId !== 'number') {
                 yield respond.error('EINVAL', 'portId must be a number');
                 return;

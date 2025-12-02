@@ -39,5 +39,5 @@ export function getargs(): Promise<string[]> {
  * Returns null for boot-activated services or regular processes.
  */
 export function getActivation(): Promise<Message | null> {
-    return call<Message | null>('getActivation');
+    return call<Message | null>('activation:get');
 }

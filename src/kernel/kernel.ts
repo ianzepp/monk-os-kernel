@@ -197,13 +197,13 @@ export class Kernel {
         this.syscalls.register('pipe', wrapSyscall((proc) => this.createPipe(proc)));
 
         // Redirect syscalls
-        this.syscalls.register('redirect', wrapSyscall((proc, args) => {
+        this.syscalls.register('handle:redirect', wrapSyscall((proc, args) => {
             assertObject(args, 'args');
             assertNonNegativeInt(args['target'], 'target');
             assertNonNegativeInt(args['source'], 'source');
             return this.redirectHandle(proc, args['target'] as number, args['source'] as number);
         }));
-        this.syscalls.register('restore', wrapSyscall((proc, args) => {
+        this.syscalls.register('handle:restore', wrapSyscall((proc, args) => {
             assertObject(args, 'args');
             assertNonNegativeInt(args['target'], 'target');
             assertString(args['saved'], 'saved');
@@ -211,7 +211,7 @@ export class Kernel {
         }));
 
         // Worker pool syscalls
-        this.syscalls.register('lease', wrapSyscall((proc, pool) => {
+        this.syscalls.register('pool:lease', wrapSyscall((proc, pool) => {
             const poolName = optionalString(pool, 'pool');
             return this.leaseWorker(proc, poolName);
         }));
@@ -265,7 +265,7 @@ export class Kernel {
         ));
 
         // Activation syscall - returns the activation message for service handlers
-        this.syscalls.register('getActivation', wrapSyscall((proc) => proc.activationMessage ?? null));
+        this.syscalls.register('activation:get', wrapSyscall((proc) => proc.activationMessage ?? null));
     }
 
     // ========================================================================

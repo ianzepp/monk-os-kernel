@@ -22,5 +22,5 @@ export function send(portId: number, to: string, data: Uint8Array): Promise<void
 }
 
 export function pclose(portId: number): Promise<void> {
-    return call<void>('pclose', portId);
+    return call<void>('port:close', portId);
 }
