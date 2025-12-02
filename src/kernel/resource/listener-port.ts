@@ -38,7 +38,7 @@ export class ListenerPort implements Port {
         };
     }
 
-    async send(_to: string, _data: Uint8Array): Promise<void> {
+    async send(_to: string, _data?: Uint8Array, _meta?: Record<string, unknown>): Promise<void> {
         throw new ENOTSUP('tcp:listen ports do not support send');
     }
 

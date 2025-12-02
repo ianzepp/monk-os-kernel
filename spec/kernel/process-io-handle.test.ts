@@ -37,7 +37,7 @@ class MockHandle implements Handle {
         this.responses = responses;
     }
 
-    async *send(msg: Message): AsyncIterable<Response> {
+    async *exec(msg: Message): AsyncIterable<Response> {
         this.messages.push(msg);
         for (const response of this.responses) {
             yield response;
@@ -184,11 +184,11 @@ describe('ProcessIOHandle', () => {
             const handle = new ProcessIOHandle('test-id', 'test', { source });
 
             const responses = await collectResponses(
-                handle.send({ op: 'read', data: { chunkSize: 1024 } })
+                handle.exec({ op: 'recv', data: { chunkSize: 1024 } })
             );
 
             expect(source.messages.length).toBe(1);
-            expect(source.messages[0]!.op).toBe('read');
+            expect(source.messages[0]!.op).toBe('recv');
             expect(responses.length).toBe(2);
             expect(responses[0]!.op).toBe('item');
             expect(responses[1]!.op).toBe('done');
@@ -197,7 +197,7 @@ describe('ProcessIOHandle', () => {
         it('should error when no source configured', async () => {
             const handle = new ProcessIOHandle('test-id', 'test');
 
-            const responses = await collectResponses(handle.send({ op: 'read' }));
+            const responses = await collectResponses(handle.exec({ op: 'recv' }));
 
             expect(responses.length).toBe(1);
             expect(responses[0]!.op).toBe('error');
@@ -214,11 +214,11 @@ describe('ProcessIOHandle', () => {
             const data = new Uint8Array([1, 2, 3, 4, 5]);
 
             const responses = await collectResponses(
-                handle.send({ op: 'write', data: { data } })
+                handle.exec({ op: 'send', data: { data } })
             );
 
             expect(target.messages.length).toBe(1);
-            expect(target.messages[0]!.op).toBe('write');
+            expect(target.messages[0]!.op).toBe('send');
             expect(responses.length).toBe(1);
             expect(responses[0]!.op).toBe('ok');
             expect(responses[0]!.data).toBe(5);
@@ -228,7 +228,7 @@ describe('ProcessIOHandle', () => {
             const handle = new ProcessIOHandle('test-id', 'test');
 
             const responses = await collectResponses(
-                handle.send({ op: 'write', data: { data: new Uint8Array([1]) } })
+                handle.exec({ op: 'send', data: { data: new Uint8Array([1]) } })
             );
 
             expect(responses.length).toBe(1);
@@ -246,20 +246,20 @@ describe('ProcessIOHandle', () => {
             handle.addTap(tap2);
 
             const data = new Uint8Array([1, 2, 3]);
-            await collectResponses(handle.send({ op: 'write', data: { data } }));
+            await collectResponses(handle.exec({ op: 'send', data: { data } }));
 
             // Target should receive the write
             expect(target.messages.length).toBe(1);
-            expect(target.messages[0]!.op).toBe('write');
+            expect(target.messages[0]!.op).toBe('send');
 
             // Give taps time to receive (fire and forget)
             await new Promise(resolve => setTimeout(resolve, 10));
 
             // Taps should also receive the write
             expect(tap1.messages.length).toBe(1);
-            expect(tap1.messages[0]!.op).toBe('write');
+            expect(tap1.messages[0]!.op).toBe('send');
             expect(tap2.messages.length).toBe(1);
-            expect(tap2.messages[0]!.op).toBe('write');
+            expect(tap2.messages[0]!.op).toBe('send');
         });
 
         it('should not block on tap errors', async () => {
@@ -271,7 +271,7 @@ describe('ProcessIOHandle', () => {
                 type: 'file',
                 description: 'error tap',
                 closed: false,
-                async *send(): AsyncIterable<Response> {
+                async *exec(): AsyncIterable<Response> {
                     throw new Error('Tap error');
                 },
                 async close() {},
@@ -282,7 +282,7 @@ describe('ProcessIOHandle', () => {
 
             // Should not throw, target write should succeed
             const responses = await collectResponses(
-                handle.send({ op: 'write', data: { data: new Uint8Array([1]) } })
+                handle.exec({ op: 'send', data: { data: new Uint8Array([1]) } })
             );
 
             expect(responses[0]!.op).toBe('ok');
@@ -298,7 +298,7 @@ describe('ProcessIOHandle', () => {
             const handle = new ProcessIOHandle('test-id', 'test-desc', { target, source });
             handle.addTap(tap);
 
-            const responses = await collectResponses(handle.send({ op: 'stat' }));
+            const responses = await collectResponses(handle.exec({ op: 'stat' }));
 
             expect(responses.length).toBe(1);
             expect(responses[0]!.op).toBe('ok');
@@ -314,7 +314,7 @@ describe('ProcessIOHandle', () => {
         it('should report false for missing target/source', async () => {
             const handle = new ProcessIOHandle('test-id', 'test');
 
-            const responses = await collectResponses(handle.send({ op: 'stat' }));
+            const responses = await collectResponses(handle.exec({ op: 'stat' }));
 
             const stat = responses[0]!.data as Record<string, unknown>;
             expect(stat.hasTarget).toBe(false);
@@ -328,7 +328,7 @@ describe('ProcessIOHandle', () => {
             const handle = new ProcessIOHandle('test-id', 'test');
 
             const responses = await collectResponses(
-                handle.send({ op: 'unknown-op' })
+                handle.exec({ op: 'unknown-op' })
             );
 
             expect(responses.length).toBe(1);
@@ -348,7 +348,7 @@ describe('ProcessIOHandle', () => {
                 type: 'file',
                 description: 'slow tap',
                 closed: false,
-                async *send(msg: Message): AsyncIterable<Response> {
+                async *exec(msg: Message): AsyncIterable<Response> {
                     await new Promise(resolve => setTimeout(resolve, 100));
                     tapReceived = true;
                     yield respond.ok();
@@ -362,7 +362,7 @@ describe('ProcessIOHandle', () => {
             // Write should complete quickly (not wait for slow tap)
             const start = Date.now();
             await collectResponses(
-                handle.send({ op: 'write', data: { data: new Uint8Array([1]) } })
+                handle.exec({ op: 'send', data: { data: new Uint8Array([1]) } })
             );
             const elapsed = Date.now() - start;
 
@@ -389,7 +389,7 @@ describe('ProcessIOHandle', () => {
                 type: 'file',
                 description: 'slow tap',
                 closed: false,
-                async *send(msg: Message): AsyncIterable<Response> {
+                async *exec(msg: Message): AsyncIterable<Response> {
                     await new Promise(resolve => setTimeout(resolve, processDelay));
                     receivedMessages.push(msg);
                     yield respond.ok();
@@ -401,9 +401,9 @@ describe('ProcessIOHandle', () => {
             handle.addTap(slowTap);
 
             // Send 3 writes quickly
-            await collectResponses(handle.send({ op: 'write', data: { data: new Uint8Array([1]) } }));
-            await collectResponses(handle.send({ op: 'write', data: { data: new Uint8Array([2]) } }));
-            await collectResponses(handle.send({ op: 'write', data: { data: new Uint8Array([3]) } }));
+            await collectResponses(handle.exec({ op: 'send', data: { data: new Uint8Array([1]) } }));
+            await collectResponses(handle.exec({ op: 'send', data: { data: new Uint8Array([2]) } }));
+            await collectResponses(handle.exec({ op: 'send', data: { data: new Uint8Array([3]) } }));
 
             // Target should have all 3 immediately
             expect(target.messages.length).toBe(3);
@@ -429,7 +429,7 @@ describe('ProcessIOHandle', () => {
                 type: 'file',
                 description: 'blocking tap',
                 closed: false,
-                async *send(): AsyncIterable<Response> {
+                async *exec(): AsyncIterable<Response> {
                     if (firstCall) {
                         firstCall = false;
                         await new Promise<void>(resolve => {
@@ -448,14 +448,14 @@ describe('ProcessIOHandle', () => {
             expect(handle.getTapQueueDepth(blockingTap)).toBe(0);
 
             // Send a write - tap starts processing, queue still empty
-            await collectResponses(handle.send({ op: 'write', data: { data: new Uint8Array([1]) } }));
+            await collectResponses(handle.exec({ op: 'send', data: { data: new Uint8Array([1]) } }));
 
             // Give drain loop time to pick up the message
             await new Promise(resolve => setTimeout(resolve, 5));
 
             // Send more writes while tap is blocked
-            await collectResponses(handle.send({ op: 'write', data: { data: new Uint8Array([2]) } }));
-            await collectResponses(handle.send({ op: 'write', data: { data: new Uint8Array([3]) } }));
+            await collectResponses(handle.exec({ op: 'send', data: { data: new Uint8Array([2]) } }));
+            await collectResponses(handle.exec({ op: 'send', data: { data: new Uint8Array([3]) } }));
 
             // Queue should have pending messages
             expect(handle.getTapQueueDepth(blockingTap)).toBe(2);
@@ -495,7 +495,7 @@ describe('ProcessIOHandle', () => {
             handle.addTap(tap);
 
             // Write once
-            await collectResponses(handle.send({ op: 'write', data: { data: new Uint8Array([1]) } }));
+            await collectResponses(handle.exec({ op: 'send', data: { data: new Uint8Array([1]) } }));
             await new Promise(resolve => setTimeout(resolve, 10));
             expect(tap.messages.length).toBe(1);
 
@@ -503,7 +503,7 @@ describe('ProcessIOHandle', () => {
             handle.removeTap(tap);
 
             // Write again
-            await collectResponses(handle.send({ op: 'write', data: { data: new Uint8Array([2]) } }));
+            await collectResponses(handle.exec({ op: 'send', data: { data: new Uint8Array([2]) } }));
             await new Promise(resolve => setTimeout(resolve, 10));
 
             // Tap should not receive second write
@@ -542,12 +542,12 @@ describe('ProcessIOHandle', () => {
 
             await handle.close();
 
-            const readResponses = await collectResponses(handle.send({ op: 'read' }));
+            const readResponses = await collectResponses(handle.exec({ op: 'recv' }));
             expect(readResponses[0]!.op).toBe('error');
             expect((readResponses[0]!.data as { code: string }).code).toBe('EBADF');
 
             const writeResponses = await collectResponses(
-                handle.send({ op: 'write', data: { data: new Uint8Array([1]) } })
+                handle.exec({ op: 'send', data: { data: new Uint8Array([1]) } })
             );
             expect(writeResponses[0]!.op).toBe('error');
             expect((writeResponses[0]!.data as { code: string }).code).toBe('EBADF');

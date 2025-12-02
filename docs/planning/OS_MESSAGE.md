@@ -276,28 +276,90 @@ send(msg: Message): AsyncIterable<Response>;
 exec(msg: Message): AsyncIterable<Response>;
 ```
 
+### Port interface (resource/types.ts)
+
+```typescript
+// Before
+send(to: string, data: Uint8Array): Promise<void>;
+
+// After - data is optional, add meta support
+send(to: string, data?: Uint8Array, meta?: Record<string, unknown>): Promise<void>;
+```
+
 ### PortHandleAdapter
 
 ```typescript
-// Use recv/send ops (already matches internal port.recv()/port.send())
+// Change respond.ok() to respond.item() for recv
+// Update send validation to allow optional data
+
 case 'recv':
     const msg = await this.port.recv();
-    yield respond.item(msg);  // Structured PortMessage
+    yield respond.item(msg);  // Structured PortMessage (was respond.ok)
     break;
 
 case 'send':
-    await this.port.send(data.to, data.data);
+    // data.data is now optional
+    await this.port.send(data.to, data.data, data.meta);
     yield respond.ok();
     break;
+
+// Update validation in portSend():
+private async *portSend(to: string, data?: Uint8Array, meta?: Record<string, unknown>): AsyncIterable<Response> {
+    if (typeof to !== 'string') {
+        yield respond.error('EINVAL', 'to must be a string');
+        return;
+    }
+    // Remove: data instanceof Uint8Array check (now optional)
+    // ...
+}
+```
+
+### PubsubPort
+
+```typescript
+// Before
+async send(topic: string, data: Uint8Array): Promise<void>
+
+// After - accept optional data and meta
+async send(topic: string, data?: Uint8Array, meta?: Record<string, unknown>): Promise<void>
+```
+
+### WatchPort (remove JSON serialization)
+
+```typescript
+// Before (violates message-pure)
+const message: PortMessage = {
+    from: event.path,
+    data: new TextEncoder().encode(JSON.stringify({
+        entity: event.entity,
+        op: event.op,
+        fields: event.fields,
+    })),
+    meta: { ... },
+};
+
+// After (purely structured)
+const message: PortMessage = {
+    from: event.path,
+    // No data field - watch events are internal, not network boundary
+    meta: {
+        op: event.op,
+        entity: event.entity,
+        fields: event.fields,
+        timestamp: event.timestamp,
+    },
+};
 ```
 
 ### FileHandleAdapter
 
 ```typescript
 // Rename read → recv, write → send
+// Fix: currently uses respond.item(chunk), should use respond.chunk()
+
 case 'recv':
     // ... existing read logic
-    yield respond.chunk(bytes);
+    yield respond.chunk(bytes);  // was respond.item(chunk)
     break;
 
 case 'send':
@@ -353,11 +415,11 @@ export async function send(fd: number, data: object): Promise<void> {
 }
 ```
 
-## Open Questions
+## Resolved Questions
 
 ### 1. Should ports still have `data: Uint8Array`?
 
-For UDP, yes - network is a true I/O boundary. For pubsub/watch, messages could be purely structured:
+**Resolution**: `data` is optional. UDP requires it (network boundary). Pubsub/watch use `meta` for structured messages.
 
 ```typescript
 // UDP message (has bytes from network)
@@ -370,21 +432,19 @@ For UDP, yes - network is a true I/O boundary. For pubsub/watch, messages could 
 { from: "/etc/config.json", meta: { event: "modify" } }
 ```
 
-### 2. Should we unify PortMessage into Response.Item?
-
-Could simplify by having ports return standard `Response.Item` with typed data:
+**Code change**: `Port.send()` signature becomes:
 
 ```typescript
-respond.item({
-    type: 'pubsub',
-    from: 'log.kernel',
-    meta: { level: 'info' }
-})
+send(to: string, data?: Uint8Array, meta?: Record<string, unknown>): Promise<void>;
 ```
+
+### 2. Should we unify PortMessage into Response.Item?
+
+**Resolution**: No. Keep `PortMessage` distinct - the `from` field has specific semantics (source address/topic/path) that differ from generic items. Ports return `respond.item(portMessage)` where the item data is a `PortMessage`.
 
 ### 3. Line-based reading utilities?
 
-Many processes want line-based input. This could be a userspace utility:
+**Resolution**: Implement in userspace (`rom/lib/io.ts`). Not a kernel concern.
 
 ```typescript
 // Userspace helper that buffers chunks and yields lines
@@ -418,13 +478,21 @@ export async function* recvLines(fd: number): AsyncIterable<string> {
 
 | File | Changes |
 |------|---------|
-| `src/kernel/handle/file.ts` | `send→exec`, `read→recv`, `write→send` |
+| `src/kernel/handle/file.ts` | `send→exec`, `read→recv`, `write→send`, `respond.item→respond.chunk` |
 | `src/kernel/handle/socket.ts` | `send→exec`, `read→recv`, `write→send` |
 | `src/kernel/handle/pipe.ts` | `send→exec`, `read→recv`, `write→send` |
-| `src/kernel/handle/port.ts` | `send→exec` (already uses `recv`/`send` ops) |
+| `src/kernel/handle/port.ts` | `send→exec`, `respond.ok→respond.item` for recv, update portSend validation |
 | `src/kernel/handle/channel.ts` | `send→exec` (already uses `recv`/`send` ops) |
 | `src/kernel/handle/process-io.ts` | `send→exec`, `read→recv`, `write→send`, forward calls |
 | `src/kernel/handle/port-source.ts` | **DELETE** (unnecessary adapter) |
+
+### Resource Implementations (3 files)
+
+| File | Changes |
+|------|---------|
+| `src/kernel/resource/types.ts` | `Port.send()` signature: add optional `data`, add `meta` param |
+| `src/kernel/resource/pubsub-port.ts` | Update `send()` signature, update `publishFn` type |
+| `src/kernel/resource/watch-port.ts` | Remove JSON serialization, use `meta` only |
 
 ### Kernel & Syscalls
 
@@ -477,10 +545,29 @@ handle.exec({ op: 'stat' })
 
 ### Totals
 
-- **~12 source files** to modify
+- **~15 source files** to modify
 - **1 file to delete** (port-source.ts)
 - **2 test files** to update
 - **~2 userspace files** to update
+
+### Implementation Order
+
+1. `src/message.ts` - Chunk.data → { bytes } (foundational change)
+2. `src/kernel/handle/types.ts` - send() → exec()
+3. `src/kernel/resource/types.ts` - Port.send() signature
+4. `src/kernel/resource/pubsub-port.ts` - Update send()
+5. `src/kernel/resource/watch-port.ts` - Remove JSON serialization
+6. `src/kernel/handle/file.ts` - ops + respond.chunk
+7. `src/kernel/handle/socket.ts` - ops
+8. `src/kernel/handle/pipe.ts` - ops
+9. `src/kernel/handle/port.ts` - exec + respond.item + validation
+10. `src/kernel/handle/channel.ts` - exec
+11. `src/kernel/handle/process-io.ts` - exec + ops
+12. `src/kernel/handle/port-source.ts` - DELETE
+13. `src/kernel/syscalls/file.ts` - read→recv, write→send
+14. `src/vfs/message.ts` - read→recv, write→send
+15. `src/kernel/kernel.ts` - handle.send() → handle.exec()
+16. Tests and userspace
 
 ### JSON.stringify Usage Audit
 
@@ -494,12 +581,12 @@ handle.exec({ op: 'stat' })
 | `src/vfs/models/*.ts` | Entity storage | Storage boundary |
 | `src/kernel/kernel.ts:666` | Debug logging | Fine |
 
-**Needs review:**
+**Resolved:**
 
-| File | Usage | Issue |
-|------|-------|-------|
-| `src/kernel/resource/watch-port.ts:66` | Watch event → Uint8Array | Serializing internal message |
-| `src/kernel/handle/port-source.ts:62` | PortMessage → JSON | **DELETE** |
+| File | Usage | Resolution |
+|------|-------|------------|
+| `src/kernel/resource/watch-port.ts:66` | Watch event → Uint8Array | Remove, use `meta` only |
+| `src/kernel/handle/port-source.ts:62` | PortMessage → JSON | **DELETE file** |
 
 ### Uint8Array Usage Audit
 
@@ -510,33 +597,33 @@ handle.exec({ op: 'stat' })
 - `src/kernel/resource/udp-port.ts` - Network boundary
 - `src/kernel/resource/pipe-buffer.ts` - Low-level pipe impl
 
-**Needs review:**
+**Resolved:**
 
-| File | Usage | Issue |
-|------|-------|-------|
+| File | Usage | Resolution |
+|------|-------|------------|
 | `src/message.ts:59` | `Chunk.data: Uint8Array` | Change to `{ bytes }` |
-| `src/vfs/message.ts:44,107` | VFS message types | May need structured data option |
-| `src/kernel/resource/pubsub-port.ts` | `data: Uint8Array` | Internal messages shouldn't require bytes |
-| `src/kernel/resource/watch-port.ts` | `data: Uint8Array` | Internal messages shouldn't require bytes |
-| `src/process/index.ts` | `read()`/`write()` API | Userspace API assumes bytes |
+| `src/vfs/message.ts:44,107` | VFS message types | Keep as-is (true I/O boundary) |
+| `src/kernel/resource/pubsub-port.ts` | `data: Uint8Array` | Make optional, add `meta` |
+| `src/kernel/resource/watch-port.ts` | `data: Uint8Array` | Remove, use `meta` only |
+| `src/process/index.ts` | `read()`/`write()` API | Userspace concern (encoding in userspace) |
 
-### PortMessage.data Question
+### PortMessage.data Resolution
 
 ```typescript
 interface PortMessage {
     from: string;
-    data?: Uint8Array;  // <-- Should this be optional/structured for pubsub/watch?
-    meta?: Record<string, unknown>;
+    data?: Uint8Array;  // Optional - only for network boundaries (UDP)
+    meta?: Record<string, unknown>;  // Primary carrier for structured internal messages
 }
 ```
 
-| Port Type | `data` field | Reason |
-|-----------|--------------|--------|
-| UDP | `Uint8Array` required | Network boundary, bytes expected |
-| Pubsub | Optional, use `meta` | Internal message passing, structured |
-| Watch | Optional, use `meta` | Internal message passing, structured |
+| Port Type | `data` field | `meta` field | Notes |
+|-----------|--------------|--------------|-------|
+| UDP | Required | Optional | Network boundary, bytes expected |
+| Pubsub | Optional | Primary | Internal message passing, structured |
+| Watch | Unused | Primary | Internal message passing, structured |
 
-Recommendation: Keep `data?: Uint8Array` for network ports (UDP), but pubsub/watch should primarily use `meta` for structured data. The `data` field becomes optional and only used when raw bytes are actually needed.
+**Decision**: `data` is optional. UDP requires it (network boundary). Pubsub/watch use `meta` for structured messages.
 
 ## Summary
 

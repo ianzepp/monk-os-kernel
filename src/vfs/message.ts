@@ -104,7 +104,9 @@ export namespace Messages {
 
     export interface Chunk extends Response {
         op: 'chunk';
-        data: Uint8Array;
+        data: {
+            bytes: Uint8Array;
+        };
     }
 
     export interface Event extends Response {

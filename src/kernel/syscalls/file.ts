@@ -65,8 +65,8 @@ export function createFileSyscalls(
                 return;
             }
 
-            // Delegate to handle's read implementation
-            yield* handle.send({ op: 'read', data: { chunkSize } });
+            // Delegate to handle's recv implementation
+            yield* handle.exec({ op: 'recv', data: { chunkSize } });
         },
 
         async *write(proc: Process, fd: unknown, data: unknown): AsyncIterable<Response> {
@@ -81,8 +81,8 @@ export function createFileSyscalls(
                 return;
             }
 
-            // Delegate to handle's write implementation
-            yield* handle.send({ op: 'write', data: { data } });
+            // Delegate to handle's send implementation
+            yield* handle.exec({ op: 'send', data: { data } });
         },
 
         async *seek(proc: Process, fd: unknown, offset: unknown, whence: unknown): AsyncIterable<Response> {
@@ -104,7 +104,7 @@ export function createFileSyscalls(
             }
 
             // Delegate to handle's seek implementation
-            yield* handle.send({ op: 'seek', data: { offset, whence: whence ?? 'start' } });
+            yield* handle.exec({ op: 'seek', data: { offset, whence: whence ?? 'start' } });
         },
 
         async *stat(proc: Process, path: unknown): AsyncIterable<Response> {

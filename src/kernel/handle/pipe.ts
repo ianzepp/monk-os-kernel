@@ -19,8 +19,8 @@ export type PipeEnd = 'read' | 'write';
  * Pipe handle wrapping shared PipeBuffer.
  *
  * Supported ops:
- * - read: Read from pipe (read end only)
- * - write: Write to pipe (write end only)
+ * - recv: Read from pipe (read end only)
+ * - send: Write to pipe (write end only)
  */
 export class PipeHandleAdapter implements Handle {
     readonly type: HandleType = 'pipe';
@@ -37,7 +37,7 @@ export class PipeHandleAdapter implements Handle {
         return this._closed;
     }
 
-    async *send(msg: Message): AsyncIterable<Response> {
+    async *exec(msg: Message): AsyncIterable<Response> {
         if (this._closed) {
             yield respond.error('EBADF', 'Handle closed');
             return;
@@ -47,20 +47,20 @@ export class PipeHandleAdapter implements Handle {
         const data = msg.data as Record<string, unknown> | undefined;
 
         switch (op) {
-            case 'read':
+            case 'recv':
                 if (this.end !== 'read') {
                     yield respond.error('EBADF', 'Cannot read from write end of pipe');
                     return;
                 }
-                yield* this.read(data?.chunkSize as number | undefined);
+                yield* this.recv(data?.chunkSize as number | undefined);
                 break;
 
-            case 'write':
+            case 'send':
                 if (this.end !== 'write') {
                     yield respond.error('EBADF', 'Cannot write to read end of pipe');
                     return;
                 }
-                yield* this.write(data?.data as Uint8Array);
+                yield* this.send(data?.data as Uint8Array);
                 break;
 
             default:
@@ -68,7 +68,7 @@ export class PipeHandleAdapter implements Handle {
         }
     }
 
-    private async *read(chunkSize?: number): AsyncIterable<Response> {
+    private async *recv(chunkSize?: number): AsyncIterable<Response> {
         const size = chunkSize ?? DEFAULT_CHUNK_SIZE;
         let totalYielded = 0;
 
@@ -87,7 +87,7 @@ export class PipeHandleAdapter implements Handle {
                     return;
                 }
 
-                yield respond.item(chunk);
+                yield respond.chunk(chunk);
             }
 
             yield respond.done();
@@ -96,7 +96,7 @@ export class PipeHandleAdapter implements Handle {
         }
     }
 
-    private async *write(data: Uint8Array): AsyncIterable<Response> {
+    private async *send(data: Uint8Array): AsyncIterable<Response> {
         if (!(data instanceof Uint8Array)) {
             yield respond.error('EINVAL', 'data must be Uint8Array');
             return;
@@ -104,7 +104,7 @@ export class PipeHandleAdapter implements Handle {
 
         try {
             const written = this.buffer.write(data);
-            yield respond.ok(written);
+            yield respond.ok({ written });
         } catch (err) {
             yield respond.error('EIO', (err as Error).message);
         }

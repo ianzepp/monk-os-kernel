@@ -94,9 +94,14 @@ export class UdpPort implements Port {
         });
     }
 
-    async send(to: string, data: Uint8Array): Promise<void> {
+    async send(to: string, data?: Uint8Array, _meta?: Record<string, unknown>): Promise<void> {
         if (this._closed) {
             throw new EBADF('Port closed');
+        }
+
+        // UDP requires data (network boundary)
+        if (!data) {
+            throw new EINVAL('UDP send requires data');
         }
 
         // Parse "host:port" format

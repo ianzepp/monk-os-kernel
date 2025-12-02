@@ -2,10 +2,10 @@
  * Unified Handle Architecture
  *
  * All I/O primitives (files, sockets, pipes, ports, channels) are handles.
- * A single `send(handle, msg)` syscall dispatches to the handle type.
+ * A single `exec(handle, msg)` syscall dispatches to the handle type.
  *
  * Philosophy:
- * - Everything is a handle with send(Message) → AsyncIterable<Response>
+ * - Everything is a handle with exec(Message) → AsyncIterable<Response>
  * - Handle types define supported operations
  * - Userspace API unchanged - this is kernel-internal unification
  *
@@ -27,4 +27,3 @@ export { PipeHandleAdapter, type PipeEnd } from './handle/pipe.js';
 export { PortHandleAdapter } from './handle/port.js';
 export { ChannelHandleAdapter } from './handle/channel.js';
 export { ProcessIOHandle } from './handle/process-io.js';
-export { PortSourceAdapter } from './handle/port-source.js';

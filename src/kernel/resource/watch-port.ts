@@ -63,11 +63,7 @@ export class WatchPort implements Port {
                 const event = result.value;
                 const message: PortMessage = {
                     from: event.path,
-                    data: new TextEncoder().encode(JSON.stringify({
-                        entity: event.entity,
-                        op: event.op,
-                        fields: event.fields,
-                    })),
+                    // No data field - watch events are internal, not network boundary
                     meta: {
                         op: event.op,
                         entity: event.entity,
@@ -113,7 +109,7 @@ export class WatchPort implements Port {
         });
     }
 
-    async send(_to: string, _data: Uint8Array): Promise<void> {
+    async send(_to: string, _data?: Uint8Array, _meta?: Record<string, unknown>): Promise<void> {
         throw new ENOTSUP('watch ports do not support send');
     }
 

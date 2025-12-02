@@ -9,13 +9,13 @@ import type { Message, Response } from '@src/message.js';
 /**
  * Handle type discriminator
  */
-export type HandleType = 'file' | 'socket' | 'pipe' | 'port' | 'channel' | 'process-io' | 'port-source';
+export type HandleType = 'file' | 'socket' | 'pipe' | 'port' | 'channel' | 'process-io';
 
 /**
  * Unified handle interface.
  *
  * All I/O primitives implement this interface, providing message-based
- * operations via send(). The kernel dispatches based on handle type.
+ * operations via exec(). The kernel dispatches based on handle type.
  */
 export interface Handle {
     /** Unique handle identifier */
@@ -31,12 +31,14 @@ export interface Handle {
     readonly closed: boolean;
 
     /**
-     * Send a message to the handle and receive streaming responses.
+     * Execute a message/command on the handle and receive streaming responses.
+     *
+     * Named exec() to avoid collision with msg.op = 'send'.
      *
      * @param msg - Message containing operation and data
      * @returns Async iterable of responses
      */
-    send(msg: Message): AsyncIterable<Response>;
+    exec(msg: Message): AsyncIterable<Response>;
 
     /**
      * Close the handle and release resources.

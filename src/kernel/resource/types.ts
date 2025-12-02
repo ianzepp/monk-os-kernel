@@ -13,19 +13,20 @@ export type { PortType } from '@src/kernel/types.js';
  * Message received from a port.
  *
  * For tcp:listen: socket contains the accepted connection
- * For udp/pubsub/watch: data contains the payload
+ * For udp: data contains the network payload (required)
+ * For pubsub/watch: meta contains structured data (data optional)
  */
 export interface PortMessage {
     /** Source identifier (remote address, topic, path) */
     from: string;
 
-    /** Payload for data ports */
+    /** Binary payload - required for UDP (network boundary), optional for pubsub/watch */
     data?: Uint8Array;
 
     /** Accepted socket for tcp:listen */
     socket?: Socket;
 
-    /** Optional metadata */
+    /** Structured metadata - primary carrier for pubsub/watch messages */
     meta?: Record<string, unknown>;
 }
 
@@ -46,7 +47,7 @@ export interface Port {
     recv(): Promise<PortMessage>;
 
     /** Send message to destination (not all ports support this) */
-    send(to: string, data: Uint8Array): Promise<void>;
+    send(to: string, data?: Uint8Array, meta?: Record<string, unknown>): Promise<void>;
 
     /** Close port */
     close(): Promise<void>;

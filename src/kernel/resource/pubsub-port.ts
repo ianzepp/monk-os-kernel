@@ -29,7 +29,7 @@ export class PubsubPort implements Port {
     constructor(
         readonly id: string,
         private patterns: string[],
-        private publishFn: (topic: string, data: Uint8Array, sourcePortId: string) => void,
+        private publishFn: (topic: string, data: Uint8Array | undefined, meta: Record<string, unknown> | undefined, sourcePortId: string) => void,
         private unsubscribeFn: () => void,
         readonly description: string
     ) {}
@@ -73,12 +73,12 @@ export class PubsubPort implements Port {
         });
     }
 
-    async send(topic: string, data: Uint8Array): Promise<void> {
+    async send(topic: string, data?: Uint8Array, meta?: Record<string, unknown>): Promise<void> {
         if (this._closed) {
             throw new EBADF('Port closed');
         }
 
-        this.publishFn(topic, data, this.id);
+        this.publishFn(topic, data, meta, this.id);
     }
 
     async close(): Promise<void> {

@@ -103,8 +103,8 @@ interface TapEntry {
  * - Each tap drains at its own pace (slow taps don't block anything)
  *
  * Supported ops:
- * - read: Read from source handle
- * - write: Write to target handle + queue to all taps
+ * - recv: Read from source handle
+ * - send: Write to target handle + queue to all taps
  * - stat: Get handle info
  *
  * The process sees a normal handle. The kernel controls where data flows.
@@ -212,7 +212,7 @@ export class ProcessIOHandle implements Handle {
         return entry?.queue.length ?? 0;
     }
 
-    async *send(msg: Message): AsyncIterable<Response> {
+    async *exec(msg: Message): AsyncIterable<Response> {
         if (this._closed) {
             yield respond.error('EBADF', 'Handle closed');
             return;
@@ -221,12 +221,12 @@ export class ProcessIOHandle implements Handle {
         const op = msg.op;
 
         switch (op) {
-            case 'read':
-                yield* this.read(msg);
+            case 'recv':
+                yield* this.recv(msg);
                 break;
 
-            case 'write':
-                yield* this.write(msg);
+            case 'send':
+                yield* this.send(msg);
                 break;
 
             case 'stat':
@@ -244,17 +244,17 @@ export class ProcessIOHandle implements Handle {
         }
     }
 
-    private async *read(msg: Message): AsyncIterable<Response> {
+    private async *recv(msg: Message): AsyncIterable<Response> {
         if (!this.source) {
             yield respond.error('EBADF', 'No source configured for reading');
             return;
         }
 
-        // Forward read to source
-        yield* this.source.send(msg);
+        // Forward recv to source
+        yield* this.source.exec(msg);
     }
 
-    private async *write(msg: Message): AsyncIterable<Response> {
+    private async *send(msg: Message): AsyncIterable<Response> {
         if (!this.target) {
             yield respond.error('EBADF', 'No target configured for writing');
             return;
@@ -262,7 +262,7 @@ export class ProcessIOHandle implements Handle {
 
         // Send to target (synchronous with caller)
         const responses: Response[] = [];
-        for await (const response of this.target.send(msg)) {
+        for await (const response of this.target.exec(msg)) {
             responses.push(response);
         }
 
@@ -290,7 +290,7 @@ export class ProcessIOHandle implements Handle {
 
             try {
                 // Send to tap, drain responses
-                for await (const _ of handle.send(msg)) {
+                for await (const _ of handle.exec(msg)) {
                     // Discard tap responses
                 }
             } catch {

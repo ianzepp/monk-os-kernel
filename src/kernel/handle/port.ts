@@ -34,7 +34,7 @@ export class PortHandleAdapter implements Handle {
         return this._closed || this.port.closed;
     }
 
-    async *send(msg: Message): AsyncIterable<Response> {
+    async *exec(msg: Message): AsyncIterable<Response> {
         if (this._closed) {
             yield respond.error('EBADF', 'Handle closed');
             return;
@@ -51,7 +51,8 @@ export class PortHandleAdapter implements Handle {
             case 'send':
                 yield* this.portSend(
                     data?.to as string,
-                    data?.data as Uint8Array
+                    data?.data as Uint8Array | undefined,
+                    data?.meta as Record<string, unknown> | undefined
                 );
                 break;
 
@@ -70,24 +71,21 @@ export class PortHandleAdapter implements Handle {
     private async *recv(): AsyncIterable<Response> {
         try {
             const msg = await this.port.recv();
-            yield respond.ok(msg);
+            yield respond.item(msg);
         } catch (err) {
             yield respond.error('EIO', (err as Error).message);
         }
     }
 
-    private async *portSend(to: string, data: Uint8Array): AsyncIterable<Response> {
+    private async *portSend(to: string, data?: Uint8Array, meta?: Record<string, unknown>): AsyncIterable<Response> {
         if (typeof to !== 'string') {
             yield respond.error('EINVAL', 'to must be a string');
             return;
         }
-        if (!(data instanceof Uint8Array)) {
-            yield respond.error('EINVAL', 'data must be Uint8Array');
-            return;
-        }
+        // data is optional for pubsub/watch, required for UDP (validated in port impl)
 
         try {
-            await this.port.send(to, data);
+            await this.port.send(to, data, meta);
             yield respond.ok();
         } catch (err) {
             yield respond.error('EIO', (err as Error).message);

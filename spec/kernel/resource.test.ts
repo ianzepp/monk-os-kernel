@@ -311,7 +311,7 @@ describe('WatchPort', () => {
         expect(msg2.meta?.fields).toEqual(['size']);
     });
 
-    it('should encode event data as JSON', async () => {
+    it('should provide event data in meta (not serialized)', async () => {
         const events: WatchEvent[] = [
             { entity: 'uuid-1', op: 'delete', path: '/test/file.txt', timestamp: 1234567890 },
         ];
@@ -320,9 +320,10 @@ describe('WatchPort', () => {
         await new Promise(r => setTimeout(r, 10));
 
         const msg = await port.recv();
-        const decoded = JSON.parse(new TextDecoder().decode(msg.data));
-        expect(decoded.entity).toBe('uuid-1');
-        expect(decoded.op).toBe('delete');
+        // Watch events now use meta, not serialized data
+        expect(msg.data).toBeUndefined();
+        expect(msg.meta?.entity).toBe('uuid-1');
+        expect(msg.meta?.op).toBe('delete');
     });
 
     it('should throw on send()', async () => {
@@ -485,7 +486,8 @@ describe('PubsubPort', () => {
         const data = new Uint8Array([1, 2, 3]);
         await port.send('orders.created', data);
 
-        expect(publishFn).toHaveBeenCalledWith('orders.created', data, 'pub-1');
+        // publishFn now has 4 args: (topic, data, meta, sourcePortId)
+        expect(publishFn).toHaveBeenCalledWith('orders.created', data, undefined, 'pub-1');
     });
 
     it('should enqueue messages and recv() them', async () => {

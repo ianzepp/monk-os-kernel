@@ -14,4 +14,3 @@ export { PipeHandleAdapter, type PipeEnd } from './pipe.js';
 export { PortHandleAdapter } from './port.js';
 export { ChannelHandleAdapter } from './channel.js';
 export { ProcessIOHandle } from './process-io.js';
-export { PortSourceAdapter } from './port-source.js';

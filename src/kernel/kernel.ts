@@ -20,7 +20,7 @@ import { SIGTERM, SIGKILL, TERM_GRACE_MS } from '@src/kernel/types.js';
 import { ProcessTable } from '@src/kernel/process-table.js';
 import { MAX_HANDLES, STREAM_HIGH_WATER, STREAM_LOW_WATER, STREAM_STALL_TIMEOUT } from '@src/kernel/types.js';
 import type { Handle } from '@src/kernel/handle.js';
-import { FileHandleAdapter, SocketHandleAdapter, PipeHandleAdapter, PortHandleAdapter, ChannelHandleAdapter, ProcessIOHandle, PortSourceAdapter } from '@src/kernel/handle.js';
+import { FileHandleAdapter, SocketHandleAdapter, PipeHandleAdapter, PortHandleAdapter, ChannelHandleAdapter, ProcessIOHandle } from '@src/kernel/handle.js';
 import {
     SyscallDispatcher,
     createFileSyscalls,
@@ -257,7 +257,7 @@ export class Kernel {
                 return;
             }
 
-            yield* handle.send(msg as import('@src/message.js').Message);
+            yield* handle.exec(msg as import('@src/message.js').Message);
         }.bind(this));
 
         this.syscalls.register('handle:close', wrapSyscall((proc, h) =>
@@ -1212,8 +1212,8 @@ export class Kernel {
                     : 'pubsub:(send-only)';
 
                 // Create publish function that routes through kernel
-                const publishFn = (topic: string, data: Uint8Array, sourcePortId: string) => {
-                    this.publishPubsub(topic, data, sourcePortId);
+                const publishFn = (topic: string, data: Uint8Array | undefined, meta: Record<string, unknown> | undefined, sourcePortId: string) => {
+                    this.publishPubsub(topic, data, meta, sourcePortId);
                 };
 
                 // Create unsubscribe function for cleanup
@@ -1330,14 +1330,16 @@ export class Kernel {
      * Publish a message to all matching pubsub subscribers.
      *
      * @param topic - Topic to publish to
-     * @param data - Message payload
+     * @param data - Optional binary payload
+     * @param meta - Optional structured metadata
      * @param sourcePortId - Port ID of publisher (to avoid echo)
      */
-    private publishPubsub(topic: string, data: Uint8Array, sourcePortId: string): void {
+    private publishPubsub(topic: string, data: Uint8Array | undefined, meta: Record<string, unknown> | undefined, sourcePortId: string): void {
         const message = {
             from: topic,
             data,
             meta: {
+                ...meta,
                 timestamp: Date.now(),
             },
         };
@@ -1491,8 +1493,8 @@ export class Kernel {
                 const patterns = [activation.topic];
                 const description = `service:${name}:pubsub:${activation.topic}`;
 
-                const publishFn = (topic: string, data: Uint8Array, sourcePortId: string) => {
-                    this.publishPubsub(topic, data, sourcePortId);
+                const publishFn = (topic: string, data: Uint8Array | undefined, meta: Record<string, unknown> | undefined, sourcePortId: string) => {
+                    this.publishPubsub(topic, data, meta, sourcePortId);
                 };
                 const unsubscribeFn = () => {
                     this.pubsubPorts.delete(port);
@@ -1702,7 +1704,7 @@ export class Kernel {
                     type: 'file' as const,
                     description: '/dev/null',
                     closed: false,
-                    async *send() { yield respond.done(); },
+                    async *exec() { yield respond.done(); },
                     async close() {},
                 };
             }
@@ -1714,8 +1716,8 @@ export class Kernel {
                 const portId = this.hal.entropy.uuid();
                 const description = `pubsub:${patterns.join(',')}`;
 
-                const publishFn = (topic: string, data: Uint8Array, sourcePortId: string) => {
-                    this.publishPubsub(topic, data, sourcePortId);
+                const publishFn = (topic: string, data: Uint8Array | undefined, meta: Record<string, unknown> | undefined, sourcePortId: string) => {
+                    this.publishPubsub(topic, data, meta, sourcePortId);
                 };
                 const unsubscribeFn = () => {
                     this.pubsubPorts.delete(port);
@@ -1724,7 +1726,7 @@ export class Kernel {
                 const port = new PubsubPort(portId, patterns, publishFn, unsubscribeFn, description);
                 this.pubsubPorts.add(port);
 
-                return new PortSourceAdapter(portId, port, description);
+                return new PortHandleAdapter(portId, port, description);
             }
 
             case 'watch': {
@@ -1736,14 +1738,14 @@ export class Kernel {
                 };
 
                 const port = new WatchPort(portId, source.pattern, vfsWatch, description);
-                return new PortSourceAdapter(portId, port, description);
+                return new PortHandleAdapter(portId, port, description);
             }
 
             case 'udp': {
                 const portId = this.hal.entropy.uuid();
                 const description = `udp:${source.address ?? '0.0.0.0'}:${source.bind}`;
                 const port = new UdpPort(portId, { bind: source.bind, address: source.address }, description);
-                return new PortSourceAdapter(portId, port, description);
+                return new PortHandleAdapter(portId, port, description);
             }
         }
     }
@@ -1775,7 +1777,7 @@ export class Kernel {
                     type: 'file' as const,
                     description: '/dev/null',
                     closed: false,
-                    async *send() { yield respond.ok(); },
+                    async *exec() { yield respond.ok(); },
                     async close() {},
                 };
             }

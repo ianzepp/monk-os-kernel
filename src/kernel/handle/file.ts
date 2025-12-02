@@ -13,14 +13,14 @@ import type { Handle, HandleType } from './types.js';
 /**
  * File handle operations
  */
-type FileOp = 'read' | 'write' | 'seek' | 'stat';
+type FileOp = 'recv' | 'send' | 'seek' | 'stat';
 
 /**
  * File handle wrapping VFS FileHandle.
  *
  * Supported ops:
- * - read: Stream chunks until EOF
- * - write: Write data, return bytes written
+ * - recv: Stream chunks until EOF
+ * - send: Write data, return bytes written
  * - seek: Seek to position
  * - stat: Get file metadata
  */
@@ -41,7 +41,7 @@ export class FileHandleAdapter implements Handle {
         return this._closed || this.handle.closed;
     }
 
-    async *send(msg: Message): AsyncIterable<Response> {
+    async *exec(msg: Message): AsyncIterable<Response> {
         if (this._closed) {
             yield respond.error('EBADF', 'Handle closed');
             return;
@@ -51,12 +51,12 @@ export class FileHandleAdapter implements Handle {
         const data = msg.data as Record<string, unknown> | undefined;
 
         switch (op) {
-            case 'read':
-                yield* this.read(data?.chunkSize as number | undefined);
+            case 'recv':
+                yield* this.recv(data?.chunkSize as number | undefined);
                 break;
 
-            case 'write':
-                yield* this.write(data?.data as Uint8Array);
+            case 'send':
+                yield* this.send(data?.data as Uint8Array);
                 break;
 
             case 'seek':
@@ -75,7 +75,7 @@ export class FileHandleAdapter implements Handle {
         }
     }
 
-    private async *read(chunkSize?: number): AsyncIterable<Response> {
+    private async *recv(chunkSize?: number): AsyncIterable<Response> {
         const size = chunkSize ?? DEFAULT_CHUNK_SIZE;
         let totalYielded = 0;
 
@@ -94,7 +94,7 @@ export class FileHandleAdapter implements Handle {
                     return;
                 }
 
-                yield respond.item(chunk);
+                yield respond.chunk(chunk);
 
                 // Short read indicates EOF
                 if (chunk.length < size) {
@@ -108,7 +108,7 @@ export class FileHandleAdapter implements Handle {
         }
     }
 
-    private async *write(data: Uint8Array): AsyncIterable<Response> {
+    private async *send(data: Uint8Array): AsyncIterable<Response> {
         if (!(data instanceof Uint8Array)) {
             yield respond.error('EINVAL', 'data must be Uint8Array');
             return;
@@ -116,7 +116,7 @@ export class FileHandleAdapter implements Handle {
 
         try {
             const written = await this.handle.write(data);
-            yield respond.ok(written);
+            yield respond.ok({ written });
         } catch (err) {
             yield respond.error('EIO', (err as Error).message);
         }

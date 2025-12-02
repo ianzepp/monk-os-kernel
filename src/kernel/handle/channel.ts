@@ -35,7 +35,7 @@ export class ChannelHandleAdapter implements Handle {
         return this._closed || this.channel.closed;
     }
 
-    async *send(msg: Message): AsyncIterable<Response> {
+    async *exec(msg: Message): AsyncIterable<Response> {
         if (this._closed) {
             yield respond.error('EBADF', 'Handle closed');
             return;
@@ -75,7 +75,7 @@ export class ChannelHandleAdapter implements Handle {
                 // Receive message (bidirectional)
                 try {
                     const recvMsg = await this.channel.recv();
-                    yield respond.ok(recvMsg);
+                    yield respond.item(recvMsg);
                 } catch (err) {
                     yield respond.error('EIO', (err as Error).message);
                 }

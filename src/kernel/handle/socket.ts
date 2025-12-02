@@ -14,8 +14,8 @@ import type { Handle, HandleType } from './types.js';
  * Socket handle wrapping HAL Socket.
  *
  * Supported ops:
- * - read: Stream chunks until EOF
- * - write: Write data
+ * - recv: Stream chunks until EOF
+ * - send: Write data
  * - stat: Get socket metadata
  */
 export class SocketHandleAdapter implements Handle {
@@ -37,7 +37,7 @@ export class SocketHandleAdapter implements Handle {
         return this._closed;
     }
 
-    async *send(msg: Message): AsyncIterable<Response> {
+    async *exec(msg: Message): AsyncIterable<Response> {
         if (this._closed) {
             yield respond.error('EBADF', 'Handle closed');
             return;
@@ -47,12 +47,12 @@ export class SocketHandleAdapter implements Handle {
         const data = msg.data as Record<string, unknown> | undefined;
 
         switch (op) {
-            case 'read':
-                yield* this.read(data?.chunkSize as number | undefined);
+            case 'recv':
+                yield* this.recv(data?.chunkSize as number | undefined);
                 break;
 
-            case 'write':
-                yield* this.write(data?.data as Uint8Array);
+            case 'send':
+                yield* this.send(data?.data as Uint8Array);
                 break;
 
             case 'stat':
@@ -64,7 +64,7 @@ export class SocketHandleAdapter implements Handle {
         }
     }
 
-    private async *read(chunkSize?: number): AsyncIterable<Response> {
+    private async *recv(chunkSize?: number): AsyncIterable<Response> {
         const size = chunkSize ?? DEFAULT_CHUNK_SIZE;
         let totalYielded = 0;
 
@@ -83,7 +83,7 @@ export class SocketHandleAdapter implements Handle {
                     return;
                 }
 
-                yield respond.item(chunk);
+                yield respond.chunk(chunk);
             }
 
             yield respond.done();
@@ -121,7 +121,7 @@ export class SocketHandleAdapter implements Handle {
         return chunk.slice(0, size);
     }
 
-    private async *write(data: Uint8Array): AsyncIterable<Response> {
+    private async *send(data: Uint8Array): AsyncIterable<Response> {
         if (!(data instanceof Uint8Array)) {
             yield respond.error('EINVAL', 'data must be Uint8Array');
             return;
@@ -129,7 +129,7 @@ export class SocketHandleAdapter implements Handle {
 
         try {
             await this.socket.write(data);
-            yield respond.ok(data.length);
+            yield respond.ok({ written: data.length });
         } catch (err) {
             yield respond.error('EIO', (err as Error).message);
         }

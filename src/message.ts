@@ -56,7 +56,9 @@ export namespace Responses {
 
     export interface Chunk extends Response {
         op: 'chunk';
-        data: Uint8Array;
+        data: {
+            bytes: Uint8Array;
+        };
     }
 
     export interface Event extends Response {
@@ -106,7 +108,7 @@ export const respond = {
 
     item: (data: unknown): Responses.Item => ({ op: 'item', data }),
 
-    chunk: (data: Uint8Array): Responses.Chunk => ({ op: 'chunk', data }),
+    chunk: (bytes: Uint8Array): Responses.Chunk => ({ op: 'chunk', data: { bytes } }),
 
     event: (type: string, data: Record<string, unknown> = {}): Responses.Event => ({
         op: 'event',
