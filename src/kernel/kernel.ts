@@ -66,9 +66,21 @@ function debug(category: string, ...args: unknown[]): void {
 const CONSOLE_PATH = '/dev/console';
 
 /**
+ * Format error message for consistent logging.
+ */
+function formatError(err: unknown): string {
+    return err instanceof Error ? err.message : String(err);
+}
+
+/**
  * Kernel class
  */
 export class Kernel {
+    // ========================================================================
+    // State
+    // ========================================================================
+
+    // Core dependencies
     private hal: HAL;
     private vfs: VFS;
     private processes: ProcessTable;
@@ -253,6 +265,10 @@ export class Kernel {
         ));
     }
 
+    // ========================================================================
+    // Lifecycle
+    // ========================================================================
+
     /**
      * Boot the kernel.
      *
@@ -280,23 +296,11 @@ export class Kernel {
         await this.loadServices();
 
         // Create init process
-        const initId = this.hal.entropy.uuid();
-        const init: Process = {
-            id: initId,
-            parent: '',
-            worker: null as unknown as Worker, // Will be set when spawned
-            state: 'starting',
+        const init = this.createProcess({
             cmd: env.initPath,
-            cwd: '/',
-            env: { ...env.env },
-            args: env.initArgs ?? [env.initPath],
-            handles: new Map(),
-            nextHandle: 3,
-            children: new Map(),
-            nextPid: 1,
-            activeStreams: new Map(),
-            streamPingHandlers: new Map(),
-        };
+            env: env.env,
+            args: env.initArgs,
+        });
 
         // Setup stdio for init - open /dev/console
         await this.setupInitStdio(init);
@@ -370,21 +374,32 @@ export class Kernel {
         this.booted = false;
     }
 
-    /**
-     * Spawn a child process.
-     */
-    private async spawn(parent: Process, entry: string, opts?: SpawnOpts): Promise<number> {
-        const procId = this.hal.entropy.uuid();
+    // ========================================================================
+    // Process Management
+    // ========================================================================
 
-        const proc: Process = {
-            id: procId,
-            parent: parent.id,
+    /**
+     * Create a new Process object with common defaults.
+     *
+     * @param opts - Process creation options
+     * @returns New Process object in 'starting' state
+     */
+    private createProcess(opts: {
+        parent?: Process;
+        cmd: string;
+        cwd?: string;
+        env?: Record<string, string>;
+        args?: string[];
+    }): Process {
+        return {
+            id: this.hal.entropy.uuid(),
+            parent: opts.parent?.id ?? '',
             worker: null as unknown as Worker,
             state: 'starting',
-            cmd: entry,
-            cwd: opts?.cwd ?? parent.cwd,
-            env: { ...parent.env, ...opts?.env },
-            args: opts?.args ?? [entry],
+            cmd: opts.cmd,
+            cwd: opts.cwd ?? opts.parent?.cwd ?? '/',
+            env: opts.parent ? { ...opts.parent.env, ...opts.env } : (opts.env ?? {}),
+            args: opts.args ?? [opts.cmd],
             handles: new Map(),
             nextHandle: 3,
             children: new Map(),
@@ -392,6 +407,19 @@ export class Kernel {
             activeStreams: new Map(),
             streamPingHandlers: new Map(),
         };
+    }
+
+    /**
+     * Spawn a child process.
+     */
+    private async spawn(parent: Process, entry: string, opts?: SpawnOpts): Promise<number> {
+        const proc = this.createProcess({
+            parent,
+            cmd: entry,
+            cwd: opts?.cwd,
+            env: opts?.env,
+            args: opts?.args,
+        });
 
         // Setup stdio
         this.setupStdio(proc, parent, opts);
@@ -405,7 +433,7 @@ export class Kernel {
 
         // Assign PID in parent's namespace
         const pid = parent.nextPid++;
-        parent.children.set(pid, procId);
+        parent.children.set(pid, proc.id);
 
         return pid;
     }
@@ -569,6 +597,10 @@ export class Kernel {
 
         return 1;
     }
+
+    // ========================================================================
+    // Worker & Message Handling
+    // ========================================================================
 
     /**
      * Spawn a worker for a process.
@@ -754,6 +786,10 @@ export class Kernel {
         }
     }
 
+    // ========================================================================
+    // Stdio Setup
+    // ========================================================================
+
     /**
      * Setup stdio for init process.
      *
@@ -819,6 +855,10 @@ export class Kernel {
 
         // TODO: Handle 'pipe' option to create new pipes
     }
+
+    // ========================================================================
+    // Process Cleanup
+    // ========================================================================
 
     /**
      * Force exit a process immediately.
@@ -967,10 +1007,6 @@ export class Kernel {
      * Open a file and allocate handle.
      */
     private async openFile(proc: Process, path: string, flags: import('@src/kernel/types.js').OpenFlags): Promise<number> {
-        if (proc.handles.size >= MAX_HANDLES) {
-            throw new EMFILE('Too many open handles');
-        }
-
         const vfsHandle = await this.vfs.open(path, flags, proc.id);
         const adapter = new FileHandleAdapter(vfsHandle.id, vfsHandle);
         return this.allocHandle(proc, adapter);
@@ -983,10 +1019,6 @@ export class Kernel {
      * For Unix: host is socket path, port is 0
      */
     private async connectTcp(proc: Process, host: string, port: number): Promise<number> {
-        if (proc.handles.size >= MAX_HANDLES) {
-            throw new EMFILE('Too many open handles');
-        }
-
         const socket = await this.hal.network.connect(host, port);
 
         const isUnix = port === 0;
@@ -1108,10 +1140,6 @@ export class Kernel {
      * Create a port and allocate handle.
      */
     private async createPort(proc: Process, type: string, opts: unknown): Promise<number> {
-        if (proc.handles.size >= MAX_HANDLES) {
-            throw new EMFILE('Too many open handles');
-        }
-
         let port: Port;
 
         switch (type) {
@@ -1270,10 +1298,6 @@ export class Kernel {
         url: string,
         opts?: ChannelOpts
     ): Promise<number> {
-        if (proc.handles.size >= MAX_HANDLES) {
-            throw new EMFILE('Too many open handles');
-        }
-
         const channel = await this.hal.channel.open(proto, url, opts);
         const adapter = new ChannelHandleAdapter(channel.id, channel, `${channel.proto}:${channel.description}`);
         const h = this.allocHandle(proc, adapter);
@@ -1331,6 +1355,15 @@ export class Kernel {
     // ========================================================================
 
     /**
+     * Log a service error to the console.
+     */
+    private logServiceError(service: string, context: string, err: unknown): void {
+        this.hal.console.error(
+            new TextEncoder().encode(`service ${service}: ${context}: ${formatError(err)}\n`)
+        );
+    }
+
+    /**
      * Load services from /etc/services/*.json
      */
     private async loadServices(): Promise<void> {
@@ -1374,9 +1407,7 @@ export class Kernel {
                 try {
                     await this.vfs.stat(handlerPath, 'kernel');
                 } catch {
-                    this.hal.console.error(
-                        new TextEncoder().encode(`service ${serviceName}: unknown handler ${def.handler}\n`)
-                    );
+                    this.logServiceError(serviceName, 'unknown handler', def.handler);
                     continue;
                 }
 
@@ -1385,10 +1416,7 @@ export class Kernel {
                 // Activate the service
                 await this.activateService(serviceName, def);
             } catch (err) {
-                const msg = err instanceof Error ? err.message : String(err);
-                this.hal.console.error(
-                    new TextEncoder().encode(`service ${serviceName}: ${msg}\n`)
-                );
+                this.logServiceError(serviceName, 'load failed', err);
             }
         }
     }
@@ -1428,7 +1456,14 @@ export class Kernel {
                 const abort = new AbortController();
                 this.activationAborts.set(name, abort);
 
-                this.runTcpActivationLoop(name, def, port, abort.signal);
+                this.runActivationLoop(name, def, port, abort.signal, (msg) => {
+                    if (msg.socket) {
+                        const stat = msg.socket.stat();
+                        debug('tcp', `${name}: accepted from ${stat.remoteAddr}:${stat.remotePort}`);
+                        return { socket: msg.socket };
+                    }
+                    return null;
+                });
                 break;
             }
 
@@ -1453,7 +1488,7 @@ export class Kernel {
                 const abort = new AbortController();
                 this.activationAborts.set(name, abort);
 
-                this.runPubsubActivationLoop(name, def, port, abort.signal);
+                this.runActivationLoop(name, def, port, abort.signal, (msg) => ({ data: msg.data }));
                 break;
             }
 
@@ -1473,7 +1508,13 @@ export class Kernel {
                 const abort = new AbortController();
                 this.activationAborts.set(name, abort);
 
-                this.runWatchActivationLoop(name, def, port, abort.signal);
+                this.runActivationLoop(name, def, port, abort.signal, (msg) => ({
+                    data: new TextEncoder().encode(JSON.stringify({
+                        path: msg.from,
+                        op: msg.meta?.op,
+                        data: msg.data ? Array.from(msg.data) : undefined,
+                    })),
+                }));
                 break;
             }
 
@@ -1489,167 +1530,66 @@ export class Kernel {
                 const abort = new AbortController();
                 this.activationAborts.set(name, abort);
 
-                this.runUdpActivationLoop(name, def, port, abort.signal);
+                this.runActivationLoop(name, def, port, abort.signal, (msg) => ({
+                    data: new TextEncoder().encode(JSON.stringify({
+                        from: msg.from,
+                        data: msg.data ? Array.from(msg.data) : undefined,
+                    })),
+                }));
                 break;
             }
         }
     }
 
     /**
-     * Run TCP listener activation loop.
+     * Unified activation loop for all service activation types.
+     *
+     * @param name - Service name
+     * @param def - Service definition
+     * @param port - Port to receive from
+     * @param signal - Abort signal for graceful shutdown
+     * @param transform - Transforms port message to spawn input
      */
-    private async runTcpActivationLoop(
+    private async runActivationLoop(
         name: string,
         def: ServiceDef,
-        port: ListenerPort,
-        signal: AbortSignal
+        port: Port,
+        signal: AbortSignal,
+        transform: (msg: import('@src/kernel/resource.js').PortMessage) => {
+            socket?: import('@src/hal/network.js').Socket;
+            data?: Uint8Array;
+        } | null
     ): Promise<void> {
         try {
             while (!signal.aborted) {
                 const msg = await port.recv();
 
                 if (signal.aborted) {
-                    // Clean up the socket we just accepted
+                    // Clean up socket if present (for TCP activation)
                     if (msg.socket) {
                         await msg.socket.close().catch((err) => {
-                            debug('cleanup', `socket close on abort failed: ${(err as Error).message}`);
+                            debug('cleanup', `socket close on abort failed: ${formatError(err)}`);
                         });
                     }
                     break;
                 }
 
-                if (msg.socket) {
-                    const stat = msg.socket.stat();
-                    debug('tcp', `${name}: accepted connection from ${stat.remoteAddr}:${stat.remotePort}`);
-                    // Spawn handler with socket as fd 0
-                    this.spawnServiceHandler(name, def, msg.socket).catch((err) => {
-                        const errMsg = err instanceof Error ? err.message : String(err);
-                        debug('tcp', `${name}: spawn failed: ${errMsg}`);
-                        this.hal.console.error(
-                            new TextEncoder().encode(`service ${name}: spawn failed: ${errMsg}\n`)
-                        );
-                        msg.socket?.close().catch((closeErr) => {
-                            debug('cleanup', `socket close on spawn error failed: ${(closeErr as Error).message}`);
-                        });
+                const input = transform(msg);
+                if (input) {
+                    this.spawnServiceHandler(name, def, input.socket, input.data).catch((err) => {
+                        this.logServiceError(name, 'spawn failed', err);
+                        // Clean up socket on spawn failure (for TCP activation)
+                        if (input.socket) {
+                            input.socket.close().catch((closeErr) => {
+                                debug('cleanup', `socket close on spawn error failed: ${formatError(closeErr)}`);
+                            });
+                        }
                     });
                 }
             }
         } catch (err) {
             if (!signal.aborted) {
-                const errMsg = err instanceof Error ? err.message : String(err);
-                this.hal.console.error(
-                    new TextEncoder().encode(`service ${name}: activation loop error: ${errMsg}\n`)
-                );
-            }
-        }
-    }
-
-    /**
-     * Run pubsub activation loop.
-     */
-    private async runPubsubActivationLoop(
-        name: string,
-        def: ServiceDef,
-        port: PubsubPort,
-        signal: AbortSignal
-    ): Promise<void> {
-        try {
-            while (!signal.aborted) {
-                const msg = await port.recv();
-
-                if (signal.aborted) break;
-
-                // Spawn handler with message data as fd 0 input
-                this.spawnServiceHandler(name, def, undefined, msg.data).catch((err) => {
-                    const errMsg = err instanceof Error ? err.message : String(err);
-                    this.hal.console.error(
-                        new TextEncoder().encode(`service ${name}: spawn failed: ${errMsg}\n`)
-                    );
-                });
-            }
-        } catch (err) {
-            if (!signal.aborted) {
-                const errMsg = err instanceof Error ? err.message : String(err);
-                this.hal.console.error(
-                    new TextEncoder().encode(`service ${name}: activation loop error: ${errMsg}\n`)
-                );
-            }
-        }
-    }
-
-    /**
-     * Run watch activation loop.
-     */
-    private async runWatchActivationLoop(
-        name: string,
-        def: ServiceDef,
-        port: WatchPort,
-        signal: AbortSignal
-    ): Promise<void> {
-        try {
-            while (!signal.aborted) {
-                const msg = await port.recv();
-
-                if (signal.aborted) break;
-
-                // Encode event as JSON for fd 0
-                const eventData = new TextEncoder().encode(JSON.stringify({
-                    path: msg.from,
-                    op: msg.meta?.op,
-                    data: msg.data ? Array.from(msg.data) : undefined,
-                }));
-
-                this.spawnServiceHandler(name, def, undefined, eventData).catch((err) => {
-                    const errMsg = err instanceof Error ? err.message : String(err);
-                    this.hal.console.error(
-                        new TextEncoder().encode(`service ${name}: spawn failed: ${errMsg}\n`)
-                    );
-                });
-            }
-        } catch (err) {
-            if (!signal.aborted) {
-                const errMsg = err instanceof Error ? err.message : String(err);
-                this.hal.console.error(
-                    new TextEncoder().encode(`service ${name}: activation loop error: ${errMsg}\n`)
-                );
-            }
-        }
-    }
-
-    /**
-     * Run UDP activation loop.
-     */
-    private async runUdpActivationLoop(
-        name: string,
-        def: ServiceDef,
-        port: UdpPort,
-        signal: AbortSignal
-    ): Promise<void> {
-        try {
-            while (!signal.aborted) {
-                const msg = await port.recv();
-
-                if (signal.aborted) break;
-
-                // Encode datagram with source address for fd 0
-                const datagram = new TextEncoder().encode(JSON.stringify({
-                    from: msg.from,
-                    data: msg.data ? Array.from(msg.data) : undefined,
-                }));
-
-                this.spawnServiceHandler(name, def, undefined, datagram).catch((err) => {
-                    const errMsg = err instanceof Error ? err.message : String(err);
-                    this.hal.console.error(
-                        new TextEncoder().encode(`service ${name}: spawn failed: ${errMsg}\n`)
-                    );
-                });
-            }
-        } catch (err) {
-            if (!signal.aborted) {
-                const errMsg = err instanceof Error ? err.message : String(err);
-                this.hal.console.error(
-                    new TextEncoder().encode(`service ${name}: activation loop error: ${errMsg}\n`)
-                );
+                this.logServiceError(name, 'activation loop error', err);
             }
         }
     }
@@ -1669,24 +1609,7 @@ export class Kernel {
         // Handler path is a VFS path (e.g., /bin/telnetd), add .ts extension if needed
         const entry = def.handler.endsWith('.ts') ? def.handler : def.handler + '.ts';
 
-        const procId = this.hal.entropy.uuid();
-
-        const proc: Process = {
-            id: procId,
-            parent: '', // Kernel is parent (no parent process)
-            worker: null as unknown as Worker,
-            state: 'starting',
-            cmd: def.handler,
-            cwd: '/',
-            env: {},
-            args: [def.handler],
-            handles: new Map(),
-            nextHandle: 3,
-            children: new Map(),
-            nextPid: 1,
-            activeStreams: new Map(),
-            streamPingHandlers: new Map(),
-        };
+        const proc = this.createProcess({ cmd: def.handler });
 
         // Setup handle 0 based on activation type
         if (socket) {
