@@ -19,8 +19,10 @@
 │  Process Library & Syscall API (rom/lib/process/)           │
 ├─────────────────────────────────────────────────────────────┤
 │  OS Public API (src/os/)                                    │
-│  ├── OS class (boot, shutdown, configuration)               │
-│  └── FilesystemAPI (host mounts, file operations)           │
+│  ├── OS class (boot, exec, shutdown, lifecycle hooks)       │
+│  ├── FilesystemAPI (host mounts, file operations)           │
+│  ├── ProcessAPI (spawn, run, shell) [stub]                  │
+│  └── ServiceAPI (start, stop, list, register) [stub]        │
 ├─────────────────────────────────────────────────────────────┤
 │  Kernel Layer (src/kernel/)                                 │
 │  ├── Syscall Dispatcher & Execution                         │
@@ -174,47 +176,65 @@ abstract class PosixModel {
 **Purpose**: Main entry point for external applications consuming Monk OS.
 
 **Key Files**:
-- `index.ts` - Exports OS class, types, FilesystemAPI
-- `os.ts` - OS class with boot(), shutdown(), getters for HAL/VFS/Kernel
+- `index.ts` - Exports OS class, types, APIs
+- `os.ts` - OS class with boot(), exec(), shutdown(), lifecycle hooks
 - `fs.ts` - FilesystemAPI for file operations
-- `types.ts` - OSConfig, BootOpts, MountOpts, StorageConfig, Stat
+- `process.ts` - ProcessAPI for spawning/running processes (stub)
+- `service.ts` - ServiceAPI for service management (stub)
+- `types.ts` - OSConfig, BootOpts, ExecOpts, OSEvents, process/service types
 
 **OS Class**:
 ```typescript
 class OS {
     readonly fs: FilesystemAPI;
+    readonly process: ProcessAPI;
+    readonly service: ServiceAPI;
 
     constructor(config?: OSConfig);
-    alias(name: string, path: string): this;  // Add path alias
-    resolvePath(path: string): string;        // Expand aliases
+    alias(name: string, path: string): this;
+    on<K extends OSEventName>(event: K, callback: OSEvents[K]): this;
 
     async boot(opts?: BootOpts): Promise<void>;
+    async exec(opts: ExecOpts): Promise<number>;  // Takeover mode
     async shutdown(): Promise<void>;
-    isBooted(): boolean;
-
-    getHAL(): HAL;
-    getVFS(): VFS;
-    getKernel(): Kernel;
-    getServices(): Map<string, ServiceDef>;
 }
 ```
 
-**FilesystemAPI**:
+**Lifecycle Hooks** (`os.on()`):
 ```typescript
-class FilesystemAPI {
-    mount(hostPath, osPath, opts?): void;
-    unmount(osPath): void;
+const os = new OS()
+  .on('hal', (hal) => { /* configure HAL */ })
+  .on('vfs', (vfs) => { vfs.mountHost('/vol/app', './src'); })
+  .on('kernel', (kernel) => { /* register services */ })
+  .on('boot', () => { /* OS fully booted */ })
+  .on('shutdown', () => { /* cleanup */ });
+```
 
-    read(path): Promise<Uint8Array>;
-    readText(path): Promise<string>;
-    write(path, data): Promise<void>;
-    stat(path): Promise<Stat>;
-    readdir(path): Promise<string[]>;
-    readdirStat(path): Promise<Stat[]>;
-    mkdir(path, opts?): Promise<void>;
-    unlink(path): Promise<void>;
-    exists(path): Promise<boolean>;
-}
+**Boot Sequence with Hooks**:
+1. Create and initialize HAL
+2. Emit `hal` event
+3. Create VFS, initialize (creates /dev, /etc)
+4. Emit `vfs` event (configure mounts)
+5. Create Kernel
+6. Emit `kernel` event (register services)
+7. Spawn init if main provided
+8. Emit `boot` event
+
+**Sub-APIs** (stubs):
+```typescript
+// ProcessAPI - os.process.*
+spawn(cmd, opts?): Promise<ProcessHandle>;  // Long-running process
+run(cmd, opts?): Promise<RunResult>;        // Run to completion
+shell(cmd, opts?): Promise<RunResult>;      // Shell command
+
+// ServiceAPI - os.service.*
+start(config): Promise<void>;
+stop(name): Promise<void>;
+restart(name): Promise<void>;
+get(name): Promise<ServiceInfo | undefined>;
+list(): Promise<ServiceInfo[]>;
+register(config): Promise<void>;
+unregister(name): Promise<void>;
 ```
 
 **Configuration**:
@@ -228,6 +248,11 @@ interface OSConfig {
 interface BootOpts {
     main?: string;    // Init script path
     debug?: boolean;  // Enable kernel debug logging
+}
+
+interface ExecOpts {
+    main: string;     // Required for takeover mode
+    debug?: boolean;
 }
 ```
 
@@ -490,9 +515,11 @@ Streams of `Response` objects are the fundamental data flow unit. Arrays are a c
 │   │   └── compression.ts        # CompressionDevice
 │   ├── os/                       # Public API
 │   │   ├── index.ts              # Exports
-│   │   ├── os.ts                 # OS class
+│   │   ├── os.ts                 # OS class (boot, exec, lifecycle hooks)
 │   │   ├── fs.ts                 # FilesystemAPI
-│   │   └── types.ts              # OSConfig, BootOpts, etc.
+│   │   ├── process.ts            # ProcessAPI (stub)
+│   │   ├── service.ts            # ServiceAPI (stub)
+│   │   └── types.ts              # OSConfig, OSEvents, process/service types
 │   └── message.ts                # Message, Response, respond helpers
 ├── rom/                          # Read-only bundled code (userspace)
 │   ├── lib/                      # Libraries for processes

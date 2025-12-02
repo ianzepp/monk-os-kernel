@@ -12,10 +12,17 @@ import { BunHAL } from '@src/hal/index.js';
 import { VFS } from '@src/vfs/vfs.js';
 import { Kernel } from '@src/kernel/kernel.js';
 import type { ServiceDef } from '@src/kernel/services.js';
-import type { OSConfig, BootOpts, ExecOpts } from './types.js';
+import type { OSConfig, BootOpts, ExecOpts, OSEvents, OSEventName } from './types.js';
 import { FilesystemAPI } from './fs.js';
 import { ProcessAPI } from './process.js';
 import { ServiceAPI } from './service.js';
+
+/**
+ * Type for storing event listeners
+ */
+type EventListeners = {
+    [K in OSEventName]: Array<OSEvents[K]>;
+};
 
 /**
  * OS class - main entry point for Monk OS
@@ -29,6 +36,15 @@ export class OS {
 
     // Path aliases
     private aliases: Map<string, string> = new Map();
+
+    // Lifecycle event listeners
+    private listeners: EventListeners = {
+        hal: [],
+        vfs: [],
+        kernel: [],
+        boot: [],
+        shutdown: [],
+    };
 
     /**
      * Filesystem API for file operations.
@@ -72,6 +88,40 @@ export class OS {
     }
 
     /**
+     * Register a lifecycle event listener.
+     *
+     * Listeners are called during boot() at the appropriate stage.
+     *
+     * @param event - Event name ('hal', 'vfs', 'kernel', 'boot', 'shutdown')
+     * @param callback - Function to call when event fires
+     * @returns this for chaining
+     *
+     * @example
+     * ```typescript
+     * const os = new OS()
+     *   .on('hal', (hal) => {
+     *     // Configure HAL after initialization
+     *   })
+     *   .on('vfs', (vfs) => {
+     *     // Add mounts before kernel starts
+     *     vfs.mountHost('/vol/app', './src');
+     *   })
+     *   .on('kernel', (kernel) => {
+     *     // Register services before init spawns
+     *   })
+     *   .on('boot', () => {
+     *     console.log('OS fully booted');
+     *   });
+     *
+     * await os.boot({ main: '/vol/app/init.ts' });
+     * ```
+     */
+    on<K extends OSEventName>(event: K, callback: OSEvents[K]): this {
+        this.listeners[event].push(callback);
+        return this;
+    }
+
+    /**
      * Resolve a path, expanding any aliases.
      */
     resolvePath(path: string): string {
@@ -93,6 +143,17 @@ export class OS {
      * Initializes HAL, VFS, and kernel. Returns control to the caller.
      * The OS runs in the background, accessible via the os.* API.
      *
+     * Boot sequence:
+     * 1. Create and initialize HAL
+     * 2. Emit 'hal' event (configure HAL features)
+     * 3. Create VFS
+     * 4. Initialize VFS (creates /dev, /etc, etc.)
+     * 5. Emit 'vfs' event (configure mounts)
+     * 6. Create Kernel
+     * 7. Emit 'kernel' event (register services)
+     * 8. Spawn init process if main provided
+     * 9. Emit 'ready' event
+     *
      * @param opts - Optional boot options (e.g., main script)
      */
     async boot(opts?: BootOpts): Promise<void> {
@@ -104,16 +165,25 @@ export class OS {
         this.hal = new BunHAL(this.buildHALConfig());
         await this.hal.init();
 
-        // 2. Create VFS
-        this.vfs = new VFS(this.hal);
+        // 2. Emit 'hal' event - configure HAL features
+        await this.emit('hal', this.hal);
 
-        // 3. Create Kernel
-        this.kernel = new Kernel(this.hal, this.vfs);
+        // 3. Create VFS
+        this.vfs = new VFS(this.hal);
 
         // 4. Initialize VFS (creates /dev, etc.)
         await this.vfs.init();
 
-        // 5. If main is provided, boot with init process
+        // 5. Emit 'vfs' event - configure mounts
+        await this.emit('vfs', this.vfs);
+
+        // 6. Create Kernel
+        this.kernel = new Kernel(this.hal, this.vfs);
+
+        // 7. Emit 'kernel' event - register services
+        await this.emit('kernel', this.kernel);
+
+        // 8. If main is provided, boot with init process
         if (opts?.main) {
             const initPath = this.resolvePath(opts.main);
             await this.kernel.boot({
@@ -129,6 +199,9 @@ export class OS {
         }
 
         this.booted = true;
+
+        // 9. Emit 'boot' event - OS fully booted
+        await this.emit('boot');
     }
 
     /**
@@ -169,6 +242,9 @@ export class OS {
      */
     async shutdown(): Promise<void> {
         if (!this.booted) return;
+
+        // Emit 'shutdown' event before teardown
+        await this.emit('shutdown');
 
         if (this.kernel?.isBooted()) {
             await this.kernel.shutdown();
@@ -264,5 +340,21 @@ export class OS {
         }
 
         return { storage: { type: 'memory' } };
+    }
+
+    /**
+     * Emit a lifecycle event, calling all registered listeners.
+     *
+     * @param event - Event name
+     * @param args - Arguments to pass to listeners
+     */
+    private async emit<K extends OSEventName>(
+        event: K,
+        ...args: Parameters<OSEvents[K]>
+    ): Promise<void> {
+        const callbacks = this.listeners[event] as Array<(...a: Parameters<OSEvents[K]>) => void | Promise<void>>;
+        for (const callback of callbacks) {
+            await callback(...args);
+        }
     }
 }

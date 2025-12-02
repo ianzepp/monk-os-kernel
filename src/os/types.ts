@@ -4,6 +4,58 @@
  * Shared interfaces for the OS public API.
  */
 
+import type { HAL } from '@src/hal/index.js';
+import type { VFS } from '@src/vfs/vfs.js';
+import type { Kernel } from '@src/kernel/kernel.js';
+
+// ============================================================================
+// Lifecycle Events
+// ============================================================================
+
+/**
+ * OS lifecycle event callbacks.
+ *
+ * Register with `os.on(event, callback)` to hook into boot sequence.
+ * Callbacks are invoked during `boot()` at the appropriate stage,
+ * before init process is spawned.
+ */
+export interface OSEvents {
+    /**
+     * Called after HAL is created and initialized.
+     * Use to configure HAL features before VFS/Kernel creation.
+     */
+    hal: (hal: HAL) => void | Promise<void>;
+
+    /**
+     * Called after VFS is created and initialized.
+     * Use to configure mounts, filesystem settings before kernel.
+     */
+    vfs: (vfs: VFS) => void | Promise<void>;
+
+    /**
+     * Called after Kernel is created.
+     * Use to register services, configure kernel before init spawns.
+     */
+    kernel: (kernel: Kernel) => void | Promise<void>;
+
+    /**
+     * Called after init process has been spawned (if any).
+     * OS is fully booted and ready.
+     */
+    boot: () => void | Promise<void>;
+
+    /**
+     * Called during shutdown, before subsystems are torn down.
+     * Use for cleanup.
+     */
+    shutdown: () => void | Promise<void>;
+}
+
+/**
+ * Valid lifecycle event names.
+ */
+export type OSEventName = keyof OSEvents;
+
 /**
  * Storage configuration for the OS
  */
