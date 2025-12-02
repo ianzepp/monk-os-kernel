@@ -1,14 +1,15 @@
 /**
  * Resource Tests
  *
- * Tests for Ports and PipeBuffer.
+ * Tests for Ports and MessagePipe.
  * NOTE: FileResource, SocketResource, PipeResource have been removed.
  * Use Handle adapters from handle.ts instead.
  */
 
 import { describe, it, expect, mock } from 'bun:test';
-import { ListenerPort, WatchPort, PubsubPort, matchTopic, PipeBuffer } from '@src/kernel/resource.js';
+import { ListenerPort, WatchPort, PubsubPort, matchTopic, createMessagePipe } from '@src/kernel/resource.js';
 import { EAGAIN, ENOTSUP } from '@src/kernel/errors.js';
+import { respond } from '@src/message.js';
 import type { WatchEvent } from '@src/vfs/model.js';
 import type { Listener, Socket } from '@src/hal/index.js';
 
@@ -95,164 +96,163 @@ describe('ListenerPort', () => {
     });
 });
 
-describe('PipeBuffer', () => {
-    it('should write and read data', async () => {
-        const buffer = new PipeBuffer();
+describe('MessagePipe', () => {
+    it('should send and recv messages', async () => {
+        const [recvEnd, sendEnd] = createMessagePipe('test-pipe');
 
-        buffer.write(new Uint8Array([1, 2, 3]));
-        const data = await buffer.read();
+        // Send a message
+        const sendResult = [];
+        for await (const r of sendEnd.exec({ op: 'send', data: respond.item('hello') })) {
+            sendResult.push(r);
+        }
+        expect(sendResult[0]?.op).toBe('ok');
 
-        expect(data).toEqual(new Uint8Array([1, 2, 3]));
+        // Close send end to signal EOF
+        await sendEnd.close();
+
+        // Recv the message
+        const recvResult = [];
+        for await (const r of recvEnd.exec({ op: 'recv' })) {
+            recvResult.push(r);
+        }
+        expect(recvResult[0]).toEqual(respond.item('hello'));
+        expect(recvResult[1]?.op).toBe('done');
     });
 
-    it('should buffer multiple writes', async () => {
-        const buffer = new PipeBuffer();
+    it('should buffer multiple messages', async () => {
+        const [recvEnd, sendEnd] = createMessagePipe('test-pipe');
 
-        buffer.write(new Uint8Array([1, 2]));
-        buffer.write(new Uint8Array([3, 4]));
+        // Send multiple messages
+        for await (const _ of sendEnd.exec({ op: 'send', data: respond.item('first') })) {}
+        for await (const _ of sendEnd.exec({ op: 'send', data: respond.item('second') })) {}
+        for await (const _ of sendEnd.exec({ op: 'send', data: respond.item('third') })) {}
 
-        const data = await buffer.read();
-        expect(data).toEqual(new Uint8Array([1, 2, 3, 4]));
+        await sendEnd.close();
+
+        // Recv all messages
+        const recvResult = [];
+        for await (const r of recvEnd.exec({ op: 'recv' })) {
+            recvResult.push(r);
+        }
+
+        expect(recvResult[0]).toEqual(respond.item('first'));
+        expect(recvResult[1]).toEqual(respond.item('second'));
+        expect(recvResult[2]).toEqual(respond.item('third'));
+        expect(recvResult[3]?.op).toBe('done');
     });
 
-    it('should return data to waiting reader', async () => {
-        const buffer = new PipeBuffer();
+    it('should return EBADF when recv from send end', async () => {
+        const [_, sendEnd] = createMessagePipe('test-pipe');
 
-        // Start read before write
-        const readPromise = buffer.read();
+        const result = [];
+        for await (const r of sendEnd.exec({ op: 'recv' })) {
+            result.push(r);
+        }
+        expect(result[0]?.op).toBe('error');
+        expect((result[0]?.data as { code: string })?.code).toBe('EBADF');
+    });
 
-        // Small delay, then write
+    it('should return EBADF when send to recv end', async () => {
+        const [recvEnd, _] = createMessagePipe('test-pipe');
+
+        const result = [];
+        for await (const r of recvEnd.exec({ op: 'send', data: respond.item('test') })) {
+            result.push(r);
+        }
+        expect(result[0]?.op).toBe('error');
+        expect((result[0]?.data as { code: string })?.code).toBe('EBADF');
+    });
+
+    it('should signal EOF when send end closes', async () => {
+        const [recvEnd, sendEnd] = createMessagePipe('test-pipe');
+
+        // Close send end immediately
+        await sendEnd.close();
+
+        // Recv should get done immediately
+        const result = [];
+        for await (const r of recvEnd.exec({ op: 'recv' })) {
+            result.push(r);
+        }
+        expect(result[0]?.op).toBe('done');
+    });
+
+    it('should return EPIPE when send after recv end closes', async () => {
+        const [recvEnd, sendEnd] = createMessagePipe('test-pipe');
+
+        await recvEnd.close();
+
+        const result = [];
+        for await (const r of sendEnd.exec({ op: 'send', data: respond.item('test') })) {
+            result.push(r);
+        }
+        expect(result[0]?.op).toBe('error');
+        expect((result[0]?.data as { code: string })?.code).toBe('EPIPE');
+    });
+
+    it('should return EBADF when handle is closed', async () => {
+        const [recvEnd, sendEnd] = createMessagePipe('test-pipe');
+
+        await sendEnd.close();
+
+        const result = [];
+        for await (const r of sendEnd.exec({ op: 'send', data: respond.item('test') })) {
+            result.push(r);
+        }
+        expect(result[0]?.op).toBe('error');
+        expect((result[0]?.data as { code: string })?.code).toBe('EBADF');
+    });
+
+    it('should have correct pipe end types', () => {
+        const [recvEnd, sendEnd] = createMessagePipe('test-pipe');
+
+        expect(recvEnd.end).toBe('recv');
+        expect(sendEnd.end).toBe('send');
+        expect(recvEnd.type).toBe('pipe');
+        expect(sendEnd.type).toBe('pipe');
+    });
+
+    it('should have correct pipe IDs', () => {
+        const [recvEnd, sendEnd] = createMessagePipe('my-pipe');
+
+        expect(recvEnd.id).toBe('my-pipe:recv');
+        expect(sendEnd.id).toBe('my-pipe:send');
+        expect(recvEnd.description).toBe('pipe:my-pipe:recv');
+        expect(sendEnd.description).toBe('pipe:my-pipe:send');
+    });
+
+    it('should deliver message to waiting receiver', async () => {
+        const [recvEnd, sendEnd] = createMessagePipe('test-pipe');
+
+        // Start recv before send (will wait)
+        const recvPromise = (async () => {
+            const result = [];
+            for await (const r of recvEnd.exec({ op: 'recv' })) {
+                result.push(r);
+                if (r.op === 'done') break;
+            }
+            return result;
+        })();
+
+        // Small delay, then send
         await new Promise(r => setTimeout(r, 10));
-        buffer.write(new Uint8Array([5, 6, 7]));
+        for await (const _ of sendEnd.exec({ op: 'send', data: respond.item('delayed') })) {}
+        await sendEnd.close();
 
-        const data = await readPromise;
-        expect(data).toEqual(new Uint8Array([5, 6, 7]));
+        const result = await recvPromise;
+        expect(result[0]).toEqual(respond.item('delayed'));
+        expect(result[1]?.op).toBe('done');
     });
 
-    it('should return EOF when write end closes', async () => {
-        const buffer = new PipeBuffer();
+    it('should return EINVAL for unknown op', async () => {
+        const [recvEnd, _] = createMessagePipe('test-pipe');
 
-        buffer.closeWriteEnd();
-        const data = await buffer.read();
-
-        expect(data.length).toBe(0);
-    });
-
-    it('should wake waiters with EOF on close', async () => {
-        const buffer = new PipeBuffer();
-
-        const readPromise = buffer.read();
-
-        await new Promise(r => setTimeout(r, 10));
-        buffer.closeWriteEnd();
-
-        const data = await readPromise;
-        expect(data.length).toBe(0);
-    });
-
-    it('should throw EPIPE when read end is closed', () => {
-        const buffer = new PipeBuffer();
-
-        buffer.closeReadEnd();
-
-        expect(() => buffer.write(new Uint8Array([1, 2, 3]))).toThrow('Read end closed');
-    });
-
-    it('should track buffer size', () => {
-        const buffer = new PipeBuffer();
-
-        expect(buffer.size).toBe(0);
-
-        buffer.write(new Uint8Array([1, 2, 3]));
-        expect(buffer.size).toBe(3);
-
-        buffer.write(new Uint8Array([4, 5]));
-        expect(buffer.size).toBe(5);
-    });
-
-    it('should throw EAGAIN when buffer exceeds high water mark', () => {
-        // Create buffer with small high water mark for testing
-        const buffer = new PipeBuffer(10);
-
-        // Write up to limit - should succeed
-        buffer.write(new Uint8Array([1, 2, 3, 4, 5]));
-        expect(buffer.size).toBe(5);
-        expect(buffer.full).toBe(false);
-
-        // Write more that would exceed - should throw EAGAIN
-        expect(() => buffer.write(new Uint8Array([6, 7, 8, 9, 10, 11]))).toThrow(EAGAIN);
-
-        // Buffer should be unchanged after failed write
-        expect(buffer.size).toBe(5);
-    });
-
-    it('should report full when at high water mark', () => {
-        const buffer = new PipeBuffer(5);
-
-        expect(buffer.full).toBe(false);
-
-        buffer.write(new Uint8Array([1, 2, 3, 4, 5]));
-        expect(buffer.full).toBe(true);
-    });
-
-    it('should allow writes after buffer drains below high water mark', async () => {
-        const buffer = new PipeBuffer(10);
-
-        // Fill buffer
-        buffer.write(new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]));
-        expect(buffer.full).toBe(true);
-
-        // Can't write more
-        expect(() => buffer.write(new Uint8Array([11]))).toThrow(EAGAIN);
-
-        // Read to drain
-        await buffer.read();
-        expect(buffer.size).toBe(0);
-        expect(buffer.full).toBe(false);
-
-        // Can write again
-        buffer.write(new Uint8Array([1, 2, 3]));
-        expect(buffer.size).toBe(3);
-    });
-
-    it('should report fullyClosed when both ends close', () => {
-        const buffer = new PipeBuffer();
-
-        expect(buffer.fullyClosed).toBe(false);
-
-        buffer.closeReadEnd();
-        expect(buffer.fullyClosed).toBe(false);
-
-        buffer.closeWriteEnd();
-        expect(buffer.fullyClosed).toBe(true);
-    });
-
-    it('should return 0 when writing empty data', () => {
-        const buffer = new PipeBuffer();
-
-        const written = buffer.write(new Uint8Array(0));
-        expect(written).toBe(0);
-    });
-
-    it('should support partial reads with size limit', async () => {
-        const buffer = new PipeBuffer();
-
-        buffer.write(new Uint8Array([1, 2, 3, 4, 5]));
-
-        const data = await buffer.read(3);
-        expect(data).toEqual(new Uint8Array([1, 2, 3, 4, 5])); // Single chunk returns all
-
-        // Write two chunks
-        buffer.write(new Uint8Array([10, 20]));
-        buffer.write(new Uint8Array([30, 40, 50]));
-
-        // Read with limit
-        const partial = await buffer.read(3);
-        expect(partial).toEqual(new Uint8Array([10, 20, 30]));
-
-        // Remaining data
-        const rest = await buffer.read();
-        expect(rest).toEqual(new Uint8Array([40, 50]));
+        const result = [];
+        for await (const r of recvEnd.exec({ op: 'unknown' })) {
+            result.push(r);
+        }
+        expect(result[0]?.op).toBe('error');
+        expect((result[0]?.data as { code: string })?.code).toBe('EINVAL');
     });
 });
 

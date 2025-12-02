@@ -20,7 +20,7 @@ import { SIGTERM, SIGKILL, TERM_GRACE_MS } from '@src/kernel/types.js';
 import { ProcessTable } from '@src/kernel/process-table.js';
 import { MAX_HANDLES, STREAM_HIGH_WATER, STREAM_LOW_WATER, STREAM_STALL_TIMEOUT } from '@src/kernel/types.js';
 import type { Handle } from '@src/kernel/handle.js';
-import { FileHandleAdapter, SocketHandleAdapter, PipeHandleAdapter, PortHandleAdapter, ChannelHandleAdapter, ProcessIOHandle } from '@src/kernel/handle.js';
+import { FileHandleAdapter, SocketHandleAdapter, PortHandleAdapter, ChannelHandleAdapter, ProcessIOHandle } from '@src/kernel/handle.js';
 import {
     SyscallDispatcher,
     createFileSyscalls,
@@ -32,7 +32,7 @@ import type { Channel, ChannelOpts } from '@src/hal/index.js';
 import { ESRCH, ECHILD, ProcessExited, EBADF, EPERM, EINVAL, EMFILE, ETIMEDOUT } from '@src/kernel/errors.js';
 import type { Port } from '@src/kernel/resource.js';
 import type { WatchEvent } from '@src/vfs/model.js';
-import { ListenerPort, WatchPort, UdpPort, PubsubPort, matchTopic, PipeBuffer } from '@src/kernel/resource.js';
+import { ListenerPort, WatchPort, UdpPort, PubsubPort, matchTopic, createMessagePipe } from '@src/kernel/resource.js';
 import type { ProcessPortMessage } from '@src/kernel/syscalls.js';
 import { respond } from '@src/message.js';
 import type { Response, Message } from '@src/message.js';
@@ -1066,10 +1066,12 @@ export class Kernel {
     }
 
     /**
-     * Create a pipe and return [readH, writeH].
+     * Create a pipe and return [recvFd, sendFd].
      *
-     * Creates a unidirectional data channel. Data written to writeH
-     * can be read from readH. Closing writeH signals EOF to readers.
+     * Creates a unidirectional message channel. Messages sent to sendFd
+     * can be received from recvFd. Closing sendFd signals EOF to receivers.
+     *
+     * Terminology: recv/send for messages (not read/write which is for bytes)
      */
     private createPipe(proc: Process): [number, number] {
         // Check handle limit (need 2 handles)
@@ -1077,29 +1079,15 @@ export class Kernel {
             throw new EMFILE('Too many open handles');
         }
 
-        // Create shared buffer
-        const buffer = new PipeBuffer();
+        // Create message pipe pair
         const pipeId = this.hal.entropy.uuid();
+        const [recvEnd, sendEnd] = createMessagePipe(pipeId);
 
-        // Create read end
-        const readAdapter = new PipeHandleAdapter(
-            `${pipeId}:read`,
-            buffer,
-            'read',
-            `pipe:${pipeId}:read`
-        );
-        const readH = this.allocHandle(proc, readAdapter);
+        // Allocate handles
+        const recvFd = this.allocHandle(proc, recvEnd);
+        const sendFd = this.allocHandle(proc, sendEnd);
 
-        // Create write end
-        const writeAdapter = new PipeHandleAdapter(
-            `${pipeId}:write`,
-            buffer,
-            'write',
-            `pipe:${pipeId}:write`
-        );
-        const writeH = this.allocHandle(proc, writeAdapter);
-
-        return [readH, writeH];
+        return [recvFd, sendFd];
     }
 
     /**

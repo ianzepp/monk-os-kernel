@@ -55,7 +55,7 @@
 - Each process is a Bun Worker with UUID identity (not PID)
 - Process states: starting → running → stopped → zombie
 - File descriptors: integers (0-255) mapped to handle UUIDs per-process
-- Standard fds: 0=stdin, 1=stdout, 2=stderr
+- Standard fds: 0=recv (messages in), 1=send (messages out), 2=warn (diagnostics)
 - Signals: SIGTERM (graceful), SIGKILL (immediate)
 
 **Key Directory Structure**:
@@ -74,17 +74,16 @@
   - `types.ts` - Handle interface and HandleType
   - `file.ts` - FileHandleAdapter (VFS files)
   - `socket.ts` - SocketHandleAdapter (TCP connections)
-  - `pipe.ts` - PipeHandleAdapter (inter-process pipes)
   - `port.ts` - PortHandleAdapter (listeners, watchers, pubsub)
   - `channel.ts` - ChannelHandleAdapter (protocol-aware I/O)
   - `process-io.ts` - ProcessIOHandle (service I/O routing)
-- `resource/` - Port implementations:
+- `resource/` - Port and pipe implementations:
   - `types.ts` - Port, PortMessage interfaces
   - `listener-port.ts` - TCP listener
   - `watch-port.ts` - VFS file watcher
   - `udp-port.ts` - UDP socket
   - `pubsub-port.ts` - Topic-based messaging
-  - `pipe-buffer.ts` - In-memory pipe buffer
+  - `message-pipe.ts` - MessagePipe (message-based inter-process pipe)
 - `loader/` - VFS module loader:
   - `vfs-loader.ts` - Transpilation, bundling
   - `imports.ts` - Import resolution
@@ -276,7 +275,7 @@ interface ExecOpts {
 **Handle Types**:
 - `file` - VFS files, folders, devices (FileHandleAdapter)
 - `socket` - TCP connections (SocketHandleAdapter)
-- `pipe` - In-memory pipes between processes (PipeHandleAdapter)
+- `pipe` - Message-based pipes between processes (MessagePipe implements Handle directly)
 - `port` - Listeners, watchers, pubsub (PortHandleAdapter)
 - `channel` - Protocol-aware connections (ChannelHandleAdapter)
 
@@ -357,6 +356,17 @@ interface ExecOpts {
 
 ### Core Principle
 All internal kernel communication uses structured `Message` and `Response` objects. Byte serialization only at true I/O boundaries (disk, network).
+
+### I/O Terminology
+| Data Type | Input | Output | Example |
+|-----------|-------|--------|---------|
+| `Response` (messages) | `recv()` | `send()` | MessagePipe, ports |
+| `Uint8Array` (bytes) | `read()` | `write()` | Files, sockets |
+
+Process standard file descriptors use message terminology:
+- fd 0: `recv` (receive messages)
+- fd 1: `send` (send messages)
+- fd 2: `warn` (diagnostic output)
 
 ### Message Format
 
@@ -467,17 +477,16 @@ Streams of `Response` objects are the fundamental data flow unit. Arrays are a c
 │   │   │   ├── types.ts
 │   │   │   ├── file.ts
 │   │   │   ├── socket.ts
-│   │   │   ├── pipe.ts
 │   │   │   ├── port.ts
 │   │   │   ├── channel.ts
 │   │   │   └── process-io.ts
-│   │   ├── resource/             # Port implementations
+│   │   ├── resource/             # Port and pipe implementations
 │   │   │   ├── types.ts
 │   │   │   ├── listener-port.ts
 │   │   │   ├── watch-port.ts
 │   │   │   ├── udp-port.ts
 │   │   │   ├── pubsub-port.ts
-│   │   │   └── pipe-buffer.ts
+│   │   │   └── message-pipe.ts
 │   │   └── loader/               # VFS module loader
 │   │       ├── vfs-loader.ts
 │   │       ├── imports.ts
@@ -677,7 +686,7 @@ UNIX-like utilities available:
 - `pubsub` - Topic-based activation
 - `watch` - File system event activation
 
-**I/O Source Types** (for stdin):
+**I/O Source Types** (for recv/fd 0):
 - `console` - Read from console
 - `file` - Read from file path
 - `null` - Always EOF
@@ -685,10 +694,12 @@ UNIX-like utilities available:
 - `watch` - Watch file patterns
 - `udp` - Receive UDP datagrams
 
-**I/O Target Types** (for stdout/stderr):
+**I/O Target Types** (for send/warn, fd 1/2):
 - `console` - Write to console
 - `file` - Write to file path (with create/append options)
 - `null` - Discard writes
+
+> **Note**: Config files use "stdin/stdout/stderr" keys for compatibility. Internally, fd 0/1/2 are called recv/send/warn to reflect message-based I/O.
 
 ---
 
@@ -720,8 +731,8 @@ msg = await recv(portId);                      // Receive message
 await send(portId, to, data);                  // Send message
 await pclose(portId);                          // Close port
 
-// Pipes
-[readFd, writeFd] = await pipe();              // Create pipe
+// Pipes (message-based)
+[recvFd, sendFd] = await pipe();               // Create message pipe
 
 // Environment
 cwd = await getcwd();                          // Get working directory

@@ -20,5 +20,5 @@ export { WatchPort, type VfsWatchEvent } from './resource/watch-port.js';
 export { UdpPort } from './resource/udp-port.js';
 export { PubsubPort, matchTopic } from './resource/pubsub-port.js';
 
-// Re-export pipe buffer
-export { PipeBuffer } from './resource/pipe-buffer.js';
+// Re-export message pipe
+export { MessagePipe, createMessagePipe, type PipeEnd } from './resource/message-pipe.js';
