@@ -1,187 +1,20 @@
 /**
  * Resource
  *
- * Unified abstraction for file descriptors that can represent:
- * - VFS FileHandle (files, folders, devices)
- * - HAL Socket (TCP connections)
- *
- * All resources support read(), write(), close() with consistent semantics.
- *
  * Ports are message-based I/O channels for:
  * - TCP listeners (accept connections)
  * - UDP sockets (datagrams)
  * - File watchers
  * - Pub/sub messaging
+ *
+ * NOTE: The legacy Resource interface and FileResource/SocketResource/PipeResource
+ * classes have been removed. Use Handle adapters from handle.ts instead.
  */
 
-import type { FileHandle } from '@src/vfs/index.js';
 import type { Socket, Listener } from '@src/hal/index.js';
 import type { PortType } from '@src/kernel/types.js';
 import { EBADF, EINVAL, ENOTSUP, EAGAIN } from '@src/kernel/errors.js';
 export type { PortType } from '@src/kernel/types.js';
-
-/**
- * Resource type discriminator
- */
-export type ResourceType = 'file' | 'socket' | 'pipe';
-
-/**
- * Base resource interface
- */
-export interface Resource {
-    /** Unique resource identifier */
-    readonly id: string;
-
-    /** Resource type */
-    readonly type: ResourceType;
-
-    /** Human-readable description (path or address) */
-    readonly description: string;
-
-    /** Read data from resource */
-    read(size?: number): Promise<Uint8Array>;
-
-    /** Write data to resource */
-    write(data: Uint8Array): Promise<number>;
-
-    /** Close resource */
-    close(): Promise<void>;
-
-    /** Check if closed */
-    readonly closed: boolean;
-
-    /**
-     * Whether a short read (less than requested bytes) implies EOF.
-     *
-     * - true for files: short read means end of file reached
-     * - false for sockets/pipes: short reads are normal, only 0-length means EOF
-     *
-     * This allows the syscall layer to determine EOF without branching on resource type.
-     */
-    readonly eofOnShortRead: boolean;
-}
-
-/**
- * File resource wrapping VFS FileHandle
- */
-export class FileResource implements Resource {
-    readonly type: ResourceType = 'file';
-    readonly eofOnShortRead = true;
-    private _closed = false;
-
-    constructor(
-        readonly id: string,
-        private handle: FileHandle
-    ) {}
-
-    get description(): string {
-        return this.handle.path;
-    }
-
-    get closed(): boolean {
-        return this._closed || this.handle.closed;
-    }
-
-    async read(size?: number): Promise<Uint8Array> {
-        return this.handle.read(size);
-    }
-
-    async write(data: Uint8Array): Promise<number> {
-        return this.handle.write(data);
-    }
-
-    async close(): Promise<void> {
-        if (this._closed) return;
-        this._closed = true;
-        await this.handle.close();
-    }
-
-    /**
-     * Get underlying handle for VFS-specific operations
-     */
-    getHandle(): FileHandle {
-        return this.handle;
-    }
-}
-
-/**
- * Socket resource wrapping HAL Socket
- */
-export class SocketResource implements Resource {
-    readonly type: ResourceType = 'socket';
-    readonly eofOnShortRead = false;
-    private _closed = false;
-    private readonly _stat: { remoteAddr: string; remotePort: number; localAddr: string; localPort: number };
-    private buffer: Uint8Array = new Uint8Array(0);
-
-    constructor(
-        readonly id: string,
-        private socket: Socket,
-        readonly description: string
-    ) {
-        // Cache stat on construction - it doesn't change and socket.stat()
-        // may throw or return garbage after the socket is closed
-        this._stat = socket.stat();
-    }
-
-    get closed(): boolean {
-        return this._closed;
-    }
-
-    async read(size?: number): Promise<Uint8Array> {
-        // If we have buffered data, return from buffer first
-        if (this.buffer.length > 0) {
-            if (size === undefined || size >= this.buffer.length) {
-                const data = this.buffer;
-                this.buffer = new Uint8Array(0);
-                return data;
-            }
-            const data = this.buffer.slice(0, size);
-            this.buffer = this.buffer.slice(size);
-            return data;
-        }
-
-        // Read from socket
-        const chunk = await this.socket.read();
-        if (chunk.length === 0) {
-            return chunk; // EOF
-        }
-
-        // If no size limit or chunk fits, return it
-        if (size === undefined || chunk.length <= size) {
-            return chunk;
-        }
-
-        // Return requested size, buffer the rest
-        this.buffer = chunk.slice(size);
-        return chunk.slice(0, size);
-    }
-
-    async write(data: Uint8Array): Promise<number> {
-        await this.socket.write(data);
-        return data.length;
-    }
-
-    async close(): Promise<void> {
-        if (this._closed) return;
-        this._closed = true;
-        await this.socket.close();
-    }
-
-    /**
-     * Get underlying socket for network-specific operations
-     */
-    getSocket(): Socket {
-        return this.socket;
-    }
-
-    /**
-     * Get socket metadata (cached, safe to call after close)
-     */
-    stat(): { remoteAddr: string; remotePort: number; localAddr: string; localPort: number } {
-        return this._stat;
-    }
-}
 
 // ============================================================================
 // Port Types
@@ -190,7 +23,6 @@ export class SocketResource implements Resource {
 // NOTE: Ports are currently owned by a single process. If we add fd/port
 // passing between processes in the future, we'll need reference counting
 // to avoid closing a port that's still in use by another process.
-// Same issue exists for Resources above.
 
 // PortType is defined in types.ts as the authoritative source
 
@@ -680,13 +512,8 @@ export function matchTopic(pattern: string, topic: string): boolean {
 }
 
 // ============================================================================
-// Pipe Types
+// Pipe Buffer
 // ============================================================================
-
-/**
- * Pipe end type
- */
-export type PipeEnd = 'read' | 'write';
 
 /** Maximum bytes buffered before backpressure is applied */
 const PIPE_BUFFER_HIGH_WATER = 64 * 1024; // 64KB
@@ -884,70 +711,5 @@ export class PipeBuffer {
      */
     get size(): number {
         return this.totalBytes;
-    }
-}
-
-/**
- * Pipe resource
- *
- * Represents one end of a pipe. Two PipeResources share a PipeBuffer.
- * Read end can only read, write end can only write.
- */
-export class PipeResource implements Resource {
-    readonly type: ResourceType = 'pipe';
-    readonly eofOnShortRead = false;
-    private _closed = false;
-
-    constructor(
-        readonly id: string,
-        private buffer: PipeBuffer,
-        readonly end: PipeEnd,
-        readonly description: string
-    ) {}
-
-    get closed(): boolean {
-        return this._closed;
-    }
-
-    async read(size?: number): Promise<Uint8Array> {
-        if (this._closed) {
-            const { EBADF } = require('@src/hal/errors.js');
-            throw new EBADF('Pipe closed');
-        }
-        if (this.end !== 'read') {
-            const { EBADF } = require('@src/hal/errors.js');
-            throw new EBADF('Cannot read from write end of pipe');
-        }
-        return this.buffer.read(size);
-    }
-
-    async write(data: Uint8Array): Promise<number> {
-        if (this._closed) {
-            const { EBADF } = require('@src/hal/errors.js');
-            throw new EBADF('Pipe closed');
-        }
-        if (this.end !== 'write') {
-            const { EBADF } = require('@src/hal/errors.js');
-            throw new EBADF('Cannot write to read end of pipe');
-        }
-        return this.buffer.write(data);
-    }
-
-    async close(): Promise<void> {
-        if (this._closed) return;
-        this._closed = true;
-
-        if (this.end === 'read') {
-            this.buffer.closeReadEnd();
-        } else {
-            this.buffer.closeWriteEnd();
-        }
-    }
-
-    /**
-     * Get the shared buffer (for kernel internals)
-     */
-    getBuffer(): PipeBuffer {
-        return this.buffer;
     }
 }

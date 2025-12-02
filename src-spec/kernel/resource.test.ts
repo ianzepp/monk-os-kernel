@@ -1,188 +1,16 @@
 /**
  * Resource Tests
+ *
+ * Tests for Ports and PipeBuffer.
+ * NOTE: FileResource, SocketResource, PipeResource have been removed.
+ * Use Handle adapters from handle.ts instead.
  */
 
 import { describe, it, expect, mock } from 'bun:test';
-import { FileResource, SocketResource, ListenerPort, WatchPort, UdpPort, PubsubPort, matchTopic, PipeBuffer, PipeResource } from '@src/kernel/resource.js';
-import { ENOTSUP, EAGAIN } from '@src/kernel/errors.js';
+import { ListenerPort, WatchPort, PubsubPort, matchTopic, PipeBuffer } from '@src/kernel/resource.js';
+import { EAGAIN, ENOTSUP } from '@src/kernel/errors.js';
 import type { WatchEvent } from '@src/vfs/model.js';
-import type { FileHandle } from '@src/vfs/index.js';
-import type { Socket, Listener } from '@src/hal/index.js';
-
-describe('FileResource', () => {
-    function createMockHandle(overrides: Partial<FileHandle> = {}): FileHandle {
-        return {
-            id: 'test-handle-id',
-            path: '/test/file.txt',
-            flags: { read: true },
-            closed: false,
-            read: mock(() => Promise.resolve(new Uint8Array([1, 2, 3]))),
-            write: mock(() => Promise.resolve(3)),
-            seek: mock(() => Promise.resolve(0)),
-            tell: mock(() => Promise.resolve(0)),
-            sync: mock(() => Promise.resolve()),
-            close: mock(() => Promise.resolve()),
-            [Symbol.asyncDispose]: mock(() => Promise.resolve()),
-            ...overrides,
-        };
-    }
-
-    it('should have type "file"', () => {
-        const handle = createMockHandle();
-        const resource = new FileResource('res-1', handle);
-        expect(resource.type).toBe('file');
-    });
-
-    it('should use handle id', () => {
-        const handle = createMockHandle({ id: 'my-handle' });
-        const resource = new FileResource('my-handle', handle);
-        expect(resource.id).toBe('my-handle');
-    });
-
-    it('should use path as description', () => {
-        const handle = createMockHandle({ path: '/etc/passwd' });
-        const resource = new FileResource('res-1', handle);
-        expect(resource.description).toBe('/etc/passwd');
-    });
-
-    it('should delegate read to handle', async () => {
-        const handle = createMockHandle();
-        const resource = new FileResource('res-1', handle);
-
-        const data = await resource.read(100);
-        expect(data).toEqual(new Uint8Array([1, 2, 3]));
-        expect(handle.read).toHaveBeenCalledWith(100);
-    });
-
-    it('should delegate write to handle', async () => {
-        const handle = createMockHandle();
-        const resource = new FileResource('res-1', handle);
-
-        const written = await resource.write(new Uint8Array([4, 5, 6]));
-        expect(written).toBe(3);
-        expect(handle.write).toHaveBeenCalled();
-    });
-
-    it('should delegate close to handle', async () => {
-        const handle = createMockHandle();
-        const resource = new FileResource('res-1', handle);
-
-        await resource.close();
-        expect(handle.close).toHaveBeenCalled();
-        expect(resource.closed).toBe(true);
-    });
-
-    it('should be idempotent on close', async () => {
-        const handle = createMockHandle();
-        const resource = new FileResource('res-1', handle);
-
-        await resource.close();
-        await resource.close();
-        expect(handle.close).toHaveBeenCalledTimes(1);
-    });
-
-    it('should expose underlying handle', () => {
-        const handle = createMockHandle();
-        const resource = new FileResource('res-1', handle);
-        expect(resource.getHandle()).toBe(handle);
-    });
-});
-
-describe('SocketResource', () => {
-    function createMockSocket(overrides: Partial<Socket> = {}): Socket {
-        return {
-            read: mock(() => Promise.resolve(new Uint8Array([7, 8, 9]))),
-            write: mock(() => Promise.resolve()),
-            close: mock(() => Promise.resolve()),
-            stat: mock(() => ({
-                remoteAddr: '10.0.0.1',
-                remotePort: 8080,
-                localAddr: '192.168.1.1',
-                localPort: 54321,
-            })),
-            [Symbol.asyncDispose]: mock(() => Promise.resolve()),
-            ...overrides,
-        };
-    }
-
-    it('should have type "socket"', () => {
-        const socket = createMockSocket();
-        const resource = new SocketResource('res-1', socket, 'tcp:10.0.0.1:8080');
-        expect(resource.type).toBe('socket');
-    });
-
-    it('should use provided description', () => {
-        const socket = createMockSocket();
-        const resource = new SocketResource('res-1', socket, 'tcp:example.com:443');
-        expect(resource.description).toBe('tcp:example.com:443');
-    });
-
-    it('should delegate read to socket', async () => {
-        const socket = createMockSocket();
-        const resource = new SocketResource('res-1', socket, 'tcp:test');
-
-        const data = await resource.read();
-        expect(data).toEqual(new Uint8Array([7, 8, 9]));
-        expect(socket.read).toHaveBeenCalled();
-    });
-
-    it('should delegate write to socket', async () => {
-        const socket = createMockSocket();
-        const resource = new SocketResource('res-1', socket, 'tcp:test');
-
-        const written = await resource.write(new Uint8Array([1, 2, 3]));
-        expect(written).toBe(3);
-        expect(socket.write).toHaveBeenCalled();
-    });
-
-    it('should delegate close to socket', async () => {
-        const socket = createMockSocket();
-        const resource = new SocketResource('res-1', socket, 'tcp:test');
-
-        await resource.close();
-        expect(socket.close).toHaveBeenCalled();
-        expect(resource.closed).toBe(true);
-    });
-
-    it('should expose socket stat', () => {
-        const socket = createMockSocket();
-        const resource = new SocketResource('res-1', socket, 'tcp:test');
-
-        const stat = resource.stat();
-        expect(stat.remoteAddr).toBe('10.0.0.1');
-        expect(stat.remotePort).toBe(8080);
-    });
-
-    it('should expose underlying socket', () => {
-        const socket = createMockSocket();
-        const resource = new SocketResource('res-1', socket, 'tcp:test');
-        expect(resource.getSocket()).toBe(socket);
-    });
-
-    it('should cache stat on construction', () => {
-        const socket = createMockSocket();
-        const resource = new SocketResource('res-1', socket, 'tcp:test');
-
-        // stat() should have been called once during construction
-        expect(socket.stat).toHaveBeenCalledTimes(1);
-
-        // Calling resource.stat() should return cached value, not call socket.stat again
-        resource.stat();
-        resource.stat();
-        expect(socket.stat).toHaveBeenCalledTimes(1);
-    });
-
-    it('should return cached stat after close', async () => {
-        const socket = createMockSocket();
-        const resource = new SocketResource('res-1', socket, 'tcp:test');
-
-        await resource.close();
-
-        // Should still return the cached stat
-        const stat = resource.stat();
-        expect(stat.remoteAddr).toBe('10.0.0.1');
-    });
-});
+import type { Listener, Socket } from '@src/hal/index.js';
 
 describe('ListenerPort', () => {
     function createMockListener(): Listener {
@@ -428,127 +256,22 @@ describe('PipeBuffer', () => {
     });
 });
 
-describe('PipeResource', () => {
-    it('should have type "pipe"', () => {
-        const buffer = new PipeBuffer();
-        const resource = new PipeResource('pipe-1', buffer, 'read', 'pipe:test:read');
-        expect(resource.type).toBe('pipe');
-    });
-
-    it('should use provided description', () => {
-        const buffer = new PipeBuffer();
-        const resource = new PipeResource('pipe-1', buffer, 'read', 'pipe:123:read');
-        expect(resource.description).toBe('pipe:123:read');
-    });
-
-    it('should read from read end', async () => {
-        const buffer = new PipeBuffer();
-        buffer.write(new Uint8Array([1, 2, 3]));
-
-        const readEnd = new PipeResource('pipe-r', buffer, 'read', 'pipe:test:read');
-        const data = await readEnd.read();
-
-        expect(data).toEqual(new Uint8Array([1, 2, 3]));
-    });
-
-    it('should write to write end', async () => {
-        const buffer = new PipeBuffer();
-        const writeEnd = new PipeResource('pipe-w', buffer, 'write', 'pipe:test:write');
-
-        const written = await writeEnd.write(new Uint8Array([4, 5, 6]));
-        expect(written).toBe(3);
-
-        const data = await buffer.read();
-        expect(data).toEqual(new Uint8Array([4, 5, 6]));
-    });
-
-    it('should throw when reading from write end', async () => {
-        const buffer = new PipeBuffer();
-        const writeEnd = new PipeResource('pipe-w', buffer, 'write', 'pipe:test:write');
-
-        await expect(writeEnd.read()).rejects.toThrow('Cannot read from write end of pipe');
-    });
-
-    it('should throw when writing to read end', async () => {
-        const buffer = new PipeBuffer();
-        const readEnd = new PipeResource('pipe-r', buffer, 'read', 'pipe:test:read');
-
-        await expect(readEnd.write(new Uint8Array([1]))).rejects.toThrow('Cannot write to read end of pipe');
-    });
-
-    it('should throw when reading from closed pipe', async () => {
-        const buffer = new PipeBuffer();
-        const readEnd = new PipeResource('pipe-r', buffer, 'read', 'pipe:test:read');
-
-        await readEnd.close();
-
-        await expect(readEnd.read()).rejects.toThrow('Pipe closed');
-    });
-
-    it('should throw when writing to closed pipe', async () => {
-        const buffer = new PipeBuffer();
-        const writeEnd = new PipeResource('pipe-w', buffer, 'write', 'pipe:test:write');
-
-        await writeEnd.close();
-
-        await expect(writeEnd.write(new Uint8Array([1]))).rejects.toThrow('Pipe closed');
-    });
-
-    it('should close write end and signal EOF', async () => {
-        const buffer = new PipeBuffer();
-        const readEnd = new PipeResource('pipe-r', buffer, 'read', 'pipe:test:read');
-        const writeEnd = new PipeResource('pipe-w', buffer, 'write', 'pipe:test:write');
-
-        await writeEnd.close();
-
-        const data = await readEnd.read();
-        expect(data.length).toBe(0); // EOF
-    });
-
-    it('should close read end and cause EPIPE on write', async () => {
-        const buffer = new PipeBuffer();
-        const readEnd = new PipeResource('pipe-r', buffer, 'read', 'pipe:test:read');
-        const writeEnd = new PipeResource('pipe-w', buffer, 'write', 'pipe:test:write');
-
-        await readEnd.close();
-
-        await expect(writeEnd.write(new Uint8Array([1]))).rejects.toThrow('Read end closed');
-    });
-
-    it('should expose underlying buffer', () => {
-        const buffer = new PipeBuffer();
-        const resource = new PipeResource('pipe-1', buffer, 'read', 'pipe:test:read');
-
-        expect(resource.getBuffer()).toBe(buffer);
-    });
-
-    it('should be idempotent on close', async () => {
-        const buffer = new PipeBuffer();
-        const readEnd = new PipeResource('pipe-r', buffer, 'read', 'pipe:test:read');
-
-        await readEnd.close();
-        await readEnd.close(); // Should not throw
-
-        expect(readEnd.closed).toBe(true);
-    });
-});
-
 describe('WatchPort', () => {
     /**
      * Create a mock VFS watch function that yields events from a queue
      */
     function createMockVfsWatch(events: WatchEvent[]): (pattern: string) => AsyncIterable<WatchEvent> {
-        return (_pattern: string) => {
+        return (_pattern: string): AsyncIterable<WatchEvent> => {
             return {
-                [Symbol.asyncIterator]() {
+                [Symbol.asyncIterator](): AsyncIterator<WatchEvent> {
                     let index = 0;
                     return {
-                        async next() {
+                        async next(): Promise<IteratorResult<WatchEvent>> {
                             if (index < events.length) {
-                                return { done: false, value: events[index++] };
+                                return { done: false, value: events[index++]! };
                             }
                             // Never resolves - simulates waiting for more events
-                            return new Promise(() => {});
+                            return new Promise<IteratorResult<WatchEvent>>(() => {});
                         }
                     };
                 }

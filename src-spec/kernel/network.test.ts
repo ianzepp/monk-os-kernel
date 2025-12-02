@@ -22,12 +22,8 @@ function createMockProcess(overrides: Partial<Process> = {}): Process {
         cwd: '/home/test',
         env: {},
         args: [],
-        fds: new Map(),
-        ports: new Map(),
-        channels: new Map(),
-        nextFd: 3,
-        nextPort: 0,
-        nextChannel: 0,
+        handles: new Map(),
+        nextHandle: 3,
         children: new Map(),
         nextPid: 1,
         activeStreams: new Map(),
@@ -83,31 +79,32 @@ describe('Network Syscalls', () => {
         ports = new Map();
 
         const connectTcp = mock(async (proc: Process, host: string, port: number) => {
-            // Simulate kernel's connectTcp
-            const fd = proc.nextFd++;
-            allocatedFds.set(`${host}:${port}`, fd);
-            return fd;
+            // Simulate kernel's connectTcp - allocate handle
+            const h = proc.nextHandle++;
+            allocatedFds.set(`${host}:${port}`, h);
+            return h;
         });
 
-        const createPort = mock(async (proc: Process, type: string, opts: unknown) => {
-            const portId = proc.nextPort++;
-            allocatedPorts.set(type, portId);
-            return portId;
+        const createPort = mock(async (proc: Process, type: string, _opts: unknown) => {
+            // Simulate kernel's createPort - allocate handle
+            const h = proc.nextHandle++;
+            allocatedPorts.set(type, h);
+            return h;
         });
 
-        const getPort = mock((proc: Process, portId: number): Port | undefined => {
-            return ports.get(portId);
+        const getPort = mock((_proc: Process, h: number): Port | undefined => {
+            return ports.get(h);
         });
 
-        const recvPort = mock(async (proc: Process, portId: number) => {
+        const recvPort = mock(async (_proc: Process, _h: number) => {
             return { from: 'test', data: new Uint8Array() };
         });
 
-        const closePort = mock(async (proc: Process, portId: number) => {
-            ports.delete(portId);
+        const closeHandle = mock(async (_proc: Process, h: number) => {
+            ports.delete(h);
         });
 
-        dispatcher.registerAll(createNetworkSyscalls(hal, connectTcp, createPort, getPort, recvPort, closePort));
+        dispatcher.registerAll(createNetworkSyscalls(hal, connectTcp, createPort, getPort, recvPort, closeHandle));
     });
 
     describe('connect', () => {
@@ -180,12 +177,12 @@ describe('Network Syscalls', () => {
     });
 
     describe('port', () => {
-        it('should create port and return port id', async () => {
+        it('should create port and return handle', async () => {
             const proc = createMockProcess();
-            const portId = await unwrapStream<number>(dispatcher.dispatch(proc, 'port', ['tcp:listen', { port: 8080 }]));
+            const h = await unwrapStream<number>(dispatcher.dispatch(proc, 'port', ['tcp:listen', { port: 8080 }]));
 
-            expect(typeof portId).toBe('number');
-            expect(portId).toBe(0); // First port
+            expect(typeof h).toBe('number');
+            expect(h).toBe(3); // First user handle (after stdio 0,1,2)
         });
 
         it('should throw EINVAL when type is not string', async () => {

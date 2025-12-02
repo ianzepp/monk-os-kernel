@@ -19,14 +19,12 @@ function createMockProcess(overrides: Partial<Process> = {}): Process {
         cwd: '/',
         env: {},
         args: [],
-        fds: new Map(),
-        ports: new Map(),
-        channels: new Map(),
-        nextFd: 3,
-        nextPort: 0,
-        nextChannel: 0,
+        handles: new Map(),
+        nextHandle: 3,
         children: new Map(),
         nextPid: 1,
+        activeStreams: new Map(),
+        streamPingHandlers: new Map(),
         ...overrides,
     };
 }

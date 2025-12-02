@@ -46,21 +46,6 @@ export interface Process {
     /** Next handle id to allocate (starts at 3, after stdio) */
     nextHandle: number;
 
-    // Legacy aliases for backward compatibility during migration
-    // TODO: Remove after full migration
-    /** @deprecated Use handles instead */
-    fds: Map<number, string>;
-    /** @deprecated Use handles instead */
-    ports: Map<number, string>;
-    /** @deprecated Use handles instead */
-    channels: Map<number, string>;
-    /** @deprecated Use nextHandle instead */
-    nextFd: number;
-    /** @deprecated Use nextHandle instead */
-    nextPort: number;
-    /** @deprecated Use nextHandle instead */
-    nextChannel: number;
-
     /** Exit code (when state = 'zombie') */
     exitCode?: number;
 
@@ -126,12 +111,6 @@ export const TERM_GRACE_MS = 5000;
  * Resource limits per process
  */
 export const MAX_HANDLES = 256;  // Unified limit for all handle types
-
-// Legacy limits for backward compatibility during migration
-// TODO: Remove after full migration
-export const MAX_FDS = 256;
-export const MAX_PORTS = 64;
-export const MAX_CHANNELS = 64;
 
 /**
  * File I/O streaming constants

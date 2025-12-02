@@ -18,10 +18,9 @@ import type {
 } from '@src/kernel/types.js';
 import { SIGTERM, SIGKILL, TERM_GRACE_MS } from '@src/kernel/types.js';
 import { ProcessTable } from '@src/kernel/process-table.js';
-import { MAX_HANDLES, MAX_FDS, MAX_PORTS, MAX_CHANNELS, STREAM_HIGH_WATER, STREAM_LOW_WATER, STREAM_STALL_TIMEOUT } from '@src/kernel/types.js';
+import { MAX_HANDLES, STREAM_HIGH_WATER, STREAM_LOW_WATER, STREAM_STALL_TIMEOUT } from '@src/kernel/types.js';
 import type { Handle } from '@src/kernel/handle.js';
-// TODO: Wire Handle adapters into syscalls when ready
-// import { FileHandleAdapter, SocketHandleAdapter, PipeHandleAdapter, PortHandleAdapter, ChannelHandleAdapter } from '@src/kernel/handle.js';
+import { FileHandleAdapter, SocketHandleAdapter, PipeHandleAdapter, PortHandleAdapter, ChannelHandleAdapter } from '@src/kernel/handle.js';
 import {
     SyscallDispatcher,
     createFileSyscalls,
@@ -31,9 +30,9 @@ import {
 } from '@src/kernel/syscalls.js';
 import type { Channel, ChannelOpts } from '@src/hal/index.js';
 import { ESRCH, ECHILD, ProcessExited, EBADF, EPERM, EINVAL, EMFILE, ETIMEDOUT } from '@src/kernel/errors.js';
-import type { Resource, Port } from '@src/kernel/resource.js';
+import type { Port } from '@src/kernel/resource.js';
 import type { WatchEvent } from '@src/vfs/model.js';
-import { FileResource, SocketResource, ListenerPort, WatchPort, UdpPort, PubsubPort, matchTopic, PipeBuffer, PipeResource } from '@src/kernel/resource.js';
+import { ListenerPort, WatchPort, UdpPort, PubsubPort, matchTopic, PipeBuffer } from '@src/kernel/resource.js';
 import type { ProcessPortMessage } from '@src/kernel/syscalls.js';
 import { respond } from '@src/message.js';
 import type { Response } from '@src/message.js';
@@ -75,18 +74,12 @@ export class Kernel {
     private processes: ProcessTable;
     private syscalls: SyscallDispatcher;
 
-    // Unified handle table (Phase 2 architecture)
+    // Unified handle table
     private handles: Map<string, Handle> = new Map();
-    private handleRefs: Map<string, number> = new Map(); // Reference counts
+    private handleRefs: Map<string, number> = new Map();
 
-    // Legacy tables for backward compatibility during migration
-    // TODO: Remove after full migration to unified handles
-    private resources: Map<string, Resource> = new Map();
-    private resourceRefs: Map<string, number> = new Map(); // Reference counts
-    private ports: Map<string, Port> = new Map();
-    private portRefs: Map<string, number> = new Map(); // Reference counts
-    private pubsubPorts: Set<PubsubPort> = new Set(); // All pubsub ports for routing
-    private channels: Map<string, Channel> = new Map();
+    // Pubsub routing (needed for topic-based message dispatch)
+    private pubsubPorts: Set<PubsubPort> = new Set();
 
     private waiters: Map<string, ((status: ExitStatus) => void)[]> = new Map();
     private booted = false;
@@ -157,9 +150,9 @@ export class Kernel {
             createFileSyscalls(
                 this.vfs,
                 this.hal,
-                (proc, fd) => this.getResource(proc, fd),
+                (proc, fd) => this.getHandle(proc, fd),
                 (proc, path, flags) => this.openFile(proc, path, flags),
-                (proc, fd) => this.closeResource(proc, fd)
+                (proc, fd) => this.closeHandle(proc, fd)
             )
         );
 
@@ -169,9 +162,9 @@ export class Kernel {
                 this.hal,
                 (proc, host, port) => this.connectTcp(proc, host, port),
                 (proc, type, opts) => this.createPort(proc, type, opts),
-                (proc, portId) => this.getPort(proc, portId),
-                (proc, portId) => this.recvPort(proc, portId),
-                (proc, portId) => this.closePort(proc, portId)
+                (proc, h) => this.getPortFromHandle(proc, h),
+                (proc, h) => this.recvPort(proc, h),
+                (proc, h) => this.closeHandle(proc, h)
             )
         );
 
@@ -183,8 +176,8 @@ export class Kernel {
             createChannelSyscalls(
                 this.hal,
                 (proc, proto, url, opts) => this.openChannel(proc, proto, url, opts),
-                (proc, ch) => this.getChannel(proc, ch),
-                (proc, ch) => this.closeChannel(proc, ch)
+                (proc, ch) => this.getChannelFromHandle(proc, ch),
+                (proc, ch) => this.closeHandle(proc, ch)
             )
         );
 
@@ -196,13 +189,13 @@ export class Kernel {
             assertObject(args, 'args');
             assertNonNegativeInt(args['target'], 'target');
             assertNonNegativeInt(args['source'], 'source');
-            return this.redirectFd(proc, args['target'] as number, args['source'] as number);
+            return this.redirectHandle(proc, args['target'] as number, args['source'] as number);
         }));
         this.syscalls.register('restore', wrapSyscall((proc, args) => {
             assertObject(args, 'args');
             assertNonNegativeInt(args['target'], 'target');
             assertString(args['saved'], 'saved');
-            return this.restoreFd(proc, args['target'] as number, args['saved'] as string);
+            return this.restoreHandle(proc, args['target'] as number, args['saved'] as string);
         }));
 
         // Worker pool syscalls
@@ -297,16 +290,8 @@ export class Kernel {
             cwd: '/',
             env: { ...env.env },
             args: env.initArgs ?? [env.initPath],
-            // Unified handle table (Phase 2)
             handles: new Map(),
             nextHandle: 3,
-            // Legacy tables for backward compatibility
-            fds: new Map(),
-            ports: new Map(),
-            channels: new Map(),
-            nextFd: 3,
-            nextPort: 0,
-            nextChannel: 0,
             children: new Map(),
             nextPid: 1,
             activeStreams: new Map(),
@@ -371,14 +356,8 @@ export class Kernel {
 
         // Clear process table and all maps
         this.processes.clear();
-        // Clear unified handle table (Phase 2)
         this.handles.clear();
         this.handleRefs.clear();
-        // Clear legacy tables
-        this.resources.clear();
-        this.resourceRefs.clear();
-        this.ports.clear();
-        this.portRefs.clear();
         this.waiters.clear();
         this.services.clear();
         this.activationPorts.clear();
@@ -406,16 +385,8 @@ export class Kernel {
             cwd: opts?.cwd ?? parent.cwd,
             env: { ...parent.env, ...opts?.env },
             args: opts?.args ?? [entry],
-            // Unified handle table (Phase 2)
             handles: new Map(),
             nextHandle: 3,
-            // Legacy tables for backward compatibility
-            fds: new Map(),
-            ports: new Map(),
-            channels: new Map(),
-            nextFd: 3,
-            nextPort: 0,
-            nextChannel: 0,
             children: new Map(),
             nextPid: 1,
             activeStreams: new Map(),
@@ -446,30 +417,12 @@ export class Kernel {
         proc.exitCode = code;
         proc.state = 'zombie';
 
-        // Close all file descriptors
-        for (const [fd] of proc.fds) {
+        // Close all handles
+        for (const [h] of proc.handles) {
             try {
-                await this.closeResource(proc, fd);
+                await this.closeHandle(proc, h);
             } catch (err) {
-                debug('cleanup', `fd ${fd} close failed: ${(err as Error).message}`);
-            }
-        }
-
-        // Close all ports
-        for (const [portId] of proc.ports) {
-            try {
-                await this.closePort(proc, portId);
-            } catch (err) {
-                debug('cleanup', `port ${portId} close failed: ${(err as Error).message}`);
-            }
-        }
-
-        // Close all channels
-        for (const [ch] of proc.channels) {
-            try {
-                await this.closeChannel(proc, ch);
-            } catch (err) {
-                debug('cleanup', `channel ${ch} close failed: ${(err as Error).message}`);
+                debug('cleanup', `handle ${h} close failed: ${(err as Error).message}`);
             }
         }
 
@@ -808,25 +761,25 @@ export class Kernel {
      */
     private async setupInitStdio(init: Process): Promise<void> {
         // Open console for stdin (read-only)
-        const stdinHandle = await this.vfs.open(CONSOLE_PATH, { read: true }, 'kernel');
-        const stdinResource = new FileResource(stdinHandle.id, stdinHandle);
-        this.resources.set(stdinResource.id, stdinResource);
-        this.resourceRefs.set(stdinResource.id, 1);
-        init.fds.set(0, stdinResource.id);
+        const stdinVfs = await this.vfs.open(CONSOLE_PATH, { read: true }, 'kernel');
+        const stdinAdapter = new FileHandleAdapter(stdinVfs.id, stdinVfs);
+        this.handles.set(stdinAdapter.id, stdinAdapter);
+        this.handleRefs.set(stdinAdapter.id, 1);
+        init.handles.set(0, stdinAdapter.id);
 
         // Open console for stdout (write-only)
-        const stdoutHandle = await this.vfs.open(CONSOLE_PATH, { write: true }, 'kernel');
-        const stdoutResource = new FileResource(stdoutHandle.id, stdoutHandle);
-        this.resources.set(stdoutResource.id, stdoutResource);
-        this.resourceRefs.set(stdoutResource.id, 1);
-        init.fds.set(1, stdoutResource.id);
+        const stdoutVfs = await this.vfs.open(CONSOLE_PATH, { write: true }, 'kernel');
+        const stdoutAdapter = new FileHandleAdapter(stdoutVfs.id, stdoutVfs);
+        this.handles.set(stdoutAdapter.id, stdoutAdapter);
+        this.handleRefs.set(stdoutAdapter.id, 1);
+        init.handles.set(1, stdoutAdapter.id);
 
         // Open console for stderr (write-only)
-        const stderrHandle = await this.vfs.open(CONSOLE_PATH, { write: true }, 'kernel');
-        const stderrResource = new FileResource(stderrHandle.id, stderrHandle);
-        this.resources.set(stderrResource.id, stderrResource);
-        this.resourceRefs.set(stderrResource.id, 1);
-        init.fds.set(2, stderrResource.id);
+        const stderrVfs = await this.vfs.open(CONSOLE_PATH, { write: true }, 'kernel');
+        const stderrAdapter = new FileHandleAdapter(stderrVfs.id, stderrVfs);
+        this.handles.set(stderrAdapter.id, stderrAdapter);
+        this.handleRefs.set(stderrAdapter.id, 1);
+        init.handles.set(2, stderrAdapter.id);
     }
 
     /**
@@ -841,42 +794,30 @@ export class Kernel {
         const stderr = opts?.stderr ?? 2;
 
         if (typeof stdin === 'number') {
-            const resourceId = parent.fds.get(stdin);
-            if (resourceId) {
-                proc.fds.set(0, resourceId);
-                this.refResource(resourceId);
+            const handleId = parent.handles.get(stdin);
+            if (handleId) {
+                proc.handles.set(0, handleId);
+                this.refHandle(handleId);
             }
         }
 
         if (typeof stdout === 'number') {
-            const resourceId = parent.fds.get(stdout);
-            if (resourceId) {
-                proc.fds.set(1, resourceId);
-                this.refResource(resourceId);
+            const handleId = parent.handles.get(stdout);
+            if (handleId) {
+                proc.handles.set(1, handleId);
+                this.refHandle(handleId);
             }
         }
 
         if (typeof stderr === 'number') {
-            const resourceId = parent.fds.get(stderr);
-            if (resourceId) {
-                proc.fds.set(2, resourceId);
-                this.refResource(resourceId);
+            const handleId = parent.handles.get(stderr);
+            if (handleId) {
+                proc.handles.set(2, handleId);
+                this.refHandle(handleId);
             }
         }
 
         // TODO: Handle 'pipe' option to create new pipes
-    }
-
-    /**
-     * Increment reference count for a resource.
-     *
-     * Note: The `?? 1` fallback is a safety net that should never be hit.
-     * All resources must have their refcount explicitly initialized to 1
-     * when created.
-     */
-    private refResource(resourceId: string): void {
-        const refs = this.resourceRefs.get(resourceId) ?? 1;
-        this.resourceRefs.set(resourceId, refs + 1);
     }
 
     /**
@@ -902,17 +843,11 @@ export class Kernel {
         proc.activeStreams.clear();
         proc.streamPingHandlers.clear();
 
-        // Clean up resources with refcounting (fire-and-forget, don't await)
-        for (const resourceId of proc.fds.values()) {
-            this.unrefResource(resourceId);
+        // Clean up handles with refcounting (fire-and-forget, don't await)
+        for (const handleId of proc.handles.values()) {
+            this.unrefHandle(handleId);
         }
-        proc.fds.clear();
-
-        // Clean up ports with refcounting (fire-and-forget, don't await)
-        for (const portUuid of proc.ports.values()) {
-            this.unrefPort(portUuid);
-        }
-        proc.ports.clear();
+        proc.handles.clear();
 
         // Release any leased workers back to pool
         this.releaseProcessWorkers(proc);
@@ -922,48 +857,6 @@ export class Kernel {
 
         // Notify waiters
         this.notifyWaiters(proc);
-    }
-
-    /**
-     * Decrement reference count for a resource, closing if last ref.
-     *
-     * Note: The `?? 1` fallback is a safety net.
-     */
-    private unrefResource(resourceId: string): void {
-        const refs = (this.resourceRefs.get(resourceId) ?? 1) - 1;
-        if (refs <= 0) {
-            const resource = this.resources.get(resourceId);
-            if (resource) {
-                resource.close().catch((err) => {
-                    debug('cleanup', `resource ${resourceId} close failed: ${(err as Error).message}`);
-                });
-                this.resources.delete(resourceId);
-            }
-            this.resourceRefs.delete(resourceId);
-        } else {
-            this.resourceRefs.set(resourceId, refs);
-        }
-    }
-
-    /**
-     * Decrement reference count for a port, closing if last ref.
-     *
-     * Note: The `?? 1` fallback is a safety net.
-     */
-    private unrefPort(portUuid: string): void {
-        const refs = (this.portRefs.get(portUuid) ?? 1) - 1;
-        if (refs <= 0) {
-            const port = this.ports.get(portUuid);
-            if (port) {
-                port.close().catch((err) => {
-                    debug('cleanup', `port ${portUuid} close failed: ${(err as Error).message}`);
-                });
-                this.ports.delete(portUuid);
-            }
-            this.portRefs.delete(portUuid);
-        } else {
-            this.portRefs.set(portUuid, refs);
-        }
     }
 
     /**
@@ -1007,24 +900,14 @@ export class Kernel {
         this.processes.unregister(zombie.id);
     }
 
-    /**
-     * Get resource for a file descriptor.
-     */
-    private getResource(proc: Process, fd: number): Resource | undefined {
-        const resourceId = proc.fds.get(fd);
-        if (!resourceId) return undefined;
-
-        return this.resources.get(resourceId);
-    }
-
     // ========================================================================
-    // Unified Handle Operations (Phase 2)
+    // Unified Handle Operations
     // ========================================================================
 
     /**
      * Get a handle by process-local ID.
      */
-    private getHandle(proc: Process, h: number): Handle | undefined {
+    getHandle(proc: Process, h: number): Handle | undefined {
         const handleId = proc.handles.get(h);
         if (!handleId) return undefined;
         return this.handles.get(handleId);
@@ -1032,10 +915,8 @@ export class Kernel {
 
     /**
      * Allocate a handle ID and register in process and kernel tables.
-     * TODO: Wire into Handle-based syscalls when ready
      */
-    // @ts-expect-error Scaffolding for Handle-based syscalls
-    private _allocHandle(proc: Process, handle: Handle): number {
+    private allocHandle(proc: Process, handle: Handle): number {
         if (proc.handles.size >= MAX_HANDLES) {
             throw new EMFILE('Too many open handles');
         }
@@ -1052,51 +933,17 @@ export class Kernel {
     }
 
     /**
-     * Close a handle with reference counting.
-     */
-    private async closeHandle(proc: Process, h: number): Promise<void> {
-        const handleId = proc.handles.get(h);
-        if (!handleId) {
-            throw new EBADF(`Bad handle: ${h}`);
-        }
-
-        // Remove from process
-        proc.handles.delete(h);
-
-        // Decrement refcount
-        const refs = (this.handleRefs.get(handleId) ?? 1) - 1;
-        if (refs <= 0) {
-            const handle = this.handles.get(handleId);
-            if (handle) {
-                await handle.close();
-                this.handles.delete(handleId);
-            }
-            this.handleRefs.delete(handleId);
-        } else {
-            this.handleRefs.set(handleId, refs);
-        }
-    }
-
-    /**
      * Increment reference count for a handle.
-     * TODO: Wire into Handle-based syscalls when ready
-     *
-     * Note: The `?? 1` fallback is a safety net.
      */
-    // @ts-expect-error Scaffolding for Handle-based syscalls
-    private _refHandle(handleId: string): void {
+    private refHandle(handleId: string): void {
         const refs = this.handleRefs.get(handleId) ?? 1;
         this.handleRefs.set(handleId, refs + 1);
     }
 
     /**
      * Decrement reference count, closing if last ref.
-     * TODO: Wire into Handle-based syscalls when ready
-     *
-     * Note: The `?? 1` fallback is a safety net.
      */
-    // @ts-expect-error Scaffolding for Handle-based syscalls
-    private _unrefHandle(handleId: string): void {
+    private unrefHandle(handleId: string): void {
         const refs = (this.handleRefs.get(handleId) ?? 1) - 1;
         if (refs <= 0) {
             const handle = this.handles.get(handleId);
@@ -1113,101 +960,72 @@ export class Kernel {
     }
 
     // ========================================================================
-    // Legacy File Operations
+    // File Operations (Unified Handle Architecture)
     // ========================================================================
 
     /**
-     * Open a file and allocate fd.
+     * Open a file and allocate handle.
      */
     private async openFile(proc: Process, path: string, flags: import('@src/kernel/types.js').OpenFlags): Promise<number> {
-        if (proc.fds.size >= MAX_FDS) {
-            throw new EMFILE('Too many open files');
+        if (proc.handles.size >= MAX_HANDLES) {
+            throw new EMFILE('Too many open handles');
         }
 
-        const handle = await this.vfs.open(path, flags, proc.id);
-
-        // Create resource wrapper
-        const resource = new FileResource(handle.id, handle);
-        this.resources.set(resource.id, resource);
-        this.resourceRefs.set(resource.id, 1);
-
-        // Allocate fd
-        const fd = proc.nextFd++;
-        proc.fds.set(fd, resource.id);
-
-        return fd;
+        const vfsHandle = await this.vfs.open(path, flags, proc.id);
+        const adapter = new FileHandleAdapter(vfsHandle.id, vfsHandle);
+        return this.allocHandle(proc, adapter);
     }
 
     /**
-     * Connect TCP or Unix socket and allocate fd.
+     * Connect TCP or Unix socket and allocate handle.
      *
      * For TCP: host is hostname/IP, port is port number
      * For Unix: host is socket path, port is 0
      */
     private async connectTcp(proc: Process, host: string, port: number): Promise<number> {
-        if (proc.fds.size >= MAX_FDS) {
-            throw new EMFILE('Too many open files');
+        if (proc.handles.size >= MAX_HANDLES) {
+            throw new EMFILE('Too many open handles');
         }
 
         const socket = await this.hal.network.connect(host, port);
 
-        // Create resource wrapper
-        const resourceId = this.hal.entropy.uuid();
         const isUnix = port === 0;
         const description = isUnix
             ? `unix:${host}`
             : `tcp:${socket.stat().remoteAddr}:${socket.stat().remotePort}`;
-        const resource = new SocketResource(resourceId, socket, description);
-        this.resources.set(resourceId, resource);
-        this.resourceRefs.set(resourceId, 1);
-
-        // Allocate fd
-        const fd = proc.nextFd++;
-        proc.fds.set(fd, resourceId);
-
-        return fd;
+        const adapter = new SocketHandleAdapter(this.hal.entropy.uuid(), socket, description);
+        return this.allocHandle(proc, adapter);
     }
 
     /**
-     * Close a file descriptor.
+     * Close a handle.
      *
      * Uses reference counting - only closes the underlying resource
      * when the last reference is released.
      */
-    private async closeResource(proc: Process, fd: number): Promise<void> {
-        const resourceId = proc.fds.get(fd);
-        if (!resourceId) {
-            throw new EBADF(`Bad file descriptor: ${fd}`);
+    private async closeHandle(proc: Process, h: number): Promise<void> {
+        const handleId = proc.handles.get(h);
+        if (!handleId) {
+            throw new EBADF(`Bad file descriptor: ${h}`);
         }
 
-        // Remove fd from process
-        proc.fds.delete(fd);
+        // Remove handle from process
+        proc.handles.delete(h);
 
-        // Decrement refcount
-        const refs = (this.resourceRefs.get(resourceId) ?? 1) - 1;
-        if (refs <= 0) {
-            // Last reference - close the resource
-            const resource = this.resources.get(resourceId);
-            if (resource) {
-                await resource.close();
-                this.resources.delete(resourceId);
-            }
-            this.resourceRefs.delete(resourceId);
-        } else {
-            this.resourceRefs.set(resourceId, refs);
-        }
+        // Decrement refcount (unrefHandle handles cleanup)
+        this.unrefHandle(handleId);
     }
 
     /**
-     * Create a pipe and return [readFd, writeFd].
+     * Create a pipe and return [readH, writeH].
      *
-     * Creates a unidirectional data channel. Data written to writeFd
-     * can be read from readFd. Closing writeFd signals EOF to readers.
+     * Creates a unidirectional data channel. Data written to writeH
+     * can be read from readH. Closing writeH signals EOF to readers.
      */
     private createPipe(proc: Process): [number, number] {
-        // Check fd limit (need 2 fds)
-        if (proc.fds.size + 2 > MAX_FDS) {
-            throw new EMFILE('Too many open files');
+        // Check handle limit (need 2 handles)
+        if (proc.handles.size + 2 > MAX_HANDLES) {
+            throw new EMFILE('Too many open handles');
         }
 
         // Create shared buffer
@@ -1215,90 +1033,83 @@ export class Kernel {
         const pipeId = this.hal.entropy.uuid();
 
         // Create read end
-        const readResource = new PipeResource(
+        const readAdapter = new PipeHandleAdapter(
             `${pipeId}:read`,
             buffer,
             'read',
             `pipe:${pipeId}:read`
         );
-        this.resources.set(readResource.id, readResource);
-        this.resourceRefs.set(readResource.id, 1);
-        const readFd = proc.nextFd++;
-        proc.fds.set(readFd, readResource.id);
+        const readH = this.allocHandle(proc, readAdapter);
 
         // Create write end
-        const writeResource = new PipeResource(
+        const writeAdapter = new PipeHandleAdapter(
             `${pipeId}:write`,
             buffer,
             'write',
             `pipe:${pipeId}:write`
         );
-        this.resources.set(writeResource.id, writeResource);
-        this.resourceRefs.set(writeResource.id, 1);
-        const writeFd = proc.nextFd++;
-        proc.fds.set(writeFd, writeResource.id);
+        const writeH = this.allocHandle(proc, writeAdapter);
 
-        return [readFd, writeFd];
+        return [readH, writeH];
     }
 
     /**
-     * Redirect a file descriptor to point to the same resource as another fd.
+     * Redirect a handle to point to the same resource as another handle.
      *
-     * Returns the saved resource ID so it can be restored later.
-     * The caller must call restoreFd to restore the original resource.
+     * Returns the saved handle ID so it can be restored later.
+     * The caller must call restoreHandle to restore the original resource.
      */
-    private redirectFd(proc: Process, targetFd: number, sourceFd: number): string {
-        const sourceResourceId = proc.fds.get(sourceFd);
-        if (!sourceResourceId) {
-            throw new EBADF(`Bad source file descriptor: ${sourceFd}`);
+    private redirectHandle(proc: Process, targetH: number, sourceH: number): string {
+        const sourceHandleId = proc.handles.get(sourceH);
+        if (!sourceHandleId) {
+            throw new EBADF(`Bad source file descriptor: ${sourceH}`);
         }
 
-        const savedResourceId = proc.fds.get(targetFd);
-        if (!savedResourceId) {
-            throw new EBADF(`Bad target file descriptor: ${targetFd}`);
+        const savedHandleId = proc.handles.get(targetH);
+        if (!savedHandleId) {
+            throw new EBADF(`Bad target file descriptor: ${targetH}`);
         }
 
-        // Point target fd to source's resource
-        proc.fds.set(targetFd, sourceResourceId);
+        // Point target to source's handle
+        proc.handles.set(targetH, sourceHandleId);
 
-        // Increment refcount on the source resource
-        const refs = this.resourceRefs.get(sourceResourceId) ?? 1;
-        this.resourceRefs.set(sourceResourceId, refs + 1);
+        // Increment refcount on the source handle
+        this.refHandle(sourceHandleId);
 
-        return savedResourceId;
+        return savedHandleId;
     }
 
     /**
-     * Restore a file descriptor to its original resource.
+     * Restore a handle to its original resource.
      *
-     * This should be called after redirectFd to restore the original resource.
+     * This should be called after redirectHandle to restore the original resource.
      */
-    private async restoreFd(proc: Process, targetFd: number, savedResourceId: string): Promise<void> {
-        const currentResourceId = proc.fds.get(targetFd);
-        if (!currentResourceId) {
-            throw new EBADF(`Bad file descriptor: ${targetFd}`);
+    private restoreHandle(proc: Process, targetH: number, savedHandleId: string): void {
+        const currentHandleId = proc.handles.get(targetH);
+        if (!currentHandleId) {
+            throw new EBADF(`Bad file descriptor: ${targetH}`);
         }
 
-        // Restore the original resource
-        proc.fds.set(targetFd, savedResourceId);
+        // Restore the original handle
+        proc.handles.set(targetH, savedHandleId);
 
-        // Decrement refcount on the current resource (it was redirected)
-        const refs = (this.resourceRefs.get(currentResourceId) ?? 1) - 1;
+        // Decrement refcount on the current handle (it was redirected)
+        // Don't close - redirected handles shouldn't be auto-closed here
+        // The original handle that opened the resource will close it
+        const refs = (this.handleRefs.get(currentHandleId) ?? 1) - 1;
         if (refs <= 0) {
-            // Don't close - redirected resources shouldn't be auto-closed here
-            // The original fd that opened the resource will close it
-            this.resourceRefs.delete(currentResourceId);
+            this.handleRefs.delete(currentHandleId);
         } else {
-            this.resourceRefs.set(currentResourceId, refs);
+            this.handleRefs.set(currentHandleId, refs);
         }
     }
 
     /**
-     * Create a port and allocate port id.
+     * Create a port and allocate handle.
      */
     private async createPort(proc: Process, type: string, opts: unknown): Promise<number> {
-        if (proc.ports.size >= MAX_PORTS) {
-            throw new EMFILE('Too many open ports');
+        if (proc.handles.size >= MAX_HANDLES) {
+            throw new EMFILE('Too many open handles');
         }
 
         let port: Port;
@@ -1372,8 +1183,10 @@ export class Kernel {
 
                 // Create unsubscribe function for cleanup
                 const unsubscribeFn = () => {
-                    const p = this.ports.get(portId) as PubsubPort | undefined;
-                    if (p) {
+                    // Look up the port handle by its ID in the kernel handles registry
+                    const handle = this.handles.get(portId) as PortHandleAdapter | undefined;
+                    if (handle) {
+                        const p = handle.getPort() as PubsubPort;
                         this.pubsubPorts.delete(p);
                     }
                 };
@@ -1391,56 +1204,43 @@ export class Kernel {
                 throw new EINVAL(`unknown port type: ${type}`);
         }
 
-        // Register port
-        this.ports.set(port.id, port);
-        this.portRefs.set(port.id, 1);
-
-        // Allocate port id in process
-        const localPortId = proc.nextPort++;
-        proc.ports.set(localPortId, port.id);
-
-        return localPortId;
+        // Create adapter and allocate handle
+        const adapter = new PortHandleAdapter(port.id, port, port.description);
+        return this.allocHandle(proc, adapter);
     }
 
     /**
-     * Get port for a port id.
+     * Get port from a handle.
      */
-    private getPort(proc: Process, portId: number): Port | undefined {
-        const portUuid = proc.ports.get(portId);
-        if (!portUuid) return undefined;
-
-        return this.ports.get(portUuid);
+    private getPortFromHandle(proc: Process, h: number): Port | undefined {
+        const handle = this.getHandle(proc, h);
+        if (!handle || handle.type !== 'port') return undefined;
+        return (handle as PortHandleAdapter).getPort();
     }
 
     /**
-     * Receive from port, auto-allocating fd for sockets.
+     * Receive from port handle, auto-allocating handle for sockets.
      */
-    private async recvPort(proc: Process, portId: number): Promise<ProcessPortMessage> {
-        const port = this.getPort(proc, portId);
+    private async recvPort(proc: Process, h: number): Promise<ProcessPortMessage> {
+        const port = this.getPortFromHandle(proc, h);
         if (!port) {
-            throw new EBADF(`Bad port: ${portId}`);
+            throw new EBADF(`Bad port: ${h}`);
         }
 
         const msg = await port.recv();
 
-        // If message contains a socket, wrap it and allocate fd
+        // If message contains a socket, wrap it and allocate handle
         if (msg.socket) {
-            if (proc.fds.size >= MAX_FDS) {
+            if (proc.handles.size >= MAX_HANDLES) {
                 // Can't accept - close the socket and throw
                 await msg.socket.close();
-                throw new EMFILE('Too many open files');
+                throw new EMFILE('Too many open handles');
             }
 
-            const resourceId = this.hal.entropy.uuid();
             const stat = msg.socket.stat();
             const description = `tcp:${stat.remoteAddr}:${stat.remotePort}`;
-            const resource = new SocketResource(resourceId, msg.socket, description);
-            this.resources.set(resourceId, resource);
-            this.resourceRefs.set(resourceId, 1);
-
-            // Allocate fd
-            const fd = proc.nextFd++;
-            proc.fds.set(fd, resourceId);
+            const adapter = new SocketHandleAdapter(this.hal.entropy.uuid(), msg.socket, description);
+            const fd = this.allocHandle(proc, adapter);
 
             return {
                 from: msg.from,
@@ -1457,30 +1257,12 @@ export class Kernel {
         };
     }
 
-    /**
-     * Close a port.
-     */
-    private async closePort(proc: Process, portId: number): Promise<void> {
-        const portUuid = proc.ports.get(portId);
-        if (!portUuid) {
-            throw new EBADF(`Bad port: ${portId}`);
-        }
-
-        const port = this.ports.get(portUuid);
-        if (port) {
-            await port.close();
-            this.ports.delete(portUuid);
-        }
-
-        proc.ports.delete(portId);
-    }
-
     // =========================================================================
-    // Channel Management
+    // Channel Management (Unified Handle Architecture)
     // =========================================================================
 
     /**
-     * Open a channel.
+     * Open a channel and allocate handle.
      */
     private async openChannel(
         proc: Process,
@@ -1488,48 +1270,25 @@ export class Kernel {
         url: string,
         opts?: ChannelOpts
     ): Promise<number> {
-        if (proc.channels.size >= MAX_CHANNELS) {
-            throw new EMFILE('Too many open channels');
+        if (proc.handles.size >= MAX_HANDLES) {
+            throw new EMFILE('Too many open handles');
         }
 
         const channel = await this.hal.channel.open(proto, url, opts);
-        this.channels.set(channel.id, channel);
+        const adapter = new ChannelHandleAdapter(channel.id, channel, `${channel.proto}:${channel.description}`);
+        const h = this.allocHandle(proc, adapter);
 
-        const localChannelId = proc.nextChannel++;
-        proc.channels.set(localChannelId, channel.id);
-
-        debug('channel', `opened ${channel.proto}:${channel.description} as ch ${localChannelId}`);
-        return localChannelId;
+        debug('channel', `opened ${channel.proto}:${channel.description} as h ${h}`);
+        return h;
     }
 
     /**
-     * Get a channel by process-local ID.
+     * Get a channel from a handle.
      */
-    private getChannel(proc: Process, ch: number): Channel | undefined {
-        const channelUuid = proc.channels.get(ch);
-        if (!channelUuid) {
-            return undefined;
-        }
-        return this.channels.get(channelUuid);
-    }
-
-    /**
-     * Close a channel.
-     */
-    private async closeChannel(proc: Process, ch: number): Promise<void> {
-        const channelUuid = proc.channels.get(ch);
-        if (!channelUuid) {
-            throw new EBADF(`Bad channel: ${ch}`);
-        }
-
-        const channel = this.channels.get(channelUuid);
-        if (channel) {
-            await channel.close();
-            this.channels.delete(channelUuid);
-        }
-
-        proc.channels.delete(ch);
-        debug('channel', `closed ch ${ch}`);
+    private getChannelFromHandle(proc: Process, h: number): Channel | undefined {
+        const handle = this.getHandle(proc, h);
+        if (!handle || handle.type !== 'channel') return undefined;
+        return (handle as ChannelHandleAdapter).getChannel();
     }
 
     // =========================================================================
@@ -1921,54 +1680,42 @@ export class Kernel {
             cwd: '/',
             env: {},
             args: [def.handler],
-            // Unified handle table (Phase 2)
             handles: new Map(),
             nextHandle: 3,
-            // Legacy tables for backward compatibility
-            fds: new Map(),
-            ports: new Map(),
-            channels: new Map(),
-            nextFd: 3,
-            nextPort: 0,
-            nextChannel: 0,
             children: new Map(),
             nextPid: 1,
             activeStreams: new Map(),
             streamPingHandlers: new Map(),
         };
 
-        // Setup fd 0 based on activation type
+        // Setup handle 0 based on activation type
         if (socket) {
-            // Socket activation: fd 0 is the connected socket
-            const resourceId = this.hal.entropy.uuid();
+            // Socket activation: handle 0 is the connected socket
             const stat = socket.stat();
             const description = `tcp:${stat.remoteAddr}:${stat.remotePort}`;
-            const resource = new SocketResource(resourceId, socket, description);
-            this.resources.set(resourceId, resource);
-            proc.fds.set(0, resourceId);
-
-            // fd 1 and 2 also point to the socket (like inetd)
-            this.resourceRefs.set(resourceId, 3);
-            proc.fds.set(1, resourceId);
-            proc.fds.set(2, resourceId);
+            const adapter = new SocketHandleAdapter(this.hal.entropy.uuid(), socket, description);
+            this.handles.set(adapter.id, adapter);
+            this.handleRefs.set(adapter.id, 3); // Shared by stdin, stdout, stderr
+            proc.handles.set(0, adapter.id);
+            proc.handles.set(1, adapter.id);
+            proc.handles.set(2, adapter.id);
         } else if (inputData) {
-            // Message activation: fd 0 is a pipe with pre-filled data
+            // Message activation: handle 0 is a pipe with pre-filled data
             const buffer = new PipeBuffer();
             buffer.write(inputData);
             buffer.closeWriteEnd(); // Signal EOF after the data
 
-            const pipeId = this.hal.entropy.uuid();
-            const readResource = new PipeResource(
-                `${pipeId}:read`,
+            const adapter = new PipeHandleAdapter(
+                this.hal.entropy.uuid(),
                 buffer,
                 'read',
                 `service:${name}:stdin`
             );
-            this.resources.set(readResource.id, readResource);
-            this.resourceRefs.set(readResource.id, 1);
-            proc.fds.set(0, readResource.id);
+            this.handles.set(adapter.id, adapter);
+            this.handleRefs.set(adapter.id, 1);
+            proc.handles.set(0, adapter.id);
 
-            // fd 1 and 2 go to console
+            // handles 1 and 2 go to console
             await this.setupServiceStdio(proc, 1);
             await this.setupServiceStdio(proc, 2);
         } else {
@@ -1989,15 +1736,15 @@ export class Kernel {
     }
 
     /**
-     * Setup a stdio fd to console for service processes.
+     * Setup a stdio handle to console for service processes.
      */
-    private async setupServiceStdio(proc: Process, fd: number): Promise<void> {
-        const flags = fd === 0 ? { read: true } : { write: true };
-        const handle = await this.vfs.open(CONSOLE_PATH, flags, 'kernel');
-        const resource = new FileResource(handle.id, handle);
-        this.resources.set(resource.id, resource);
-        this.resourceRefs.set(resource.id, 1);
-        proc.fds.set(fd, resource.id);
+    private async setupServiceStdio(proc: Process, h: number): Promise<void> {
+        const flags = h === 0 ? { read: true } : { write: true };
+        const vfsHandle = await this.vfs.open(CONSOLE_PATH, flags, 'kernel');
+        const adapter = new FileHandleAdapter(vfsHandle.id, vfsHandle);
+        this.handles.set(adapter.id, adapter);
+        this.handleRefs.set(adapter.id, 1);
+        proc.handles.set(h, adapter.id);
     }
 
     // ========================================================================

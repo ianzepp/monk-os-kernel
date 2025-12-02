@@ -5,11 +5,11 @@
  */
 
 import type { HAL, Channel, ChannelOpts } from '@src/hal/index.js';
-import type { VFS, SeekWhence } from '@src/vfs/index.js';
+import type { VFS } from '@src/vfs/index.js';
 import type { Process, OpenFlags } from '@src/kernel/types.js';
-import { DEFAULT_CHUNK_SIZE, MAX_STREAM_BYTES, MAX_STREAM_ENTRIES } from '@src/kernel/types.js';
-import type { Resource, FileResource } from '@src/kernel/resource.js';
-import type { Message, Response } from '@src/message.js';
+import { MAX_STREAM_ENTRIES } from '@src/kernel/types.js';
+import type { Handle } from '@src/kernel/handle.js';
+import type { Response } from '@src/message.js';
 import { respond } from '@src/message.js';
 
 /**
@@ -96,16 +96,16 @@ export class SyscallDispatcher {
  *
  * @param vfs - VFS instance
  * @param hal - HAL instance
- * @param getResource - Function to get resource from fd
+ * @param getHandle - Function to get handle from fd
  * @param openFile - Function to open a file and allocate fd
- * @param closeResource - Function to close fd
+ * @param closeHandle - Function to close fd
  */
 export function createFileSyscalls(
     vfs: VFS,
     _hal: HAL,
-    getResource: (proc: Process, fd: number) => Resource | undefined,
+    getHandle: (proc: Process, fd: number) => Handle | undefined,
     openFile: (proc: Process, path: string, flags: OpenFlags) => Promise<number>,
-    closeResource: (proc: Process, fd: number) => Promise<void>
+    closeHandle: (proc: Process, fd: number) => Promise<void>
 ): SyscallRegistry {
     return {
         async *open(proc: Process, path: unknown, flags: unknown): AsyncIterable<Response> {
@@ -127,7 +127,7 @@ export function createFileSyscalls(
                 yield respond.error('EINVAL', 'fd must be a number');
                 return;
             }
-            await closeResource(proc, fd);
+            await closeHandle(proc, fd);
             yield respond.ok();
         },
 
@@ -137,43 +137,14 @@ export function createFileSyscalls(
                 return;
             }
 
-            const resource = getResource(proc, fd);
-            if (!resource) {
+            const handle = getHandle(proc, fd);
+            if (!handle) {
                 yield respond.error('EBADF', `Bad file descriptor: ${fd}`);
                 return;
             }
 
-            const size = typeof chunkSize === 'number' ? chunkSize : DEFAULT_CHUNK_SIZE;
-            let totalYielded = 0;
-
-            try {
-                while (true) {
-                    const chunk = await resource.read(size);
-
-                    // EOF
-                    if (chunk.length === 0) {
-                        break;
-                    }
-
-                    totalYielded += chunk.length;
-                    if (totalYielded > MAX_STREAM_BYTES) {
-                        yield respond.error('EFBIG', `Read stream exceeded ${MAX_STREAM_BYTES} bytes`);
-                        return;
-                    }
-
-                    yield respond.item(chunk);
-
-                    // Short read indicates EOF for some resources (e.g., files)
-                    // For sockets/pipes, short reads are normal - only chunk.length === 0 means EOF
-                    if (resource.eofOnShortRead && chunk.length < size) {
-                        break;
-                    }
-                }
-
-                yield respond.done();
-            } catch (err) {
-                yield respond.error('EIO', (err as Error).message);
-            }
+            // Delegate to handle's read implementation
+            yield* handle.send({ op: 'read', data: { chunkSize } });
         },
 
         async *write(proc: Process, fd: unknown, data: unknown): AsyncIterable<Response> {
@@ -182,19 +153,14 @@ export function createFileSyscalls(
                 return;
             }
 
-            const resource = getResource(proc, fd);
-            if (!resource) {
+            const handle = getHandle(proc, fd);
+            if (!handle) {
                 yield respond.error('EBADF', `Bad file descriptor: ${fd}`);
                 return;
             }
 
-            if (!(data instanceof Uint8Array)) {
-                yield respond.error('EINVAL', 'data must be Uint8Array');
-                return;
-            }
-
-            const written = await resource.write(data);
-            yield respond.ok(written);
+            // Delegate to handle's write implementation
+            yield* handle.send({ op: 'write', data: { data } });
         },
 
         async *seek(proc: Process, fd: unknown, offset: unknown, whence: unknown): AsyncIterable<Response> {
@@ -203,26 +169,20 @@ export function createFileSyscalls(
                 return;
             }
 
-            const resource = getResource(proc, fd);
-            if (!resource) {
+            const handle = getHandle(proc, fd);
+            if (!handle) {
                 yield respond.error('EBADF', `Bad file descriptor: ${fd}`);
                 return;
             }
 
-            // Only file resources support seek
-            if (resource.type !== 'file') {
+            // Only file handles support seek
+            if (handle.type !== 'file') {
                 yield respond.error('EINVAL', 'Illegal seek on socket');
                 return;
             }
 
-            if (typeof offset !== 'number') {
-                yield respond.error('EINVAL', 'offset must be a number');
-                return;
-            }
-
-            const seekWhence: SeekWhence = (whence as SeekWhence) || 'start';
-            const pos = await (resource as FileResource).getHandle().seek(offset, seekWhence);
-            yield respond.ok(pos);
+            // Delegate to handle's seek implementation
+            yield* handle.send({ op: 'seek', data: { offset, whence: whence ?? 'start' } });
         },
 
         async *stat(proc: Process, path: unknown): AsyncIterable<Response> {
@@ -241,19 +201,19 @@ export function createFileSyscalls(
                 return;
             }
 
-            const resource = getResource(proc, fd);
-            if (!resource) {
+            const handle = getHandle(proc, fd);
+            if (!handle) {
                 yield respond.error('EBADF', `Bad file descriptor: ${fd}`);
                 return;
             }
 
-            // Only file resources have path-based stat
-            if (resource.type !== 'file') {
+            // Only file handles have path-based stat
+            if (handle.type !== 'file') {
                 yield respond.error('EINVAL', 'fstat not supported on sockets');
                 return;
             }
 
-            const statResult = await vfs.stat(resource.description, proc.id);
+            const statResult = await vfs.stat(handle.description, proc.id);
             yield respond.ok(statResult);
         },
 
@@ -470,18 +430,18 @@ export interface ProcessPortMessage {
  *
  * @param hal - HAL instance
  * @param connectTcp - Function to connect and allocate fd for socket
- * @param createPort - Function to create a port and allocate port id
- * @param getPort - Function to get port from port id
- * @param recvPort - Function to receive from port (auto-allocates fd for sockets)
- * @param closePort - Function to close port
+ * @param createPort - Function to create a port and allocate handle
+ * @param getPort - Function to get port from handle
+ * @param recvPort - Function to receive from port (auto-allocates handle for sockets)
+ * @param closeHandle - Function to close handle
  */
 export function createNetworkSyscalls(
     _hal: HAL,
     connectTcp: (proc: Process, host: string, port: number) => Promise<number>,
     createPort: (proc: Process, type: string, opts: unknown) => Promise<number>,
-    getPort: (proc: Process, portId: number) => import('./resource.js').Port | undefined,
-    recvPort: (proc: Process, portId: number) => Promise<ProcessPortMessage>,
-    closePort: (proc: Process, portId: number) => Promise<void>
+    getPort: (proc: Process, h: number) => import('./resource.js').Port | undefined,
+    recvPort: (proc: Process, h: number) => Promise<ProcessPortMessage>,
+    closeHandle: (proc: Process, h: number) => Promise<void>
 ): SyscallRegistry {
     return {
         async *connect(proc: Process, proto: unknown, host: unknown, port: unknown): AsyncIterable<Response> {
@@ -569,7 +529,7 @@ export function createNetworkSyscalls(
                 return;
             }
 
-            await closePort(proc, portId);
+            await closeHandle(proc, portId);
             yield respond.ok();
         },
     };
@@ -579,15 +539,15 @@ export function createNetworkSyscalls(
  * Create channel syscalls.
  *
  * @param hal - HAL instance
- * @param openChannel - Function to open a channel and allocate channel id
- * @param getChannel - Function to get channel from channel id
- * @param closeChannel - Function to close channel
+ * @param openChannel - Function to open a channel and allocate handle
+ * @param getChannel - Function to get channel from handle
+ * @param closeHandle - Function to close handle
  */
 export function createChannelSyscalls(
     _hal: HAL,
     openChannel: (proc: Process, proto: string, url: string, opts?: ChannelOpts) => Promise<number>,
     getChannel: (proc: Process, ch: number) => Channel | undefined,
-    closeChannel: (proc: Process, ch: number) => Promise<void>
+    closeHandle: (proc: Process, ch: number) => Promise<void>
 ): SyscallRegistry {
     return {
         async *channel_open(proc: Process, proto: unknown, url: unknown, opts?: unknown): AsyncIterable<Response> {
@@ -617,7 +577,7 @@ export function createChannelSyscalls(
             }
 
             // Yield until terminal response
-            for await (const response of channel.handle(msg as Message)) {
+            for await (const response of channel.handle(msg as import('@src/message.js').Message)) {
                 yield response;
                 if (response.op === 'ok' || response.op === 'error' || response.op === 'done') {
                     return;
@@ -638,7 +598,7 @@ export function createChannelSyscalls(
                 return;
             }
 
-            yield* channel.handle(msg as Message);
+            yield* channel.handle(msg as import('@src/message.js').Message);
         },
 
         async *channel_push(proc: Process, ch: unknown, response: unknown): AsyncIterable<Response> {
@@ -679,7 +639,7 @@ export function createChannelSyscalls(
                 return;
             }
 
-            await closeChannel(proc, ch);
+            await closeHandle(proc, ch);
             yield respond.ok();
         },
     };
