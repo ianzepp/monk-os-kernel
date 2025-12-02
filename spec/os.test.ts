@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, afterEach } from 'bun:test';
-import { OS } from '@src/os.js';
+import { OS } from '@src/index.js';
 
 describe('OS', () => {
     let os: OS | null = null;
@@ -189,5 +189,225 @@ describe('OS with aliases', () => {
         });
 
         expect(os.resolvePath('@src/main.ts')).toBe('/vol/src/main.ts');
+    });
+});
+
+describe('OS.fs', () => {
+    let os: OS;
+
+    afterEach(async () => {
+        if (os?.isBooted()) {
+            await os.shutdown();
+        }
+    });
+
+    describe('write() and read()', () => {
+        it('should write and read a file', async () => {
+            os = new OS();
+            await os.boot();
+
+            await os.fs.write('/test.txt', 'Hello, World!');
+            const data = await os.fs.read('/test.txt');
+
+            expect(new TextDecoder().decode(data)).toBe('Hello, World!');
+        });
+
+        it('should write and read binary data', async () => {
+            os = new OS();
+            await os.boot();
+
+            const binary = new Uint8Array([1, 2, 3, 4, 5]);
+            await os.fs.write('/binary.bin', binary);
+            const data = await os.fs.read('/binary.bin');
+
+            expect(data).toEqual(binary);
+        });
+
+        it('should support readText() helper', async () => {
+            os = new OS();
+            await os.boot();
+
+            await os.fs.write('/text.txt', 'Some text content');
+            const text = await os.fs.readText('/text.txt');
+
+            expect(text).toBe('Some text content');
+        });
+
+        it('should resolve aliases in paths', async () => {
+            os = new OS({ aliases: { '@data': '/vol/data' } });
+            await os.boot();
+
+            await os.fs.mkdir('/vol/data', { recursive: true });
+            await os.fs.write('@data/file.txt', 'aliased!');
+            const text = await os.fs.readText('@data/file.txt');
+
+            expect(text).toBe('aliased!');
+        });
+    });
+
+    describe('stat()', () => {
+        it('should return file stat', async () => {
+            os = new OS();
+            await os.boot();
+
+            await os.fs.write('/myfile.txt', 'content');
+            const stat = await os.fs.stat('/myfile.txt');
+
+            expect(stat.type).toBe('file');
+            expect(stat.name).toBe('myfile.txt');
+            expect(stat.size).toBeGreaterThan(0);
+        });
+
+        it('should return folder stat', async () => {
+            os = new OS();
+            await os.boot();
+
+            await os.fs.mkdir('/myfolder');
+            const stat = await os.fs.stat('/myfolder');
+
+            expect(stat.type).toBe('folder');
+            expect(stat.name).toBe('myfolder');
+        });
+
+        it('should throw for non-existent path', async () => {
+            os = new OS();
+            await os.boot();
+
+            await expect(os.fs.stat('/nonexistent')).rejects.toThrow();
+        });
+    });
+
+    describe('exists()', () => {
+        it('should return true for existing file', async () => {
+            os = new OS();
+            await os.boot();
+
+            await os.fs.write('/exists.txt', 'yes');
+            expect(await os.fs.exists('/exists.txt')).toBe(true);
+        });
+
+        it('should return false for non-existent path', async () => {
+            os = new OS();
+            await os.boot();
+
+            expect(await os.fs.exists('/nope')).toBe(false);
+        });
+    });
+
+    describe('mkdir()', () => {
+        it('should create a directory', async () => {
+            os = new OS();
+            await os.boot();
+
+            await os.fs.mkdir('/newdir');
+            const stat = await os.fs.stat('/newdir');
+
+            expect(stat.type).toBe('folder');
+        });
+
+        it('should create nested directories with recursive option', async () => {
+            os = new OS();
+            await os.boot();
+
+            await os.fs.mkdir('/a/b/c', { recursive: true });
+            const stat = await os.fs.stat('/a/b/c');
+
+            expect(stat.type).toBe('folder');
+        });
+    });
+
+    describe('readdir()', () => {
+        it('should list directory contents', async () => {
+            os = new OS();
+            await os.boot();
+
+            await os.fs.mkdir('/dir');
+            await os.fs.write('/dir/a.txt', 'a');
+            await os.fs.write('/dir/b.txt', 'b');
+            await os.fs.mkdir('/dir/subdir');
+
+            const entries = await os.fs.readdir('/dir');
+
+            expect(entries).toContain('a.txt');
+            expect(entries).toContain('b.txt');
+            expect(entries).toContain('subdir');
+        });
+
+        it('should return stat info with readdirStat()', async () => {
+            os = new OS();
+            await os.boot();
+
+            await os.fs.mkdir('/statdir');
+            await os.fs.write('/statdir/file.txt', 'content');
+            await os.fs.mkdir('/statdir/folder');
+
+            const entries = await os.fs.readdirStat('/statdir');
+
+            expect(entries.length).toBe(2);
+            const file = entries.find(e => e.name === 'file.txt');
+            const folder = entries.find(e => e.name === 'folder');
+
+            expect(file?.type).toBe('file');
+            expect(folder?.type).toBe('folder');
+        });
+    });
+
+    describe('unlink()', () => {
+        it('should delete a file', async () => {
+            os = new OS();
+            await os.boot();
+
+            await os.fs.write('/todelete.txt', 'bye');
+            expect(await os.fs.exists('/todelete.txt')).toBe(true);
+
+            await os.fs.unlink('/todelete.txt');
+            expect(await os.fs.exists('/todelete.txt')).toBe(false);
+        });
+
+        it('should delete an empty directory', async () => {
+            os = new OS();
+            await os.boot();
+
+            await os.fs.mkdir('/emptydir');
+            await os.fs.unlink('/emptydir');
+
+            expect(await os.fs.exists('/emptydir')).toBe(false);
+        });
+    });
+
+    describe('mount() and unmount()', () => {
+        it('should mount a host directory', async () => {
+            os = new OS();
+            await os.boot();
+
+            // Mount the current test directory
+            os.fs.mount('./spec', '/mounted');
+
+            // Should be able to read files from host
+            const exists = await os.fs.exists('/mounted/os.test.ts');
+            expect(exists).toBe(true);
+        });
+
+        it('should unmount a host directory', async () => {
+            os = new OS();
+            await os.boot();
+
+            os.fs.mount('./spec', '/mounted');
+            expect(await os.fs.exists('/mounted/os.test.ts')).toBe(true);
+
+            os.fs.unmount('/mounted');
+            // After unmount, path should not resolve to host
+            expect(await os.fs.exists('/mounted/os.test.ts')).toBe(false);
+        });
+
+        it('should resolve aliases in mount paths', async () => {
+            os = new OS({ aliases: { '@tests': '/vol/tests' } });
+            await os.boot();
+
+            os.fs.mount('./spec', '@tests');
+            const exists = await os.fs.exists('@tests/os.test.ts');
+
+            expect(exists).toBe(true);
+        });
     });
 });

@@ -12,53 +12,8 @@ import { BunHAL } from '@src/hal/index.js';
 import { VFS } from '@src/vfs/vfs.js';
 import { Kernel } from '@src/kernel/kernel.js';
 import type { ServiceDef } from '@src/kernel/services.js';
-
-/**
- * Storage configuration for the OS
- */
-export interface StorageConfig {
-    type: 'memory' | 'sqlite' | 'postgres';
-    url?: string;
-    path?: string;
-}
-
-/**
- * OS configuration options
- */
-export interface OSConfig {
-    /**
-     * Path aliases for convenient referencing.
-     * Maps alias names (e.g., '@app') to OS paths (e.g., '/vol/app').
-     */
-    aliases?: Record<string, string>;
-
-    /**
-     * Storage backend configuration.
-     * Defaults to in-memory storage.
-     */
-    storage?: StorageConfig;
-
-    /**
-     * Environment variables available to all processes.
-     */
-    env?: Record<string, string>;
-}
-
-/**
- * Boot options
- */
-export interface BootOpts {
-    /**
-     * Path to init script (inside OS).
-     * If provided, spawns this as PID 1.
-     */
-    main?: string;
-
-    /**
-     * Enable kernel debug logging (printk).
-     */
-    debug?: boolean;
-}
+import type { OSConfig, BootOpts } from './types.js';
+import { FilesystemAPI } from './fs.js';
 
 /**
  * OS class - main entry point for Monk OS
@@ -73,7 +28,13 @@ export class OS {
     // Path aliases
     private aliases: Map<string, string> = new Map();
 
+    /**
+     * Filesystem API for file operations.
+     */
+    readonly fs: FilesystemAPI;
+
     constructor(config?: OSConfig) {
+        this.fs = new FilesystemAPI(this);
         this.config = config ?? {};
 
         // Initialize aliases from config

@@ -10,7 +10,7 @@
  *   bun run boot --debug      # Enable kernel debug logging (printk)
  */
 
-import { OS } from '@src/os.js';
+import { OS } from '@src/index.js';
 
 // Parse args
 const args = process.argv.slice(2);
