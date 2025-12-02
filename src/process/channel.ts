@@ -13,7 +13,7 @@
  *   await channel.close(ch);
  */
 
-import { syscall } from '@src/process/syscall.js';
+import { syscall, syscallStream } from '@src/process/syscall.js';
 import { withTypedErrors } from '@src/process/errors.js';
 import type { Message, Response } from '@src/message.js';
 
@@ -102,16 +102,8 @@ export const channel = {
      *     }
      * }
      */
-    async *stream(ch: number, msg: Message): AsyncIterable<Response> {
-        // Note: This requires kernel support for streaming syscalls
-        // For now, we use channel_call in a loop pattern
-        // TODO: Implement proper streaming when kernel supports AsyncIterable syscalls
-        const result = await withTypedErrors(syscall<Response[]>('channel_stream', ch, msg));
-        if (Array.isArray(result)) {
-            for (const response of result) {
-                yield response;
-            }
-        }
+    stream(ch: number, msg: Message): AsyncIterable<Response> {
+        return syscallStream('channel_stream', ch, msg);
     },
 
     /**

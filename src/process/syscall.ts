@@ -10,17 +10,32 @@
 
 /// <reference lib="webworker" />
 
-import type { SyscallRequest, SyscallResponse, SignalMessage } from '@src/kernel/types.js';
+import type { SyscallRequest, SyscallResponse, SignalMessage, StreamPingMessage, StreamCancelMessage } from '@src/kernel/types.js';
+import type { Response } from '@src/message.js';
 
 // Worker global context
 declare const self: DedicatedWorkerGlobalScope;
 
 /**
- * Pending syscall request
+ * Pending syscall request (single response)
  */
 interface PendingRequest {
     resolve: (result: unknown) => void;
     reject: (error: Error) => void;
+}
+
+/**
+ * Pending stream request (multiple responses)
+ */
+interface PendingStream {
+    /** Queue of responses waiting to be consumed */
+    queue: Response[];
+    /** Resolve function to wake up waiting consumer */
+    wakeup: (() => void) | null;
+    /** Whether stream has ended (done/error) */
+    ended: boolean;
+    /** Terminal error if any */
+    error: Error | null;
 }
 
 /**
@@ -29,9 +44,14 @@ interface PendingRequest {
 export type SignalHandler = (signal: number) => void;
 
 /**
- * Pending requests map
+ * Pending requests map (single response)
  */
 const pending = new Map<string, PendingRequest>();
+
+/**
+ * Pending streams map (multiple responses)
+ */
+const pendingStreams = new Map<string, PendingStream>();
 
 /**
  * Signal handler (user-registered)
@@ -69,6 +89,14 @@ export function initTransport(): void {
  * Handle syscall response from kernel.
  */
 function handleResponse(msg: SyscallResponse): void {
+    // Check for streaming request first
+    const stream = pendingStreams.get(msg.id);
+    if (stream) {
+        handleStreamResponse(stream, msg);
+        return;
+    }
+
+    // Single-response request
     const req = pending.get(msg.id);
     if (!req) {
         // Response for unknown request - ignore
@@ -84,6 +112,34 @@ function handleResponse(msg: SyscallResponse): void {
         req.reject(error);
     } else {
         req.resolve(msg.result);
+    }
+}
+
+/**
+ * Handle streaming response from kernel.
+ */
+function handleStreamResponse(stream: PendingStream, msg: SyscallResponse): void {
+    if (msg.error) {
+        // Kernel-level error (not op: 'error' response)
+        const error = new Error(msg.error.message) as Error & { code: string };
+        error.code = msg.error.code;
+        stream.error = error;
+        stream.ended = true;
+    } else {
+        // Queue the response
+        const response = msg.result as Response;
+        stream.queue.push(response);
+
+        // Check for terminal ops
+        if (response.op === 'ok' || response.op === 'done' || response.op === 'error') {
+            stream.ended = true;
+        }
+    }
+
+    // Wake up consumer if waiting
+    if (stream.wakeup) {
+        stream.wakeup();
+        stream.wakeup = null;
     }
 }
 
@@ -147,8 +203,125 @@ export function syscall<T>(name: string, ...args: unknown[]): Promise<T> {
 }
 
 /**
+ * Make a streaming syscall to the kernel.
+ *
+ * Returns an async iterable that yields responses as they arrive.
+ * Handles backpressure by pinging the kernel with progress.
+ *
+ * @param name - Syscall name
+ * @param args - Syscall arguments
+ * @returns AsyncIterable of Response objects
+ */
+export async function* syscallStream(name: string, ...args: unknown[]): AsyncIterable<Response> {
+    // Auto-initialize on first syscall
+    if (!initialized) {
+        initTransport();
+    }
+
+    const id = crypto.randomUUID();
+
+    // Create stream state
+    const stream: PendingStream = {
+        queue: [],
+        wakeup: null,
+        ended: false,
+        error: null,
+    };
+    pendingStreams.set(id, stream);
+
+    // Send the syscall request
+    const request: SyscallRequest = {
+        type: 'syscall',
+        id,
+        name,
+        args,
+    };
+    self.postMessage(request);
+
+    // Ping interval for backpressure (every 100 items or so)
+    const PING_INTERVAL = 100;
+    let itemsProcessed = 0;
+
+    try {
+        while (true) {
+            // Wait for responses if queue is empty
+            while (stream.queue.length === 0 && !stream.ended && !stream.error) {
+                await new Promise<void>(resolve => {
+                    stream.wakeup = resolve;
+                });
+            }
+
+            // Check for error
+            if (stream.error) {
+                throw stream.error;
+            }
+
+            // Drain the queue
+            while (stream.queue.length > 0) {
+                const response = stream.queue.shift()!;
+                itemsProcessed++;
+
+                // Ping kernel periodically for backpressure
+                if (itemsProcessed % PING_INTERVAL === 0) {
+                    const ping: StreamPingMessage = {
+                        type: 'stream_ping',
+                        id,
+                        processed: itemsProcessed,
+                    };
+                    self.postMessage(ping);
+                }
+
+                yield response;
+
+                // Terminal ops end iteration
+                if (response.op === 'ok' || response.op === 'done' || response.op === 'error') {
+                    return;
+                }
+            }
+
+            // If ended and queue is empty, we're done
+            if (stream.ended) {
+                return;
+            }
+        }
+    } finally {
+        // Cleanup
+        pendingStreams.delete(id);
+
+        // Send final ping so kernel knows we're done
+        const ping: StreamPingMessage = {
+            type: 'stream_ping',
+            id,
+            processed: itemsProcessed,
+        };
+        self.postMessage(ping);
+    }
+}
+
+/**
+ * Cancel a streaming syscall.
+ *
+ * @param id - Request ID to cancel
+ */
+export function cancelStream(id: string): void {
+    const cancel: StreamCancelMessage = {
+        type: 'stream_cancel',
+        id,
+    };
+    self.postMessage(cancel);
+    pendingStreams.delete(id);
+}
+
+/**
  * Get count of pending syscalls (for debugging/testing).
  */
 export function getPendingCount(): number {
     return pending.size;
+}
+
+/**
+ * Get count of pending streams (for debugging/testing).
+ */
+export function getPendingStreamCount(): number {
+    return pendingStreams.size;
 }
