@@ -171,19 +171,17 @@ const imports = transpiler.scanImports(code);
 #### 5. Efficient Buffer Building
 **Primitive:** `Bun.ArrayBufferSink`
 
-**Current issue:** Manual buffering in `src/hal/network.ts:508-518`
+**Status:** Not needed
 
-```typescript
-const sink = new Bun.ArrayBufferSink();
-sink.start({ asUint8Array: true });
-sink.write(chunk1);
-sink.write(chunk2);
-const result = sink.end();
-```
+**Why:** Monk OS uses a Response-based streaming protocol (see `planning/OS_STREAMS.md`):
+- All syscalls return `AsyncIterable<Response>`
+- Built-in backpressure via ping/ack with high/low water marks
+- Bun handles socket buffering internally via `socket.write()`
 
-**Benefits:** Optimized writes, better backpressure, reduced allocations
+There's no manual buffer building to optimize. The streams architecture handles
+backpressure at the protocol level, not the byte level.
 
-**Complexity:** Medium
+**Complexity:** N/A
 
 #### 6. PostgreSQL Storage Engine
 **Primitive:** `Bun.sql()`
@@ -306,7 +304,7 @@ Could be a VFS mount type for cloud storage.
 |------|-------|-------|----------|--------|
 | `src/hal/storage.ts` | 339-346 | Manual glob regex | `Bun.Glob.match()` | Low priority (VFS limitation) |
 | `src/hal/block.ts` | 177-231 | Read-modify-write | `Bun.mmap()` | N/A (host FS only) |
-| `src/hal/network.ts` | 508-518 | Manual buffering | `ArrayBufferSink` | Pending |
+| `src/hal/network.ts` | 508-518 | N/A | `ArrayBufferSink` | Not needed (Bun handles internally) |
 | `src/hal/crypto.ts` | 170-187 | Missing algorithms | Add blake2b256, md5 | Pending |
 | `src/hal/dns.ts` | 84-112 | No caching | Add TTL cache | Pending |
 | `src/hal/index.ts` | 192 | PostgreSQL stub | `Bun.sql()` | Pending |
@@ -324,7 +322,7 @@ Could be a VFS mount type for cloud storage.
 | Pattern Matching | 0 | 1 | N/A (host FS only) |
 | Transpilation | 0 | 1 | 0% |
 | Cloud | 0 | 1 | 0% |
-| Buffering | 0 | 1 | 0% |
+| Buffering | 0 | 1 | N/A (streams architecture) |
 | Native Code | 0 | 1 | 0% |
 
 **Overall:** ~40% of applicable Bun capabilities leveraged (excluding host-FS-only primitives)
