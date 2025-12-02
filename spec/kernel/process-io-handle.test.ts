@@ -337,6 +337,180 @@ describe('ProcessIOHandle', () => {
         });
     });
 
+    describe('tap queue behavior', () => {
+        it('should not block target write when tap is slow', async () => {
+            const target = new MockHandle('target');
+
+            // Create a slow tap that delays 100ms
+            let tapReceived = false;
+            const slowTap: Handle = {
+                id: 'slow-tap',
+                type: 'file',
+                description: 'slow tap',
+                closed: false,
+                async *send(msg: Message): AsyncIterable<Response> {
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    tapReceived = true;
+                    yield respond.ok();
+                },
+                async close() {},
+            };
+
+            const handle = new ProcessIOHandle('test-id', 'test', { target });
+            handle.addTap(slowTap);
+
+            // Write should complete quickly (not wait for slow tap)
+            const start = Date.now();
+            await collectResponses(
+                handle.send({ op: 'write', data: { data: new Uint8Array([1]) } })
+            );
+            const elapsed = Date.now() - start;
+
+            // Target should receive immediately
+            expect(target.messages.length).toBe(1);
+            // Should complete in less than 50ms (not waiting for 100ms tap)
+            expect(elapsed).toBeLessThan(50);
+            // Tap hasn't received yet
+            expect(tapReceived).toBe(false);
+
+            // Wait for slow tap to process
+            await new Promise(resolve => setTimeout(resolve, 150));
+            expect(tapReceived).toBe(true);
+        });
+
+        it('should queue multiple writes for slow tap', async () => {
+            const target = new MockHandle('target');
+
+            // Create a tap that processes slowly
+            const receivedMessages: Message[] = [];
+            let processDelay = 50;
+            const slowTap: Handle = {
+                id: 'slow-tap',
+                type: 'file',
+                description: 'slow tap',
+                closed: false,
+                async *send(msg: Message): AsyncIterable<Response> {
+                    await new Promise(resolve => setTimeout(resolve, processDelay));
+                    receivedMessages.push(msg);
+                    yield respond.ok();
+                },
+                async close() {},
+            };
+
+            const handle = new ProcessIOHandle('test-id', 'test', { target });
+            handle.addTap(slowTap);
+
+            // Send 3 writes quickly
+            await collectResponses(handle.send({ op: 'write', data: { data: new Uint8Array([1]) } }));
+            await collectResponses(handle.send({ op: 'write', data: { data: new Uint8Array([2]) } }));
+            await collectResponses(handle.send({ op: 'write', data: { data: new Uint8Array([3]) } }));
+
+            // Target should have all 3 immediately
+            expect(target.messages.length).toBe(3);
+
+            // Tap is still processing - check queue depth
+            expect(handle.getTapQueueDepth(slowTap)).toBeGreaterThanOrEqual(0);
+
+            // Wait for tap to process all
+            await new Promise(resolve => setTimeout(resolve, 200));
+
+            // Tap should eventually receive all 3
+            expect(receivedMessages.length).toBe(3);
+        });
+
+        it('should report queue depth for monitoring', async () => {
+            const target = new MockHandle('target');
+
+            // Create a tap that blocks only on the first message
+            let firstCall = true;
+            let releaseResolve: (() => void) | null = null;
+            const blockingTap: Handle = {
+                id: 'blocking-tap',
+                type: 'file',
+                description: 'blocking tap',
+                closed: false,
+                async *send(): AsyncIterable<Response> {
+                    if (firstCall) {
+                        firstCall = false;
+                        await new Promise<void>(resolve => {
+                            releaseResolve = resolve;
+                        });
+                    }
+                    yield respond.ok();
+                },
+                async close() {},
+            };
+
+            const handle = new ProcessIOHandle('test-id', 'test', { target });
+            handle.addTap(blockingTap);
+
+            // Initially queue is empty
+            expect(handle.getTapQueueDepth(blockingTap)).toBe(0);
+
+            // Send a write - tap starts processing, queue still empty
+            await collectResponses(handle.send({ op: 'write', data: { data: new Uint8Array([1]) } }));
+
+            // Give drain loop time to pick up the message
+            await new Promise(resolve => setTimeout(resolve, 5));
+
+            // Send more writes while tap is blocked
+            await collectResponses(handle.send({ op: 'write', data: { data: new Uint8Array([2]) } }));
+            await collectResponses(handle.send({ op: 'write', data: { data: new Uint8Array([3]) } }));
+
+            // Queue should have pending messages
+            expect(handle.getTapQueueDepth(blockingTap)).toBe(2);
+
+            // Release the tap
+            releaseResolve?.();
+
+            // Wait for drain to process remaining messages
+            await new Promise(resolve => setTimeout(resolve, 20));
+
+            // Queue should be empty now
+            expect(handle.getTapQueueDepth(blockingTap)).toBe(0);
+        });
+
+        it('should return 0 for unknown tap queue depth', () => {
+            const handle = new ProcessIOHandle('test-id', 'test');
+            const unknownTap = new MockHandle('unknown');
+
+            expect(handle.getTapQueueDepth(unknownTap)).toBe(0);
+        });
+
+        it('should not add same tap twice', () => {
+            const handle = new ProcessIOHandle('test-id', 'test');
+            const tap = new MockHandle('tap');
+
+            handle.addTap(tap);
+            handle.addTap(tap); // Should be idempotent
+
+            expect(handle.getTaps().size).toBe(1);
+        });
+
+        it('should stop drain loop when tap is removed', async () => {
+            const target = new MockHandle('target');
+            const tap = new MockHandle('tap');
+
+            const handle = new ProcessIOHandle('test-id', 'test', { target });
+            handle.addTap(tap);
+
+            // Write once
+            await collectResponses(handle.send({ op: 'write', data: { data: new Uint8Array([1]) } }));
+            await new Promise(resolve => setTimeout(resolve, 10));
+            expect(tap.messages.length).toBe(1);
+
+            // Remove tap
+            handle.removeTap(tap);
+
+            // Write again
+            await collectResponses(handle.send({ op: 'write', data: { data: new Uint8Array([2]) } }));
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            // Tap should not receive second write
+            expect(tap.messages.length).toBe(1);
+        });
+    });
+
     describe('close', () => {
         it('should mark handle as closed', async () => {
             const handle = new ProcessIOHandle('test-id', 'test');
