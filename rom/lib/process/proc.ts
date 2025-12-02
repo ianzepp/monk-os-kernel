@@ -2,7 +2,7 @@
  * Process operations for VFS scripts.
  */
 
-import { SpawnOpts, ExitStatus } from './types';
+import { SpawnOpts, ExitStatus, Message } from './types';
 import { call } from './syscall';
 import { SIGTERM } from './syscall';
 
@@ -32,4 +32,12 @@ export function getppid(): Promise<number> {
 
 export function getargs(): Promise<string[]> {
     return call<string[]>('getargs');
+}
+
+/**
+ * Get the activation message for this service handler.
+ * Returns null for boot-activated services or regular processes.
+ */
+export function getActivation(): Promise<Message | null> {
+    return call<Message | null>('getActivation');
 }

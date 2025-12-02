@@ -4,6 +4,8 @@
  * Core type definitions for the Monk OS kernel.
  */
 
+import type { Message } from '@src/message.js';
+
 /**
  * Process state
  */
@@ -60,6 +62,9 @@ export interface Process {
 
     /** Ping handlers for active streams: request id -> handler(processed) */
     streamPingHandlers: Map<string, (processed: number) => void>;
+
+    /** Activation message for service handlers (set by kernel on spawn) */
+    activationMessage?: Message;
 }
 
 /**

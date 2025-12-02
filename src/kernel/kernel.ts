@@ -35,7 +35,7 @@ import type { WatchEvent } from '@src/vfs/model.js';
 import { ListenerPort, WatchPort, UdpPort, PubsubPort, matchTopic, PipeBuffer } from '@src/kernel/resource.js';
 import type { ProcessPortMessage } from '@src/kernel/syscalls.js';
 import { respond } from '@src/message.js';
-import type { Response } from '@src/message.js';
+import type { Response, Message } from '@src/message.js';
 import type { ServiceDef } from '@src/kernel/services.js';
 import { loadMounts } from '@src/kernel/mounts.js';
 import { copyRomToVfs } from '@src/kernel/boot.js';
@@ -263,6 +263,9 @@ export class Kernel {
         this.syscalls.register('handle:close', wrapSyscall((proc, h) =>
             this.closeHandle(proc, h as number)
         ));
+
+        // Activation syscall - returns the activation message for service handlers
+        this.syscalls.register('getActivation', wrapSyscall((proc) => proc.activationMessage ?? null));
     }
 
     // ========================================================================
@@ -1460,7 +1463,18 @@ export class Kernel {
                     if (msg.socket) {
                         const stat = msg.socket.stat();
                         debug('tcp', `${name}: accepted from ${stat.remoteAddr}:${stat.remotePort}`);
-                        return { socket: msg.socket };
+                        return {
+                            socket: msg.socket,
+                            activation: {
+                                op: 'tcp',
+                                data: {
+                                    remoteAddr: stat.remoteAddr,
+                                    remotePort: stat.remotePort,
+                                    localAddr: stat.localAddr,
+                                    localPort: stat.localPort,
+                                },
+                            },
+                        };
                     }
                     return null;
                 });
@@ -1488,7 +1502,12 @@ export class Kernel {
                 const abort = new AbortController();
                 this.activationAborts.set(name, abort);
 
-                this.runActivationLoop(name, def, port, abort.signal, (msg) => ({ data: msg.data }));
+                this.runActivationLoop(name, def, port, abort.signal, (msg) => ({
+                    activation: {
+                        op: 'pubsub',
+                        data: { topic: msg.from, payload: msg.data },
+                    },
+                }));
                 break;
             }
 
@@ -1509,11 +1528,10 @@ export class Kernel {
                 this.activationAborts.set(name, abort);
 
                 this.runActivationLoop(name, def, port, abort.signal, (msg) => ({
-                    data: new TextEncoder().encode(JSON.stringify({
-                        path: msg.from,
-                        op: msg.meta?.op,
-                        data: msg.data ? Array.from(msg.data) : undefined,
-                    })),
+                    activation: {
+                        op: 'watch',
+                        data: { path: msg.from, event: msg.meta?.op, content: msg.data },
+                    },
                 }));
                 break;
             }
@@ -1531,10 +1549,10 @@ export class Kernel {
                 this.activationAborts.set(name, abort);
 
                 this.runActivationLoop(name, def, port, abort.signal, (msg) => ({
-                    data: new TextEncoder().encode(JSON.stringify({
-                        from: msg.from,
-                        data: msg.data ? Array.from(msg.data) : undefined,
-                    })),
+                    activation: {
+                        op: 'udp',
+                        data: { from: msg.from, payload: msg.data },
+                    },
                 }));
                 break;
             }
@@ -1557,7 +1575,7 @@ export class Kernel {
         signal: AbortSignal,
         transform: (msg: import('@src/kernel/resource.js').PortMessage) => {
             socket?: import('@src/hal/network.js').Socket;
-            data?: Uint8Array;
+            activation?: Message;
         } | null
     ): Promise<void> {
         try {
@@ -1576,7 +1594,7 @@ export class Kernel {
 
                 const input = transform(msg);
                 if (input) {
-                    this.spawnServiceHandler(name, def, input.socket, input.data).catch((err) => {
+                    this.spawnServiceHandler(name, def, input.socket, input.activation).catch((err) => {
                         this.logServiceError(name, 'spawn failed', err);
                         // Clean up socket on spawn failure (for TCP activation)
                         if (input.socket) {
@@ -1597,23 +1615,26 @@ export class Kernel {
     /**
      * Spawn a service handler process.
      *
-     * For socket activation: socket becomes fd 0 (bidirectional)
-     * For message activation: data becomes readable on fd 0
+     * For socket activation: socket becomes fd 0/1/2 (bidirectional)
+     * For all activations: activation message available via getActivation syscall
      */
     private async spawnServiceHandler(
         name: string,
         def: ServiceDef,
         socket?: import('@src/hal/network.js').Socket,
-        inputData?: Uint8Array
+        activation?: Message
     ): Promise<void> {
         // Handler path is a VFS path (e.g., /bin/telnetd), add .ts extension if needed
         const entry = def.handler.endsWith('.ts') ? def.handler : def.handler + '.ts';
 
         const proc = this.createProcess({ cmd: def.handler });
 
-        // Setup handle 0 based on activation type
+        // Store activation message for retrieval via syscall
+        proc.activationMessage = activation;
+
+        // Setup stdio based on activation type
         if (socket) {
-            // Socket activation: handle 0 is the connected socket
+            // Socket activation: socket on fd 0/1/2
             const stat = socket.stat();
             const description = `tcp:${stat.remoteAddr}:${stat.remotePort}`;
             const adapter = new SocketHandleAdapter(this.hal.entropy.uuid(), socket, description);
@@ -1622,27 +1643,8 @@ export class Kernel {
             proc.handles.set(0, adapter.id);
             proc.handles.set(1, adapter.id);
             proc.handles.set(2, adapter.id);
-        } else if (inputData) {
-            // Message activation: handle 0 is a pipe with pre-filled data
-            const buffer = new PipeBuffer();
-            buffer.write(inputData);
-            buffer.closeWriteEnd(); // Signal EOF after the data
-
-            const adapter = new PipeHandleAdapter(
-                this.hal.entropy.uuid(),
-                buffer,
-                'read',
-                `service:${name}:stdin`
-            );
-            this.handles.set(adapter.id, adapter);
-            this.handleRefs.set(adapter.id, 1);
-            proc.handles.set(0, adapter.id);
-
-            // handles 1 and 2 go to console
-            await this.setupServiceStdio(proc, 1);
-            await this.setupServiceStdio(proc, 2);
         } else {
-            // Boot activation: all stdio to console
+            // Non-socket activation: console on all fds
             await this.setupServiceStdio(proc, 0);
             await this.setupServiceStdio(proc, 1);
             await this.setupServiceStdio(proc, 2);

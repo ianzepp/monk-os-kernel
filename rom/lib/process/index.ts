@@ -48,7 +48,7 @@ export { connect, listen, recv, send, pclose } from './net';
 export { channel, httpRequest, sqlQuery, sqlExecute } from './channel';
 
 // Process operations
-export { spawn, exit, kill, wait, getpid, getppid, getargs } from './proc';
+export { spawn, exit, kill, wait, getpid, getppid, getargs, getActivation } from './proc';
 
 // Environment operations
 export { getcwd, chdir, getenv, setenv } from './env';
