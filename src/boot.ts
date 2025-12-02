@@ -2,7 +2,7 @@
  * Monk OS Boot
  *
  * Minimal boot sequence for the Monk OS kernel.
- * Creates HAL, VFS, and Kernel, then boots with init process.
+ * Uses the OS class for unified HAL, VFS, and Kernel management.
  *
  * Usage:
  *   bun run boot              # In-memory storage
@@ -10,9 +10,7 @@
  *   bun run boot --debug      # Enable kernel debug logging (printk)
  */
 
-import { createBunHAL } from '@src/hal/index.js';
-import { VFS } from '@src/vfs/vfs.js';
-import { Kernel } from '@src/kernel/kernel.js';
+import { OS } from '@src/os.js';
 
 // Parse args
 const args = process.argv.slice(2);
@@ -22,26 +20,11 @@ const useDebug = args.includes('--debug');
 async function boot(): Promise<void> {
     console.log('Monk OS booting...');
 
-    // Create HAL
-    const hal = await createBunHAL({
+    // Create OS with configured storage
+    const os = new OS({
         storage: useSqlite
             ? { type: 'sqlite', path: '.data/monk.db' }
             : { type: 'memory' },
-    });
-    console.log(`  HAL: ${useSqlite ? 'sqlite' : 'memory'} storage`);
-
-    // Create VFS
-    const vfs = new VFS(hal);
-    console.log('  VFS: initialized');
-
-    // Create Kernel
-    const kernel = new Kernel(hal, vfs);
-    console.log('  Kernel: created');
-
-    // Boot kernel with init process
-    await kernel.boot({
-        initPath: '/bin/init.ts',
-        initArgs: ['init'],
         env: {
             HOME: '/',
             USER: 'root',
@@ -49,12 +32,18 @@ async function boot(): Promise<void> {
             TERM: 'xterm-256color',
             HOSTNAME: 'monk',
         },
+    });
+    console.log(`  Storage: ${useSqlite ? 'sqlite' : 'memory'}`);
+
+    // Boot with init process
+    await os.boot({
+        main: '/bin/init.ts',
         debug: useDebug,
     });
     console.log('  Kernel: booted');
 
     // Show active services
-    const services = kernel.getServices();
+    const services = os.getServices();
     if (services.size > 0) {
         console.log('  Services:');
         for (const [name, def] of services) {
@@ -74,8 +63,7 @@ async function boot(): Promise<void> {
     // Handle shutdown
     const shutdown = async () => {
         console.log('\nShutting down...');
-        await kernel.shutdown();
-        await hal.shutdown();
+        await os.shutdown();
         console.log('Goodbye.');
         process.exit(0);
     };

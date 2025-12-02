@@ -8,9 +8,10 @@
  */
 
 import type { HAL, HALConfig } from '@src/hal/index.js';
-import { createBunHAL } from '@src/hal/index.js';
+import { BunHAL } from '@src/hal/index.js';
 import { VFS } from '@src/vfs/vfs.js';
 import { Kernel } from '@src/kernel/kernel.js';
+import type { ServiceDef } from '@src/kernel/services.js';
 
 /**
  * Storage configuration for the OS
@@ -52,6 +53,11 @@ export interface BootOpts {
      * If provided, spawns this as PID 1.
      */
     main?: string;
+
+    /**
+     * Enable kernel debug logging (printk).
+     */
+    debug?: boolean;
 }
 
 /**
@@ -119,9 +125,9 @@ export class OS {
             throw new Error('OS already booted');
         }
 
-        // 1. Create HAL
-        const halConfig = this.buildHALConfig();
-        this.hal = await createBunHAL(halConfig);
+        // 1. Create and initialize HAL
+        this.hal = new BunHAL(this.buildHALConfig());
+        await this.hal.init();
 
         // 2. Create VFS
         this.vfs = new VFS(this.hal);
@@ -143,6 +149,7 @@ export class OS {
                     USER: 'root',
                     SHELL: '/bin/shell',
                 },
+                debug: opts.debug,
             });
         }
 
@@ -204,6 +211,17 @@ export class OS {
             throw new Error('OS not booted');
         }
         return this.kernel;
+    }
+
+    /**
+     * Get active services.
+     * Returns empty map if kernel not booted with init process.
+     */
+    getServices(): Map<string, ServiceDef> {
+        if (!this.kernel?.isBooted()) {
+            return new Map();
+        }
+        return this.kernel.getServices();
     }
 
     /**

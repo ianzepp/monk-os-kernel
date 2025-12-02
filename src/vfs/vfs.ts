@@ -65,6 +65,7 @@ export class VFS {
     private mounts: Map<string, MountInfo> = new Map();
     private models: Map<string, Model> = new Map();
     private hostMounts: HostMount[] = [];
+    private initialized = false;
 
     constructor(hal: HAL) {
         this.hal = hal;
@@ -80,6 +81,10 @@ export class VFS {
      * Initialize VFS with root folder.
      */
     async init(): Promise<void> {
+        // Idempotent - skip if already initialized
+        if (this.initialized) return;
+        this.initialized = true;
+
         // Create root folder if it doesn't exist
         const rootData = await this.hal.storage.get(`entity:${ROOT_ID}`);
         if (!rootData) {

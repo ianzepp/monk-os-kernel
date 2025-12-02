@@ -5,7 +5,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { createBunHAL } from '@src/hal/index.js';
+import { BunHAL } from '@src/hal/index.js';
 import { VFS } from '@src/vfs/index.js';
 import { Kernel } from '@src/kernel/kernel.js';
 import {
@@ -218,7 +218,8 @@ describe('VFSLoader', () => {
     let loader: VFSLoader;
 
     beforeEach(async () => {
-        hal = await createBunHAL({ storage: { type: 'memory' } });
+        hal = new BunHAL({ storage: { type: 'memory' } });
+        await hal.init();
         vfs = new VFS(hal);
         await vfs.init();
 
@@ -343,7 +344,8 @@ describe('VFS Script Execution', () => {
     let kernel: Kernel;
 
     beforeEach(async () => {
-        hal = await createBunHAL({ storage: { type: 'memory' } });
+        hal = new BunHAL({ storage: { type: 'memory' } });
+        await hal.init();
         vfs = new VFS(hal);
         kernel = new Kernel(hal, vfs);
     });

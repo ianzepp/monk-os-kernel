@@ -8,6 +8,21 @@
  * Everything above accesses hardware through these interfaces.
  */
 
+// Local imports for BunHAL class implementation
+import { BunBlockDevice, MemoryBlockDevice } from './block.js';
+import { BunStorageEngine, MemoryStorageEngine } from './storage.js';
+import { BunNetworkDevice } from './network.js';
+import { BunTimerDevice } from './timer.js';
+import { BunClockDevice } from './clock.js';
+import { BunEntropyDevice } from './entropy.js';
+import { BunCryptoDevice } from './crypto.js';
+import { BunConsoleDevice } from './console.js';
+import { BunDNSDevice } from './dns.js';
+import { BunHostDevice } from './host.js';
+import { BunIPCDevice } from './ipc.js';
+import { BunChannelDevice } from './channel.js';
+import { BunCompressionDevice } from './compression.js';
+
 // Error types
 export {
     HALError,
@@ -123,6 +138,12 @@ export interface HAL {
     readonly compression: import('./compression.js').CompressionDevice;
 
     /**
+     * Initialize the HAL.
+     * Must be called after construction and before use.
+     */
+    init(): Promise<void>;
+
+    /**
      * Gracefully shut down all devices.
      *
      * Closes storage connections, network listeners, cancels timers,
@@ -157,75 +178,101 @@ export interface HALConfig {
 }
 
 /**
+ * BunHAL - HAL implementation using Bun primitives.
+ *
+ * Usage:
+ *   const hal = new BunHAL(config);
+ *   await hal.init();
+ *   // ... use hal ...
+ *   await hal.shutdown();
+ */
+export class BunHAL implements HAL {
+    readonly block: import('./block.js').BlockDevice;
+    readonly storage: import('./storage.js').StorageEngine;
+    readonly network: import('./network.js').NetworkDevice;
+    readonly timer: import('./timer.js').TimerDevice;
+    readonly clock: import('./clock.js').ClockDevice;
+    readonly entropy: import('./entropy.js').EntropyDevice;
+    readonly crypto: import('./crypto.js').CryptoDevice;
+    readonly console: import('./console.js').ConsoleDevice;
+    readonly dns: import('./dns.js').DNSDevice;
+    readonly host: import('./host.js').HostDevice;
+    readonly ipc: import('./ipc.js').IPCDevice;
+    readonly channel: import('./channel.js').ChannelDevice;
+    readonly compression: import('./compression.js').CompressionDevice;
+
+    private initialized = false;
+
+    constructor(config?: HALConfig) {
+        // Block device
+        this.block = config?.blockPath
+            ? new BunBlockDevice(config.blockPath)
+            : new MemoryBlockDevice();
+
+        // Storage engine
+        const storageConfig = config?.storage ?? { type: 'memory' };
+        switch (storageConfig.type) {
+            case 'memory':
+                this.storage = new MemoryStorageEngine();
+                break;
+            case 'sqlite':
+                this.storage = new BunStorageEngine(storageConfig.path);
+                break;
+            case 'postgres':
+                // TODO: PostgresStorageEngine
+                throw new Error('PostgreSQL storage not yet implemented');
+            default:
+                this.storage = new MemoryStorageEngine();
+        }
+
+        this.timer = new BunTimerDevice();
+        this.network = new BunNetworkDevice();
+        this.clock = new BunClockDevice();
+        this.entropy = new BunEntropyDevice();
+        this.crypto = new BunCryptoDevice();
+        this.console = new BunConsoleDevice();
+        this.dns = new BunDNSDevice();
+        this.host = new BunHostDevice();
+        this.ipc = new BunIPCDevice();
+        this.channel = new BunChannelDevice();
+        this.compression = new BunCompressionDevice();
+    }
+
+    /**
+     * Initialize the HAL.
+     * Currently a no-op but reserved for future async initialization.
+     */
+    async init(): Promise<void> {
+        if (this.initialized) return;
+        this.initialized = true;
+        // Reserved for future async initialization (e.g., database connections)
+    }
+
+    /**
+     * Gracefully shut down all devices.
+     */
+    async shutdown(): Promise<void> {
+        // Cancel all pending timers
+        (this.timer as BunTimerDevice).cancelAll();
+
+        // Close storage engine (database connections)
+        await this.storage.close();
+
+        // Note: Network listeners/sockets are closed via their own
+        // dispose methods. The HAL doesn't track active connections.
+        // Kernel is responsible for tracking and closing them.
+    }
+}
+
+/**
  * Create a HAL instance with Bun implementations.
  *
+ * @deprecated Use `new BunHAL(config)` and `await hal.init()` instead.
  * @param config - HAL configuration
  * @returns Configured HAL instance
  */
 export async function createBunHAL(config?: HALConfig): Promise<HAL> {
-    const { BunBlockDevice, MemoryBlockDevice } = await import('./block.js');
-    const { BunStorageEngine, MemoryStorageEngine } = await import('./storage.js');
-    const { BunNetworkDevice } = await import('./network.js');
-    const { BunTimerDevice } = await import('./timer.js');
-    const { BunClockDevice } = await import('./clock.js');
-    const { BunEntropyDevice } = await import('./entropy.js');
-    const { BunCryptoDevice } = await import('./crypto.js');
-    const { BunConsoleDevice } = await import('./console.js');
-    const { BunDNSDevice } = await import('./dns.js');
-    const { BunHostDevice } = await import('./host.js');
-    const { BunIPCDevice } = await import('./ipc.js');
-    const { BunChannelDevice } = await import('./channel.js');
-    const { BunCompressionDevice } = await import('./compression.js');
-
-    // Block device
-    const block = config?.blockPath
-        ? new BunBlockDevice(config.blockPath)
-        : new MemoryBlockDevice();
-
-    // Storage engine
-    let storage: import('./storage.js').StorageEngine;
-    const storageConfig = config?.storage ?? { type: 'memory' };
-    switch (storageConfig.type) {
-        case 'memory':
-            storage = new MemoryStorageEngine();
-            break;
-        case 'sqlite':
-            storage = new BunStorageEngine(storageConfig.path);
-            break;
-        case 'postgres':
-            // TODO: PostgresStorageEngine
-            throw new Error('PostgreSQL storage not yet implemented');
-        default:
-            storage = new MemoryStorageEngine();
-    }
-
-    const timer = new BunTimerDevice();
-
-    return {
-        block,
-        storage,
-        network: new BunNetworkDevice(),
-        timer,
-        clock: new BunClockDevice(),
-        entropy: new BunEntropyDevice(),
-        crypto: new BunCryptoDevice(),
-        console: new BunConsoleDevice(),
-        dns: new BunDNSDevice(),
-        host: new BunHostDevice(),
-        ipc: new BunIPCDevice(),
-        channel: new BunChannelDevice(),
-        compression: new BunCompressionDevice(),
-
-        async shutdown(): Promise<void> {
-            // Cancel all pending timers
-            timer.cancelAll();
-
-            // Close storage engine (database connections)
-            await storage.close();
-
-            // Note: Network listeners/sockets are closed via their own
-            // dispose methods. The HAL doesn't track active connections.
-            // Kernel is responsible for tracking and closing them.
-        },
-    };
+    const hal = new BunHAL(config);
+    await hal.init();
+    return hal;
 }
