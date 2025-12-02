@@ -91,25 +91,20 @@ export class OS {
      * Register a lifecycle event listener.
      *
      * Listeners are called during boot() at the appropriate stage.
+     * All callbacks receive the OS instance for accessing public APIs.
      *
      * @param event - Event name ('hal', 'vfs', 'kernel', 'boot', 'shutdown')
-     * @param callback - Function to call when event fires
+     * @param callback - Function to call when event fires (receives OS instance)
      * @returns this for chaining
      *
      * @example
      * ```typescript
      * const os = new OS()
-     *   .on('hal', (hal) => {
-     *     // Configure HAL after initialization
+     *   .on('vfs', (os) => {
+     *     // Mount host directories before kernel starts
+     *     os.fs.mount('./src', '/vol/app');
      *   })
-     *   .on('vfs', (vfs) => {
-     *     // Add mounts before kernel starts
-     *     vfs.mountHost('/vol/app', './src');
-     *   })
-     *   .on('kernel', (kernel) => {
-     *     // Register services before init spawns
-     *   })
-     *   .on('boot', () => {
+     *   .on('boot', (os) => {
      *     console.log('OS fully booted');
      *   });
      *
@@ -165,8 +160,8 @@ export class OS {
         this.hal = new BunHAL(this.buildHALConfig());
         await this.hal.init();
 
-        // 2. Emit 'hal' event - configure HAL features
-        await this.emit('hal', this.hal);
+        // 2. Emit 'hal' event
+        await this.emit('hal', this);
 
         // 3. Create VFS
         this.vfs = new VFS(this.hal);
@@ -175,13 +170,13 @@ export class OS {
         await this.vfs.init();
 
         // 5. Emit 'vfs' event - configure mounts
-        await this.emit('vfs', this.vfs);
+        await this.emit('vfs', this);
 
         // 6. Create Kernel
         this.kernel = new Kernel(this.hal, this.vfs);
 
         // 7. Emit 'kernel' event - register services
-        await this.emit('kernel', this.kernel);
+        await this.emit('kernel', this);
 
         // 8. If main is provided, boot with init process
         if (opts?.main) {
@@ -201,7 +196,7 @@ export class OS {
         this.booted = true;
 
         // 9. Emit 'boot' event - OS fully booted
-        await this.emit('boot');
+        await this.emit('boot', this);
     }
 
     /**
@@ -244,7 +239,7 @@ export class OS {
         if (!this.booted) return;
 
         // Emit 'shutdown' event before teardown
-        await this.emit('shutdown');
+        await this.emit('shutdown', this);
 
         if (this.kernel?.isBooted()) {
             await this.kernel.shutdown();

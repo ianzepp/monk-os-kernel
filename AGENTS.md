@@ -203,22 +203,19 @@ class OS {
 **Lifecycle Hooks** (`os.on()`):
 ```typescript
 const os = new OS()
-  .on('hal', (hal) => { /* configure HAL */ })
-  .on('vfs', (vfs) => { vfs.mountHost('/vol/app', './src'); })
-  .on('kernel', (kernel) => { /* register services */ })
-  .on('boot', () => { /* OS fully booted */ })
-  .on('shutdown', () => { /* cleanup */ });
+  .on('vfs', (os) => {
+    os.fs.mount('./src', '/vol/app');
+  })
+  .on('boot', (os) => {
+    console.log('OS ready');
+  });
 ```
 
-**Boot Sequence with Hooks**:
-1. Create and initialize HAL
-2. Emit `hal` event
-3. Create VFS, initialize (creates /dev, /etc)
-4. Emit `vfs` event (configure mounts)
-5. Create Kernel
-6. Emit `kernel` event (register services)
-7. Spawn init if main provided
-8. Emit `boot` event
+**Boot Sequence with Hooks** (all callbacks receive OS instance):
+1. Create and initialize HAL → emit `hal`
+2. Create VFS, initialize → emit `vfs` (os.fs.* available)
+3. Create Kernel → emit `kernel` (os.service.* available)
+4. Spawn init if main provided → emit `boot`
 
 **Sub-APIs** (stubs):
 ```typescript
