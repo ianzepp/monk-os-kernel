@@ -29,6 +29,10 @@ export interface ChannelOpts {
     timeout?: number;
     /** Database name (postgres) */
     database?: string;
+    /** Open read-only (SQLite) */
+    readonly?: boolean;
+    /** Create file if missing (SQLite, default: true) */
+    create?: boolean;
 }
 
 /**

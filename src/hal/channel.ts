@@ -9,12 +9,14 @@
  * - http/https: HTTP client using fetch()
  * - sse: Server-Sent Events (server push)
  * - websocket: WebSocket bidirectional
- * - postgres: PostgreSQL via Bun.sql (future)
+ * - postgres: PostgreSQL via Bun.sql
+ * - sqlite: SQLite via bun:sqlite
  *
  * Bun touchpoints:
  * - fetch() for HTTP/HTTPS
  * - Bun.serve() for SSE/WebSocket server-side
- * - Bun.sql() for database protocols (future)
+ * - Bun.sql() for PostgreSQL
+ * - bun:sqlite for SQLite
  */
 
 import { randomUUID } from 'crypto';
@@ -34,6 +36,10 @@ export interface ChannelOpts {
     timeout?: number;
     /** Database name (postgres) */
     database?: string;
+    /** Open read-only (SQLite) */
+    readonly?: boolean;
+    /** Create file if missing (SQLite, default: true) */
+    create?: boolean;
 }
 
 /**
@@ -141,6 +147,9 @@ export class BunChannelDevice implements ChannelDevice {
             case 'postgres':
             case 'postgresql':
                 return new BunPostgresChannel(url, opts);
+
+            case 'sqlite':
+                return new BunSqliteChannel(url, opts);
 
             default:
                 throw new Error(`Unsupported protocol: ${proto}`);
@@ -548,18 +557,27 @@ class BunSSEServerChannel implements Channel {
 }
 
 /**
- * PostgreSQL channel (placeholder for future Bun.sql integration).
+ * Query data for database channels.
+ */
+interface QueryData {
+    sql: string;
+    params?: unknown[];
+}
+
+/**
+ * PostgreSQL channel using Bun.sql.
  */
 class BunPostgresChannel implements Channel {
     readonly id = randomUUID();
     readonly proto = 'postgres';
     readonly description: string;
 
+    private sql: InstanceType<typeof Bun.SQL>;
     private _closed = false;
 
     constructor(url: string, _opts?: ChannelOpts) {
         this.description = url;
-        // TODO: Initialize Bun.sql connection when available
+        this.sql = new Bun.SQL(url);
     }
 
     get closed(): boolean {
@@ -572,21 +590,34 @@ class BunPostgresChannel implements Channel {
             return;
         }
 
-        // Placeholder implementation
-        // TODO: Implement actual PostgreSQL queries via Bun.sql
-        switch (msg.op) {
-            case 'query': {
-                yield respond.error('ENOSYS', 'PostgreSQL support not yet implemented');
-                break;
-            }
+        try {
+            switch (msg.op) {
+                case 'query': {
+                    const { sql, params } = msg.data as QueryData;
+                    const rows = await this.sql.unsafe(sql, params ?? []);
 
-            case 'execute': {
-                yield respond.error('ENOSYS', 'PostgreSQL support not yet implemented');
-                break;
-            }
+                    for (const row of rows) {
+                        yield respond.item(row);
+                    }
+                    yield respond.done();
+                    break;
+                }
 
-            default:
-                yield respond.error('EINVAL', `Unknown op: ${msg.op}`);
+                case 'execute': {
+                    const { sql, params } = msg.data as QueryData;
+                    const result = await this.sql.unsafe(sql, params ?? []);
+
+                    yield respond.ok({ affectedRows: result.count });
+                    break;
+                }
+
+                default:
+                    yield respond.error('EINVAL', `Unknown op: ${msg.op}`);
+            }
+        } catch (err) {
+            const pgErr = err as Error & { code?: string };
+            const code = pgErr.code ?? '';
+            yield respond.error('EIO', `${code}: ${pgErr.message}`);
         }
     }
 
@@ -600,6 +631,89 @@ class BunPostgresChannel implements Channel {
 
     async close(): Promise<void> {
         this._closed = true;
-        // TODO: Close Bun.sql connection
+        this.sql.close();
+    }
+}
+
+/**
+ * SQLite channel using bun:sqlite.
+ */
+class BunSqliteChannel implements Channel {
+    readonly id = randomUUID();
+    readonly proto = 'sqlite';
+    readonly description: string;
+
+    private db: import('bun:sqlite').Database;
+    private _closed = false;
+
+    constructor(path: string, opts?: ChannelOpts) {
+        this.description = path;
+
+        // Import synchronously (bun:sqlite is a built-in)
+        const { Database } = require('bun:sqlite');
+        this.db = new Database(path, {
+            readonly: opts?.readonly ?? false,
+            create: opts?.create ?? true,
+        });
+
+        // Enable WAL for better concurrency
+        this.db.exec('PRAGMA journal_mode = WAL');
+    }
+
+    get closed(): boolean {
+        return this._closed;
+    }
+
+    async *handle(msg: Message): AsyncIterable<Response> {
+        if (this._closed) {
+            yield respond.error('EBADF', 'Channel closed');
+            return;
+        }
+
+        try {
+            switch (msg.op) {
+                case 'query': {
+                    const { sql, params } = msg.data as QueryData;
+                    const stmt = this.db.prepare(sql);
+                    const bindings = (params ?? []) as import('bun:sqlite').SQLQueryBindings[];
+                    const rows = stmt.all(...bindings);
+
+                    for (const row of rows) {
+                        yield respond.item(row);
+                    }
+                    yield respond.done();
+                    break;
+                }
+
+                case 'execute': {
+                    const { sql, params } = msg.data as QueryData;
+                    const stmt = this.db.prepare(sql);
+                    const bindings = (params ?? []) as import('bun:sqlite').SQLQueryBindings[];
+                    const result = stmt.run(...bindings);
+
+                    yield respond.ok({ affectedRows: result.changes });
+                    break;
+                }
+
+                default:
+                    yield respond.error('EINVAL', `Unknown op: ${msg.op}`);
+            }
+        } catch (err) {
+            const sqliteErr = err as Error;
+            yield respond.error('EIO', sqliteErr.message);
+        }
+    }
+
+    async push(_response: Response): Promise<void> {
+        throw new Error('SQLite channels do not support push');
+    }
+
+    async recv(): Promise<Message> {
+        throw new Error('SQLite channels do not support recv');
+    }
+
+    async close(): Promise<void> {
+        this._closed = true;
+        this.db.close();
     }
 }

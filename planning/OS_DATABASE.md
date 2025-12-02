@@ -459,25 +459,25 @@ export class Database {
 
 ### Phase 1: Core Support
 
-- [ ] PostgreSQL channel (`BunPostgresChannel`)
-  - [ ] `query` op with parameter binding
-  - [ ] `execute` op with affected row count
-  - [ ] Error mapping to POSIX codes
-  - [ ] Connection lifecycle
+- [x] PostgreSQL channel (`BunPostgresChannel`)
+  - [x] `query` op with parameter binding
+  - [x] `execute` op with affected row count
+  - [x] Error mapping to POSIX codes
+  - [x] Connection lifecycle
 
-- [ ] SQLite channel (`BunSqliteChannel`)
-  - [ ] Host path support
-  - [ ] `:memory:` support
-  - [ ] WAL mode by default
-  - [ ] `readonly` option
+- [x] SQLite channel (`BunSqliteChannel`)
+  - [x] Host path support
+  - [x] `:memory:` support
+  - [x] WAL mode by default
+  - [x] `readonly` option
 
-- [ ] Channel device updates
-  - [ ] Register `sqlite` protocol in `BunChannelDevice.open()`
-  - [ ] Add SQLite options to `ChannelOpts`
+- [x] Channel device updates
+  - [x] Register `sqlite` protocol in `BunChannelDevice.open()`
+  - [x] Add SQLite options to `ChannelOpts`
 
-- [ ] Tests
+- [x] Tests
   - [ ] PostgreSQL channel (requires test database)
-  - [ ] SQLite channel (in-memory)
+  - [x] SQLite channel (in-memory)
 
 ### Phase 2: Streaming & Events
 
