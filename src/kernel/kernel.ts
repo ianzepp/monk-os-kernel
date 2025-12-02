@@ -20,7 +20,7 @@ import { SIGTERM, SIGKILL, TERM_GRACE_MS } from '@src/kernel/types.js';
 import { ProcessTable } from '@src/kernel/process-table.js';
 import { MAX_HANDLES, STREAM_HIGH_WATER, STREAM_LOW_WATER, STREAM_STALL_TIMEOUT } from '@src/kernel/types.js';
 import type { Handle } from '@src/kernel/handle.js';
-import { FileHandleAdapter, SocketHandleAdapter, PipeHandleAdapter, PortHandleAdapter, ChannelHandleAdapter } from '@src/kernel/handle.js';
+import { FileHandleAdapter, SocketHandleAdapter, PipeHandleAdapter, PortHandleAdapter, ChannelHandleAdapter, ProcessIOHandle, PortSourceAdapter } from '@src/kernel/handle.js';
 import {
     SyscallDispatcher,
     createFileSyscalls,
@@ -36,7 +36,7 @@ import { ListenerPort, WatchPort, UdpPort, PubsubPort, matchTopic, PipeBuffer } 
 import type { ProcessPortMessage } from '@src/kernel/syscalls.js';
 import { respond } from '@src/message.js';
 import type { Response, Message } from '@src/message.js';
-import type { ServiceDef } from '@src/kernel/services.js';
+import type { ServiceDef, IOSource, IOTarget } from '@src/kernel/services.js';
 import { loadMounts } from '@src/kernel/mounts.js';
 import { copyRomToVfs } from '@src/kernel/boot.js';
 import { VFSLoader } from '@src/kernel/loader.js';
@@ -284,6 +284,10 @@ export class Kernel {
 
         // Initialize VFS (creates root folder, /dev devices)
         await this.vfs.init();
+
+        // Create standard directories
+        await this.vfs.mkdir('/var', 'kernel', { recursive: true });
+        await this.vfs.mkdir('/var/log', 'kernel', { recursive: true });
 
         // Copy ROM into VFS (Phase 0 → Phase 1 transition)
         // Reads ./rom/ and creates real VFS entities with UUIDs and ACLs
@@ -1616,6 +1620,7 @@ export class Kernel {
      * Spawn a service handler process.
      *
      * For socket activation: socket becomes fd 0/1/2 (bidirectional)
+     * For io config: uses ProcessIOHandle with configured sources/targets
      * For all activations: activation message available via getActivation syscall
      */
     private async spawnServiceHandler(
@@ -1632,9 +1637,9 @@ export class Kernel {
         // Store activation message for retrieval via syscall
         proc.activationMessage = activation;
 
-        // Setup stdio based on activation type
+        // Setup stdio based on activation type and io config
         if (socket) {
-            // Socket activation: socket on fd 0/1/2
+            // Socket activation: socket on fd 0/1/2 (bidirectional)
             const stat = socket.stat();
             const description = `tcp:${stat.remoteAddr}:${stat.remotePort}`;
             const adapter = new SocketHandleAdapter(this.hal.entropy.uuid(), socket, description);
@@ -1643,8 +1648,11 @@ export class Kernel {
             proc.handles.set(0, adapter.id);
             proc.handles.set(1, adapter.id);
             proc.handles.set(2, adapter.id);
+        } else if (def.io) {
+            // IO config: use ProcessIOHandle with configured sources/targets
+            await this.setupServiceIO(proc, def);
         } else {
-            // Non-socket activation: console on all fds
+            // Default: console on all fds
             await this.setupServiceStdio(proc, 0);
             await this.setupServiceStdio(proc, 1);
             await this.setupServiceStdio(proc, 2);
@@ -1670,6 +1678,160 @@ export class Kernel {
         this.handles.set(adapter.id, adapter);
         this.handleRefs.set(adapter.id, 1);
         proc.handles.set(h, adapter.id);
+    }
+
+    /**
+     * Create a handle from an IO source config.
+     */
+    private async createIOSourceHandle(source: IOSource, proc: Process): Promise<Handle> {
+        switch (source.type) {
+            case 'console': {
+                const vfsHandle = await this.vfs.open(CONSOLE_PATH, { read: true }, 'kernel');
+                return new FileHandleAdapter(vfsHandle.id, vfsHandle);
+            }
+
+            case 'file': {
+                const vfsHandle = await this.vfs.open(source.path, { read: true }, 'kernel');
+                return new FileHandleAdapter(vfsHandle.id, vfsHandle);
+            }
+
+            case 'null': {
+                // Return a handle that always returns EOF
+                return {
+                    id: this.hal.entropy.uuid(),
+                    type: 'file' as const,
+                    description: '/dev/null',
+                    closed: false,
+                    async *send() { yield respond.done(); },
+                    async close() {},
+                };
+            }
+
+            case 'pubsub': {
+                const patterns = Array.isArray(source.subscribe)
+                    ? source.subscribe
+                    : [source.subscribe];
+                const portId = this.hal.entropy.uuid();
+                const description = `pubsub:${patterns.join(',')}`;
+
+                const publishFn = (topic: string, data: Uint8Array, sourcePortId: string) => {
+                    this.publishPubsub(topic, data, sourcePortId);
+                };
+                const unsubscribeFn = () => {
+                    this.pubsubPorts.delete(port);
+                };
+
+                const port = new PubsubPort(portId, patterns, publishFn, unsubscribeFn, description);
+                this.pubsubPorts.add(port);
+
+                return new PortSourceAdapter(portId, port, description);
+            }
+
+            case 'watch': {
+                const portId = this.hal.entropy.uuid();
+                const description = `watch:${source.pattern}`;
+
+                const vfsWatch = (pattern: string): AsyncIterable<WatchEvent> => {
+                    return this.vfs.watch(pattern, proc.id);
+                };
+
+                const port = new WatchPort(portId, source.pattern, vfsWatch, description);
+                return new PortSourceAdapter(portId, port, description);
+            }
+
+            case 'udp': {
+                const portId = this.hal.entropy.uuid();
+                const description = `udp:${source.address ?? '0.0.0.0'}:${source.bind}`;
+                const port = new UdpPort(portId, { bind: source.bind, address: source.address }, description);
+                return new PortSourceAdapter(portId, port, description);
+            }
+        }
+    }
+
+    /**
+     * Create a handle from an IO target config.
+     */
+    private async createIOTargetHandle(target: IOTarget): Promise<Handle> {
+        switch (target.type) {
+            case 'console': {
+                const vfsHandle = await this.vfs.open(CONSOLE_PATH, { write: true }, 'kernel');
+                return new FileHandleAdapter(vfsHandle.id, vfsHandle);
+            }
+
+            case 'file': {
+                const flags = {
+                    write: true,
+                    create: target.flags?.create ?? true,
+                    append: target.flags?.append ?? false,
+                };
+                const vfsHandle = await this.vfs.open(target.path, flags, 'kernel');
+                return new FileHandleAdapter(vfsHandle.id, vfsHandle);
+            }
+
+            case 'null': {
+                // Return a handle that discards all writes
+                return {
+                    id: this.hal.entropy.uuid(),
+                    type: 'file' as const,
+                    description: '/dev/null',
+                    closed: false,
+                    async *send() { yield respond.ok(); },
+                    async close() {},
+                };
+            }
+        }
+    }
+
+    /**
+     * Setup service I/O using ProcessIOHandle.
+     *
+     * Creates ProcessIOHandle wrappers for stdin/stdout/stderr and wires up
+     * the configured sources and targets.
+     */
+    private async setupServiceIO(proc: Process, def: ServiceDef): Promise<void> {
+        const io = def.io ?? {};
+
+        // Create stdin ProcessIOHandle
+        const stdinSource = io.stdin
+            ? await this.createIOSourceHandle(io.stdin, proc)
+            : await this.createIOSourceHandle({ type: 'console' }, proc);
+
+        const stdinHandle = new ProcessIOHandle(
+            this.hal.entropy.uuid(),
+            `stdin:${proc.cmd}`,
+            { source: stdinSource }
+        );
+        this.handles.set(stdinHandle.id, stdinHandle);
+        this.handleRefs.set(stdinHandle.id, 1);
+        proc.handles.set(0, stdinHandle.id);
+
+        // Create stdout ProcessIOHandle
+        const stdoutTarget = io.stdout
+            ? await this.createIOTargetHandle(io.stdout)
+            : await this.createIOTargetHandle({ type: 'console' });
+
+        const stdoutHandle = new ProcessIOHandle(
+            this.hal.entropy.uuid(),
+            `stdout:${proc.cmd}`,
+            { target: stdoutTarget }
+        );
+        this.handles.set(stdoutHandle.id, stdoutHandle);
+        this.handleRefs.set(stdoutHandle.id, 1);
+        proc.handles.set(1, stdoutHandle.id);
+
+        // Create stderr ProcessIOHandle
+        const stderrTarget = io.stderr
+            ? await this.createIOTargetHandle(io.stderr)
+            : await this.createIOTargetHandle({ type: 'console' });
+
+        const stderrHandle = new ProcessIOHandle(
+            this.hal.entropy.uuid(),
+            `stderr:${proc.cmd}`,
+            { target: stderrTarget }
+        );
+        this.handles.set(stderrHandle.id, stderrHandle);
+        this.handleRefs.set(stderrHandle.id, 1);
+        proc.handles.set(2, stderrHandle.id);
     }
 
     // ========================================================================

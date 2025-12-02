@@ -9,7 +9,7 @@ import type { Message, Response } from '@src/message.js';
 /**
  * Handle type discriminator
  */
-export type HandleType = 'file' | 'socket' | 'pipe' | 'port' | 'channel' | 'process-io';
+export type HandleType = 'file' | 'socket' | 'pipe' | 'port' | 'channel' | 'process-io' | 'port-source';
 
 /**
  * Unified handle interface.

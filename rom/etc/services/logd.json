@@ -1,0 +1,21 @@
+{
+  "handler": "/bin/logd",
+  "activate": {
+    "type": "boot"
+  },
+  "io": {
+    "stdin": {
+      "type": "pubsub",
+      "subscribe": ["log.*"]
+    },
+    "stdout": {
+      "type": "file",
+      "path": "/var/log/system.log",
+      "flags": {
+        "create": true,
+        "append": true
+      }
+    }
+  },
+  "description": "System log daemon - collects log.* messages"
+}

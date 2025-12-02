@@ -61,6 +61,88 @@ export type Activation =
     | WatchActivation
     | BootActivation;
 
+// ============================================================================
+// I/O Configuration
+// ============================================================================
+
+/**
+ * File I/O source/target
+ */
+export interface FileIO {
+    type: 'file';
+    path: string;
+    flags?: {
+        append?: boolean;
+        create?: boolean;
+    };
+}
+
+/**
+ * Console I/O source/target
+ */
+export interface ConsoleIO {
+    type: 'console';
+}
+
+/**
+ * Null I/O (discard writes, EOF on reads)
+ */
+export interface NullIO {
+    type: 'null';
+}
+
+/**
+ * Pubsub I/O source
+ */
+export interface PubsubIO {
+    type: 'pubsub';
+    subscribe: string | string[];
+}
+
+/**
+ * Watch I/O source
+ */
+export interface WatchIO {
+    type: 'watch';
+    pattern: string;
+}
+
+/**
+ * UDP I/O source
+ */
+export interface UdpIO {
+    type: 'udp';
+    bind: number;
+    address?: string;
+}
+
+/**
+ * Union of all I/O source types (for stdin)
+ */
+export type IOSource = FileIO | ConsoleIO | NullIO | PubsubIO | WatchIO | UdpIO;
+
+/**
+ * Union of all I/O target types (for stdout/stderr)
+ */
+export type IOTarget = FileIO | ConsoleIO | NullIO;
+
+/**
+ * Service I/O configuration
+ *
+ * Defines how stdin/stdout/stderr are wired for a service.
+ * If not specified, defaults to console for all.
+ */
+export interface ServiceIO {
+    /** Where stdin reads from */
+    stdin?: IOSource;
+
+    /** Where stdout writes to */
+    stdout?: IOTarget;
+
+    /** Where stderr writes to */
+    stderr?: IOTarget;
+}
+
 /**
  * Service definition (matches /etc/services/*.json)
  */
@@ -70,6 +152,9 @@ export interface ServiceDef {
 
     /** What triggers the service */
     activate: Activation;
+
+    /** I/O configuration (stdin/stdout/stderr routing) */
+    io?: ServiceIO;
 
     /** Optional description */
     description?: string;

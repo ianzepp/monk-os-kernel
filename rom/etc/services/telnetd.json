@@ -1,8 +1,0 @@
-{
-  "handler": "/bin/telnetd",
-  "activate": {
-    "type": "tcp:listen",
-    "port": 2323
-  },
-  "description": "Telnet server for shell access"
-}
