@@ -1,0 +1,31 @@
+{
+    "name": "@monk-api/os",
+    "version": "0.1.0",
+    "description": "A Plan 9/BeOS-inspired operating system where Bun is the hardware",
+    "type": "module",
+    "main": "dist/index.js",
+    "scripts": {
+        "boot": "bun src/boot.ts",
+        "boot:sqlite": "bun src/boot.ts --sqlite",
+        "build": "scripts/build-src.sh",
+        "build:standalone": "scripts/build-standalone.sh",
+        "test": "bun test --preload ./src-spec/bun-test-setup.ts ./src-spec/**/*.test.ts",
+        "typecheck": "tsc --noEmit"
+    },
+    "keywords": [
+        "os",
+        "kernel",
+        "vfs",
+        "bun",
+        "typescript"
+    ],
+    "author": "Ian Zepp",
+    "license": "MIT",
+    "devDependencies": {
+        "@types/bun": "^1.3.3",
+        "typescript": "^5.6.3"
+    },
+    "engines": {
+        "bun": ">=1.0.0"
+    }
+}

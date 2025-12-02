@@ -5,13 +5,13 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "noEmit": false,
-    "outDir": "./dist-src",
+    "outDir": "./dist",
     "rootDir": "./src",
     "skipLibCheck": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "forceConsistentCasingInFileNames": true,
-    "types": ["node", "bun"],
+    "types": ["bun"],
     "resolveJsonModule": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
@@ -21,7 +21,8 @@
     "sourceMap": true,
     "baseUrl": ".",
     "paths": {
-      "@src/*": ["src/*"]
+      "@src/*": ["src/*"],
+      "@rom/*": ["rom/*"]
     },
 
     // Strict type checking
@@ -42,9 +43,6 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true
-    // Disabled - conflicts with Bun/external types:
-    // "exactOptionalPropertyTypes": true,
-    // "noPropertyAccessFromIndexSignature": true
   },
   "include": [
     "src/**/*"
