@@ -27,7 +27,7 @@ import { DEFAULT_CHUNK_SIZE, MAX_STREAM_BYTES } from '@src/kernel/types.js';
 /**
  * Handle type discriminator
  */
-export type HandleType = 'file' | 'socket' | 'pipe' | 'port' | 'channel';
+export type HandleType = 'file' | 'socket' | 'pipe' | 'port' | 'channel' | 'process-io';
 
 /**
  * Unified handle interface.
@@ -705,5 +705,191 @@ export class ChannelHandleAdapter implements Handle {
      */
     getProto(): string {
         return this.channel.proto;
+    }
+}
+
+// ============================================================================
+// Process I/O Handle (mediates process stdin/stdout/stderr)
+// ============================================================================
+
+/**
+ * Process I/O handle that mediates between a process and its I/O destinations.
+ *
+ * Acts like shell redirects (| > >> <) but at the handle level, controlled
+ * by the kernel rather than the shell. Enables:
+ * - Routing process output to different destinations
+ * - Tapping process I/O for observation (tee behavior)
+ * - Injecting input from external sources
+ *
+ * Supported ops:
+ * - read: Read from source handle
+ * - write: Write to target handle + all taps
+ * - stat: Get handle info
+ *
+ * The process sees a normal handle. The kernel controls where data flows.
+ */
+export class ProcessIOHandle implements Handle {
+    readonly type: HandleType = 'process-io';
+    private _closed = false;
+
+    /** Where writes go */
+    private target: Handle | null;
+
+    /** Where reads come from */
+    private source: Handle | null;
+
+    /** Handles that receive copies of all writes (tee behavior) */
+    private taps: Set<Handle> = new Set();
+
+    constructor(
+        readonly id: string,
+        readonly description: string,
+        opts?: {
+            target?: Handle;
+            source?: Handle;
+        }
+    ) {
+        this.target = opts?.target ?? null;
+        this.source = opts?.source ?? null;
+    }
+
+    get closed(): boolean {
+        return this._closed;
+    }
+
+    /**
+     * Set the target handle (where writes go).
+     */
+    setTarget(handle: Handle | null): void {
+        this.target = handle;
+    }
+
+    /**
+     * Get the current target handle.
+     */
+    getTarget(): Handle | null {
+        return this.target;
+    }
+
+    /**
+     * Set the source handle (where reads come from).
+     */
+    setSource(handle: Handle | null): void {
+        this.source = handle;
+    }
+
+    /**
+     * Get the current source handle.
+     */
+    getSource(): Handle | null {
+        return this.source;
+    }
+
+    /**
+     * Add a tap handle (receives copies of writes).
+     */
+    addTap(handle: Handle): void {
+        this.taps.add(handle);
+    }
+
+    /**
+     * Remove a tap handle.
+     */
+    removeTap(handle: Handle): void {
+        this.taps.delete(handle);
+    }
+
+    /**
+     * Get all tap handles.
+     */
+    getTaps(): Set<Handle> {
+        return this.taps;
+    }
+
+    async *send(msg: Message): AsyncIterable<Response> {
+        if (this._closed) {
+            yield respond.error('EBADF', 'Handle closed');
+            return;
+        }
+
+        const op = msg.op;
+
+        switch (op) {
+            case 'read':
+                yield* this.read(msg);
+                break;
+
+            case 'write':
+                yield* this.write(msg);
+                break;
+
+            case 'stat':
+                yield respond.ok({
+                    type: 'process-io',
+                    description: this.description,
+                    hasTarget: this.target !== null,
+                    hasSource: this.source !== null,
+                    tapCount: this.taps.size,
+                });
+                break;
+
+            default:
+                yield respond.error('EINVAL', `Unknown op: ${op}`);
+        }
+    }
+
+    private async *read(msg: Message): AsyncIterable<Response> {
+        if (!this.source) {
+            yield respond.error('EBADF', 'No source configured for reading');
+            return;
+        }
+
+        // Forward read to source
+        yield* this.source.send(msg);
+    }
+
+    private async *write(msg: Message): AsyncIterable<Response> {
+        if (!this.target) {
+            yield respond.error('EBADF', 'No target configured for writing');
+            return;
+        }
+
+        // Send to target
+        const responses: Response[] = [];
+        for await (const response of this.target.send(msg)) {
+            responses.push(response);
+        }
+
+        // Tee to all taps (fire and forget, don't block on taps)
+        for (const tap of this.taps) {
+            // Run tap writes concurrently, ignore errors
+            (async () => {
+                try {
+                    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                    for await (const _ of tap.send(msg)) {
+                        // Drain tap responses
+                    }
+                } catch {
+                    // Tap errors don't affect main write
+                }
+            })();
+        }
+
+        // Yield original target responses
+        for (const response of responses) {
+            yield response;
+        }
+    }
+
+    async close(): Promise<void> {
+        if (this._closed) return;
+        this._closed = true;
+
+        // Note: We don't close target/source/taps here.
+        // They may be shared with other handles.
+        // The kernel manages their lifecycle.
+        this.target = null;
+        this.source = null;
+        this.taps.clear();
     }
 }

@@ -814,9 +814,9 @@ interface Process {
 
 | File | Change |
 |------|--------|
-| `src-spec/kernel/*.test.ts` | Update syscall expectations to handle streaming responses |
-| `src-spec/kernel/stream.test.ts` | New: test stream lifecycle (ping, cancel, timeout) |
-| `src-spec/process/*.test.ts` | Test streaming behavior and automatic ping |
+| `spec/kernel/*.test.ts` | Update syscall expectations to handle streaming responses |
+| `spec/kernel/stream.test.ts` | New: test stream lifecycle (ping, cancel, timeout) |
+| `spec/process/*.test.ts` | Test streaming behavior and automatic ping |
 
 ## Syscall Conversion Reference
 

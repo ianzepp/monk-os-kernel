@@ -462,4 +462,4 @@ For each change, recommended tests:
 
 This document is intended to be a living companion to `OS_HARDENING.md`. As you implement the fixes above, consider updating both documents with:
 - Checkboxes and dates for completed items.
-- Pointers to relevant tests and scenarios under `src-spec/` or `api-spec/`.
+- Pointers to relevant tests and scenarios under `spec/` or `api-spec/`.

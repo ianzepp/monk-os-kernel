@@ -9,7 +9,7 @@
         "start:sqlite": "bun src/boot.ts --sqlite",
         "build": "scripts/build.sh",
         "build:standalone": "scripts/build-standalone.sh",
-        "test": "bun test --preload ./src-spec/bun-test-setup.ts ./src-spec/**/*.test.ts",
+        "test": "bun test --preload ./spec/bun-test-setup.ts ./spec/**/*.test.ts",
         "typecheck": "tsc --noEmit"
     },
     "keywords": [
