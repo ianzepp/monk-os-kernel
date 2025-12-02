@@ -50,6 +50,27 @@ export interface TcpListenOpts {
     backlog?: number;
 }
 
+export interface WatchOpts {
+    pattern: string;
+}
+
+export interface UdpOpts {
+    bind: number;
+    address?: string;
+}
+
+export interface PubsubOpts {
+    subscribe?: string | string[];
+}
+
+export interface PoolStats {
+    pools: Record<string, {
+        size: number;
+        available: number;
+        leased: number;
+    }>;
+}
+
 export interface ChannelOpts {
     headers?: Record<string, string>;
     keepAlive?: boolean;

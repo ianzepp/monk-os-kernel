@@ -13,6 +13,10 @@ export type {
     ExitStatus,
     PortMessage,
     TcpListenOpts,
+    WatchOpts,
+    UdpOpts,
+    PubsubOpts,
+    PoolStats,
     ChannelOpts,
     HttpRequest,
     Message,
@@ -42,7 +46,10 @@ export { access } from './access';
 export { pipe, redirect } from './pipe';
 
 // Network operations
-export { connect, listen, recv, send, pclose } from './net';
+export { connect, unix, listen, watch, udp, pubsub, recv, send, pclose } from './net';
+
+// Worker pool operations
+export { pool, worker } from './worker';
 
 // Channel operations
 export { channel, httpRequest, sqlQuery, sqlExecute } from './channel';
