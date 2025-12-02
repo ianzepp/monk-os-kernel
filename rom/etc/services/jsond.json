@@ -1,0 +1,7 @@
+{
+  "handler": "/usr/sbin/jsond",
+  "activate": {
+    "type": "boot"
+  },
+  "description": "JSON daemon (JSONL-over-TCP/WebSocket API server)"
+}

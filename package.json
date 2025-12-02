@@ -5,9 +5,9 @@
     "type": "module",
     "main": "dist/index.js",
     "scripts": {
-        "boot": "bun src/boot.ts",
-        "boot:sqlite": "bun src/boot.ts --sqlite",
-        "build": "scripts/build-src.sh",
+        "start": "bun src/boot.ts",
+        "start:sqlite": "bun src/boot.ts --sqlite",
+        "build": "scripts/build.sh",
         "build:standalone": "scripts/build-standalone.sh",
         "test": "bun test --preload ./src-spec/bun-test-setup.ts ./src-spec/**/*.test.ts",
         "typecheck": "tsc --noEmit"

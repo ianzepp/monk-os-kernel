@@ -1,5 +1,5 @@
 {
-  "handler": "/bin/httpd",
+  "handler": "/usr/sbin/httpd",
   "activate": {
     "type": "tcp:listen",
     "port": 8080
