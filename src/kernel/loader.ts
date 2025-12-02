@@ -164,6 +164,10 @@ export class ModuleCache {
 /**
  * Extract import paths from JavaScript code.
  *
+ * @deprecated Use `Bun.Transpiler.scanImports()` instead.
+ * This regex-based approach is fragile and fails on edge cases.
+ * Kept for backwards compatibility only.
+ *
  * Handles:
  * - import { x } from '/path'
  * - import x from '/path'
@@ -500,11 +504,13 @@ export class VFSLoader {
             return cached;
         }
 
+        // Scan imports from TypeScript source (before transpilation)
+        // Uses Bun's parser - more robust than regex extraction
+        const scanned = this.transpiler.scanImports(source);
+        const rawImports = scanned.map(i => i.path);
+
         // Transpile TypeScript -> JavaScript
         const js = this.transpiler.transformSync(source);
-
-        // Extract imports before rewriting
-        const rawImports = extractImports(js);
 
         // Filter to VFS imports only
         const vfsImports = rawImports
