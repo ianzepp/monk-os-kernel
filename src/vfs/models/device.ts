@@ -11,6 +11,12 @@
  * - /dev/urandom   - Reads return random bytes (non-blocking)
  * - /dev/console   - System console I/O
  * - /dev/clock     - Read returns current timestamp
+ *
+ * Compression devices (streaming transform):
+ * - /dev/gzip      - Write raw → read gzip compressed
+ * - /dev/gunzip    - Write gzip → read raw decompressed
+ * - /dev/deflate   - Write raw → read deflate compressed
+ * - /dev/inflate   - Write deflate → read raw decompressed
  */
 
 import { PosixModel } from '@src/vfs/model.js';
@@ -32,7 +38,17 @@ const DEVICE_FIELDS: FieldDef[] = [
 /**
  * Device types and their behavior
  */
-type DeviceType = 'null' | 'zero' | 'random' | 'urandom' | 'console' | 'clock';
+type DeviceType =
+    | 'null'
+    | 'zero'
+    | 'random'
+    | 'urandom'
+    | 'console'
+    | 'clock'
+    | 'gzip'
+    | 'gunzip'
+    | 'deflate'
+    | 'inflate';
 
 export class DeviceModel extends PosixModel {
     readonly name = 'device';
@@ -53,7 +69,7 @@ export class DeviceModel extends PosixModel {
         }
 
         const entity = JSON.parse(new TextDecoder().decode(data)) as ModelStat & { device: DeviceType };
-        return new DeviceHandle(ctx, id, entity.device, flags);
+        return new ByteDeviceHandle(ctx, id, entity.device, flags);
     }
 
     async stat(ctx: ModelContext, id: string): Promise<ModelStat> {
@@ -133,9 +149,12 @@ export class DeviceModel extends PosixModel {
 }
 
 /**
- * Device handle implementation
+ * Byte-oriented device handle implementation.
+ *
+ * Provides read()/write() byte interface for all /dev/* devices.
+ * Wrapped by FileHandleAdapter to expose message-based send/recv API.
  */
-class DeviceHandle implements FileHandle {
+class ByteDeviceHandle implements FileHandle {
     readonly id: string;
     readonly path: string = '';
     readonly flags: OpenFlags;
@@ -145,11 +164,72 @@ class DeviceHandle implements FileHandle {
     private device: DeviceType;
     private consoleBuffer: Uint8Array = new Uint8Array(0);
 
+    // Compression stream state (for gzip/gunzip/deflate/inflate devices)
+    private compressionStream?: CompressionStream | DecompressionStream;
+    private streamWriter?: WritableStreamDefaultWriter<BufferSource>;
+    private streamReader?: ReadableStreamDefaultReader<Uint8Array>;
+    private pendingChunks: Uint8Array[] = [];
+    private readerDone = false;
+
     constructor(ctx: ModelContext, _entityId: string, device: DeviceType, flags: OpenFlags) {
         this.id = ctx.hal.entropy.uuid();
         this.ctx = ctx;
         this.device = device;
         this.flags = flags;
+
+        // Initialize compression streams for compression devices
+        this.initCompressionStream();
+    }
+
+    /**
+     * Initialize compression/decompression stream for compression devices.
+     */
+    private initCompressionStream(): void {
+        switch (this.device) {
+            case 'gzip':
+                this.compressionStream = new CompressionStream('gzip');
+                break;
+            case 'gunzip':
+                this.compressionStream = new DecompressionStream('gzip');
+                break;
+            case 'deflate':
+                this.compressionStream = new CompressionStream('deflate');
+                break;
+            case 'inflate':
+                this.compressionStream = new DecompressionStream('deflate');
+                break;
+            default:
+                return;
+        }
+
+        this.streamWriter = this.compressionStream.writable.getWriter();
+        this.streamReader = this.compressionStream.readable.getReader();
+
+        // Start background reader to collect output chunks
+        this.pumpReader();
+    }
+
+    /**
+     * Background pump that collects compressed/decompressed output.
+     * Runs continuously until stream is done.
+     */
+    private async pumpReader(): Promise<void> {
+        if (!this.streamReader) return;
+
+        try {
+            while (true) {
+                const { value, done } = await this.streamReader.read();
+                if (done) {
+                    this.readerDone = true;
+                    break;
+                }
+                if (value) {
+                    this.pendingChunks.push(value);
+                }
+            }
+        } catch {
+            this.readerDone = true;
+        }
     }
 
     get closed(): boolean {
@@ -201,9 +281,28 @@ class DeviceHandle implements FileHandle {
                 const now = this.ctx.hal.clock.now();
                 return new TextEncoder().encode(now.toString() + '\n');
 
+            case 'gzip':
+            case 'gunzip':
+            case 'deflate':
+            case 'inflate':
+                // Return pending compressed/decompressed chunks
+                return this.readCompressionOutput();
+
             default:
                 throw new EINVAL(`Unknown device type: ${this.device}`);
         }
+    }
+
+    /**
+     * Read available output from compression stream.
+     * Returns next pending chunk, or empty if none available yet.
+     */
+    private readCompressionOutput(): Uint8Array {
+        if (this.pendingChunks.length > 0) {
+            return this.pendingChunks.shift()!;
+        }
+        // No output available yet (compressor buffering) or stream done
+        return new Uint8Array(0);
     }
 
     async write(data: Uint8Array): Promise<number> {
@@ -234,9 +333,28 @@ class DeviceHandle implements FileHandle {
                 // Can't write to clock
                 throw new EACCES('Cannot write to clock device');
 
+            case 'gzip':
+            case 'gunzip':
+            case 'deflate':
+            case 'inflate':
+                // Write to compression stream
+                await this.writeCompressionInput(data);
+                return data.length;
+
             default:
                 throw new EINVAL(`Unknown device type: ${this.device}`);
         }
+    }
+
+    /**
+     * Write data to compression stream input.
+     */
+    private async writeCompressionInput(data: Uint8Array): Promise<void> {
+        if (!this.streamWriter) {
+            throw new EINVAL('Compression stream not initialized');
+        }
+        // Cast to satisfy TypeScript's strict ArrayBuffer typing
+        await this.streamWriter.write(data as Uint8Array<ArrayBuffer>);
     }
 
     async seek(_offset: number, _whence: SeekWhence): Promise<number> {
@@ -249,11 +367,35 @@ class DeviceHandle implements FileHandle {
     }
 
     async sync(): Promise<void> {
-        // No-op for devices
+        // No-op for most devices
+        // For compression devices, this flushes pending output
+        if (this.streamWriter) {
+            // Close writer to flush remaining compressed data
+            await this.streamWriter.close();
+        }
     }
 
     async close(): Promise<void> {
+        if (this._closed) return;
         this._closed = true;
+
+        // Close compression stream writer to flush remaining data
+        if (this.streamWriter) {
+            try {
+                await this.streamWriter.close();
+            } catch {
+                // Ignore errors on close (may already be closed)
+            }
+        }
+
+        // Cancel reader if still active
+        if (this.streamReader && !this.readerDone) {
+            try {
+                await this.streamReader.cancel();
+            } catch {
+                // Ignore errors on cancel
+            }
+        }
     }
 
     async [Symbol.asyncDispose](): Promise<void> {
@@ -273,6 +415,10 @@ export async function initStandardDevices(ctx: ModelContext, devFolderId: string
         { name: 'urandom', device: 'urandom' },
         { name: 'console', device: 'console' },
         { name: 'clock', device: 'clock' },
+        { name: 'gzip', device: 'gzip' },
+        { name: 'gunzip', device: 'gunzip' },
+        { name: 'deflate', device: 'deflate' },
+        { name: 'inflate', device: 'inflate' },
     ];
 
     for (const { name, device } of devices) {

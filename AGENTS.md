@@ -138,7 +138,7 @@
 **Core Models** (5 total):
 - **FileModel** (`models/file.ts`) - Regular files backed by StorageEngine
 - **FolderModel** (`models/folder.ts`) - Directories (children computed via query)
-- **DeviceModel** (`models/device.ts`) - Kernel devices (/dev/console, /dev/random, /dev/null, /dev/zero, /dev/clock)
+- **DeviceModel** (`models/device.ts`) - Kernel devices (/dev/console, /dev/random, /dev/null, /dev/zero, /dev/clock) and streaming compression (/dev/gzip, /dev/gunzip, /dev/deflate, /dev/inflate)
 - **ProcModel** (`models/proc.ts`) - Process info (/proc/{uuid}/stat, /proc/{uuid}/env, etc.)
 - **LinkModel** (`models/link.ts`) - Symbolic links (currently disabled, throws EPERM)
 
