@@ -84,6 +84,20 @@ export interface OSConfig {
      * Environment variables available to all processes.
      */
     env?: Record<string, string>;
+
+    /**
+     * Packages to install at boot.
+     * Can be npm package names or objects with options.
+     *
+     * @example
+     * ```typescript
+     * packages: [
+     *   '@monk-api/httpd',
+     *   { name: '@monk-api/redis', opts: { config: { port: 6379 } } }
+     * ]
+     * ```
+     */
+    packages?: PackageSpec[];
 }
 
 /**
@@ -245,4 +259,61 @@ export interface ServiceInfo {
     error?: string;
     /** Start time (ms since epoch) */
     startedAt?: number;
+}
+
+// ============================================================================
+// Package API Types
+// ============================================================================
+
+/**
+ * Options for installing a package
+ */
+export interface PackageOpts {
+    /**
+     * Custom configuration passed to the package.
+     * Package-specific; see individual package documentation.
+     */
+    config?: Record<string, unknown>;
+
+    /**
+     * Custom mount point (defaults to /usr/<package-name>)
+     */
+    mountPoint?: string;
+
+    /**
+     * Whether to auto-start services defined by this package.
+     * Defaults to true.
+     */
+    autoStart?: boolean;
+}
+
+/**
+ * Package specification for config-based installation.
+ * Can be a simple package name string or an object with options.
+ */
+export type PackageSpec = string | {
+    /** npm package name */
+    name: string;
+    /** Installation options */
+    opts?: PackageOpts;
+};
+
+/**
+ * Information about an installed package
+ */
+export interface PackageInfo {
+    /** Package name (e.g., 'httpd' from '@monk-api/httpd') */
+    name: string;
+    /** Full npm package name */
+    npmName: string;
+    /** Version from package.json */
+    version: string;
+    /** Mount point in VFS */
+    mountPoint: string;
+    /** Host filesystem path */
+    hostPath: string;
+    /** Services defined by this package */
+    services: string[];
+    /** Package configuration */
+    config: Record<string, unknown>;
 }

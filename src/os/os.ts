@@ -12,10 +12,11 @@ import { BunHAL } from '@src/hal/index.js';
 import { VFS } from '@src/vfs/vfs.js';
 import { Kernel } from '@src/kernel/kernel.js';
 import type { ServiceDef } from '@src/kernel/services.js';
-import type { OSConfig, BootOpts, ExecOpts, OSEvents, OSEventName } from './types.js';
+import type { OSConfig, BootOpts, ExecOpts, OSEvents, OSEventName, PackageOpts } from './types.js';
 import { FilesystemAPI } from './fs.js';
 import { ProcessAPI } from './process.js';
 import { ServiceAPI } from './service.js';
+import { PackageAPI } from './pkg.js';
 
 /**
  * Type for storing event listeners
@@ -61,16 +62,33 @@ export class OS {
      */
     readonly service: ServiceAPI;
 
+    /**
+     * Package API for managing OS packages.
+     */
+    readonly pkg: PackageAPI;
+
     constructor(config?: OSConfig) {
         this.fs = new FilesystemAPI(this);
         this.process = new ProcessAPI(this);
         this.service = new ServiceAPI(this);
+        this.pkg = new PackageAPI(this);
         this.config = config ?? {};
 
         // Initialize aliases from config
         if (config?.aliases) {
             for (const [name, path] of Object.entries(config.aliases)) {
                 this.aliases.set(name, path);
+            }
+        }
+
+        // Queue packages from config
+        if (config?.packages) {
+            for (const spec of config.packages) {
+                if (typeof spec === 'string') {
+                    this.pkg.queue(spec);
+                } else {
+                    this.pkg.queue(spec.name, spec.opts);
+                }
             }
         }
     }
@@ -84,6 +102,35 @@ export class OS {
      */
     alias(name: string, path: string): this {
         this.aliases.set(name, path);
+        return this;
+    }
+
+    /**
+     * Install a package (pre-boot).
+     *
+     * Queues the package for installation during boot.
+     * For post-boot installation, use `os.pkg.install()`.
+     *
+     * @param npmName - npm package name (e.g., '@monk-api/httpd')
+     * @param opts - Installation options
+     * @returns this for chaining
+     *
+     * @example
+     * ```typescript
+     * const os = new OS()
+     *   .install('@monk-api/httpd')
+     *   .install('@monk-api/redis', { config: { port: 6379 } });
+     *
+     * await os.boot();
+     * ```
+     */
+    install(npmName: string, opts?: PackageOpts): this {
+        if (this.booted) {
+            throw new Error(
+                'Cannot use os.install() after boot. Use os.pkg.install() instead.'
+            );
+        }
+        this.pkg.queue(npmName, opts);
         return this;
     }
 
@@ -144,10 +191,11 @@ export class OS {
      * 3. Create VFS
      * 4. Initialize VFS (creates /dev, /etc, etc.)
      * 5. Emit 'vfs' event (configure mounts)
-     * 6. Create Kernel
-     * 7. Emit 'kernel' event (register services)
-     * 8. Spawn init process if main provided
-     * 9. Emit 'ready' event
+     * 6. Install queued packages
+     * 7. Create Kernel
+     * 8. Emit 'kernel' event (register services)
+     * 9. Spawn init process if main provided
+     * 10. Emit 'boot' event
      *
      * @param opts - Optional boot options (e.g., main script)
      */
@@ -172,13 +220,16 @@ export class OS {
         // 5. Emit 'vfs' event - configure mounts
         await this.emit('vfs', this);
 
-        // 6. Create Kernel
+        // 6. Install queued packages (from config or os.install() calls)
+        await this.pkg.installQueued();
+
+        // 7. Create Kernel
         this.kernel = new Kernel(this.hal, this.vfs);
 
-        // 7. Emit 'kernel' event - register services
+        // 8. Emit 'kernel' event - register services
         await this.emit('kernel', this);
 
-        // 8. If main is provided, boot with init process
+        // 9. If main is provided, boot with init process
         if (opts?.main) {
             const initPath = this.resolvePath(opts.main);
             await this.kernel.boot({
@@ -195,7 +246,7 @@ export class OS {
 
         this.booted = true;
 
-        // 9. Emit 'boot' event - OS fully booted
+        // 10. Emit 'boot' event - OS fully booted
         await this.emit('boot', this);
     }
 

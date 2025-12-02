@@ -1371,22 +1371,59 @@ export class Kernel {
     }
 
     /**
-     * Load services from /etc/services/*.json
+     * Load services from /etc/services and package directories (/usr/PKG/etc/services).
      */
     private async loadServices(): Promise<void> {
-        // Ensure /etc/services exists (create recursively if needed)
+        // Collect service directories to scan
+        const serviceDirs: string[] = [];
+
+        // 1. Core services in /etc/services
         try {
             await this.vfs.stat('/etc/services', 'kernel');
+            serviceDirs.push('/etc/services');
         } catch {
+            // Create /etc/services if it doesn't exist
             await this.vfs.mkdir('/etc/services', 'kernel', { recursive: true });
+            serviceDirs.push('/etc/services');
         }
 
-        // Read service definitions
-        for await (const entry of this.vfs.readdir('/etc/services', 'kernel')) {
+        // 2. Package services in /usr/*/etc/services
+        try {
+            await this.vfs.stat('/usr', 'kernel');
+            for await (const pkg of this.vfs.readdir('/usr', 'kernel')) {
+                if (pkg.model !== 'folder') continue;
+                const pkgServicesDir = `/usr/${pkg.name}/etc/services`;
+                try {
+                    await this.vfs.stat(pkgServicesDir, 'kernel');
+                    serviceDirs.push(pkgServicesDir);
+                } catch {
+                    // Package has no services directory - that's fine
+                }
+            }
+        } catch {
+            // /usr doesn't exist yet - no packages installed
+        }
+
+        // Load services from all directories
+        for (const dir of serviceDirs) {
+            await this.loadServicesFromDir(dir);
+        }
+    }
+
+    /**
+     * Load services from a single directory.
+     */
+    private async loadServicesFromDir(dir: string): Promise<void> {
+        for await (const entry of this.vfs.readdir(dir, 'kernel')) {
             if (!entry.name.endsWith('.json')) continue;
 
             const serviceName = entry.name.replace(/\.json$/, '');
-            const path = `/etc/services/${entry.name}`;
+            const path = `${dir}/${entry.name}`;
+
+            // Skip if already loaded (core services take precedence)
+            if (this.services.has(serviceName)) {
+                continue;
+            }
 
             try {
                 const handle = await this.vfs.open(path, { read: true }, 'kernel');

@@ -14,8 +14,13 @@ export type {
     BootOpts,
     MountOpts,
     Stat,
+    PackageOpts,
+    PackageSpec,
+    PackageInfo,
 } from './types.js';
 
 // Sub-APIs (for advanced use / testing)
 export { FilesystemAPI } from './fs.js';
 export type { FilesystemAPIHost } from './fs.js';
+export { PackageAPI } from './pkg.js';
+export type { PackageAPIHost } from './pkg.js';
