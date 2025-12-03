@@ -385,14 +385,34 @@ describe('Schema', () => {
 
 ## Acceptance Criteria
 
-- [ ] `models` table created with all columns
-- [ ] `fields` table created with all columns
-- [ ] `tracked` table created for change history
-- [ ] System meta-models seeded (models, fields, tracked)
-- [ ] System VFS models seeded (file, folder, device, proc, link)
-- [ ] Fields for all system models seeded
-- [ ] Foreign key constraint works (fields.model_name → models.model_name)
-- [ ] Unique constraints enforced
+- [x] `models` table created with all columns
+- [x] `fields` table created with all columns
+- [x] `tracked` table created for change history
+- [x] System meta-models seeded (models, fields, tracked)
+- [x] System VFS models seeded (file, folder, device, proc, link)
+- [x] Fields for all system models seeded
+- [x] Foreign key constraint works (fields.model_name → models.model_name)
+- [x] Unique constraints enforced
+
+## Implementation Notes
+
+**Files Created:**
+- `src/model/schema.sql` - Full schema definition with extensive documentation
+- `src/model/connection.ts` - DatabaseConnection class using HAL channels
+- `src/model/index.ts` - Public exports for the model layer
+- `src/hal/file.ts` - FileDevice for kernel-level filesystem access
+- `spec/model/schema.test.ts` - Comprehensive test suite (70+ tests)
+
+**HAL Enhancements:**
+- Added `exec` operation to SQLite channel for multi-statement SQL execution
+- Enabled `PRAGMA foreign_keys = ON` in SQLite channel
+- Added FileDevice as 14th HAL device (kernel use only)
+
+**Key Design Decisions:**
+1. All database access goes through HAL channels (no direct bun:sqlite outside HAL)
+2. Schema loading uses HAL FileDevice to maintain architectural boundary
+3. DatabaseConnection provides convenient query/execute/exec methods
+4. Schema is idempotent via `CREATE TABLE IF NOT EXISTS` and `INSERT OR IGNORE`
 
 ## Next Phase
 

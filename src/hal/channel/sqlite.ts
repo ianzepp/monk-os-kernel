@@ -163,6 +163,10 @@ export class BunSqliteChannel implements Channel {
         // Without WAL, readers block writers and vice versa. WAL is production best practice.
         // exec() runs immediate SQL without returning results.
         this.db.exec('PRAGMA journal_mode = WAL');
+
+        // WHY: Foreign keys are not enabled by default in SQLite. Enable them for
+        // referential integrity (e.g., fields.model_name -> models.model_name).
+        this.db.exec('PRAGMA foreign_keys = ON');
     }
 
     // =========================================================================
@@ -183,25 +187,27 @@ export class BunSqliteChannel implements Channel {
     // =========================================================================
 
     /**
-     * Handle SQL query or execute message.
+     * Handle SQL query, execute, or exec message.
      *
-     * WHY: Unified interface for both streaming (SELECT) and non-streaming
-     * (INSERT/UPDATE/DELETE) operations. Op discriminates behavior.
+     * WHY: Unified interface for streaming (SELECT), non-streaming
+     * (INSERT/UPDATE/DELETE), and raw SQL (schema/migration) operations.
+     * Op discriminates behavior.
      *
      * ALGORITHM:
      * 1. Check closed state
-     * 2. Switch on msg.op (query vs execute)
+     * 2. Switch on msg.op (query vs execute vs exec)
      * 3. Extract sql and params from msg.data
-     * 4. Prepare statement
-     * 5. Bind parameters
-     * 6. Execute statement
-     * 7. For query: yield item per row, then done
-     * 8. For execute: yield ok with affectedRows
+     * 4. For query/execute: prepare statement, bind parameters, execute
+     * 5. For exec: run raw SQL directly (multiple statements allowed)
+     * 6. For query: yield item per row, then done
+     * 7. For execute: yield ok with affectedRows
+     * 8. For exec: yield ok (no return value)
      * 9. On error: yield error with SQLite error message
      *
      * SUPPORTED OPERATIONS:
      * - query: SELECT statements (returns all rows)
      * - execute: INSERT/UPDATE/DELETE statements (returns affected rows)
+     * - exec: Raw SQL execution (multiple statements, no return value)
      *
      * RACE CONDITION:
      * closed flag is checked only at start of method. If close() is called
@@ -258,6 +264,21 @@ export class BunSqliteChannel implements Channel {
                     // WHY: result.changes is SQLite's property for affected rows.
                     // Matches PostgreSQL's affectedRows naming in response.
                     yield respond.ok({ affectedRows: result.changes });
+                    break;
+                }
+
+                case 'exec': {
+                    // WHY: Exec operation for raw SQL that may contain multiple statements.
+                    // Used for schema initialization, migrations, and batch operations.
+                    // No parameters supported - raw SQL only.
+                    // No return value - use query/execute for results.
+                    const { sql } = msg.data as QueryData;
+
+                    // WHY: db.exec() handles multiple statements separated by semicolons.
+                    // Unlike prepare().run() which only handles single statements.
+                    this.db.exec(sql);
+
+                    yield respond.ok({});
                     break;
                 }
 

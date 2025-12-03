@@ -240,6 +240,53 @@ main() {
     fi
 
     # =========================================================================
+    # CHECK 9: Bun usage outside HAL
+    # =========================================================================
+    # Bun primitives should only be used in HAL - the rest of the OS must go
+    # through HAL to access hardware. This enforces the architectural boundary.
+    # Exemptions:
+    #   - src/hal/: HAL's job is to wrap Bun primitives
+    #   - spec/: Test files may use bun:test
+    log_check "Bun usage outside HAL (Bun.*, bun:*)"
+
+    # Check for Bun. global access outside hal/
+    local bun_global_results
+    bun_global_results=$(grep -rn 'Bun\.' src/ --include='*.ts' 2>/dev/null \
+        | grep -v '/hal/' \
+        || true)
+
+    # Check for bun: imports outside hal/
+    local bun_import_results
+    bun_import_results=$(grep -rn "from ['\"]bun:" src/ --include='*.ts' 2>/dev/null \
+        | grep -v '/hal/' \
+        || true)
+
+    # Combine results
+    local bun_results=""
+    if [[ -n "$bun_global_results" ]]; then
+        bun_results="$bun_global_results"
+    fi
+    if [[ -n "$bun_import_results" ]]; then
+        if [[ -n "$bun_results" ]]; then
+            bun_results="$bun_results"$'\n'"$bun_import_results"
+        else
+            bun_results="$bun_import_results"
+        fi
+    fi
+
+    if [[ -n "$bun_results" ]]; then
+        local count=$(echo "$bun_results" | wc -l | tr -d ' ')
+        total_warnings=$((total_warnings + count))
+        log_warn "Found $count instance(s): Bun primitives should only be used in HAL"
+        echo "$bun_results" | while read -r line; do
+            echo -e "  ${YELLOW}→${NC} $line"
+        done
+        echo ""
+    else
+        log_info "No issues found"
+    fi
+
+    # =========================================================================
     # Summary
     # =========================================================================
     echo ""

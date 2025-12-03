@@ -153,16 +153,19 @@ Both system and user models:
 
 See: [01-foundation.md](./01-foundation.md)
 
-### Phase 2: Schema
+### Phase 2: Schema (IMPLEMENTED)
 **Goal:** SQLite schema for models/fields tables
 
-- [ ] Create `models` table with behavioral flags
-- [ ] Create `fields` table with all constraint columns
-- [ ] Create `tracked` table for audit history
-- [ ] Seed system models (file, folder, device, proc, link)
-- [ ] Define system fields for each model type
+- [x] Create `models` table with behavioral flags
+- [x] Create `fields` table with all constraint columns
+- [x] Create `tracked` table for audit history
+- [x] Seed system models (file, folder, device, proc, link)
+- [x] Define system fields for each model type
+- [x] HAL FileDevice for kernel-level filesystem access
+- [x] HAL SQLite channel `exec` operation for multi-statement SQL
+- [x] DatabaseConnection class with HAL-based SQLite access
 
-**Deliverable:** Can store model/field definitions in SQLite
+**Location:** `src/model/schema.sql`, `src/model/connection.ts`, `src/hal/file.ts`
 
 See: [02-schema.md](./02-schema.md)
 
@@ -276,10 +279,16 @@ src/model/
 │   ├── runner.ts
 │   ├── registry.ts
 │   └── impl/            # Observer implementations (Phase 4)
-├── schema.sql           # models/fields/tracked tables (Phase 2)
+├── schema.sql           # models/fields/tracked tables (Phase 2 - DONE)
+├── connection.ts        # DatabaseConnection class (Phase 2 - DONE)
+├── index.ts             # Public exports (Phase 2 - DONE)
 ├── model.ts             # Model class (Phase 3)
 ├── model-record.ts      # Change tracking (Phase 3)
 ├── model-cache.ts       # Caching (Phase 3)
 ├── database.ts          # DatabaseService (Phase 3)
 └── loader/              # YAML/JSON loading (Phase 5)
+
+src/hal/
+├── file.ts              # FileDevice for kernel filesystem access (Phase 2 - DONE)
+└── ...                  # Other HAL devices
 ```

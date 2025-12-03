@@ -15,7 +15,7 @@
  * - All async operations use Promise/AsyncIterable patterns
  * - Errors follow POSIX conventions (ENOENT, EBADF, etc.)
  *
- * The HAL aggregates 13 device interfaces:
+ * The HAL aggregates 14 device interfaces:
  *
  * 1. BlockDevice: Raw byte storage (files, S3, databases as byte arrays)
  * 2. StorageEngine: Key-value store with transactions (SQLite, PostgreSQL, memory)
@@ -30,6 +30,7 @@
  * 11. IPCDevice: Shared memory, mutexes, semaphores, condition variables
  * 12. ChannelDevice: Protocol-aware messaging (HTTP, WebSocket, PostgreSQL, SQLite)
  * 13. CompressionDevice: Gzip/deflate compression/decompression
+ * 14. FileDevice: Host filesystem access (KERNEL USE ONLY - see file.ts)
  *
  * BunHAL is the production implementation using Bun primitives. Test implementations
  * (MockHAL, MemoryStorageEngine, etc.) enable deterministic testing without real
@@ -116,6 +117,7 @@ import { BunHostDevice } from './host.js';
 import { BunIPCDevice } from './ipc.js';
 import { BunChannelDevice } from './channel.js';
 import { BunCompressionDevice } from './compression.js';
+import { BunFileDevice } from './file.js';
 
 // =============================================================================
 // ERROR TYPES (RE-EXPORTS)
@@ -204,6 +206,7 @@ export type { HostDevice, HostProcess, HostSpawnOpts, HostStat } from './host.js
 export type { IPCDevice, Mutex, MutexLockOpts, Semaphore, CondVar } from './ipc.js';
 export type { ChannelDevice, Channel, ChannelOpts } from './channel.js';
 export type { CompressionDevice, CompressionAlg, CompressionLevel, CompressionOpts } from './compression.js';
+export type { FileDevice, FileStat } from './file.js';
 
 // =============================================================================
 // DEVICE IMPLEMENTATION CLASSES (RE-EXPORTS)
@@ -224,6 +227,7 @@ export { BunHostDevice, MockHostDevice } from './host.js';
 export { BunIPCDevice, MockIPCDevice } from './ipc.js';
 export { BunChannelDevice } from './channel.js';
 export { BunCompressionDevice, MockCompressionDevice } from './compression.js';
+export { BunFileDevice, MockFileDevice } from './file.js';
 
 // =============================================================================
 // HAL INTERFACE
@@ -282,6 +286,16 @@ export interface HAL {
 
     /** Gzip/deflate compression/decompression */
     readonly compression: import('./compression.js').CompressionDevice;
+
+    /**
+     * Host filesystem access (KERNEL USE ONLY)
+     *
+     * WARNING: This device is for kernel bootstrap operations only.
+     * For user-space file I/O, use VFS or channels.
+     *
+     * See hal/file.ts for restrictions and proper usage.
+     */
+    readonly file: import('./file.js').FileDevice;
 
     /**
      * Initialize the HAL
@@ -404,6 +418,7 @@ export class BunHAL implements HAL {
     readonly ipc: import('./ipc.js').IPCDevice;
     readonly channel: import('./channel.js').ChannelDevice;
     readonly compression: import('./compression.js').CompressionDevice;
+    readonly file: import('./file.js').FileDevice;
 
     // =========================================================================
     // LIFECYCLE STATE
@@ -480,6 +495,7 @@ export class BunHAL implements HAL {
         this.ipc = new BunIPCDevice();
         this.channel = new BunChannelDevice();
         this.compression = new BunCompressionDevice();
+        this.file = new BunFileDevice();
     }
 
     // =========================================================================
