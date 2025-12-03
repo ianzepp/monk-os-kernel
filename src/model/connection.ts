@@ -90,14 +90,15 @@ const DEFAULT_PATH = ':memory:';
 const SCHEMA_PATH = new URL('./schema.sql', import.meta.url).pathname;
 
 /**
- * Cached schema SQL content.
+ * Cached schema SQL content (Promise-based for race condition safety).
  *
- * WHY: Avoid re-reading the schema file for every database creation.
- * Schema is loaded once on first use.
+ * WHY Promise: The old pattern `if (cache === null) { cache = await read() }` had
+ * a TOCTOU bug where concurrent calls would both read the file before either
+ * cached. Using a Promise cache ensures only one read occurs.
  *
  * INVARIANT: Once set, never changes (schema is static).
  */
-let cachedSchema: string | null = null;
+let cachedSchemaPromise: Promise<string> | null = null;
 
 // =============================================================================
 // SCHEMA LOADING
@@ -107,9 +108,14 @@ let cachedSchema: string | null = null;
  * Load the schema SQL content via HAL FileDevice.
  *
  * ALGORITHM:
- * 1. Check if schema is cached
- * 2. If not, read schema.sql via HAL FileDevice
- * 3. Cache and return content
+ * 1. Check if Promise is cached
+ * 2. If not, start read and cache the Promise immediately
+ * 3. Return cached Promise (all callers share same read)
+ *
+ * RACE CONDITION FIX: By caching the Promise (not the result), concurrent
+ * calls share the same in-flight read. The old check-then-read pattern:
+ *   if (cache === null) { cache = await read() }
+ * allowed two concurrent calls to both start reads before either completed.
  *
  * WHY FileDevice parameter: Maintains HAL boundary - no direct Bun.file()
  * access outside HAL. The FileDevice is provided by the kernel.
@@ -119,10 +125,11 @@ let cachedSchema: string | null = null;
  * @throws Error if schema.sql cannot be read
  */
 async function loadSchemaAsync(fileDevice: FileDevice): Promise<string> {
-    if (cachedSchema === null) {
-        cachedSchema = await fileDevice.readText(SCHEMA_PATH);
+    if (cachedSchemaPromise === null) {
+        // Cache the Promise immediately - all concurrent callers share this read
+        cachedSchemaPromise = fileDevice.readText(SCHEMA_PATH);
     }
-    return cachedSchema;
+    return cachedSchemaPromise;
 }
 
 // =============================================================================
@@ -463,5 +470,5 @@ export function getDefaultPath(): string {
  * WHY: Tests may modify schema.sql and need to reload it.
  */
 export function clearSchemaCache(): void {
-    cachedSchema = null;
+    cachedSchemaPromise = null;
 }

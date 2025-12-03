@@ -255,6 +255,10 @@ export class DatabaseService {
 
     /**
      * Update first matching record or throw if not found.
+     *
+     * RACE CONDITION FIX: The old pattern (selectOne then updateOne) had a TOCTOU
+     * bug where the record could be deleted between select and update. Now we
+     * perform the update directly and check if any records were affected.
      */
     async update404<T extends DbRecord>(
         modelName: string,
@@ -262,11 +266,15 @@ export class DatabaseService {
         changes: Partial<T>,
         message?: string
     ): Promise<T> {
-        const existing = await this.selectOne<T>(modelName, filterData);
-        if (!existing) {
+        // Limit to 1 record and perform update atomically
+        const limitedFilter = { ...filterData, limit: 1 };
+        const results = await this.updateAny<T>(modelName, limitedFilter, changes);
+        const result = results[0];
+
+        if (!result) {
             throw new Error(message || `Record not found in ${modelName}`);
         }
-        return this.updateOne<T>(modelName, existing.id, changes);
+        return result;
     }
 
     // =========================================================================
@@ -312,17 +320,25 @@ export class DatabaseService {
 
     /**
      * Soft delete first matching record or throw if not found.
+     *
+     * RACE CONDITION FIX: The old pattern (selectOne then deleteOne) had a TOCTOU
+     * bug where the record could be deleted between select and delete. Now we
+     * perform the delete directly and check if any records were affected.
      */
     async delete404<T extends DbRecord>(
         modelName: string,
         filterData: FilterData,
         message?: string
     ): Promise<T> {
-        const existing = await this.selectOne<T>(modelName, filterData);
-        if (!existing) {
+        // Limit to 1 record and perform delete atomically
+        const limitedFilter = { ...filterData, limit: 1 };
+        const results = await this.deleteAny<T>(modelName, limitedFilter);
+        const result = results[0];
+
+        if (!result) {
             throw new Error(message || `Record not found in ${modelName}`);
         }
-        return this.deleteOne<T>(modelName, existing.id);
+        return result;
     }
 
     // =========================================================================

@@ -36,6 +36,25 @@
  * - All values are parameterized (never interpolated into SQL)
  * - Operators are whitelisted via FilterOp enum
  *
+ * INVARIANTS
+ * ==========
+ * INV-1: params array index matches ? placeholder order in generated SQL
+ * INV-2: All field/table names validated before SQL generation
+ * INV-3: Internal state (whereData, orderSpecs) only modified via public methods
+ * INV-4: toSQL() is idempotent - calling multiple times yields same result
+ * INV-5: Empty $in/$nin arrays generate FALSE/TRUE conditions (never invalid SQL)
+ *
+ * CONCURRENCY MODEL
+ * =================
+ * Filter is a pure synchronous class with no external dependencies:
+ * - No async operations
+ * - No shared mutable state between instances
+ * - Safe for concurrent use from multiple async contexts
+ * - Each instance maintains its own internal state
+ *
+ * Filters are typically created per-request and discarded after use.
+ * They should not be shared across requests or stored long-term.
+ *
  * @module model/filter
  */
 

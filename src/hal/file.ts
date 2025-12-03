@@ -172,13 +172,17 @@ export class BunFileDevice implements FileDevice {
      *
      * ALGORITHM:
      * 1. Create Bun file handle
-     * 2. Check existence (fail fast)
-     * 3. Read as ArrayBuffer
-     * 4. Convert to Uint8Array
-     * 5. Return bytes
+     * 2. Read as ArrayBuffer (throws if not found)
+     * 3. Convert to Uint8Array
+     * 4. Return bytes
      *
      * WHY arrayBuffer then Uint8Array: Bun.file().arrayBuffer() returns
      * ArrayBuffer. We wrap in Uint8Array for consistent byte handling.
+     *
+     * RACE CONDITION FIX: Removed exists() check before read. The old
+     * check-then-read pattern had a TOCTOU bug where file could be deleted
+     * between exists() and arrayBuffer(). Now we catch errors from the
+     * read operation directly.
      *
      * @param path - File path
      * @returns File contents as bytes
@@ -187,14 +191,17 @@ export class BunFileDevice implements FileDevice {
     async read(path: string): Promise<Uint8Array> {
         const file = Bun.file(path);
 
-        // WHY exists check: Fail fast with clear error message.
-        // Without this, arrayBuffer() throws cryptic error.
-        if (!(await file.exists())) {
-            throw new Error(`File not found: ${path}`);
+        try {
+            const buffer = await file.arrayBuffer();
+            return new Uint8Array(buffer);
+        } catch (err) {
+            // Provide clear error message for common case
+            const message = err instanceof Error ? err.message : String(err);
+            if (message.includes('ENOENT') || message.includes('No such file')) {
+                throw new Error(`File not found: ${path}`);
+            }
+            throw new Error(`Failed to read file ${path}: ${message}`);
         }
-
-        const buffer = await file.arrayBuffer();
-        return new Uint8Array(buffer);
     }
 
     /**
@@ -202,12 +209,14 @@ export class BunFileDevice implements FileDevice {
      *
      * ALGORITHM:
      * 1. Create Bun file handle
-     * 2. Check existence (fail fast)
-     * 3. Read as text (Bun decodes as UTF-8)
-     * 4. Return string
+     * 2. Read as text (Bun decodes as UTF-8, throws if not found)
+     * 3. Return string
      *
      * WHY Bun.file().text(): Bun handles UTF-8 decoding efficiently.
      * Avoids manual TextDecoder usage.
+     *
+     * RACE CONDITION FIX: Removed exists() check before read (TOCTOU bug).
+     * Now catches errors from the read operation directly.
      *
      * @param path - File path
      * @returns File contents as UTF-8 string
@@ -216,11 +225,15 @@ export class BunFileDevice implements FileDevice {
     async readText(path: string): Promise<string> {
         const file = Bun.file(path);
 
-        if (!(await file.exists())) {
-            throw new Error(`File not found: ${path}`);
+        try {
+            return await file.text();
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            if (message.includes('ENOENT') || message.includes('No such file')) {
+                throw new Error(`File not found: ${path}`);
+            }
+            throw new Error(`Failed to read file ${path}: ${message}`);
         }
-
-        return file.text();
     }
 
     /**

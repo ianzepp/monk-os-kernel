@@ -527,7 +527,7 @@ export class BunHAL implements HAL {
      * Coordinates cleanup across all devices to ensure clean shutdown.
      *
      * ALGORITHM:
-     * 1. Cancel all pending timers
+     * 1. Cancel all pending timers (synchronous, completes immediately)
      * 2. Close storage engine (flush writes, close connections)
      * 3. Note: Network sockets closed by kernel, not tracked here
      *
@@ -536,17 +536,39 @@ export class BunHAL implements HAL {
      *
      * MEMORY LEAK PREVENTION: Without this, timers continue firing after HAL
      * is destroyed, potentially accessing freed resources.
+     *
+     * ERROR HANDLING: Errors during shutdown are logged but don't prevent
+     * cleanup of other resources. This ensures best-effort cleanup even
+     * when some resources fail to close properly.
      */
     async shutdown(): Promise<void> {
-        // WHY: Cancel timers first to prevent callbacks from firing during shutdown
-        (this.timer as BunTimerDevice).cancelAll();
+        const errors: Error[] = [];
 
-        // WHY: Close storage last to ensure all writes complete
-        await this.storage.close();
+        // WHY: Cancel timers first to prevent callbacks from firing during shutdown.
+        // This is synchronous - timers are cancelled immediately before any await.
+        try {
+            (this.timer as BunTimerDevice).cancelAll();
+        } catch (err) {
+            errors.push(new Error(`Timer cleanup failed: ${err instanceof Error ? err.message : String(err)}`));
+        }
+
+        // WHY: Close storage after timers are cancelled.
+        // Timer callbacks could reference storage, so cancel them first.
+        try {
+            await this.storage.close();
+        } catch (err) {
+            errors.push(new Error(`Storage close failed: ${err instanceof Error ? err.message : String(err)}`));
+        }
 
         // WHY: Network listeners/sockets are closed via their own dispose methods.
         // The HAL doesn't track active connections - that's the kernel's job.
         // Kernel is responsible for tracking and closing them before HAL shutdown.
+
+        // Report errors if any occurred during shutdown
+        if (errors.length > 0) {
+            const message = errors.map((e) => e.message).join('; ');
+            throw new Error(`HAL shutdown encountered errors: ${message}`);
+        }
     }
 }
 
