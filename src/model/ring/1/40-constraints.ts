@@ -139,7 +139,7 @@ export class Constraints extends BaseObserver {
 
         if (errors.length > 0) {
             const summary = errors.map((e) => `${e.field}: ${e.message}`).join('; ');
-            throw new EOBSINVALID(`Validation failed: ${summary}`, errors[0].field);
+            throw new EOBSINVALID(`Validation failed: ${summary}`, errors[0]!.field);
         }
     }
 

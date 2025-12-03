@@ -74,7 +74,7 @@ export class DdlCreateModel extends BaseObserver {
     /**
      * Only runs for the 'models' table.
      */
-    readonly models: readonly string[] = ['models'];
+    override readonly models: readonly string[] = ['models'];
 
     // =========================================================================
     // EXECUTION

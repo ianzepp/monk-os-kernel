@@ -115,7 +115,7 @@ export class Immutable extends BaseObserver {
             if (!immutableFields.has(fieldName)) continue;
 
             const oldValue = record.old(fieldName);
-            const newValue = record.new(fieldName);
+            const newValue = record.get(fieldName);
 
             // Allow first write (old was null/undefined)
             if (oldValue === null || oldValue === undefined) continue;
@@ -135,7 +135,7 @@ export class Immutable extends BaseObserver {
 
             throw new EOBSIMMUT(
                 `Cannot modify immutable field(s): ${details}`,
-                violations[0].field
+                violations[0]!.field
             );
         }
     }

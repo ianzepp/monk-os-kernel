@@ -4,6 +4,23 @@
 
 Observers implement the behavioral enforcement specified in field/model metadata. Each observer runs at a specific ring and priority, handling specific operations on specific models.
 
+## Implementation Status
+
+| Ring | Priority | Observer | Status | Notes |
+|------|----------|----------|--------|-------|
+| 0 | 50 | UpdateMerger | ❌ Not started | |
+| 1 | 10 | Frozen | ✅ Implemented | Not yet registered |
+| 1 | 30 | Immutable | ✅ Implemented | Not yet registered |
+| 1 | 40 | Constraints | ✅ Implemented | Not yet registered |
+| 4 | 50 | TransformProcessor | ❌ Not started | |
+| 5 | 50 | SqlCreate | ✅ Registered | Active in pipeline |
+| 5 | 50 | SqlUpdate | ✅ Registered | Active in pipeline |
+| 5 | 50 | SqlDelete | ✅ Registered | Active in pipeline |
+| 6 | 10 | DdlCreateModel | ✅ Implemented | Not yet registered |
+| 6 | 10 | DdlCreateField | ✅ Implemented | Not yet registered |
+| 7 | 60 | Tracked | ❌ Not started | |
+| 8 | 50 | Cache | ❌ Not started | |
+
 ## Observer Inventory
 
 ### Essential Observers (Minimum Viable)
@@ -225,7 +242,7 @@ export class Immutable extends BaseObserver {
             if (!immutableFields.has(fieldName)) continue;
 
             const oldValue = record.old(fieldName);
-            const newValue = record.new(fieldName);
+            const newValue = record.get(fieldName);
 
             // Allow first write (old was null/undefined)
             if (oldValue === null || oldValue === undefined) continue;
@@ -487,7 +504,7 @@ export class TransformProcessor extends BaseObserver {
 export default TransformProcessor;
 ```
 
-### Ring 5: Database Operations (IMPLEMENTED)
+### Ring 5: Database Operations
 
 Ring 5 observers are the persistence boundary - records that pass Ring 5 are committed to the database. Prior rings can reject; post-database rings (6-9) observe but cannot undo.
 
@@ -847,13 +864,14 @@ export default Cache;
 ```typescript
 import { ObserverRunner } from './runner.js';
 
-// Ring 5: Database Operations (IMPLEMENTED)
+// Ring 1: Input Validation (implemented, not yet registered)
+import { Frozen, Immutable, Constraints } from '../ring/1/index.js';
+
+// Ring 5: Database Operations (implemented, registered)
 import { SqlCreate, SqlUpdate, SqlDelete } from '../ring/5/index.js';
 
-// Phase 4 (remaining observers):
-// import { UpdateMerger } from '../ring/0/50-update-merger.js';
-// import { FrozenValidator } from '../ring/1/10-frozen-validator.js';
-// ... etc
+// Ring 6: DDL Operations (implemented, not yet registered)
+import { DdlCreateModel, DdlCreateField } from '../ring/6/index.js';
 
 export function createObserverRunner(): ObserverRunner {
     const runner = new ObserverRunner();
@@ -861,42 +879,42 @@ export function createObserverRunner(): ObserverRunner {
     // =========================================================================
     // RING 0: DATA PREPARATION
     // =========================================================================
-    // Phase 4: runner.register(new UpdateMerger());
+    // TODO: runner.register(new UpdateMerger());
 
     // =========================================================================
-    // RING 1: INPUT VALIDATION
+    // RING 1: INPUT VALIDATION (implemented, needs registration)
     // =========================================================================
-    // Phase 4: runner.register(new Frozen());
-    // Phase 4: runner.register(new Immutable());
-    // Phase 4: runner.register(new Constraints());
+    // TODO: runner.register(new Frozen());
+    // TODO: runner.register(new Immutable());
+    // TODO: runner.register(new Constraints());
 
     // =========================================================================
     // RING 4: ENRICHMENT
     // =========================================================================
-    // Phase 4: runner.register(new TransformProcessor());
+    // TODO: runner.register(new TransformProcessor());
 
     // =========================================================================
-    // RING 5: DATABASE (IMPLEMENTED)
+    // RING 5: DATABASE (active)
     // =========================================================================
     runner.register(new SqlCreate());
     runner.register(new SqlUpdate());
     runner.register(new SqlDelete());
 
     // =========================================================================
-    // RING 6: POST-DATABASE (DDL)
+    // RING 6: POST-DATABASE (implemented, needs registration)
     // =========================================================================
-    // Phase 4: runner.register(new DdlCreateModel());
-    // Phase 4: runner.register(new DdlCreateField());
+    // TODO: runner.register(new DdlCreateModel());
+    // TODO: runner.register(new DdlCreateField());
 
     // =========================================================================
     // RING 7: AUDIT
     // =========================================================================
-    // Phase 4: runner.register(new Tracked());
+    // TODO: runner.register(new Tracked());
 
     // =========================================================================
     // RING 8: INTEGRATION
     // =========================================================================
-    // Phase 4: runner.register(new Cache());
+    // TODO: runner.register(new Cache());
 
     return runner;
 }
@@ -906,7 +924,7 @@ export function createObserverRunner(): ObserverRunner {
 
 ```
 src/model/
-├── observers/                   # Observer infrastructure (Phase 1)
+├── observers/                   # Observer infrastructure
 │   ├── types.ts                 # ObserverRing enum, OperationType
 │   ├── interfaces.ts            # Model, ModelRecord, Observer, SystemContext
 │   ├── errors.ts                # EOBS* error classes
@@ -915,25 +933,27 @@ src/model/
 │   ├── registry.ts              # createObserverRunner() factory
 │   └── index.ts                 # Public exports
 ├── ring/                        # Observer implementations by ring
-│   ├── 0/                       # Ring 0: Data Preparation
+│   ├── 0/                       # Ring 0: Data Preparation (not started)
 │   │   └── 50-update-merger.ts
-│   ├── 1/                       # Ring 1: Input Validation
-│   │   ├── 10-frozen.ts
-│   │   ├── 30-immutable.ts
-│   │   └── 40-constraints.ts
-│   ├── 4/                       # Ring 4: Enrichment
+│   ├── 1/                       # Ring 1: Input Validation (implemented)
+│   │   ├── 10-frozen.ts         ✅
+│   │   ├── 30-immutable.ts      ✅
+│   │   ├── 40-constraints.ts    ✅
+│   │   └── index.ts             ✅
+│   ├── 4/                       # Ring 4: Enrichment (not started)
 │   │   └── 50-transform-processor.ts
-│   ├── 5/                       # Ring 5: Database (IMPLEMENTED)
-│   │   ├── 50-sql-create.ts
-│   │   ├── 50-sql-update.ts
-│   │   ├── 50-sql-delete.ts
-│   │   └── index.ts
-│   ├── 6/                       # Ring 6: Post-Database (DDL)
-│   │   ├── 10-ddl-create-model.ts
-│   │   └── 10-ddl-create-field.ts
-│   ├── 7/                       # Ring 7: Audit
+│   ├── 5/                       # Ring 5: Database (registered)
+│   │   ├── 50-sql-create.ts     ✅
+│   │   ├── 50-sql-update.ts     ✅
+│   │   ├── 50-sql-delete.ts     ✅
+│   │   └── index.ts             ✅
+│   ├── 6/                       # Ring 6: Post-Database (implemented)
+│   │   ├── 10-ddl-create-model.ts ✅
+│   │   ├── 10-ddl-create-field.ts ✅
+│   │   └── index.ts             ✅
+│   ├── 7/                       # Ring 7: Audit (not started)
 │   │   └── 60-tracked.ts
-│   └── 8/                       # Ring 8: Integration
+│   └── 8/                       # Ring 8: Integration (not started)
 │       └── 50-cache.ts
 ```
 
@@ -941,17 +961,34 @@ File naming convention: `{priority}-{observer-name}.ts` (e.g., `50-sql-create.ts
 
 ## Acceptance Criteria
 
-- [ ] Frozen blocks changes to frozen models
-- [ ] Immutable blocks changes to immutable fields
-- [ ] Constraints validates required, type, min/max, pattern, enum
+### Ring 1: Input Validation (implemented, not registered)
+- [x] Frozen blocks changes to frozen models
+- [x] Immutable blocks changes to immutable fields
+- [x] Constraints validates required, type, min/max, pattern, enum
+
+### Ring 4: Enrichment (not started)
 - [ ] TransformProcessor applies lowercase, uppercase, trim, normalize_*
-- [x] SqlCreate inserts records (IMPLEMENTED)
-- [x] SqlUpdate updates records (IMPLEMENTED)
-- [x] SqlDelete soft-deletes records (IMPLEMENTED)
-- [ ] DdlCreateModel creates tables for new models
-- [ ] DdlCreateField adds columns for new fields
+
+### Ring 5: Database (registered, active)
+- [x] SqlCreate inserts records
+- [x] SqlUpdate updates records
+- [x] SqlDelete soft-deletes records
+
+### Ring 6: DDL (implemented, not registered)
+- [x] DdlCreateModel creates tables for new models
+- [x] DdlCreateField adds columns for new fields
+
+### Ring 7-8: Audit & Integration (not started)
 - [ ] Tracked records change history
 - [ ] Cache clears cache on model/field changes
+
+## Next Steps
+
+1. **Register Ring 1 observers** - Enable validation in the pipeline
+2. **Register Ring 6 observers** - Enable automatic DDL on model/field creation
+3. **Implement Ring 0** - UpdateMerger for update operations
+4. **Implement Ring 4** - TransformProcessor for auto-transforms
+5. **Implement Ring 7-8** - Tracked audit and Cache invalidation
 
 ## Next Phase
 

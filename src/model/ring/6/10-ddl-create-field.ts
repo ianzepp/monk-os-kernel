@@ -81,7 +81,7 @@ export class DdlCreateField extends BaseObserver {
     /**
      * Only runs for the 'fields' table.
      */
-    readonly models: readonly string[] = ['fields'];
+    override readonly models: readonly string[] = ['fields'];
 
     // =========================================================================
     // EXECUTION
