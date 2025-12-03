@@ -20,7 +20,7 @@ import { SIGTERM, SIGKILL, TERM_GRACE_MS } from '@src/kernel/types.js';
 import { ProcessTable } from '@src/kernel/process-table.js';
 import { MAX_HANDLES, STREAM_HIGH_WATER, STREAM_LOW_WATER, STREAM_STALL_TIMEOUT } from '@src/kernel/types.js';
 import type { Handle } from '@src/kernel/handle.js';
-import { FileHandleAdapter, SocketHandleAdapter, PortHandleAdapter, ChannelHandleAdapter, ProcessIOHandle } from '@src/kernel/handle.js';
+import { FileHandleAdapter, SocketHandleAdapter, PortHandleAdapter, ChannelHandleAdapter, ProcessIOHandle, ConsoleHandleAdapter } from '@src/kernel/handle.js';
 import {
     SyscallDispatcher,
     createFileSyscalls,
@@ -810,26 +810,34 @@ export class Kernel {
     /**
      * Setup stdio for init process.
      *
-     * Opens /dev/console for stdin, stdout, stderr.
+     * Uses ConsoleHandleAdapter for message-based I/O to the console.
+     * This is the boundary where Response messages become bytes.
      */
     private async setupInitStdio(init: Process): Promise<void> {
-        // Open console for stdin (read-only)
-        const stdinVfs = await this.vfs.open(CONSOLE_PATH, { read: true }, 'kernel');
-        const stdinAdapter = new FileHandleAdapter(stdinVfs.id, stdinVfs);
+        // Create console adapters that bridge messages <-> bytes
+        const stdinAdapter = new ConsoleHandleAdapter(
+            this.hal.entropy.uuid(),
+            this.hal.console,
+            'stdin'
+        );
         this.handles.set(stdinAdapter.id, stdinAdapter);
         this.handleRefs.set(stdinAdapter.id, 1);
         init.handles.set(0, stdinAdapter.id);
 
-        // Open console for stdout (write-only)
-        const stdoutVfs = await this.vfs.open(CONSOLE_PATH, { write: true }, 'kernel');
-        const stdoutAdapter = new FileHandleAdapter(stdoutVfs.id, stdoutVfs);
+        const stdoutAdapter = new ConsoleHandleAdapter(
+            this.hal.entropy.uuid(),
+            this.hal.console,
+            'stdout'
+        );
         this.handles.set(stdoutAdapter.id, stdoutAdapter);
         this.handleRefs.set(stdoutAdapter.id, 1);
         init.handles.set(1, stdoutAdapter.id);
 
-        // Open console for stderr (write-only)
-        const stderrVfs = await this.vfs.open(CONSOLE_PATH, { write: true }, 'kernel');
-        const stderrAdapter = new FileHandleAdapter(stderrVfs.id, stderrVfs);
+        const stderrAdapter = new ConsoleHandleAdapter(
+            this.hal.entropy.uuid(),
+            this.hal.console,
+            'stderr'
+        );
         this.handles.set(stderrAdapter.id, stderrAdapter);
         this.handleRefs.set(stderrAdapter.id, 1);
         init.handles.set(2, stderrAdapter.id);

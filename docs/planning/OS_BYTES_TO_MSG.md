@@ -430,11 +430,35 @@ export async function println(s: string): Promise<void> {
 - Streaming utilities remain streaming where possible (head, tail, uniq, etc.)
 - Only `sort` requires collecting all items before output
 
-### Phase 4: Console as Byte Boundary
+### Phase 4: Console as Byte Boundary ✓ COMPLETED
 
-1. Update `/dev/console` device to accept Response items
-2. Console converts `item.data.line` (or similar) to bytes for display
-3. This is the ONE place where message→byte conversion happens for stdout
+> **Status**: Implemented via `ConsoleHandleAdapter` in `src/kernel/handle/console.ts`.
+
+**Changes made:**
+
+| File | Change |
+|------|--------|
+| `src/kernel/handle/console.ts` | Created `ConsoleHandleAdapter` - bridges messages ↔ bytes |
+| `src/kernel/handle/index.ts` | Export `ConsoleHandleAdapter` |
+| `src/kernel/handle.ts` | Export `ConsoleHandleAdapter` |
+| `src/kernel/kernel.ts` | Use `ConsoleHandleAdapter` for init stdio |
+
+**How it works:**
+
+```
+Process                    ConsoleHandleAdapter              HAL Console
+   |                              |                              |
+   | send(1, item({text:'hi'}))   |                              |
+   | ---------------------------> | encode('hi') → bytes         |
+   |                              | ---------------------------> | write(bytes)
+   |                              |                              |
+   | recv(0)                      |                              |
+   | <--------------------------- | readline() → item({text})    |
+   |                              | <--------------------------- | read(bytes)
+```
+
+- **stdout/stderr**: Accepts `item` messages, extracts `text`, encodes to bytes, writes to console
+- **stdin**: Reads lines from console, yields as `item({ text: line + '\n' })` messages
 
 ---
 
@@ -661,8 +685,8 @@ class ConsoleDevice {
 4. ~~What's the migration path for existing scripts that use byte I/O?~~
    **RESOLVED**: Scripts using `readText(0)` must migrate to `recv(0)`. File operations remain unchanged.
 
-5. Should LineReader/LineWriter live in `rom/lib/io.ts` alongside ByteReader/ByteWriter?
-   **OPEN**: Still needed for Phase 4 (console as byte boundary).
+5. ~~Should LineReader/LineWriter live in `rom/lib/io.ts` alongside ByteReader/ByteWriter?~~
+   **RESOLVED**: Phase 4 implemented conversion directly in `ConsoleHandleAdapter`. No separate adapters needed - the console handle does inline conversion using HAL's `readline()` and `write()` methods.
 
 6. **NEW**: Should we add a `grep` utility? Currently missing from `rom/bin/`.
 
@@ -673,4 +697,6 @@ class ConsoleDevice {
 | Phase 1 | MessagePipe - Core Primitive | ✓ COMPLETED |
 | Phase 2 | Process Library I/O | ✓ COMPLETED |
 | Phase 3 | Streaming Utilities | ✓ COMPLETED |
-| Phase 4 | Console as Byte Boundary | PENDING |
+| Phase 4 | Console as Byte Boundary | ✓ COMPLETED |
+
+**Migration complete!** All phases implemented. The system now uses message-based I/O internally, with byte conversion only at true I/O boundaries (console, disk, network).

@@ -77,6 +77,7 @@
   - `port.ts` - PortHandleAdapter (listeners, watchers, pubsub)
   - `channel.ts` - ChannelHandleAdapter (protocol-aware I/O)
   - `process-io.ts` - ProcessIOHandle (service I/O routing)
+  - `console.ts` - ConsoleHandleAdapter (message ↔ byte boundary)
 - `resource/` - Port and pipe implementations:
   - `types.ts` - Port, PortMessage interfaces
   - `listener-port.ts` - TCP listener
@@ -479,7 +480,8 @@ Streams of `Response` objects are the fundamental data flow unit. Arrays are a c
 │   │   │   ├── socket.ts
 │   │   │   ├── port.ts
 │   │   │   ├── channel.ts
-│   │   │   └── process-io.ts
+│   │   │   ├── process-io.ts
+│   │   │   └── console.ts
 │   │   ├── resource/             # Port and pipe implementations
 │   │   │   ├── types.ts
 │   │   │   ├── listener-port.ts
@@ -766,6 +768,6 @@ await worker.release(workerId);                // Release to pool
 
 ---
 
-**Last Updated**: December 2024 (Phase 3: Streaming utilities migrated to message I/O)
-**Next Review**: After Phase 4 (console as byte boundary)
+**Last Updated**: December 2024 (Phase 4: Byte-to-message migration complete)
+**Next Review**: As needed
 **Maintainer**: @monk-api/os team

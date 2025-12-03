@@ -13,5 +13,6 @@ export { SocketHandleAdapter } from './socket.js';
 export { PortHandleAdapter } from './port.js';
 export { ChannelHandleAdapter } from './channel.js';
 export { ProcessIOHandle } from './process-io.js';
+export { ConsoleHandleAdapter } from './console.js';
 
 // Note: PipeHandleAdapter removed - use MessagePipe from resource/ instead
