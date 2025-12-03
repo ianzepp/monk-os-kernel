@@ -2,7 +2,15 @@
  * Filter Types - Query building types for DatabaseService
  *
  * Provides type definitions for the Filter system, enabling complex queries
- * with 20+ operators, logical combinations, and SQL generation.
+ * with 26 operators, logical combinations, and SQL generation.
+ *
+ * TODO: PostgreSQL-only operators not yet implemented:
+ * - $any   : Array overlap (field && ARRAY[...])
+ * - $all   : Array contains all (field @> ARRAY[...])
+ * - $nany  : NOT array overlap
+ * - $nall  : NOT array contains all
+ * - $search: Full-text search (to_tsvector @@ plainto_tsquery)
+ * These require PostgreSQL-specific syntax and have no direct SQLite equivalent.
  *
  * @module model/filter-types
  */
@@ -27,6 +35,9 @@ export enum FilterOp {
 
     /** Not equal */
     NE = '$ne',
+
+    /** Not equal (alias for $ne) */
+    NEQ = '$neq',
 
     /** Greater than */
     GT = '$gt',
@@ -56,6 +67,22 @@ export enum FilterOp {
     /** NOT case-insensitive LIKE */
     NILIKE = '$nilike',
 
+    /** Regular expression match (requires regexp function in SQLite) */
+    REGEX = '$regex',
+
+    /** NOT regular expression match */
+    NREGEX = '$nregex',
+
+    // -------------------------------------------------------------------------
+    // Text Search Operators
+    // -------------------------------------------------------------------------
+
+    /** Simple text search: LOWER(field) LIKE LOWER('%value%') */
+    FIND = '$find',
+
+    /** Simple text search (alias for $find) */
+    TEXT = '$text',
+
     // -------------------------------------------------------------------------
     // Array Membership Operators
     // -------------------------------------------------------------------------
@@ -65,6 +92,13 @@ export enum FilterOp {
 
     /** Value not in array: field NOT IN (?, ?, ?) */
     NIN = '$nin',
+
+    // -------------------------------------------------------------------------
+    // JSON Array Operators
+    // -------------------------------------------------------------------------
+
+    /** JSON array length: json_array_length(field) */
+    SIZE = '$size',
 
     // -------------------------------------------------------------------------
     // Logical Operators
@@ -78,6 +112,12 @@ export enum FilterOp {
 
     /** Negate condition */
     NOT = '$not',
+
+    /** NOT AND: NOT (... AND ...) */
+    NAND = '$nand',
+
+    /** NOT OR: NOT (... OR ...) */
+    NOR = '$nor',
 
     // -------------------------------------------------------------------------
     // Range Operators

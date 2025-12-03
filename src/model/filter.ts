@@ -4,8 +4,100 @@
  * ARCHITECTURE OVERVIEW
  * =====================
  * The Filter class provides a fluent query builder that generates parameterized
- * SQL for SQLite. It supports 20+ operators including comparisons, pattern
+ * SQL for SQLite. It supports 26 operators including comparisons, pattern
  * matching, array membership, and logical combinations.
+ *
+ * TODO: PostgreSQL-only operators not yet implemented:
+ * - $any   : Array overlap (field && ARRAY[...])
+ * - $all   : Array contains all (field @> ARRAY[...])
+ * - $nany  : NOT array overlap
+ * - $nall  : NOT array contains all
+ * - $search: Full-text search (to_tsvector @@ plainto_tsquery)
+ * These require PostgreSQL-specific syntax and have no direct SQLite equivalent.
+ *
+ * AVAILABLE OPERATORS
+ * ===================
+ *
+ * Comparison Operators:
+ * ┌──────────┬─────────────────────┬─────────────────────────────────────────┐
+ * │ Operator │ SQL Generated       │ Example                                 │
+ * ├──────────┼─────────────────────┼─────────────────────────────────────────┤
+ * │ $eq      │ field = ?           │ { status: 'active' }                    │
+ * │          │ field IS NULL       │ { status: { $eq: null } }               │
+ * │ $ne      │ field != ?          │ { status: { $ne: 'deleted' } }          │
+ * │ $neq     │ (alias for $ne)     │ { status: { $neq: 'deleted' } }         │
+ * │ $gt      │ field > ?           │ { age: { $gt: 18 } }                    │
+ * │ $gte     │ field >= ?          │ { age: { $gte: 18 } }                   │
+ * │ $lt      │ field < ?           │ { age: { $lt: 65 } }                    │
+ * │ $lte     │ field <= ?          │ { age: { $lte: 65 } }                   │
+ * └──────────┴─────────────────────┴─────────────────────────────────────────┘
+ *
+ * Pattern Matching Operators:
+ * ┌──────────┬─────────────────────────────┬─────────────────────────────────┐
+ * │ Operator │ SQL Generated               │ Example                         │
+ * ├──────────┼─────────────────────────────┼─────────────────────────────────┤
+ * │ $like    │ field LIKE ?                │ { name: { $like: 'John%' } }    │
+ * │ $ilike   │ LOWER(field) LIKE LOWER(?)  │ { name: { $ilike: 'john%' } }   │
+ * │ $nlike   │ field NOT LIKE ?            │ { name: { $nlike: '%test%' } }  │
+ * │ $nilike  │ LOWER(field) NOT LIKE ...   │ { name: { $nilike: '%TEST%' } } │
+ * │ $regex   │ field REGEXP ?              │ { name: { $regex: '^test' } }   │
+ * │ $nregex  │ field NOT REGEXP ?          │ { name: { $nregex: '^test' } }  │
+ * └──────────┴─────────────────────────────┴─────────────────────────────────┘
+ *
+ * Text Search Operators:
+ * ┌──────────┬─────────────────────────────┬─────────────────────────────────┐
+ * │ Operator │ SQL Generated               │ Example                         │
+ * ├──────────┼─────────────────────────────┼─────────────────────────────────┤
+ * │ $find    │ LOWER(field) LIKE ?         │ { desc: { $find: 'foo' } }      │
+ * │ $text    │ (alias for $find)           │ { desc: { $text: 'foo' } }      │
+ * └──────────┴─────────────────────────────┴─────────────────────────────────┘
+ * Note: $find/$text wrap value with %...% for contains matching.
+ *
+ * Array Membership Operators:
+ * ┌──────────┬─────────────────────────────┬─────────────────────────────────┐
+ * │ Operator │ SQL Generated               │ Example                         │
+ * ├──────────┼─────────────────────────────┼─────────────────────────────────┤
+ * │ $in      │ field IN (?, ?, ...)        │ { status: { $in: ['a', 'b'] } } │
+ * │          │ 0=1 (empty array)           │ { status: { $in: [] } }         │
+ * │ $nin     │ field NOT IN (?, ?, ...)    │ { status: { $nin: ['x'] } }     │
+ * │          │ 1=1 (empty array)           │ { status: { $nin: [] } }        │
+ * └──────────┴─────────────────────────────┴─────────────────────────────────┘
+ *
+ * JSON Array Operators:
+ * ┌──────────┬─────────────────────────────┬─────────────────────────────────┐
+ * │ Operator │ SQL Generated               │ Example                         │
+ * ├──────────┼─────────────────────────────┼─────────────────────────────────┤
+ * │ $size    │ json_array_length(field)    │ { tags: { $size: 3 } }          │
+ * │          │ (supports nested operators) │ { tags: { $size: { $gte: 1 } }} │
+ * └──────────┴─────────────────────────────┴─────────────────────────────────┘
+ *
+ * Logical Operators:
+ * ┌──────────┬─────────────────────────────┬─────────────────────────────────┐
+ * │ Operator │ SQL Generated               │ Example                         │
+ * ├──────────┼─────────────────────────────┼─────────────────────────────────┤
+ * │ $and     │ (... AND ...)               │ { $and: [{ a: 1 }, { b: 2 }] }  │
+ * │ $or      │ (... OR ...)                │ { $or: [{ a: 1 }, { b: 2 }] }   │
+ * │ $not     │ NOT (...)                   │ { $not: { status: 'deleted' } } │
+ * │ $nand    │ NOT (... AND ...)           │ { $nand: [{ a: 1 }, { b: 2 }] } │
+ * │ $nor     │ NOT (... OR ...)            │ { $nor: [{ a: 1 }, { b: 2 }] }  │
+ * └──────────┴─────────────────────────────┴─────────────────────────────────┘
+ *
+ * Range Operator:
+ * ┌──────────┬─────────────────────────────┬─────────────────────────────────┐
+ * │ Operator │ SQL Generated               │ Example                         │
+ * ├──────────┼─────────────────────────────┼─────────────────────────────────┤
+ * │ $between │ field BETWEEN ? AND ?       │ { age: { $between: [18, 65] } } │
+ * └──────────┴─────────────────────────────┴─────────────────────────────────┘
+ *
+ * Null/Existence Operators:
+ * ┌──────────┬─────────────────────────────┬─────────────────────────────────┐
+ * │ Operator │ SQL Generated               │ Example                         │
+ * ├──────────┼─────────────────────────────┼─────────────────────────────────┤
+ * │ $exists  │ field IS NOT NULL (true)    │ { email: { $exists: true } }    │
+ * │          │ field IS NULL (false)       │ { email: { $exists: false } }   │
+ * │ $null    │ field IS NULL (true)        │ { deleted: { $null: true } }    │
+ * │          │ field IS NOT NULL (false)   │ { deleted: { $null: false } }   │
+ * └──────────┴─────────────────────────────┴─────────────────────────────────┘
  *
  * USAGE
  * =====
@@ -374,6 +466,28 @@ export class Filter {
                 continue;
             }
 
+            if (key === '$nand' || key === FilterOp.NAND) {
+                const subConditions = value as WhereConditions[];
+                const subParts = subConditions
+                    .map((c) => this.buildConditions(c, params))
+                    .filter(Boolean);
+                if (subParts.length > 0) {
+                    parts.push(`NOT (${subParts.join(' AND ')})`);
+                }
+                continue;
+            }
+
+            if (key === '$nor' || key === FilterOp.NOR) {
+                const subConditions = value as WhereConditions[];
+                const subParts = subConditions
+                    .map((c) => this.buildConditions(c, params))
+                    .filter(Boolean);
+                if (subParts.length > 0) {
+                    parts.push(`NOT (${subParts.join(' OR ')})`);
+                }
+                continue;
+            }
+
             // Regular field condition
             this.validateIdentifier(key, 'field name');
             const condition = this.buildFieldCondition(key, value, params);
@@ -437,6 +551,8 @@ export class Filter {
 
             case '$ne':
             case FilterOp.NE:
+            case '$neq':
+            case FilterOp.NEQ:
                 if (value === null) return `${field} IS NOT NULL`;
                 params.push(value);
                 return `${field} != ?`;
@@ -483,6 +599,25 @@ export class Filter {
                 params.push(String(value).toLowerCase());
                 return `LOWER(${field}) NOT LIKE LOWER(?)`;
 
+            // Regex matching (requires regexp function registered in SQLite)
+            case '$regex':
+            case FilterOp.REGEX:
+                params.push(value);
+                return `${field} REGEXP ?`;
+
+            case '$nregex':
+            case FilterOp.NREGEX:
+                params.push(value);
+                return `${field} NOT REGEXP ?`;
+
+            // Text search (case-insensitive contains)
+            case '$find':
+            case FilterOp.FIND:
+            case '$text':
+            case FilterOp.TEXT:
+                params.push(`%${String(value).toLowerCase()}%`);
+                return `LOWER(${field}) LIKE ?`;
+
             // Array membership
             case '$in':
             case FilterOp.IN: {
@@ -500,6 +635,23 @@ export class Filter {
                 const placeholders = arr.map(() => '?').join(', ');
                 params.push(...arr);
                 return `${field} NOT IN (${placeholders})`;
+            }
+
+            // JSON array size (SQLite uses json_array_length)
+            case '$size':
+            case FilterOp.SIZE: {
+                const lengthExpr = `json_array_length(${field})`;
+                if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+                    // Nested operator: { $size: { $gte: 1 } }
+                    const entries = Object.entries(value as Record<string, unknown>);
+                    if (entries.length === 1) {
+                        const [nestedOp, nestedValue] = entries[0]!;
+                        return this.buildSizeCondition(lengthExpr, nestedOp, nestedValue, params);
+                    }
+                }
+                // Simple equality: { $size: 3 }
+                params.push(value);
+                return `${lengthExpr} = ?`;
             }
 
             // Range
@@ -521,6 +673,47 @@ export class Filter {
 
             default:
                 throw new Error(`Unknown filter operator: ${op}`);
+        }
+    }
+
+    /**
+     * Build condition for $size with nested operator.
+     */
+    private buildSizeCondition(
+        lengthExpr: string,
+        op: string,
+        value: unknown,
+        params: unknown[]
+    ): string {
+        switch (op) {
+            case '$eq':
+            case FilterOp.EQ:
+                params.push(value);
+                return `${lengthExpr} = ?`;
+            case '$ne':
+            case FilterOp.NE:
+            case '$neq':
+            case FilterOp.NEQ:
+                params.push(value);
+                return `${lengthExpr} != ?`;
+            case '$gt':
+            case FilterOp.GT:
+                params.push(value);
+                return `${lengthExpr} > ?`;
+            case '$gte':
+            case FilterOp.GTE:
+                params.push(value);
+                return `${lengthExpr} >= ?`;
+            case '$lt':
+            case FilterOp.LT:
+                params.push(value);
+                return `${lengthExpr} < ?`;
+            case '$lte':
+            case FilterOp.LTE:
+                params.push(value);
+                return `${lengthExpr} <= ?`;
+            default:
+                throw new Error(`Unsupported operator for $size: ${op}`);
         }
     }
 

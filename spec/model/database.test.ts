@@ -345,16 +345,12 @@ describe('ModelCache', () => {
 // =============================================================================
 
 describe('Filter', () => {
-    describe('basic queries', () => {
-        it('should generate simple SELECT', () => {
-            const filter = new Filter('file');
-            const { sql, params } = filter.toSQL();
+    // -------------------------------------------------------------------------
+    // Comparison Operators
+    // -------------------------------------------------------------------------
 
-            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL');
-            expect(params).toEqual([]);
-        });
-
-        it('should handle where clause with equality', () => {
+    describe('comparison operators', () => {
+        it('should handle implicit $eq', () => {
             const filter = new Filter('file').where({ status: 'active' });
             const { sql, params } = filter.toSQL();
 
@@ -362,7 +358,31 @@ describe('Filter', () => {
             expect(params).toEqual(['active']);
         });
 
-        it('should handle where clause with operators', () => {
+        it('should handle explicit $eq', () => {
+            const filter = new Filter('file').where({ status: { $eq: 'active' } });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL AND status = ?');
+            expect(params).toEqual(['active']);
+        });
+
+        it('should handle $ne', () => {
+            const filter = new Filter('file').where({ status: { $ne: 'deleted' } });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL AND status != ?');
+            expect(params).toEqual(['deleted']);
+        });
+
+        it('should handle $gt', () => {
+            const filter = new Filter('file').where({ size: { $gt: 1000 } });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL AND size > ?');
+            expect(params).toEqual([1000]);
+        });
+
+        it('should handle $gte', () => {
             const filter = new Filter('file').where({ size: { $gte: 1000 } });
             const { sql, params } = filter.toSQL();
 
@@ -370,15 +390,153 @@ describe('Filter', () => {
             expect(params).toEqual([1000]);
         });
 
-        it('should handle $in operator', () => {
-            const filter = new Filter('file').where({ status: { $in: ['a', 'b'] } });
+        it('should handle $lt', () => {
+            const filter = new Filter('file').where({ size: { $lt: 1000 } });
             const { sql, params } = filter.toSQL();
 
-            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL AND status IN (?, ?)');
-            expect(params).toEqual(['a', 'b']);
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL AND size < ?');
+            expect(params).toEqual([1000]);
         });
 
-        it('should handle $or operator', () => {
+        it('should handle $lte', () => {
+            const filter = new Filter('file').where({ size: { $lte: 1000 } });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL AND size <= ?');
+            expect(params).toEqual([1000]);
+        });
+
+        it('should handle multiple operators on same field', () => {
+            const filter = new Filter('file').where({ size: { $gte: 100, $lte: 1000 } });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL AND size >= ? AND size <= ?');
+            expect(params).toEqual([100, 1000]);
+        });
+    });
+
+    // -------------------------------------------------------------------------
+    // Null Handling
+    // -------------------------------------------------------------------------
+
+    describe('null handling', () => {
+        it('should handle implicit null (field: null)', () => {
+            const filter = new Filter('file').where({ parent: null });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL AND parent IS NULL');
+            expect(params).toEqual([]);
+        });
+
+        it('should handle $eq null', () => {
+            const filter = new Filter('file').where({ parent: { $eq: null } });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL AND parent IS NULL');
+            expect(params).toEqual([]);
+        });
+
+        it('should handle $ne null', () => {
+            const filter = new Filter('file').where({ parent: { $ne: null } });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL AND parent IS NOT NULL');
+            expect(params).toEqual([]);
+        });
+    });
+
+    // -------------------------------------------------------------------------
+    // Pattern Matching Operators
+    // -------------------------------------------------------------------------
+
+    describe('pattern matching operators', () => {
+        it('should handle $like', () => {
+            const filter = new Filter('file').where({ name: { $like: 'test%' } });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL AND name LIKE ?');
+            expect(params).toEqual(['test%']);
+        });
+
+        it('should handle $ilike (case-insensitive)', () => {
+            const filter = new Filter('file').where({ name: { $ilike: 'TEST%' } });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL AND LOWER(name) LIKE LOWER(?)');
+            expect(params).toEqual(['test%']); // lowercased
+        });
+
+        it('should handle $nlike', () => {
+            const filter = new Filter('file').where({ name: { $nlike: '%tmp%' } });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL AND name NOT LIKE ?');
+            expect(params).toEqual(['%tmp%']);
+        });
+
+        it('should handle $nilike (case-insensitive NOT LIKE)', () => {
+            const filter = new Filter('file').where({ name: { $nilike: '%TMP%' } });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL AND LOWER(name) NOT LIKE LOWER(?)');
+            expect(params).toEqual(['%tmp%']); // lowercased
+        });
+    });
+
+    // -------------------------------------------------------------------------
+    // Array Membership Operators
+    // -------------------------------------------------------------------------
+
+    describe('array membership operators', () => {
+        it('should handle $in', () => {
+            const filter = new Filter('file').where({ status: { $in: ['a', 'b', 'c'] } });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL AND status IN (?, ?, ?)');
+            expect(params).toEqual(['a', 'b', 'c']);
+        });
+
+        it('should handle empty $in (INV-5: generates FALSE)', () => {
+            const filter = new Filter('file').where({ status: { $in: [] } });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL AND 0=1');
+            expect(params).toEqual([]);
+        });
+
+        it('should handle $nin', () => {
+            const filter = new Filter('file').where({ status: { $nin: ['deleted', 'archived'] } });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL AND status NOT IN (?, ?)');
+            expect(params).toEqual(['deleted', 'archived']);
+        });
+
+        it('should handle empty $nin (INV-5: generates TRUE)', () => {
+            const filter = new Filter('file').where({ status: { $nin: [] } });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL AND 1=1');
+            expect(params).toEqual([]);
+        });
+    });
+
+    // -------------------------------------------------------------------------
+    // Logical Operators
+    // -------------------------------------------------------------------------
+
+    describe('logical operators', () => {
+        it('should handle $and', () => {
+            const filter = new Filter('file').where({
+                $and: [{ status: 'active' }, { size: { $gt: 0 } }],
+            });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toContain('(status = ? AND size > ?)');
+            expect(params).toEqual(['active', 0]);
+        });
+
+        it('should handle $or', () => {
             const filter = new Filter('file').where({
                 $or: [{ status: 'a' }, { status: 'b' }],
             });
@@ -388,14 +546,282 @@ describe('Filter', () => {
             expect(params).toEqual(['a', 'b']);
         });
 
-        it('should handle $and operator', () => {
+        it('should handle $not', () => {
             const filter = new Filter('file').where({
-                $and: [{ status: 'active' }, { size: { $gt: 0 } }],
+                $not: { status: 'deleted' },
             });
             const { sql, params } = filter.toSQL();
 
-            expect(sql).toContain('(status = ? AND size > ?)');
-            expect(params).toEqual(['active', 0]);
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL AND NOT (status = ?)');
+            expect(params).toEqual(['deleted']);
+        });
+
+        it('should handle nested logical operators', () => {
+            const filter = new Filter('file').where({
+                $and: [
+                    { status: 'active' },
+                    { $or: [{ owner: 'user-1' }, { owner: 'user-2' }] },
+                ],
+            });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toContain('(status = ? AND (owner = ? OR owner = ?))');
+            expect(params).toEqual(['active', 'user-1', 'user-2']);
+        });
+
+        it('should handle empty $and (no conditions)', () => {
+            const filter = new Filter('file').where({ $and: [] });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL');
+            expect(params).toEqual([]);
+        });
+
+        it('should handle empty $or (no conditions)', () => {
+            const filter = new Filter('file').where({ $or: [] });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL');
+            expect(params).toEqual([]);
+        });
+    });
+
+    // -------------------------------------------------------------------------
+    // Range Operator
+    // -------------------------------------------------------------------------
+
+    describe('range operator', () => {
+        it('should handle $between', () => {
+            const filter = new Filter('file').where({ size: { $between: [100, 1000] } });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL AND size BETWEEN ? AND ?');
+            expect(params).toEqual([100, 1000]);
+        });
+
+        it('should handle $between with dates', () => {
+            const start = '2024-01-01';
+            const end = '2024-12-31';
+            const filter = new Filter('file').where({ created_at: { $between: [start, end] } });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL AND created_at BETWEEN ? AND ?');
+            expect(params).toEqual([start, end]);
+        });
+    });
+
+    // -------------------------------------------------------------------------
+    // Null/Existence Operators
+    // -------------------------------------------------------------------------
+
+    describe('null/existence operators', () => {
+        it('should handle $exists: true (IS NOT NULL)', () => {
+            const filter = new Filter('file').where({ email: { $exists: true } });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL AND email IS NOT NULL');
+            expect(params).toEqual([]);
+        });
+
+        it('should handle $exists: false (IS NULL)', () => {
+            const filter = new Filter('file').where({ email: { $exists: false } });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL AND email IS NULL');
+            expect(params).toEqual([]);
+        });
+
+        it('should handle $null: true (IS NULL)', () => {
+            const filter = new Filter('file').where({ deleted_at: { $null: true } });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL AND deleted_at IS NULL');
+            expect(params).toEqual([]);
+        });
+
+        it('should handle $null: false (IS NOT NULL)', () => {
+            const filter = new Filter('file').where({ deleted_at: { $null: false } });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL AND deleted_at IS NOT NULL');
+            expect(params).toEqual([]);
+        });
+    });
+
+    // -------------------------------------------------------------------------
+    // $neq Operator (alias for $ne)
+    // -------------------------------------------------------------------------
+
+    describe('$neq operator', () => {
+        it('should handle $neq as alias for $ne', () => {
+            const filter = new Filter('file').where({ status: { $neq: 'deleted' } });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL AND status != ?');
+            expect(params).toEqual(['deleted']);
+        });
+
+        it('should handle $neq null', () => {
+            const filter = new Filter('file').where({ parent: { $neq: null } });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL AND parent IS NOT NULL');
+            expect(params).toEqual([]);
+        });
+    });
+
+    // -------------------------------------------------------------------------
+    // Regex Operators
+    // -------------------------------------------------------------------------
+
+    describe('regex operators', () => {
+        it('should handle $regex', () => {
+            const filter = new Filter('file').where({ name: { $regex: '^test.*\\.txt$' } });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL AND name REGEXP ?');
+            expect(params).toEqual(['^test.*\\.txt$']);
+        });
+
+        it('should handle $nregex', () => {
+            const filter = new Filter('file').where({ name: { $nregex: '^temp' } });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL AND name NOT REGEXP ?');
+            expect(params).toEqual(['^temp']);
+        });
+    });
+
+    // -------------------------------------------------------------------------
+    // Text Search Operators ($find, $text)
+    // -------------------------------------------------------------------------
+
+    describe('text search operators', () => {
+        it('should handle $find (case-insensitive contains)', () => {
+            const filter = new Filter('file').where({ description: { $find: 'important' } });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL AND LOWER(description) LIKE ?');
+            expect(params).toEqual(['%important%']);
+        });
+
+        it('should handle $text as alias for $find', () => {
+            const filter = new Filter('file').where({ description: { $text: 'URGENT' } });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL AND LOWER(description) LIKE ?');
+            expect(params).toEqual(['%urgent%']); // lowercased
+        });
+    });
+
+    // -------------------------------------------------------------------------
+    // $size Operator (JSON array length)
+    // -------------------------------------------------------------------------
+
+    describe('$size operator', () => {
+        it('should handle $size with simple equality', () => {
+            const filter = new Filter('file').where({ tags: { $size: 3 } });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL AND json_array_length(tags) = ?');
+            expect(params).toEqual([3]);
+        });
+
+        it('should handle $size with $gte', () => {
+            const filter = new Filter('file').where({ tags: { $size: { $gte: 1 } } });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL AND json_array_length(tags) >= ?');
+            expect(params).toEqual([1]);
+        });
+
+        it('should handle $size with $lt', () => {
+            const filter = new Filter('file').where({ tags: { $size: { $lt: 10 } } });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL AND json_array_length(tags) < ?');
+            expect(params).toEqual([10]);
+        });
+
+        it('should handle $size with $eq', () => {
+            const filter = new Filter('file').where({ tags: { $size: { $eq: 0 } } });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL AND json_array_length(tags) = ?');
+            expect(params).toEqual([0]);
+        });
+
+        it('should handle $size with $ne', () => {
+            const filter = new Filter('file').where({ tags: { $size: { $ne: 0 } } });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL AND json_array_length(tags) != ?');
+            expect(params).toEqual([0]);
+        });
+
+        it('should throw for unsupported nested operator in $size', () => {
+            const filter = new Filter('file');
+            expect(() =>
+                filter.where({ tags: { $size: { $like: 'test' } } }).toSQL()
+            ).toThrow(/Unsupported operator for \$size/);
+        });
+    });
+
+    // -------------------------------------------------------------------------
+    // $nand and $nor Operators
+    // -------------------------------------------------------------------------
+
+    describe('$nand operator', () => {
+        it('should handle $nand (NOT AND)', () => {
+            const filter = new Filter('file').where({
+                $nand: [{ status: 'active' }, { owner: 'admin' }],
+            });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toContain('NOT (status = ? AND owner = ?)');
+            expect(params).toEqual(['active', 'admin']);
+        });
+
+        it('should handle empty $nand', () => {
+            const filter = new Filter('file').where({ $nand: [] });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL');
+            expect(params).toEqual([]);
+        });
+    });
+
+    describe('$nor operator', () => {
+        it('should handle $nor (NOT OR)', () => {
+            const filter = new Filter('file').where({
+                $nor: [{ status: 'deleted' }, { status: 'archived' }],
+            });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toContain('NOT (status = ? OR status = ?)');
+            expect(params).toEqual(['deleted', 'archived']);
+        });
+
+        it('should handle empty $nor', () => {
+            const filter = new Filter('file').where({ $nor: [] });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL');
+            expect(params).toEqual([]);
+        });
+    });
+
+    // -------------------------------------------------------------------------
+    // Basic Queries (original tests)
+    // -------------------------------------------------------------------------
+
+    describe('basic queries', () => {
+        it('should generate simple SELECT', () => {
+            const filter = new Filter('file');
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL');
+            expect(params).toEqual([]);
         });
     });
 
@@ -473,6 +899,234 @@ describe('Filter', () => {
             expect(sql).toContain('ORDER BY name ASC');
             expect(sql).toContain('LIMIT 10');
             expect(params).toEqual(['active']);
+        });
+    });
+
+    // -------------------------------------------------------------------------
+    // select() Method - Field Selection
+    // -------------------------------------------------------------------------
+
+    describe('select() method', () => {
+        it('should select specific fields', () => {
+            const filter = new Filter('file').select('id', 'name', 'status');
+            const { sql } = filter.toSQL();
+
+            expect(sql).toBe('SELECT id, name, status FROM file WHERE trashed_at IS NULL');
+        });
+
+        it('should default to * when no fields specified', () => {
+            const filter = new Filter('file').select();
+            const { sql } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL');
+        });
+
+        it('should default to * when * is included', () => {
+            const filter = new Filter('file').select('id', '*', 'name');
+            const { sql } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL');
+        });
+    });
+
+    // -------------------------------------------------------------------------
+    // andWhere() Method - Additive Conditions
+    // -------------------------------------------------------------------------
+
+    describe('andWhere() method', () => {
+        it('should add conditions to empty where', () => {
+            const filter = new Filter('file').andWhere({ status: 'active' });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL AND status = ?');
+            expect(params).toEqual(['active']);
+        });
+
+        it('should combine with existing where via $and', () => {
+            const filter = new Filter('file')
+                .where({ status: 'active' })
+                .andWhere({ owner: 'user-1' });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toContain('(status = ? AND owner = ?)');
+            expect(params).toEqual(['active', 'user-1']);
+        });
+
+        it('should chain multiple andWhere calls', () => {
+            const filter = new Filter('file')
+                .andWhere({ status: 'active' })
+                .andWhere({ owner: 'user-1' })
+                .andWhere({ size: { $gt: 0 } });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toContain('status = ?');
+            expect(sql).toContain('owner = ?');
+            expect(sql).toContain('size > ?');
+            expect(params).toEqual(['active', 'user-1', 0]);
+        });
+    });
+
+    // -------------------------------------------------------------------------
+    // toWhereSQL() Method - WHERE Clause Only
+    // -------------------------------------------------------------------------
+
+    describe('toWhereSQL() method', () => {
+        it('should return WHERE clause without keyword', () => {
+            const filter = new Filter('file').where({ status: 'active' });
+            const { clause, params } = filter.toWhereSQL();
+
+            expect(clause).toBe('trashed_at IS NULL AND status = ?');
+            expect(params).toEqual(['active']);
+        });
+
+        it('should return 1=1 for empty conditions', () => {
+            const filter = new Filter('file').trashed('include');
+            const { clause, params } = filter.toWhereSQL();
+
+            expect(clause).toBe('1=1');
+            expect(params).toEqual([]);
+        });
+    });
+
+    // -------------------------------------------------------------------------
+    // SQL Injection Validation
+    // -------------------------------------------------------------------------
+
+    describe('SQL injection validation', () => {
+        it('should reject invalid table names', () => {
+            expect(() => new Filter('table; DROP TABLE users')).toThrow(/Invalid table name/);
+        });
+
+        it('should reject table names starting with numbers', () => {
+            expect(() => new Filter('123table')).toThrow(/Invalid table name/);
+        });
+
+        it('should reject table names with special characters', () => {
+            expect(() => new Filter('table$name')).toThrow(/Invalid table name/);
+        });
+
+        it('should allow valid table names with underscores', () => {
+            const filter = new Filter('my_table_name');
+            const { sql } = filter.toSQL();
+            expect(sql).toContain('FROM my_table_name');
+        });
+
+        it('should allow qualified table names with dots', () => {
+            const filter = new Filter('schema.table');
+            const { sql } = filter.toSQL();
+            expect(sql).toContain('FROM schema.table');
+        });
+
+        it('should reject invalid field names in where', () => {
+            const filter = new Filter('file');
+            expect(() => filter.where({ 'field; DROP TABLE': 'value' }).toSQL()).toThrow(
+                /Invalid field name/
+            );
+        });
+
+        it('should reject invalid field names in select', () => {
+            const filter = new Filter('file');
+            expect(() => filter.select('valid', 'invalid--field')).toThrow(/Invalid field name/);
+        });
+
+        it('should reject invalid field names in order', () => {
+            const filter = new Filter('file');
+            expect(() => filter.order([{ field: 'field; DROP', sort: 'asc' }])).toThrow(
+                /Invalid order field/
+            );
+        });
+    });
+
+    // -------------------------------------------------------------------------
+    // String Order Parsing
+    // -------------------------------------------------------------------------
+
+    describe('string order parsing', () => {
+        it('should parse simple field name (default asc)', () => {
+            const filter = new Filter('file').order('name');
+            const { sql } = filter.toSQL();
+
+            expect(sql).toContain('ORDER BY name ASC');
+        });
+
+        it('should parse "field asc"', () => {
+            const filter = new Filter('file').order('name asc');
+            const { sql } = filter.toSQL();
+
+            expect(sql).toContain('ORDER BY name ASC');
+        });
+
+        it('should parse "field desc"', () => {
+            const filter = new Filter('file').order('name desc');
+            const { sql } = filter.toSQL();
+
+            expect(sql).toContain('ORDER BY name DESC');
+        });
+
+        it('should parse "field DESC" (case insensitive)', () => {
+            const filter = new Filter('file').order('name DESC');
+            const { sql } = filter.toSQL();
+
+            expect(sql).toContain('ORDER BY name DESC');
+        });
+
+        it('should parse array of string orders', () => {
+            const filter = new Filter('file').order(['status desc', 'name asc']);
+            const { sql } = filter.toSQL();
+
+            expect(sql).toContain('ORDER BY status DESC, name ASC');
+        });
+
+        it('should handle mixed string and object orders', () => {
+            const filter = new Filter('file').order([
+                'status desc',
+                { field: 'name', sort: 'asc' },
+            ]);
+            const { sql } = filter.toSQL();
+
+            expect(sql).toContain('ORDER BY status DESC, name ASC');
+        });
+
+        it('should skip empty strings in order array', () => {
+            const filter = new Filter('file').order(['name', '', 'status']);
+            const { sql } = filter.toSQL();
+
+            expect(sql).toContain('ORDER BY name ASC, status ASC');
+        });
+    });
+
+    // -------------------------------------------------------------------------
+    // Unknown Operator
+    // -------------------------------------------------------------------------
+
+    describe('unknown operator', () => {
+        it('should throw for unknown operator', () => {
+            const filter = new Filter('file');
+            expect(() =>
+                filter.where({ status: { $unknown: 'value' } as unknown as Record<string, unknown> }).toSQL()
+            ).toThrow(/Unknown filter operator/);
+        });
+    });
+
+    // -------------------------------------------------------------------------
+    // Idempotency (INV-4)
+    // -------------------------------------------------------------------------
+
+    describe('idempotency (INV-4)', () => {
+        it('should generate identical SQL on multiple calls', () => {
+            const filter = new Filter('file')
+                .where({ status: 'active', size: { $gt: 100 } })
+                .order('name desc')
+                .limit(10);
+
+            const result1 = filter.toSQL();
+            const result2 = filter.toSQL();
+            const result3 = filter.toSQL();
+
+            expect(result1.sql).toBe(result2.sql);
+            expect(result2.sql).toBe(result3.sql);
+            expect(result1.params).toEqual(result2.params);
+            expect(result2.params).toEqual(result3.params);
         });
     });
 });
