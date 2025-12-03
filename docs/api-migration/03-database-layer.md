@@ -407,7 +407,7 @@ export interface DbRecord {
     created_at: string;
     updated_at: string;
     trashed_at: string | null;
-    deleted_at: string | null;
+    expired_at: string | null;
     [key: string]: unknown;
 }
 

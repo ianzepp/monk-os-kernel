@@ -256,7 +256,7 @@ function validateFieldDefinition(raw: unknown, index: number): FieldDefinition {
     }
 
     // Check for reserved names
-    const reserved = ['id', 'created_at', 'updated_at', 'trashed_at', 'deleted_at'];
+    const reserved = ['id', 'created_at', 'updated_at', 'trashed_at', 'expired_at'];
     if (reserved.includes(obj.name)) {
         throw new Error(`Field name '${obj.name}' is reserved`);
     }

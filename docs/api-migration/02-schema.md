@@ -30,7 +30,7 @@ PRAGMA foreign_keys = ON;
 --   created_at    Creation timestamp
 --   updated_at    Last modification timestamp
 --   trashed_at    Soft delete timestamp (null = active)
---   deleted_at    Hard delete timestamp (null = not purged)
+--   expired_at    Hard delete timestamp (null = not purged)
 
 -- =============================================================================
 -- MODELS TABLE
@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS models (
     created_at  TEXT DEFAULT (datetime('now')),
     updated_at  TEXT DEFAULT (datetime('now')),
     trashed_at  TEXT,
-    deleted_at  TEXT,
+    expired_at  TEXT,
 
     -- Model identity
     model_name  TEXT NOT NULL UNIQUE,
@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS fields (
     created_at  TEXT DEFAULT (datetime('now')),
     updated_at  TEXT DEFAULT (datetime('now')),
     trashed_at  TEXT,
-    deleted_at  TEXT,
+    expired_at  TEXT,
 
     -- Field identity
     model_name  TEXT NOT NULL REFERENCES models(model_name) ON DELETE CASCADE,
@@ -126,7 +126,7 @@ CREATE TABLE IF NOT EXISTS tracked (
     created_at  TEXT DEFAULT (datetime('now')),
     updated_at  TEXT DEFAULT (datetime('now')),
     trashed_at  TEXT,
-    deleted_at  TEXT,
+    expired_at  TEXT,
 
     -- Change identity
     change_id   INTEGER,  -- Auto-increment per model/record

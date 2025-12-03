@@ -558,7 +558,7 @@ export default class ModelDdlCreate extends BaseObserver {
                 created_at  TEXT DEFAULT (datetime('now')),
                 updated_at  TEXT DEFAULT (datetime('now')),
                 trashed_at  TEXT,
-                deleted_at  TEXT
+                expired_at  TEXT
             )
         `;
 

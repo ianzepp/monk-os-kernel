@@ -292,7 +292,7 @@ class DataRecordHandle implements FileHandle {
             delete data.created_at;
             delete data.updated_at;
             delete data.trashed_at;
-            delete data.deleted_at;
+            delete data.expired_at;
 
             await this.db.updateOne(this.modelName, this.recordId, data);
         }
