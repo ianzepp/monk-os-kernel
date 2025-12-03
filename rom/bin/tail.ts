@@ -17,11 +17,13 @@
  *   cat file | tail -n 20
  */
 
+import type { Response } from '@rom/lib/process';
 import {
     getargs,
     getcwd,
-    readText,
     readFile,
+    recv,
+    send,
     println,
     eprintln,
     exit,
@@ -33,7 +35,7 @@ async function main(): Promise<void> {
     const argv = args.slice(1);
 
     // Parse -n option
-    let lines = 10;
+    let maxLines = 10;
     const files: string[] = [];
 
     for (let i = 0; i < argv.length; i++) {
@@ -44,14 +46,14 @@ async function main(): Promise<void> {
                 await eprintln(`tail: invalid number of lines: '${argv[i]}'`);
                 await exit(1);
             }
-            lines = n;
+            maxLines = n;
         } else if (arg.startsWith('-n')) {
             const n = parseInt(arg.slice(2), 10);
             if (isNaN(n) || n < 0) {
                 await eprintln(`tail: invalid number of lines: '${arg.slice(2)}'`);
                 await exit(1);
             }
-            lines = n;
+            maxLines = n;
         } else if (!arg.startsWith('-') || arg === '-') {
             files.push(arg === '-' ? '' : arg);
         }
@@ -59,7 +61,7 @@ async function main(): Promise<void> {
 
     // Process stdin or files
     if (files.length === 0) {
-        await processStdin(lines);
+        await processStdin(maxLines);
     } else {
         const cwd = await getcwd();
         const showHeaders = files.length > 1;
@@ -74,9 +76,9 @@ async function main(): Promise<void> {
             }
 
             if (!file) {
-                await processStdin(lines);
+                await processStdin(maxLines);
             } else {
-                const code = await processFile(cwd, file, lines);
+                const code = await processFile(cwd, file, maxLines);
                 if (code !== 0) exitCode = code;
             }
         }
@@ -87,38 +89,46 @@ async function main(): Promise<void> {
     await exit(0);
 }
 
-async function processStdin(lines: number): Promise<void> {
-    const content = await readText(0);
-    await outputLastLines(content, lines);
+async function processStdin(maxLines: number): Promise<void> {
+    // FIFO buffer of last N items
+    const buffer: Response[] = [];
+
+    for await (const msg of recv(0)) {
+        if (msg.op === 'item') {
+            buffer.push(msg);
+            if (buffer.length > maxLines) buffer.shift();
+        }
+    }
+
+    // Output buffered items
+    for (const msg of buffer) {
+        await send(1, msg);
+    }
 }
 
-async function processFile(cwd: string, file: string, lines: number): Promise<number> {
+async function processFile(cwd: string, file: string, maxLines: number): Promise<number> {
     const path = resolvePath(cwd, file);
 
     try {
         const content = await readFile(path);
-        await outputLastLines(content, lines);
+        const allLines = content.split('\n');
+
+        // Remove trailing empty line if content ends with newline
+        if (allLines[allLines.length - 1] === '') {
+            allLines.pop();
+        }
+
+        const start = Math.max(0, allLines.length - maxLines);
+        const output = allLines.slice(start);
+
+        for (const line of output) {
+            await println(line);
+        }
         return 0;
     } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         await eprintln(`tail: ${file}: ${msg}`);
         return 1;
-    }
-}
-
-async function outputLastLines(content: string, lines: number): Promise<void> {
-    const allLines = content.split('\n');
-
-    // Remove trailing empty line if content ends with newline
-    if (allLines[allLines.length - 1] === '') {
-        allLines.pop();
-    }
-
-    const start = Math.max(0, allLines.length - lines);
-    const output = allLines.slice(start);
-
-    for (const line of output) {
-        await println(line);
     }
 }
 

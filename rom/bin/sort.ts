@@ -28,17 +28,20 @@
  *   sort -rn scores.txt          # Reverse numeric sort
  */
 
+import type { Response } from '@rom/lib/process';
 import {
     getargs,
     getcwd,
     open,
-    readText,
     readFile,
     write,
     close,
+    recv,
+    send,
     println,
     eprintln,
     exit,
+    respond,
 } from '@rom/lib/process';
 import { parseArgs, resolvePath } from '@rom/lib/shell';
 
@@ -111,31 +114,35 @@ async function main(): Promise<void> {
     const files = parsed.positional;
     const cwd = await getcwd();
 
-    // Read content from files or stdin
-    let content: string;
+    // Collect items from stdin or read from files
+    let items: { msg: Response; text: string }[] = [];
 
     if (files.length === 0) {
-        content = await readStdin();
+        // Stdin: collect message items
+        for await (const msg of recv(0)) {
+            if (msg.op === 'item') {
+                const text = ((msg.data as { text: string }).text ?? '').replace(/\n$/, '');
+                items.push({ msg, text });
+            }
+        }
     } else {
-        const parts: string[] = [];
+        // Files: read bytes, convert to items
         for (const file of files) {
-            const text = await readFileContent(cwd, file);
-            if (text === null) {
+            const content = await readFileContent(cwd, file);
+            if (content === null) {
                 await exit(1);
             }
-            parts.push(text);
+            const lines = content.split('\n');
+            if (lines[lines.length - 1] === '') lines.pop();
+            for (const text of lines) {
+                items.push({ msg: respond.item({ text: text + '\n' }), text });
+            }
         }
-        content = parts.join('');
-    }
-
-    // Split into lines
-    let lines = content.split('\n');
-    if (lines[lines.length - 1] === '') {
-        lines.pop();
     }
 
     // Check mode
     if (options.check) {
+        const lines = items.map(i => i.text);
         if (checkSorted(lines, options)) {
             await exit(0);
         }
@@ -145,21 +152,21 @@ async function main(): Promise<void> {
 
     // Sort
     if (options.stable) {
-        const indexed = lines.map((line, i) => ({ line, index: i }));
+        const indexed = items.map((item, i) => ({ item, index: i }));
         indexed.sort((a, b) => {
-            const cmp = compareLines(a.line, b.line, options);
+            const cmp = compareLines(a.item.text, b.item.text, options);
             return cmp !== 0 ? cmp : a.index - b.index;
         });
-        lines = indexed.map(x => x.line);
+        items = indexed.map(x => x.item);
     } else {
-        lines.sort((a, b) => compareLines(a, b, options));
+        items.sort((a, b) => compareLines(a.text, b.text, options));
     }
 
     // Unique
     if (options.unique) {
         const seen = new Set<string>();
-        lines = lines.filter(line => {
-            const key = options.ignoreCase ? line.toLowerCase() : line;
+        items = items.filter(item => {
+            const key = options.ignoreCase ? item.text.toLowerCase() : item.text;
             if (seen.has(key)) return false;
             seen.add(key);
             return true;
@@ -167,13 +174,12 @@ async function main(): Promise<void> {
     }
 
     // Output
-    const output = lines.map(l => l + '\n').join('');
-
     if (options.output) {
         const outPath = resolvePath(cwd, options.output);
         try {
             const fd = await open(outPath, { write: true, create: true, truncate: true });
             try {
+                const output = items.map(i => i.text + '\n').join('');
                 await write(fd, new TextEncoder().encode(output));
             } finally {
                 await close(fd);
@@ -184,14 +190,12 @@ async function main(): Promise<void> {
             await exit(1);
         }
     } else {
-        await write(1, new TextEncoder().encode(output));
+        for (const item of items) {
+            await send(1, item.msg);
+        }
     }
 
     await exit(0);
-}
-
-async function readStdin(): Promise<string> {
-    return readText(0);
 }
 
 async function readFileContent(cwd: string, file: string): Promise<string | null> {

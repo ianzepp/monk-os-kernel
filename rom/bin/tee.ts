@@ -21,10 +21,11 @@ import {
     getargs,
     getcwd,
     open,
-    read,
     readFileBytes,
     write,
     close,
+    recv,
+    send,
     eprintln,
     exit,
 } from '@rom/lib/process';
@@ -45,22 +46,24 @@ async function main(): Promise<void> {
     }
 
     const cwd = await getcwd();
+    const encoder = new TextEncoder();
 
-    // Read stdin and write to stdout simultaneously, collecting for files
-    const chunks: Uint8Array[] = [];
-    for await (const chunk of read(0)) {
-        chunks.push(chunk);
-        await write(1, chunk);
+    // Collect text from messages for file output, pass through to stdout
+    const textParts: string[] = [];
+
+    for await (const msg of recv(0)) {
+        // Pass through to stdout
+        await send(1, msg);
+
+        // Collect text for file output
+        if (msg.op === 'item') {
+            const text = (msg.data as { text: string }).text ?? '';
+            textParts.push(text);
+        }
     }
 
-    // Combine all chunks
-    const total = chunks.reduce((sum, c) => sum + c.length, 0);
-    const content = new Uint8Array(total);
-    let offset = 0;
-    for (const chunk of chunks) {
-        content.set(chunk, offset);
-        offset += chunk.length;
-    }
+    // Convert to bytes for file writing
+    const content = encoder.encode(textParts.join(''));
 
     // Write to each file
     let exitCode = 0;
@@ -76,7 +79,7 @@ async function main(): Promise<void> {
                 try {
                     const existing = await readFileBytes(filePath);
                     if (existing.length > 0) {
-                        finalContent = new Uint8Array(existing.length + total);
+                        finalContent = new Uint8Array(existing.length + content.length);
                         finalContent.set(existing, 0);
                         finalContent.set(content, existing.length);
                     }

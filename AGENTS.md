@@ -594,6 +594,11 @@ UNIX-like utilities available:
 - **Misc**: true, false, seq, grant
 - **Daemons**: shell, init, telnetd, logd
 
+**Streaming utilities** (cat, head, tail, sort, wc, uniq, tee, tr, cut, nl) use message-based I/O:
+- Stdin: `recv(0)` for Response items
+- Stdout: `send(1, msg)` for Response items
+- File input: still byte-based via `readFile()` (disk is a byte boundary)
+
 ---
 
 ## 6. Key Patterns & Best Practices
@@ -761,6 +766,6 @@ await worker.release(workerId);                // Release to pool
 
 ---
 
-**Last Updated**: December 2024
-**Next Review**: After shell implementation phase
+**Last Updated**: December 2024 (Phase 3: Streaming utilities migrated to message I/O)
+**Next Review**: After Phase 4 (console as byte boundary)
 **Maintainer**: @monk-api/os team

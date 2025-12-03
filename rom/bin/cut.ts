@@ -21,11 +21,13 @@
 import {
     getargs,
     getcwd,
-    readText,
     readFile,
+    recv,
+    send,
     println,
     eprintln,
     exit,
+    respond,
 } from '@rom/lib/process';
 import { resolvePath } from '@rom/lib/shell';
 
@@ -69,13 +71,12 @@ async function main(): Promise<void> {
         await exit(1);
     }
 
-    // Read from file or stdin
-    let content: string;
-
     if (file) {
+        // File mode: read bytes, process as text
         const cwd = await getcwd();
         const path = resolvePath(cwd, file);
 
+        let content: string;
         try {
             content = await readFile(path);
         } catch (err) {
@@ -83,26 +84,28 @@ async function main(): Promise<void> {
             await eprintln(`cut: ${file}: ${msg}`);
             await exit(1);
         }
-    } else {
-        content = await readText(0);
-    }
 
-    // Process lines
-    const lines = content.split('\n');
-    if (lines[lines.length - 1] === '') {
-        lines.pop();
-    }
+        const lines = content.split('\n');
+        if (lines[lines.length - 1] === '') lines.pop();
 
-    for (const line of lines) {
-        let output: string;
-
-        if (chars.length > 0) {
-            output = extractChars(line, chars);
-        } else {
-            output = extractFields(line, delimiter, fields);
+        for (const line of lines) {
+            const output = chars.length > 0
+                ? extractChars(line, chars)
+                : extractFields(line, delimiter, fields);
+            await println(output);
         }
-
-        await println(output);
+    } else {
+        // Stdin mode: stream message items
+        for await (const msg of recv(0)) {
+            if (msg.op === 'item') {
+                const text = (msg.data as { text: string }).text ?? '';
+                const line = text.replace(/\n$/, '');
+                const output = chars.length > 0
+                    ? extractChars(line, chars)
+                    : extractFields(line, delimiter, fields);
+                await send(1, respond.item({ text: output + '\n' }));
+            }
+        }
     }
 
     await exit(0);

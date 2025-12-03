@@ -23,8 +23,8 @@
 import {
     getargs,
     getcwd,
-    readText,
     readFile,
+    recv,
     println,
     eprintln,
     exit,
@@ -106,8 +106,23 @@ async function main(): Promise<void> {
 }
 
 async function processStdin(): Promise<Counts> {
-    const content = await readText(0);
-    return countContent(content);
+    let lines = 0;
+    let words = 0;
+    let chars = 0;
+
+    for await (const msg of recv(0)) {
+        if (msg.op === 'item') {
+            const text = (msg.data as { text: string }).text ?? '';
+            lines++;
+            chars += text.length;
+            const trimmed = text.trim();
+            if (trimmed) {
+                words += trimmed.split(/\s+/).length;
+            }
+        }
+    }
+
+    return { lines, words, chars };
 }
 
 async function processFile(cwd: string, file: string): Promise<Counts | null> {

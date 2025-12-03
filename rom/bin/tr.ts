@@ -24,10 +24,11 @@
 
 import {
     getargs,
-    readText,
-    write,
+    recv,
+    send,
     eprintln,
     exit,
+    respond,
 } from '@rom/lib/process';
 
 async function main(): Promise<void> {
@@ -66,22 +67,27 @@ async function main(): Promise<void> {
         await exit(1);
     }
 
-    // Read all stdin
-    const input = await readText(0);
-    let output: string;
+    // Stream through stdin, transforming each item
+    for await (const msg of recv(0)) {
+        if (msg.op === 'item') {
+            const input = (msg.data as { text: string }).text ?? '';
+            let output: string;
 
-    if (deleteMode) {
-        output = deleteChars(input, set1);
-        if (squeezeMode && set2) {
-            output = squeezeChars(output, set2);
+            if (deleteMode) {
+                output = deleteChars(input, set1);
+                if (squeezeMode && set2) {
+                    output = squeezeChars(output, set2);
+                }
+            } else if (squeezeMode) {
+                output = squeezeChars(input, set1);
+            } else {
+                output = translateChars(input, set1, set2);
+            }
+
+            await send(1, respond.item({ text: output }));
         }
-    } else if (squeezeMode) {
-        output = squeezeChars(input, set1);
-    } else {
-        output = translateChars(input, set1, set2);
     }
 
-    await write(1, new TextEncoder().encode(output));
     await exit(0);
 }
 

@@ -12,8 +12,10 @@ import {
     getcwd,
     open,
     read,
-    write,
     close,
+    recv,
+    send,
+    println,
     eprintln,
     exit,
 } from '@rom/lib/process';
@@ -23,10 +25,10 @@ async function main(): Promise<void> {
     const args = await getargs();
     const files = args.slice(1); // Skip argv[0]
 
-    // No files: pass through stdin
+    // No files: pass through stdin messages
     if (files.length === 0) {
-        for await (const chunk of read(0)) {
-            await write(1, chunk);
+        for await (const msg of recv(0)) {
+            await send(1, msg);
         }
         await exit(0);
     }
@@ -40,8 +42,24 @@ async function main(): Promise<void> {
         try {
             const fd = await open(path, { read: true });
             try {
+                // Files are byte-based, convert to lines for output
+                const decoder = new TextDecoder();
+                let buffer = '';
+
                 for await (const chunk of read(fd)) {
-                    await write(1, chunk);
+                    buffer += decoder.decode(chunk, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop()!;
+
+                    for (const line of lines) {
+                        await println(line);
+                    }
+                }
+
+                // Flush remaining buffer
+                buffer += decoder.decode();
+                if (buffer) {
+                    await println(buffer);
                 }
             } finally {
                 await close(fd);

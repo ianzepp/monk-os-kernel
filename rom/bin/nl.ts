@@ -26,11 +26,13 @@
 import {
     getargs,
     getcwd,
-    readText,
     readFile,
+    recv,
+    send,
     println,
     eprintln,
     exit,
+    respond,
 } from '@rom/lib/process';
 import { resolvePath } from '@rom/lib/shell';
 
@@ -94,13 +96,12 @@ async function main(): Promise<void> {
         }
     }
 
-    // Read input
-    let content: string;
-
     if (file) {
+        // File mode: read bytes, process as text
         const cwd = await getcwd();
         const path = resolvePath(cwd, file);
 
+        let content: string;
         try {
             content = await readFile(path);
         } catch (err) {
@@ -108,31 +109,50 @@ async function main(): Promise<void> {
             await eprintln(`nl: ${file}: ${msg}`);
             await exit(1);
         }
+
+        const lines = content.split('\n');
+        if (lines.length > 0 && lines[lines.length - 1] === '' && content.endsWith('\n')) {
+            lines.pop();
+        }
+
+        let lineNum = startNum;
+        for (const line of lines) {
+            const shouldNumber =
+                bodyNumbering === 'a' ||
+                (bodyNumbering === 't' && line.trim().length > 0);
+
+            if (bodyNumbering === 'n' || !shouldNumber) {
+                await println(' '.repeat(width) + separator + line);
+            } else {
+                const numStr = formatLineNumber(lineNum, width, numberFormat);
+                await println(numStr + separator + line);
+                lineNum += increment;
+            }
+        }
     } else {
-        content = await readText(0);
-    }
+        // Stdin mode: stream message items
+        let lineNum = startNum;
 
-    // Process lines
-    const lines = content.split('\n');
-    // Remove trailing empty line if content ends with newline
-    if (lines.length > 0 && lines[lines.length - 1] === '' && content.endsWith('\n')) {
-        lines.pop();
-    }
+        for await (const msg of recv(0)) {
+            if (msg.op === 'item') {
+                const text = (msg.data as { text: string }).text ?? '';
+                const line = text.replace(/\n$/, '');
 
-    let lineNum = startNum;
+                const shouldNumber =
+                    bodyNumbering === 'a' ||
+                    (bodyNumbering === 't' && line.trim().length > 0);
 
-    for (const line of lines) {
-        const shouldNumber =
-            bodyNumbering === 'a' ||
-            (bodyNumbering === 't' && line.trim().length > 0);
+                let output: string;
+                if (bodyNumbering === 'n' || !shouldNumber) {
+                    output = ' '.repeat(width) + separator + line;
+                } else {
+                    const numStr = formatLineNumber(lineNum, width, numberFormat);
+                    output = numStr + separator + line;
+                    lineNum += increment;
+                }
 
-        if (bodyNumbering === 'n' || !shouldNumber) {
-            // No numbering - just output the line with spacing
-            await println(' '.repeat(width) + separator + line);
-        } else {
-            const numStr = formatLineNumber(lineNum, width, numberFormat);
-            await println(numStr + separator + line);
-            lineNum += increment;
+                await send(1, respond.item({ text: output + '\n' }));
+            }
         }
     }
 

@@ -21,14 +21,17 @@
  *   sort file | uniq -d
  */
 
+import type { Response } from '@rom/lib/process';
 import {
     getargs,
     getcwd,
-    readText,
     readFile,
+    recv,
+    send,
     println,
     eprintln,
     exit,
+    respond,
 } from '@rom/lib/process';
 import { resolvePath } from '@rom/lib/shell';
 
@@ -56,13 +59,12 @@ async function main(): Promise<void> {
         }
     }
 
-    // Read from file or stdin
-    let content: string;
-
     if (file) {
+        // File mode: read bytes, process as text
         const cwd = await getcwd();
         const path = resolvePath(cwd, file);
 
+        let content: string;
         try {
             content = await readFile(path);
         } catch (err) {
@@ -70,19 +72,74 @@ async function main(): Promise<void> {
             await eprintln(`uniq: ${file}: ${msg}`);
             await exit(1);
         }
+
+        const lines = content.split('\n');
+        if (lines[lines.length - 1] === '') lines.pop();
+
+        await processLines(lines, { showCount, duplicatesOnly, uniqueOnly, ignoreCase });
     } else {
-        content = await readText(0);
+        // Stdin mode: stream message items
+        await processStdin({ showCount, duplicatesOnly, uniqueOnly, ignoreCase });
     }
 
-    // Split into lines
-    const lines = content.split('\n');
-    if (lines[lines.length - 1] === '') {
-        lines.pop();
+    await exit(0);
+}
+
+interface UniqOptions {
+    showCount: boolean;
+    duplicatesOnly: boolean;
+    uniqueOnly: boolean;
+    ignoreCase: boolean;
+}
+
+async function processStdin(options: UniqOptions): Promise<void> {
+    const { showCount, duplicatesOnly, uniqueOnly, ignoreCase } = options;
+
+    let prevMsg: Response | null = null;
+    let prevKey: string | null = null;
+    let count = 0;
+
+    const outputItem = async (msg: Response, cnt: number) => {
+        if (duplicatesOnly && cnt === 1) return;
+        if (uniqueOnly && cnt > 1) return;
+
+        if (showCount) {
+            const text = (msg.data as { text: string }).text ?? '';
+            const line = text.replace(/\n$/, '');
+            await println(`${String(cnt).padStart(7)} ${line}`);
+        } else {
+            await send(1, msg);
+        }
+    };
+
+    for await (const msg of recv(0)) {
+        if (msg.op === 'item') {
+            const text = (msg.data as { text: string }).text ?? '';
+            const key = ignoreCase ? text.toLowerCase() : text;
+
+            if (key === prevKey) {
+                count++;
+            } else {
+                if (prevMsg) {
+                    await outputItem(prevMsg, count);
+                }
+                prevMsg = msg;
+                prevKey = key;
+                count = 1;
+            }
+        }
     }
 
-    // Process lines - uniq filters ADJACENT duplicates
+    // Output final item
+    if (prevMsg) {
+        await outputItem(prevMsg, count);
+    }
+}
+
+async function processLines(lines: string[], options: UniqOptions): Promise<void> {
+    const { showCount, duplicatesOnly, uniqueOnly, ignoreCase } = options;
+
     const results: { line: string; count: number }[] = [];
-    let prev: string | null = null;
     let prevKey: string | null = null;
 
     for (const line of lines) {
@@ -92,14 +149,11 @@ async function main(): Promise<void> {
             results[results.length - 1].count++;
         } else {
             results.push({ line, count: 1 });
-            prev = line;
             prevKey = key;
         }
     }
 
-    // Output
     for (const { line, count } of results) {
-        // Filter based on options
         if (duplicatesOnly && count === 1) continue;
         if (uniqueOnly && count > 1) continue;
 
@@ -109,8 +163,6 @@ async function main(): Promise<void> {
             await println(line);
         }
     }
-
-    await exit(0);
 }
 
 main().catch(async (err) => {

@@ -135,34 +135,35 @@ interface Handle {
 
 Syscalls return `AsyncIterable<Response>`, not byte streams.
 
-### Evidence: Userspace is Byte-First
+### Evidence: Userspace WAS Byte-First (Now Fixed)
+
+> **Note**: After Phase 2 and 3, userspace now uses message-based I/O for standard fds.
+
+**Current state** (after migration):
 
 From `rom/lib/process/io.ts`:
 ```typescript
 export async function println(text: string): Promise<void> {
-    await write(1, new TextEncoder().encode(text + '\n'));  // bytes!
+    await send(1, respond.item({ text: text + '\n' }));  // messages!
 }
 ```
 
-From `rom/lib/process/file.ts`:
+From `rom/lib/process/pipe.ts`:
 ```typescript
-export async function* read(fd: number, chunkSize?: number): AsyncIterable<Uint8Array> {
-    // Returns bytes, not Response objects
+export async function* recv(fd: number = 0): AsyncIterable<Response> {
+    // Yields Response objects
 }
 
-export async function write(fd: number, data: Uint8Array): Promise<number> {
-    // Takes bytes, not Response objects
+export async function send(fd: number, msg: Response): Promise<void> {
+    // Takes Response objects
 }
 ```
 
-From `src/kernel/resource/pipe-buffer.ts`:
+**Byte-based I/O remains for files** (correct boundary):
 ```typescript
-export class PipeBuffer {
-    private chunks: Uint8Array[] = [];  // Stores bytes!
-
-    write(data: Uint8Array): number { ... }
-    async read(size?: number): Promise<Uint8Array> { ... }
-}
+// rom/lib/process/file.ts - still byte-based for disk I/O
+export async function* read(fd: number): AsyncIterable<Uint8Array>
+export async function write(fd: number, data: Uint8Array): Promise<number>
 ```
 
 ---
@@ -187,23 +188,24 @@ export class PipeBuffer {
 | `rom/lib/process/io.ts` | `println()` encodes to bytes | `println()` yields `Response` item |
 | `rom/lib/process/io.ts` | `print()` encodes to bytes | `print()` yields `Response` item |
 
-### Layer 3: Userspace Utilities
+### Layer 3: Userspace Utilities ✓ COMPLETED
 
-All utilities in `rom/bin/` that use `println()` or `write()` will automatically benefit once Layer 2 is fixed. However, utilities that do streaming I/O may need updates:
+All streaming utilities updated to use message-based I/O for stdin. See Phase 3 for details.
 
-| File | Current | Required |
-|------|---------|----------|
-| `rom/bin/cat.ts` | Reads bytes, writes bytes | Pass through Response items |
-| `rom/bin/grep.ts` | Decodes bytes to filter | Filter Response items directly |
-| `rom/bin/sort.ts` | Decodes bytes to sort | Sort Response items directly |
-| `rom/bin/head.ts` | Counts bytes/lines | Count Response items |
-| `rom/bin/tail.ts` | Buffers bytes | Buffer Response items |
-| `rom/bin/wc.ts` | Counts bytes | Count from Response items |
-| `rom/bin/tee.ts` | Copies bytes | Copies Response items |
-| `rom/bin/tr.ts` | Transforms bytes | Transform Response item content |
-| `rom/bin/cut.ts` | Slices bytes | Slice Response item content |
-| `rom/bin/uniq.ts` | Compares byte lines | Compare Response items |
-| `rom/bin/nl.ts` | Numbers byte lines | Number Response items |
+| Utility | Pattern | Status |
+|---------|---------|--------|
+| `cat` | Pass-through | ✓ |
+| `head` | Stop early | ✓ |
+| `tail` | FIFO buffer | ✓ |
+| `sort` | Collect all | ✓ |
+| `wc` | Count streaming | ✓ |
+| `uniq` | Track previous | ✓ |
+| `tee` | Pass-through + file | ✓ |
+| `tr` | Transform | ✓ |
+| `cut` | Slice | ✓ |
+| `nl` | Number | ✓ |
+
+**Note**: `grep` does not exist yet. File input still uses byte-based `readFile()` (disk is a byte boundary).
 
 ### Layer 4: Console Device (Byte Boundary)
 
@@ -403,10 +405,30 @@ export async function println(s: string): Promise<void> {
 
 **Note**: Byte-oriented `read()`/`write()` remain for file I/O (fd 3+)
 
-### Phase 3: Update Streaming Utilities
+### Phase 3: Update Streaming Utilities ✓ COMPLETED
 
-1. Update `grep`, `sort`, `head`, `tail`, etc. to operate on Response items
-2. These become simpler - no encode/decode cycles
+> **Status**: All streaming utilities updated to use message-based I/O for stdin.
+
+**Changes made:**
+
+| Utility | Pattern | Description |
+|---------|---------|-------------|
+| `cat` | Pass-through | `recv(0)` → `send(1, msg)` |
+| `head` | Stop early | Stop after N items |
+| `tail` | FIFO buffer | Keep last N items in buffer |
+| `sort` | Collect all | Collect items, sort, emit |
+| `wc` | Count streaming | Count lines/words/chars as items stream |
+| `uniq` | Track previous | Compare adjacent items |
+| `tee` | Pass-through + file | Forward items, collect text for file |
+| `tr` | Transform | Transform each item's text |
+| `cut` | Slice | Extract fields/chars from each item |
+| `nl` | Number | Add line numbers to each item |
+
+**Key design decisions:**
+- Stdin uses `recv(0)` for message items
+- Files still use `readFile()` (byte-based) since disk is a byte boundary
+- Streaming utilities remain streaming where possible (head, tail, uniq, etc.)
+- Only `sort` requires collecting all items before output
 
 ### Phase 4: Console as Byte Boundary
 
@@ -627,8 +649,28 @@ class ConsoleDevice {
 
 ## Open Questions
 
-1. Should `println()` be updated in place, or should we add new `emitLine()` function?
-2. How should utilities detect whether stdin is message-oriented or byte-oriented (for compatibility)?
+1. ~~Should `println()` be updated in place, or should we add new `emitLine()` function?~~
+   **RESOLVED**: Updated `println()` in place. It now uses `send(1, respond.item({ text }))`.
+
+2. ~~How should utilities detect whether stdin is message-oriented or byte-oriented (for compatibility)?~~
+   **RESOLVED**: Stdin (fd 0) is always message-oriented via `recv()`. File reads (fd 3+) use byte-oriented `read()`. Utilities handle both cases explicitly.
+
 3. Should Response items include source metadata (pid, timestamp)?
-4. What's the migration path for existing scripts that use byte I/O?
+   **OPEN**: Not currently needed, but could be useful for debugging/logging.
+
+4. ~~What's the migration path for existing scripts that use byte I/O?~~
+   **RESOLVED**: Scripts using `readText(0)` must migrate to `recv(0)`. File operations remain unchanged.
+
 5. Should LineReader/LineWriter live in `rom/lib/io.ts` alongside ByteReader/ByteWriter?
+   **OPEN**: Still needed for Phase 4 (console as byte boundary).
+
+6. **NEW**: Should we add a `grep` utility? Currently missing from `rom/bin/`.
+
+## Migration Status
+
+| Phase | Description | Status |
+|-------|-------------|--------|
+| Phase 1 | MessagePipe - Core Primitive | ✓ COMPLETED |
+| Phase 2 | Process Library I/O | ✓ COMPLETED |
+| Phase 3 | Streaming Utilities | ✓ COMPLETED |
+| Phase 4 | Console as Byte Boundary | PENDING |
