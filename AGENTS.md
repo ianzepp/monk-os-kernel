@@ -96,9 +96,9 @@
 
 **Execution Model**:
 - Syscalls return `AsyncIterable<Response>` (generators)
-- Each `Response` is: `{ op: 'ok'|'error'|'item'|'chunk'|'event'|'done'|'redirect', data?: object }`
+- Each `Response` is: `{ op: 'ok'|'error'|'item'|'data'|'event'|'progress'|'done'|'redirect', data?: object }`
 - Terminal ops (`ok`, `error`, `done`) signal stream completion
-- Non-terminal ops (`item`, `event`, `progress`, `chunk`) may yield multiple times
+- Non-terminal ops (`item`, `event`, `progress`, `data`) may yield multiple times
 - Kernel implements backpressure via `stream_ping` every 100ms
 
 ### B. Hardware Abstraction Layer - HAL (`src/hal/`)
@@ -378,7 +378,7 @@ interface Message {
 }
 
 interface Response {
-    op: 'ok'|'error'|'item'|'chunk'|'event'|'progress'|'done'|'redirect';
+    op: 'ok'|'error'|'item'|'data'|'event'|'progress'|'done'|'redirect';
     data?: object;           // Structured response data
 }
 ```
@@ -390,7 +390,7 @@ interface Response {
 | `ok` | Success, optional value | Y | Single-value syscalls (getpid, getcwd) |
 | `error` | Failure with code/message | Y | Any syscall error (ENOENT, EBADF, etc.) |
 | `item` | One item in sequence | N | Streaming: readdir, pubsub, database rows |
-| `chunk` | Binary data (Uint8Array only) | N | File reads, network reads (at I/O boundary) |
+| `data` | Binary data (Uint8Array in `bytes` field) | N | File reads, network reads (at I/O boundary) |
 | `event` | Async notification | N | File watch events, signals, server pushes |
 | `progress` | Progress indicator | N | Long operations, download status |
 | `done` | Sequence complete | Y | Marks end of streaming (readdir done, etc.) |

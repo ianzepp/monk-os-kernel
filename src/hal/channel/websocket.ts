@@ -215,7 +215,7 @@ export class BunWebSocketClientChannel implements Channel {
                 // Distinguish responses from messages by checking op field
                 // WHY: Responses have ops like 'ok', 'error', 'item', etc.
                 // Messages have arbitrary ops like 'call', 'spawn', etc.
-                if (data.op && ['ok', 'error', 'item', 'chunk', 'event', 'progress', 'done'].includes(data.op)) {
+                if (data.op && ['ok', 'error', 'item', 'data', 'event', 'progress', 'done', 'redirect'].includes(data.op)) {
                     // It's a response to a client request
                     if (this.responseResolve) {
                         // handle() is waiting, resolve immediately
