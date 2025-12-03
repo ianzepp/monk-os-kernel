@@ -376,7 +376,12 @@ export class VFS {
 
         // Create folder
         const folderModel = this.models.get('folder')!;
-        return folderModel.create(ctx, parentId, name, { owner: caller });
+        const folderId = await folderModel.create(ctx, parentId, name, { owner: caller });
+
+        // Add child index for O(1) lookups
+        await this.addChildIndex(parentId, name, folderId);
+
+        return folderId;
     }
 
     /**
@@ -406,6 +411,11 @@ export class VFS {
         const model = this.models.get(entity.model);
         if (!model) {
             throw new EINVAL(`Unknown model: ${entity.model}`);
+        }
+
+        // Remove child index before unlinking
+        if (entity.parent) {
+            await this.removeChildIndex(entity.parent, entity.name);
         }
 
         await model.unlink(ctx, entityId);
@@ -596,18 +606,37 @@ export class VFS {
     }
 
     private async findChild(parentId: string, name: string): Promise<string | null> {
-        // Scan entities with this parent
+        // Try index first (O(1) lookup)
+        const indexKey = `child:${parentId}:${name}`;
+        const indexData = await this.hal.storage.get(indexKey);
+        if (indexData) {
+            return new TextDecoder().decode(indexData);
+        }
+
+        // Fallback: scan entities (for backwards compatibility with unindexed data)
         for await (const key of this.hal.storage.list('entity:')) {
             const data = await this.hal.storage.get(key);
             if (!data) continue;
 
             const entity = JSON.parse(new TextDecoder().decode(data)) as ModelStat;
             if (entity.parent === parentId && entity.name === name) {
+                // Backfill the index for future lookups
+                await this.hal.storage.put(indexKey, new TextEncoder().encode(entity.id));
                 return entity.id;
             }
         }
 
         return null;
+    }
+
+    private async addChildIndex(parentId: string, name: string, entityId: string): Promise<void> {
+        const indexKey = `child:${parentId}:${name}`;
+        await this.hal.storage.put(indexKey, new TextEncoder().encode(entityId));
+    }
+
+    private async removeChildIndex(parentId: string, name: string): Promise<void> {
+        const indexKey = `child:${parentId}:${name}`;
+        await this.hal.storage.delete(indexKey);
     }
 
     private async createFile(path: string, caller: string): Promise<string> {
@@ -632,6 +661,9 @@ export class VFS {
         // Create file
         const fileModel = this.models.get('file')!;
         const fileId = await fileModel.create(ctx, parentId, name, { owner: caller });
+
+        // Add child index for O(1) lookups
+        await this.addChildIndex(parentId, name, fileId);
 
         // Create default ACL
         await this.hal.storage.put(`access:${fileId}`, encodeACL(defaultACL(caller)));
