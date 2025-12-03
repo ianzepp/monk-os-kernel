@@ -196,6 +196,11 @@ export class DatabaseOps {
      *
      * Each record flows through the observer pipeline individually,
      * yielded as it completes.
+     *
+     * ARCHITECTURE NOTE:
+     * SQL execution is handled by Ring 5 observers (SqlCreate) for normal models.
+     * Passthrough models bypass the observer pipeline entirely, so we execute
+     * SQL directly for them.
      */
     async *createAll<T extends DbRecord>(
         modelName: string,
@@ -216,16 +221,19 @@ export class DatabaseOps {
             record.set('created_at', now);
             record.set('updated_at', now);
 
-            // Run observer pipeline
-            const context = this.createContext('create', model, record);
-            if (!model.isPassthrough) {
+            if (model.isPassthrough) {
+                // PASSTHROUGH: Bypass all observers, execute SQL directly.
+                // WHY: Passthrough is a dangerous performance optimization that
+                // skips validation, transformation, and audit. Used for system-level
+                // bulk operations only.
+                await this.executeInsertDirect(modelName, record);
+            } else {
+                // NORMAL: Full observer pipeline (Ring 5 handles SQL execution)
+                const context = this.createContext('create', model, record);
                 await this.system.runner.run(context);
             }
 
-            // Execute SQL
-            await this.executeInsert(modelName, record);
-
-            // Yield created record
+            // Yield created record (re-read from database to get final state)
             const id = record.get('id') as string;
             for await (const created of this.selectAny<T>(
                 modelName,
@@ -243,6 +251,10 @@ export class DatabaseOps {
 
     /**
      * Stream updated records from UpdateInput source.
+     *
+     * ARCHITECTURE NOTE:
+     * SQL execution is handled by Ring 5 observers (SqlUpdate) for normal models.
+     * Passthrough models bypass the observer pipeline entirely.
      */
     async *updateAll<T extends DbRecord>(
         modelName: string,
@@ -275,16 +287,16 @@ export class DatabaseOps {
             );
             record.set('updated_at', new Date().toISOString());
 
-            // Run observer pipeline
-            const context = this.createContext('update', model, record);
-            if (!model.isPassthrough) {
+            if (model.isPassthrough) {
+                // PASSTHROUGH: Bypass all observers, execute SQL directly.
+                await this.executeUpdateDirect(modelName, id, record);
+            } else {
+                // NORMAL: Full observer pipeline (Ring 5 handles SQL execution)
+                const context = this.createContext('update', model, record);
                 await this.system.runner.run(context);
             }
 
-            // Execute SQL
-            await this.executeUpdate(modelName, id, record);
-
-            // Yield updated record
+            // Yield updated record (re-read from database to get final state)
             for await (const updated of this.selectAny<T>(
                 modelName,
                 { where: { id }, limit: 1 },
@@ -333,6 +345,10 @@ export class DatabaseOps {
 
     /**
      * Stream soft-deleted records from DeleteInput source.
+     *
+     * ARCHITECTURE NOTE:
+     * SQL execution is handled by Ring 5 observers (SqlDelete) for normal models.
+     * Passthrough models bypass the observer pipeline entirely.
      */
     async *deleteAll<T extends DbRecord>(
         modelName: string,
@@ -358,14 +374,14 @@ export class DatabaseOps {
                 trashed_at: new Date().toISOString(),
             });
 
-            // Run observer pipeline
-            const context = this.createContext('delete', model, record);
-            if (!model.isPassthrough) {
+            if (model.isPassthrough) {
+                // PASSTHROUGH: Bypass all observers, execute SQL directly.
+                await this.executeUpdateDirect(modelName, id, record);
+            } else {
+                // NORMAL: Full observer pipeline (Ring 5 handles SQL execution)
+                const context = this.createContext('delete', model, record);
                 await this.system.runner.run(context);
             }
-
-            // Execute SQL
-            await this.executeUpdate(modelName, id, record);
 
             yield existing;
         }
@@ -407,6 +423,10 @@ export class DatabaseOps {
 
     /**
      * Stream reverted records from RevertInput source.
+     *
+     * ARCHITECTURE NOTE:
+     * SQL execution is handled by Ring 5 observers (SqlUpdate) for normal models.
+     * Revert uses the 'update' operation type since it's modifying trashed_at.
      */
     async *revertAll<T extends DbRecord>(
         modelName: string,
@@ -437,16 +457,16 @@ export class DatabaseOps {
                 updated_at: new Date().toISOString(),
             });
 
-            // Run observer pipeline (using 'update' operation for revert)
-            const context = this.createContext('update', model, record);
-            if (!model.isPassthrough) {
+            if (model.isPassthrough) {
+                // PASSTHROUGH: Bypass all observers, execute SQL directly.
+                await this.executeUpdateDirect(modelName, id, record);
+            } else {
+                // NORMAL: Full observer pipeline (Ring 5 handles SQL execution)
+                const context = this.createContext('update', model, record);
                 await this.system.runner.run(context);
             }
 
-            // Execute SQL
-            await this.executeUpdate(modelName, id, record);
-
-            // Yield reverted record
+            // Yield reverted record (re-read from database to get final state)
             for await (const reverted of this.selectAny<T>(
                 modelName,
                 { where: { id }, limit: 1 }
@@ -629,9 +649,16 @@ export class DatabaseOps {
     }
 
     /**
-     * Execute INSERT statement.
+     * Execute INSERT statement directly (bypasses observer pipeline).
+     *
+     * WHY "Direct": This method is only used for passthrough models that
+     * skip the observer pipeline. Normal models use Ring 5 observers
+     * (SqlCreate) for SQL execution.
+     *
+     * SAFETY: Passthrough is a dangerous performance optimization. Only
+     * system-level bulk operations should use passthrough models.
      */
-    private async executeInsert(modelName: string, record: ModelRecord): Promise<void> {
+    private async executeInsertDirect(modelName: string, record: ModelRecord): Promise<void> {
         const data = record.toRecord();
         const columns = Object.keys(data);
         const placeholders = columns.map(() => '?').join(', ');
@@ -642,9 +669,13 @@ export class DatabaseOps {
     }
 
     /**
-     * Execute UPDATE statement.
+     * Execute UPDATE statement directly (bypasses observer pipeline).
+     *
+     * WHY "Direct": This method is only used for passthrough models that
+     * skip the observer pipeline. Normal models use Ring 5 observers
+     * (SqlUpdate, SqlDelete) for SQL execution.
      */
-    private async executeUpdate(
+    private async executeUpdateDirect(
         modelName: string,
         id: string,
         record: ModelRecord

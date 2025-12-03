@@ -23,7 +23,7 @@ import type {
  */
 function createMockModel(name = 'test_model'): Model {
     return {
-        model_name: name,
+        modelName: name,
         isFrozen: false,
         isImmutable: false,
         requiresSudo: false,

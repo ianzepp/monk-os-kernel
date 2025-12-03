@@ -13,7 +13,7 @@ import { ModelCache } from '@src/model/model-cache.js';
 import { Filter } from '@src/model/filter.js';
 import { FilterOp, type FilterData } from '@src/model/filter-types.js';
 import { DatabaseService, type DbRecord } from '@src/model/database.js';
-import { ObserverRunner } from '@src/model/observers/runner.js';
+import { createObserverRunner } from '@src/model/observers/registry.js';
 
 // =============================================================================
 // TEST SETUP
@@ -1137,12 +1137,12 @@ describe('Filter', () => {
 
 describe('DatabaseService', () => {
     let cache: ModelCache;
-    let runner: ObserverRunner;
     let service: DatabaseService;
 
     beforeEach(async () => {
         cache = new ModelCache(db);
-        runner = new ObserverRunner();
+        // Use createObserverRunner() to get Ring 5 observers for SQL execution
+        const runner = createObserverRunner();
         service = new DatabaseService(db, cache, runner);
     });
 

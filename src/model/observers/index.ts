@@ -77,3 +77,12 @@ export { ObserverRunner } from './runner.js';
 // =============================================================================
 
 export { createObserverRunner } from './registry.js';
+
+// =============================================================================
+// OBSERVER IMPLEMENTATIONS
+// =============================================================================
+// Ring 5: Database Operations
+export { SqlCreate, SqlUpdate, SqlDelete } from '../ring/5/index.js';
+
+// Export the adapter interfaces for typing
+export type { DatabaseAdapter, ModelCacheAdapter } from './interfaces.js';

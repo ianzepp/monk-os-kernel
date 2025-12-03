@@ -44,7 +44,11 @@ import { ObserverRunner } from './runner.js';
 // =============================================================================
 // OBSERVER IMPORTS
 // =============================================================================
-// Phase 4 will add imports here:
+
+// Ring 5: Database Operations
+import { SqlCreate, SqlUpdate, SqlDelete } from '../ring/5/index.js';
+
+// Phase 4 (remaining observers):
 // import UpdateMerger from './impl/update-merger.js';
 // import FrozenValidator from './impl/frozen-validator.js';
 // ... etc
@@ -104,9 +108,9 @@ export function createObserverRunner(): ObserverRunner {
     // =========================================================================
     // RING 5: DATABASE
     // =========================================================================
-    // Phase 4: runner.register(new SqlCreate());
-    // Phase 4: runner.register(new SqlUpdate());
-    // Phase 4: runner.register(new SqlDelete());
+    runner.register(new SqlCreate());
+    runner.register(new SqlUpdate());
+    runner.register(new SqlDelete());
 
     // =========================================================================
     // RING 6: POST-DATABASE (DDL)

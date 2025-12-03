@@ -195,7 +195,7 @@ export class ObserverRunner {
                 // Skip if observer is model-specific and doesn't match
                 if (
                     observer.models?.length &&
-                    !observer.models.includes(context.model.model_name)
+                    !observer.models.includes(context.model.modelName)
                 ) {
                     continue;
                 }

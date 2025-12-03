@@ -45,7 +45,7 @@ import type { EOBSINVALID } from './errors.js';
  */
 export interface Model {
     /** Model name (e.g., 'invoice', 'customer') */
-    readonly model_name: string;
+    readonly modelName: string;
 
     /** Is model frozen (no changes allowed)? */
     readonly isFrozen: boolean;
@@ -130,6 +130,59 @@ export interface ModelRecord {
     getDiff(): Record<string, { old: unknown; new: unknown }>;
 }
 
+/**
+ * Database connection for SQL operations (defined in Phase 2).
+ *
+ * WHY interface here: Ring 5 observers need to execute SQL but shouldn't
+ * import DatabaseConnection directly (circular dependency). This minimal
+ * interface defines only what observers need.
+ *
+ * The actual DatabaseConnection class in connection.ts provides additional
+ * methods (query, queryOne, exec, close) not needed by observers.
+ */
+export interface DatabaseAdapter {
+    /**
+     * Execute an INSERT/UPDATE/DELETE statement.
+     *
+     * @param sql - SQL statement with ? placeholders
+     * @param params - Parameter values (positional)
+     * @returns Promise resolving to affected row count
+     * @throws Error on execution failure
+     */
+    execute(sql: string, params?: unknown[]): Promise<number>;
+
+    /**
+     * Execute a SELECT query and return all rows.
+     *
+     * @param sql - SQL SELECT statement
+     * @param params - Query parameters (positional)
+     * @returns Promise resolving to array of rows
+     */
+    query<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<T[]>;
+
+    /**
+     * Execute raw SQL (multiple statements allowed).
+     *
+     * @param sql - Raw SQL (may contain multiple statements)
+     */
+    exec(sql: string): Promise<void>;
+}
+
+/**
+ * Model cache for metadata lookup (defined in Phase 3).
+ *
+ * WHY interface here: Ring 8 (CacheInvalidator) needs to invalidate cache
+ * entries without importing ModelCache directly.
+ */
+export interface ModelCacheAdapter {
+    /**
+     * Invalidate cached model metadata.
+     *
+     * @param modelName - Model to invalidate
+     */
+    invalidate(modelName: string): void;
+}
+
 // =============================================================================
 // SYSTEM CONTEXT
 // =============================================================================
@@ -140,21 +193,24 @@ export interface ModelRecord {
  * WHY separate from ObserverContext: SystemContext is stable across all
  * observers in a pipeline run. ObserverContext has per-record state.
  *
- * WHY any types: Phase 3 will define proper Database and ModelCache types.
- * Using any here to avoid circular dependencies during bootstrap.
+ * The db and cache properties use adapter interfaces defined above to avoid
+ * circular dependencies with the actual implementation classes.
  */
 export interface SystemContext {
     /**
      * Database connection for SQL operations.
-     * Type: bun:sqlite Database (Phase 3 will type this properly)
+     *
+     * Provides execute() for INSERT/UPDATE/DELETE, query() for SELECT,
+     * and exec() for raw multi-statement SQL (DDL).
      */
-    db: unknown;
+    db: DatabaseAdapter;
 
     /**
      * Model metadata cache.
-     * Type: ModelCache (Phase 3 will define)
+     *
+     * Provides invalidate() for cache management after model/field changes.
      */
-    cache: unknown;
+    cache: ModelCacheAdapter;
 }
 
 // =============================================================================
