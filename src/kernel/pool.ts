@@ -62,6 +62,7 @@
  */
 
 import type { HAL } from '@src/hal/index.js';
+import { EBUSY, EIO, ETIMEDOUT, ENOENT } from '@src/hal/errors.js';
 
 // =============================================================================
 // CONSTANTS
@@ -334,7 +335,7 @@ export class WorkerPool {
      */
     async lease(): Promise<LeasedWorker> {
         if (this.isShutdown) {
-            throw new Error(`Pool ${this.name} is shutdown`);
+            throw new EBUSY(`Pool ${this.name} is shutdown`);
         }
 
         let pooled: PooledWorker;
@@ -504,7 +505,7 @@ export class WorkerPool {
                 const reject = pooled.messageReject;
                 pooled.messageResolve = null;
                 pooled.messageReject = null;
-                reject(new Error(e.message));
+                reject(new EIO(e.message));
             }
         };
 
@@ -548,7 +549,7 @@ export class WorkerPool {
                         // Clear handlers to prevent late resolution
                         pooled.messageResolve = null;
                         pooled.messageReject = null;
-                        reject(new Error(`Load timeout after ${LOAD_TIMEOUT_MS}ms for ${scriptPath}`));
+                        reject(new ETIMEDOUT(`Load timeout after ${LOAD_TIMEOUT_MS}ms for ${scriptPath}`));
                     }, LOAD_TIMEOUT_MS);
 
                     pooled.messageResolve = (msg: unknown) => {
@@ -557,7 +558,7 @@ export class WorkerPool {
                         if (m.type === 'loaded') {
                             resolve();
                         } else {
-                            reject(new Error(m.error ?? 'Load failed'));
+                            reject(new EIO(m.error ?? 'Load failed'));
                         }
                     };
 
@@ -750,7 +751,7 @@ export class PoolManager {
         if (!pool) {
             const config = this.config[name];
             if (!config) {
-                throw new Error(`Pool configuration not found: ${name}`);
+                throw new ENOENT(`Pool configuration not found: ${name}`);
             }
 
             pool = new WorkerPool(name, config, this.hal, this.deps);

@@ -69,6 +69,7 @@
 
 import type { DatabaseConnection } from './connection.js';
 import { Model, type ModelRow, type FieldRow } from './model.js';
+import { ENOENT } from '@src/hal/errors.js';
 
 // =============================================================================
 // TYPES
@@ -270,7 +271,7 @@ export class ModelCache {
     async require(modelName: string, message?: string): Promise<Model> {
         const model = await this.get(modelName);
         if (!model) {
-            throw new Error(message || `Model '${modelName}' not found`);
+            throw new ENOENT(message || `Model '${modelName}' not found`);
         }
         return model;
     }

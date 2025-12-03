@@ -118,6 +118,7 @@ import { BunIPCDevice } from './ipc.js';
 import { BunChannelDevice } from './channel.js';
 import { BunCompressionDevice } from './compression.js';
 import { BunFileDevice } from './file.js';
+import { ENOSYS, EIO } from './errors.js';
 
 // =============================================================================
 // ERROR TYPES (RE-EXPORTS)
@@ -476,7 +477,7 @@ export class BunHAL implements HAL {
             case 'postgres':
                 // TODO: PostgresStorageEngine not yet implemented
                 // WHY: PostgreSQL would enable distributed VFS with multiple Monk nodes
-                throw new Error('PostgreSQL storage not yet implemented');
+                throw new ENOSYS('PostgreSQL storage not yet implemented');
             default:
                 this.storage = new MemoryStorageEngine();
         }
@@ -549,7 +550,7 @@ export class BunHAL implements HAL {
         try {
             (this.timer as BunTimerDevice).cancelAll();
         } catch (err) {
-            errors.push(new Error(`Timer cleanup failed: ${err instanceof Error ? err.message : String(err)}`));
+            errors.push(new EIO(`Timer cleanup failed: ${err instanceof Error ? err.message : String(err)}`));
         }
 
         // WHY: Close storage after timers are cancelled.
@@ -557,7 +558,7 @@ export class BunHAL implements HAL {
         try {
             await this.storage.close();
         } catch (err) {
-            errors.push(new Error(`Storage close failed: ${err instanceof Error ? err.message : String(err)}`));
+            errors.push(new EIO(`Storage close failed: ${err instanceof Error ? err.message : String(err)}`));
         }
 
         // WHY: Network listeners/sockets are closed via their own dispose methods.
@@ -567,7 +568,7 @@ export class BunHAL implements HAL {
         // Report errors if any occurred during shutdown
         if (errors.length > 0) {
             const message = errors.map((e) => e.message).join('; ');
-            throw new Error(`HAL shutdown encountered errors: ${message}`);
+            throw new EIO(`HAL shutdown encountered errors: ${message}`);
         }
     }
 }

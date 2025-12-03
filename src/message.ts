@@ -12,6 +12,8 @@
  * - Future: IPC, RPC, etc.
  */
 
+import { EINVAL, EIO } from '@src/hal/errors.js';
+
 /**
  * Message sent to a handler.
  */
@@ -151,7 +153,7 @@ export function unwrapResponse<T = unknown>(response: Response): T {
     if (response.op === 'ok') {
         return response.data as T;
     }
-    throw new Error(`Unexpected response op: ${response.op}`);
+    throw new EINVAL(`Unexpected response op: ${response.op}`);
 }
 
 /**
@@ -194,5 +196,5 @@ export async function unwrapStream<T = unknown>(
             throw error;
         }
     }
-    throw new Error('No ok response received');
+    throw new EIO('No ok response received');
 }

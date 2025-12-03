@@ -68,7 +68,7 @@
  */
 
 import type { PortType } from '@src/kernel/types.js';
-import { EBADF, ENOTSUP } from '@src/kernel/errors.js';
+import { EBADF, ENOTSUP, EIO } from '@src/kernel/errors.js';
 import type { Port, PortMessage } from './types.js';
 
 // =============================================================================
@@ -271,7 +271,7 @@ export class WatchPort implements Port {
 
         // EOF path: iterator done and no messages left
         if (this.iteratorDone) {
-            throw new Error('EOF: No more events');
+            throw new EIO('EOF: No more events');
         }
 
         // Slow path: wait for next event to arrive

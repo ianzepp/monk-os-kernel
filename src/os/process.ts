@@ -6,6 +6,7 @@
 
 import type { Kernel } from '@src/kernel/kernel.js';
 import type { SpawnOpts, RunOpts, ProcessHandle, RunResult } from './types.js';
+import { ENOSYS } from '@src/hal/errors.js';
 
 /**
  * Interface for OS methods needed by ProcessAPI.
@@ -61,7 +62,7 @@ export class ProcessAPI {
         // - Set up stdin/stdout/stderr pipes if requested
         // - Return ProcessHandle
 
-        throw new Error('os.process.spawn() not implemented');
+        throw new ENOSYS('os.process.spawn() not implemented');
     }
 
     /**
@@ -96,7 +97,7 @@ export class ProcessAPI {
         // - Wait for completion or timeout
         // - Return buffered result
 
-        throw new Error('os.process.run() not implemented');
+        throw new ENOSYS('os.process.run() not implemented');
     }
 
     /**
@@ -122,6 +123,6 @@ export class ProcessAPI {
         // - Expand aliases in command string
         // - Run through /bin/sh -c "command"
 
-        throw new Error('os.process.shell() not implemented');
+        throw new ENOSYS('os.process.shell() not implemented');
     }
 }

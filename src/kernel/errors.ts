@@ -17,6 +17,9 @@ export {
     EMFILE,
     ETIMEDOUT,
     EACCES,
+    EBUSY,
+    EIO,
+    ENOENT,
 } from '@src/hal/index.js';
 
 /**

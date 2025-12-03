@@ -160,6 +160,7 @@ import {
     type WhereResult,
     type TrashedOption,
 } from './filter-types.js';
+import { EINVAL } from '@src/hal/errors.js';
 
 // =============================================================================
 // FILTER CLASS
@@ -672,7 +673,7 @@ export class Filter {
                 return value ? `${field} IS NULL` : `${field} IS NOT NULL`;
 
             default:
-                throw new Error(`Unknown filter operator: ${op}`);
+                throw new EINVAL(`Unknown filter operator: ${op}`);
         }
     }
 
@@ -713,7 +714,7 @@ export class Filter {
                 params.push(value);
                 return `${lengthExpr} <= ?`;
             default:
-                throw new Error(`Unsupported operator for $size: ${op}`);
+                throw new EINVAL(`Unsupported operator for $size: ${op}`);
         }
     }
 
@@ -726,12 +727,12 @@ export class Filter {
      */
     private validateIdentifier(name: string, context: string): void {
         if (!name || typeof name !== 'string') {
-            throw new Error(`Invalid ${context}: must be a non-empty string`);
+            throw new EINVAL(`Invalid ${context}: must be a non-empty string`);
         }
 
         // Allow only alphanumeric, underscore, and dot (for qualified names)
         if (!/^[a-zA-Z_][a-zA-Z0-9_.]*$/.test(name)) {
-            throw new Error(`Invalid ${context} format: ${name}`);
+            throw new EINVAL(`Invalid ${context} format: ${name}`);
         }
     }
 

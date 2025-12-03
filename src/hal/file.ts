@@ -61,6 +61,8 @@
  * @module hal/file
  */
 
+import { ENOENT, EIO } from './errors.js';
+
 // =============================================================================
 // TYPES
 // =============================================================================
@@ -198,9 +200,9 @@ export class BunFileDevice implements FileDevice {
             // Provide clear error message for common case
             const message = err instanceof Error ? err.message : String(err);
             if (message.includes('ENOENT') || message.includes('No such file')) {
-                throw new Error(`File not found: ${path}`);
+                throw new ENOENT(`File not found: ${path}`);
             }
-            throw new Error(`Failed to read file ${path}: ${message}`);
+            throw new EIO(`Failed to read file ${path}: ${message}`);
         }
     }
 
@@ -230,9 +232,9 @@ export class BunFileDevice implements FileDevice {
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             if (message.includes('ENOENT') || message.includes('No such file')) {
-                throw new Error(`File not found: ${path}`);
+                throw new ENOENT(`File not found: ${path}`);
             }
-            throw new Error(`Failed to read file ${path}: ${message}`);
+            throw new EIO(`Failed to read file ${path}: ${message}`);
         }
     }
 
@@ -335,7 +337,7 @@ export class MockFileDevice implements FileDevice {
     async read(path: string): Promise<Uint8Array> {
         const content = this.files.get(path);
         if (!content) {
-            throw new Error(`File not found: ${path}`);
+            throw new ENOENT(`File not found: ${path}`);
         }
         // WHY copy: Prevents test mutation of internal state
         return new Uint8Array(content);

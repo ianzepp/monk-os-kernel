@@ -75,7 +75,7 @@ import {
     createChannelSyscalls,
 } from '@src/kernel/syscalls.js';
 import type { Channel, ChannelOpts } from '@src/hal/index.js';
-import { ESRCH, ECHILD, ProcessExited, EBADF, EPERM, EINVAL, EMFILE, ETIMEDOUT, EACCES, ENOTSUP } from '@src/kernel/errors.js';
+import { ESRCH, ECHILD, ProcessExited, EBADF, EPERM, EINVAL, EMFILE, ETIMEDOUT, EACCES, ENOTSUP, EBUSY } from '@src/kernel/errors.js';
 import type { Port } from '@src/kernel/resource.js';
 import type { WatchEvent } from '@src/vfs/model.js';
 import { ListenerPort, WatchPort, UdpPort, PubsubPort, matchTopic, createMessagePipe } from '@src/kernel/resource.js';
@@ -881,7 +881,7 @@ export class Kernel {
     async boot(env: BootEnv): Promise<void> {
         // Guard against double boot
         if (this.booted) {
-            throw new Error('Kernel already booted');
+            throw new EBUSY('Kernel already booted');
         }
 
         // Enable debug logging if requested

@@ -38,6 +38,7 @@ import type { ObserverContext, SystemContext } from './observers/interfaces.js';
 import type { OperationType } from './observers/types.js';
 import { EOBSINVALID } from './observers/errors.js';
 import { Filter } from './filter.js';
+import { ENOENT } from '@src/hal/errors.js';
 import type {
     FilterData,
     SelectOptions,
@@ -265,7 +266,7 @@ export class DatabaseOps {
             }
 
             if (!existing) {
-                throw new Error(`Record ${id} not found in ${modelName}`);
+                throw new ENOENT(`Record ${id} not found in ${modelName}`);
             }
 
             const record = new ModelRecord(
@@ -350,7 +351,7 @@ export class DatabaseOps {
             }
 
             if (!existing) {
-                throw new Error(`Record ${id} not found in ${modelName}`);
+                throw new ENOENT(`Record ${id} not found in ${modelName}`);
             }
 
             const record = new ModelRecord(existing as Record<string, unknown>, {
@@ -428,7 +429,7 @@ export class DatabaseOps {
             }
 
             if (!existing) {
-                throw new Error(`Trashed record ${id} not found in ${modelName}`);
+                throw new ENOENT(`Trashed record ${id} not found in ${modelName}`);
             }
 
             const record = new ModelRecord(existing as Record<string, unknown>, {
@@ -509,7 +510,7 @@ export class DatabaseOps {
             }
 
             if (!existing) {
-                throw new Error(`Record ${id} not found in ${modelName}`);
+                throw new ENOENT(`Record ${id} not found in ${modelName}`);
             }
 
             const record = new ModelRecord(existing as Record<string, unknown>, {

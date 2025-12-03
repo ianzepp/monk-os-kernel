@@ -7,6 +7,7 @@
 import type { Kernel } from '@src/kernel/kernel.js';
 import type { ServiceDef } from '@src/kernel/services.js';
 import type { ServiceInfo } from './types.js';
+import { ENOSYS } from '@src/hal/errors.js';
 
 /**
  * Interface for OS methods needed by ServiceAPI.
@@ -58,7 +59,7 @@ export class ServiceAPI {
         // - Register with kernel
         // - Start based on activation type
 
-        throw new Error('os.service.start() not implemented');
+        throw new ENOSYS('os.service.start() not implemented');
     }
 
     /**
@@ -77,7 +78,7 @@ export class ServiceAPI {
         // - Send shutdown signal
         // - Wait for graceful stop or force kill
 
-        throw new Error('os.service.stop() not implemented');
+        throw new ENOSYS('os.service.stop() not implemented');
     }
 
     /**
@@ -97,7 +98,7 @@ export class ServiceAPI {
         // - Stop if running
         // - Start again
 
-        throw new Error('os.service.restart() not implemented');
+        throw new ENOSYS('os.service.restart() not implemented');
     }
 
     /**
@@ -119,7 +120,7 @@ export class ServiceAPI {
         // - Look up service by name
         // - Return status information
 
-        throw new Error('os.service.get() not implemented');
+        throw new ENOSYS('os.service.get() not implemented');
     }
 
     /**
@@ -140,7 +141,7 @@ export class ServiceAPI {
         // - Get all registered services from kernel
         // - Return status information for each
 
-        throw new Error('os.service.list() not implemented');
+        throw new ENOSYS('os.service.list() not implemented');
     }
 
     /**
@@ -167,7 +168,7 @@ export class ServiceAPI {
         // - Store service definition
         // - Set up activation trigger (but don't start yet)
 
-        throw new Error('os.service.register() not implemented');
+        throw new ENOSYS('os.service.register() not implemented');
     }
 
     /**
@@ -182,6 +183,6 @@ export class ServiceAPI {
         // - Stop if running
         // - Remove from registry
 
-        throw new Error('os.service.unregister() not implemented');
+        throw new ENOSYS('os.service.unregister() not implemented');
     }
 }

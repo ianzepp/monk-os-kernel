@@ -59,6 +59,7 @@ import type {
     DeleteInput,
     RevertInput,
 } from './filter-types.js';
+import { ENOENT, EIO } from '@src/hal/errors.js';
 
 // =============================================================================
 // RE-EXPORTS
@@ -137,7 +138,7 @@ export class DatabaseService {
     ): Promise<T> {
         const result = await this.selectOne<T>(modelName, filterData, options);
         if (!result) {
-            throw new Error(message || `Record not found in ${modelName}`);
+            throw new ENOENT(message || `Record not found in ${modelName}`);
         }
         return result;
     }
@@ -200,7 +201,7 @@ export class DatabaseService {
         for await (const created of this.ops.createAll<T>(modelName, [data])) {
             return created;
         }
-        throw new Error('Create failed');
+        throw new EIO('Create failed');
     }
 
     // =========================================================================
@@ -228,7 +229,7 @@ export class DatabaseService {
         for await (const updated of this.ops.updateAll<T>(modelName, [{ id, changes }])) {
             return updated;
         }
-        throw new Error('Update failed');
+        throw new EIO('Update failed');
     }
 
     /**
@@ -272,7 +273,7 @@ export class DatabaseService {
         const result = results[0];
 
         if (!result) {
-            throw new Error(message || `Record not found in ${modelName}`);
+            throw new ENOENT(message || `Record not found in ${modelName}`);
         }
         return result;
     }
@@ -298,7 +299,7 @@ export class DatabaseService {
         for await (const deleted of this.ops.deleteAll<T>(modelName, [{ id }])) {
             return deleted;
         }
-        throw new Error('Delete failed');
+        throw new EIO('Delete failed');
     }
 
     /**
@@ -336,7 +337,7 @@ export class DatabaseService {
         const result = results[0];
 
         if (!result) {
-            throw new Error(message || `Record not found in ${modelName}`);
+            throw new ENOENT(message || `Record not found in ${modelName}`);
         }
         return result;
     }
@@ -362,7 +363,7 @@ export class DatabaseService {
         for await (const reverted of this.ops.revertAll<T>(modelName, [{ id }])) {
             return reverted;
         }
-        throw new Error('Revert failed');
+        throw new EIO('Revert failed');
     }
 
     /**
@@ -396,7 +397,7 @@ export class DatabaseService {
         for await (const expired of this.ops.expireAll<T>(modelName, [{ id }])) {
             return expired;
         }
-        throw new Error('Expire failed');
+        throw new EIO('Expire failed');
     }
 
     // =========================================================================
@@ -423,7 +424,7 @@ export class DatabaseService {
         for await (const upserted of this.ops.upsertAll<T>(modelName, [data])) {
             return upserted;
         }
-        throw new Error('Upsert failed');
+        throw new EIO('Upsert failed');
     }
 
     // =========================================================================

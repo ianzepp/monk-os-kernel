@@ -8,6 +8,8 @@
 /**
  * Mount types
  */
+import { EINVAL } from '@src/hal/errors.js';
+
 export type MountType = 'memory' | 'host' | 'transpiled-host' | 'storage';
 
 /**
@@ -236,7 +238,7 @@ export async function applyMount(deps: MountLoaderDeps, mount: MountDef): Promis
 export function parseSize(size: string): number {
     const match = size.match(/^(\d+(?:\.\d+)?)\s*(B|KB|MB|GB|TB)?$/i);
     if (!match) {
-        throw new Error(`Invalid size format: ${size}`);
+        throw new EINVAL(`Invalid size format: ${size}`);
     }
 
     const value = parseFloat(match[1]!);
@@ -252,7 +254,7 @@ export function parseSize(size: string): number {
 
     const multiplier = multipliers[unit];
     if (multiplier === undefined) {
-        throw new Error(`Unknown size unit: ${unit}`);
+        throw new EINVAL(`Unknown size unit: ${unit}`);
     }
     return Math.floor(value * multiplier);
 }

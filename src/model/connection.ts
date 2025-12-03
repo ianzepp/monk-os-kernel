@@ -68,6 +68,7 @@
 
 import type { Channel, ChannelDevice } from '@src/hal/channel.js';
 import type { FileDevice } from '@src/hal/file.js';
+import { EIO } from '@src/hal/errors.js';
 
 // =============================================================================
 // CONSTANTS
@@ -216,7 +217,7 @@ export class DatabaseConnection {
                     return rows;
                 case 'error': {
                     const err = response.data as { code: string; message: string };
-                    throw new Error(`Query failed [${err.code}]: ${err.message}`);
+                    throw new EIO(`Query failed [${err.code}]: ${err.message}`);
                 }
                 default:
                     // SAFETY: Ignore unexpected response types (progress, event, etc.)
@@ -269,7 +270,7 @@ export class DatabaseConnection {
                 }
                 case 'error': {
                     const err = response.data as { code: string; message: string };
-                    throw new Error(`Execute failed [${err.code}]: ${err.message}`);
+                    throw new EIO(`Execute failed [${err.code}]: ${err.message}`);
                 }
                 default:
                     // SAFETY: Ignore unexpected response types (progress, event, etc.)
@@ -277,7 +278,7 @@ export class DatabaseConnection {
             }
         }
 
-        throw new Error('Execute returned no response');
+        throw new EIO('Execute returned no response');
     }
 
     /**
@@ -301,7 +302,7 @@ export class DatabaseConnection {
                     return;
                 case 'error': {
                     const err = response.data as { code: string; message: string };
-                    throw new Error(`Exec failed [${err.code}]: ${err.message}`);
+                    throw new EIO(`Exec failed [${err.code}]: ${err.message}`);
                 }
                 default:
                     // SAFETY: Ignore unexpected response types (progress, event, etc.)
@@ -309,7 +310,7 @@ export class DatabaseConnection {
             }
         }
 
-        throw new Error('Exec returned no response');
+        throw new EIO('Exec returned no response');
     }
 
     // =========================================================================

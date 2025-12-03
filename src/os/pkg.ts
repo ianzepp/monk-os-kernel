@@ -7,6 +7,7 @@
 
 import type { VFS } from '@src/vfs/vfs.js';
 import type { PackageOpts, PackageInfo } from './types.js';
+import { EEXIST, ENOENT } from '@src/hal/errors.js';
 
 /**
  * Interface for OS methods needed by PackageAPI.
@@ -117,7 +118,7 @@ export class PackageAPI {
 
         // Check if already installed
         if (this.packages.has(name)) {
-            throw new Error(`Package '${name}' is already installed`);
+            throw new EEXIST(`Package '${name}' is already installed`);
         }
 
         // Mount the package directory
@@ -152,7 +153,7 @@ export class PackageAPI {
     async uninstall(name: string): Promise<void> {
         const record = this.packages.get(name);
         if (!record) {
-            throw new Error(`Package '${name}' is not installed`);
+            throw new ENOENT(`Package '${name}' is not installed`);
         }
 
         // Unmount the package
@@ -192,7 +193,7 @@ export class PackageAPI {
     async configure(name: string, config: Record<string, unknown>): Promise<void> {
         const record = this.packages.get(name);
         if (!record) {
-            throw new Error(`Package '${name}' is not installed`);
+            throw new ENOENT(`Package '${name}' is not installed`);
         }
 
         record.config = { ...record.config, ...config };
@@ -221,7 +222,7 @@ export class PackageAPI {
             // Return directory (remove /package.json)
             return url.pathname.replace(/\/package\.json$/, '');
         } catch {
-            throw new Error(
+            throw new ENOENT(
                 `Cannot resolve package '${npmName}'. ` +
                     `Ensure it is installed: bun install ${npmName}`
             );
@@ -238,7 +239,7 @@ export class PackageAPI {
             const text = await file.text();
             return JSON.parse(text);
         } catch {
-            throw new Error(`Cannot read package.json at ${pkgPath}`);
+            throw new ENOENT(`Cannot read package.json at ${pkgPath}`);
         }
     }
 

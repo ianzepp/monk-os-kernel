@@ -306,7 +306,7 @@ export class VFS {
         // Mount root with folder model
         const folderModel = this.models.get('folder');
         if (!folderModel) {
-            throw new Error('Folder model not registered');
+            throw new ENOENT('Folder model not registered');
         }
         this.mount('/', folderModel, {});
 
@@ -369,7 +369,7 @@ export class VFS {
         // Create /dev folder
         const folderModel = this.models.get('folder');
         if (!folderModel) {
-            throw new Error('Folder model not registered');
+            throw new ENOENT('Folder model not registered');
         }
 
         devId = await folderModel.create(ctx, ROOT_ID, 'dev', { owner: 'kernel' });
@@ -706,7 +706,7 @@ export class VFS {
         // Create the folder
         const folderModel = this.models.get('folder');
         if (!folderModel) {
-            throw new Error('Folder model not registered');
+            throw new ENOENT('Folder model not registered');
         }
 
         const folderId = await folderModel.create(ctx, parentId, name, { owner: caller });
@@ -795,7 +795,7 @@ export class VFS {
         // Create link (LinkModel.create throws EPERM currently)
         const linkModel = this.models.get('link');
         if (!linkModel) {
-            throw new Error('Link model not registered');
+            throw new ENOENT('Link model not registered');
         }
 
         return linkModel.create(ctx, parentId, name, { target, owner: caller });
@@ -838,7 +838,7 @@ export class VFS {
         // Delegate to folder model
         const folderModel = this.models.get('folder');
         if (!folderModel) {
-            throw new Error('Folder model not registered');
+            throw new ENOENT('Folder model not registered');
         }
 
         for await (const childId of folderModel.list(ctx, entityId)) {
@@ -1126,7 +1126,7 @@ export class VFS {
         // Create file
         const fileModel = this.models.get('file');
         if (!fileModel) {
-            throw new Error('File model not registered');
+            throw new ENOENT('File model not registered');
         }
 
         const fileId = await fileModel.create(ctx, parentId, name, { owner: caller });

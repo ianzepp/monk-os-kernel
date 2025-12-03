@@ -8,7 +8,7 @@
  */
 
 import type { HAL, HALConfig } from '@src/hal/index.js';
-import { BunHAL } from '@src/hal/index.js';
+import { BunHAL, EINVAL, EBUSY, ENOSYS } from '@src/hal/index.js';
 import { VFS } from '@src/vfs/vfs.js';
 import { Kernel } from '@src/kernel/kernel.js';
 import type { ServiceDef } from '@src/kernel/services.js';
@@ -126,7 +126,7 @@ export class OS {
      */
     install(npmName: string, opts?: PackageOpts): this {
         if (this.booted) {
-            throw new Error(
+            throw new EINVAL(
                 'Cannot use os.install() after boot. Use os.pkg.install() instead.'
             );
         }
@@ -201,7 +201,7 @@ export class OS {
      */
     async boot(opts?: BootOpts): Promise<void> {
         if (this.booted) {
-            throw new Error('OS already booted');
+            throw new EBUSY('OS already booted');
         }
 
         // 1. Create and initialize HAL
@@ -280,7 +280,7 @@ export class OS {
         // - Forward signals (SIGTERM, SIGINT) to init
         // - Return init's exit code
 
-        throw new Error('os.exec() takeover mode not implemented');
+        throw new ENOSYS('os.exec() takeover mode not implemented');
     }
 
     /**
@@ -318,7 +318,7 @@ export class OS {
      */
     getHAL(): HAL {
         if (!this.hal) {
-            throw new Error('OS not booted');
+            throw new EINVAL('OS not booted');
         }
         return this.hal;
     }
@@ -328,7 +328,7 @@ export class OS {
      */
     getVFS(): VFS {
         if (!this.vfs) {
-            throw new Error('OS not booted');
+            throw new EINVAL('OS not booted');
         }
         return this.vfs;
     }
@@ -338,7 +338,7 @@ export class OS {
      */
     getKernel(): Kernel {
         if (!this.kernel) {
-            throw new Error('OS not booted');
+            throw new EINVAL('OS not booted');
         }
         return this.kernel;
     }
@@ -375,7 +375,7 @@ export class OS {
 
         if (storage.type === 'postgres') {
             if (!storage.url) {
-                throw new Error('PostgreSQL storage requires url');
+                throw new EINVAL('PostgreSQL storage requires url');
             }
             return {
                 storage: {
