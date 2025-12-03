@@ -533,6 +533,67 @@ CREATE INDEX IF NOT EXISTS idx_link_parent_name
     WHERE trashed_at IS NULL;
 
 -- =============================================================================
+-- TEMP TABLE
+-- =============================================================================
+-- Temporary file entities for /tmp filesystem. Metadata stored here in SQL,
+-- blob content stored in HAL block storage keyed by entity ID.
+--
+-- WHY separate table from file: /tmp is a proof-of-concept for the new
+-- entity+data architecture where SQL stores queryable metadata and HAL stores
+-- blob content. This separation enables rich queries on temp file metadata
+-- while keeping large blobs out of SQLite.
+--
+-- WHY flat structure (no nested folders): Simplicity for the proof-of-concept.
+-- Nested folders can be added later by using parent field with self-reference.
+--
+-- BLOB KEY FORMAT: blob:temp:{id} in HAL storage
+
+CREATE TABLE IF NOT EXISTS temp (
+    -- -------------------------------------------------------------------------
+    -- System Fields
+    -- -------------------------------------------------------------------------
+    id          TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    created_at  TEXT DEFAULT (datetime('now')),
+    updated_at  TEXT DEFAULT (datetime('now')),
+    trashed_at  TEXT,
+    expired_at  TEXT,
+
+    -- -------------------------------------------------------------------------
+    -- Temp-Specific Fields
+    -- -------------------------------------------------------------------------
+    -- WHY name NOT NULL: Every temp file must have a name.
+    name        TEXT NOT NULL,
+
+    -- WHY parent nullable: Root-level temp files have no parent.
+    -- Future: can reference another temp entry for nested folders.
+    parent      TEXT,
+
+    -- WHY owner NOT NULL: Every temp file must have an owner for cleanup.
+    owner       TEXT NOT NULL,
+
+    -- WHY size default 0: New files start empty.
+    size        INTEGER DEFAULT 0,
+
+    -- WHY mimetype nullable: Can be auto-detected or unset.
+    mimetype    TEXT
+);
+
+-- Index for listing temp files by parent (readdir)
+CREATE INDEX IF NOT EXISTS idx_temp_parent
+    ON temp(parent)
+    WHERE trashed_at IS NULL;
+
+-- Index for finding temp files by name within parent (path resolution)
+CREATE INDEX IF NOT EXISTS idx_temp_parent_name
+    ON temp(parent, name)
+    WHERE trashed_at IS NULL;
+
+-- Index for listing temp files by owner (cleanup)
+CREATE INDEX IF NOT EXISTS idx_temp_owner
+    ON temp(owner)
+    WHERE trashed_at IS NULL;
+
+-- =============================================================================
 -- SEED DATA: SYSTEM META-MODELS
 -- =============================================================================
 -- These models define the schema system itself. They require sudo access
@@ -560,7 +621,8 @@ INSERT OR IGNORE INTO models (model_name, status, description) VALUES
     ('folder', 'system', 'Directory entity - contains child entries'),
     ('device', 'system', 'Device node entity - kernel device interface'),
     ('proc', 'system', 'Process/virtual file entity - dynamic content'),
-    ('link', 'system', 'Symbolic link entity - path redirection');
+    ('link', 'system', 'Symbolic link entity - path redirection'),
+    ('temp', 'system', 'Temporary file entity - SQL metadata + HAL blob');
 
 -- =============================================================================
 -- SEED DATA: MODELS TABLE FIELDS (Meta-model)
@@ -679,3 +741,16 @@ INSERT OR IGNORE INTO fields (model_name, field_name, type, required, descriptio
     ('link', 'parent', 'uuid', 0, 'Parent folder ID'),
     ('link', 'owner', 'uuid', 1, 'Owner user or process ID'),
     ('link', 'target', 'text', 1, 'Target path (absolute or relative)');
+
+-- =============================================================================
+-- SEED DATA: TEMP MODEL FIELDS
+-- =============================================================================
+-- Temporary files store metadata in SQL, blob content in HAL storage.
+-- This is the proof-of-concept for the entity+data architecture.
+
+INSERT OR IGNORE INTO fields (model_name, field_name, type, required, description) VALUES
+    ('temp', 'name', 'text', 1, 'Temp file name'),
+    ('temp', 'parent', 'text', 0, 'Parent temp ID (null for root-level)'),
+    ('temp', 'owner', 'text', 1, 'Owner process or user ID'),
+    ('temp', 'size', 'integer', 0, 'Blob size in bytes'),
+    ('temp', 'mimetype', 'text', 0, 'MIME type (e.g., application/octet-stream)');

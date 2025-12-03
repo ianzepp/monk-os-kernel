@@ -1149,14 +1149,14 @@ describe('DatabaseService', () => {
     describe('selectAny', () => {
         it('should select all records', async () => {
             const models = await service.selectAny<DbRecord>('models');
-            expect(models.length).toBe(8); // 3 meta + 5 VFS
+            expect(models.length).toBe(9); // 3 meta + 6 VFS
         });
 
         it('should filter with where clause', async () => {
             const models = await service.selectAny<DbRecord>('models', {
                 where: { status: 'system' },
             });
-            expect(models.length).toBe(8);
+            expect(models.length).toBe(9);
         });
 
         it('should respect limit', async () => {
@@ -1215,7 +1215,7 @@ describe('DatabaseService', () => {
     describe('count', () => {
         it('should count records', async () => {
             const count = await service.count('models');
-            expect(count).toBe(8);
+            expect(count).toBe(9);
         });
 
         it('should count with filter', async () => {

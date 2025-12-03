@@ -299,13 +299,13 @@ describe('Model Schema', () => {
             expect(model!.status).toBe('system');
         });
 
-        it('should have 8 system models total', async () => {
+        it('should have 9 system models total', async () => {
             const count = await db.queryOne<{ cnt: number }>(
                 "SELECT COUNT(*) as cnt FROM models WHERE status = 'system'"
             );
 
-            // 3 meta-models + 5 VFS models = 8
-            expect(count!.cnt).toBe(8);
+            // 3 meta-models + 6 VFS models = 9
+            expect(count!.cnt).toBe(9);
         });
     });
 
@@ -491,7 +491,7 @@ describe('Model Schema', () => {
             const count = await db.queryOne<{ cnt: number }>(
                 "SELECT COUNT(*) as cnt FROM models WHERE status = 'system'"
             );
-            expect(count!.cnt).toBe(8);
+            expect(count!.cnt).toBe(9);
         });
     });
 
@@ -848,12 +848,12 @@ describe('Model Schema', () => {
     });
 
     describe('entity table count', () => {
-        it('should have 8 total tables (3 meta + 5 entity)', async () => {
+        it('should have 9 total tables (3 meta + 6 entity)', async () => {
             const tables = await db.query<{ name: string }>(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
             );
-            // models, fields, tracked + file, folder, device, proc, link = 8
-            expect(tables.length).toBe(8);
+            // models, fields, tracked + file, folder, device, proc, link, temp = 9
+            expect(tables.length).toBe(9);
         });
     });
 });
@@ -902,7 +902,7 @@ describe('Connection Module', () => {
             const models = await db.query<{ model_name: string }>(
                 "SELECT model_name FROM models WHERE status = 'system'"
             );
-            expect(models.length).toBe(8);
+            expect(models.length).toBe(9);
 
             await db.close();
         });

@@ -206,6 +206,21 @@ Deferred indefinitely. System models seeded via schema.sql; user models can be c
 
 See: [99-deferred.md](./99-deferred.md)
 
+### Phase 5.5: Entity Cache
+**Goal:** In-memory entity index for O(1) path resolution
+
+- [ ] `EntityCache` class with `byId` and `childIndex` maps
+- [ ] Load all entities from all model tables at boot (~300MB for 1M entities)
+- [ ] Path resolution via in-memory lookups (zero SQL)
+- [ ] Model dispatch via cached `model` field
+- [ ] Cache sync via Ring 8 observer on create/update/delete
+- [ ] Handle rename (update childIndex key)
+- [ ] Handle move (update parent, reindex in both old and new parent)
+
+**Deliverable:** Path resolution and model dispatch without database queries
+
+See: [05.5-entity-cache.md](./05.5-entity-cache.md)
+
 ### Phase 6: VFS Integration
 **Goal:** Wire VFS operations to the model layer
 

@@ -658,4 +658,4 @@ await db.createOne('task', { title: 'Hello world' });
 
 ## Next Phase
 
-Once model loader is complete, proceed to [Phase 6: VFS Integration](./06-vfs-integration.md) to expose models through the filesystem.
+Once model loader is complete, proceed to [Phase 5.5: Entity Cache](./05.5-entity-cache.md) to build the in-memory entity index for O(1) path resolution.

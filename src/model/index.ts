@@ -72,6 +72,19 @@ export { ModelRecord, type RecordData, type FieldDiff, type RecordDiff } from '.
 export { ModelCache } from './model-cache.js';
 
 // =============================================================================
+// ENTITY CACHE
+// =============================================================================
+
+export {
+    EntityCache,
+    ROOT_ID,
+    type CachedEntity,
+    type EntityInput,
+    type EntityUpdate,
+    type CacheStats,
+} from './entity-cache.js';
+
+// =============================================================================
 // FILTER SYSTEM
 // =============================================================================
 

@@ -1,5 +1,9 @@
 # Phase 6: VFS Integration
 
+## Prerequisites
+
+- [Phase 5.5: Entity Cache](./05.5-entity-cache.md) - Required for O(1) path resolution and model dispatch
+
 ## Overview
 
 Wire VFS operations to the entity+data architecture, starting with `/tmp` as a proof-of-concept.

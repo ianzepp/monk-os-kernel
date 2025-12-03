@@ -94,6 +94,7 @@ export { DeviceModel, initStandardDevices } from '@src/vfs/models/device.js';
 export { LinkModel } from '@src/vfs/models/link.js';
 export { ProcModel, ProcessRegistry, createProcessProc } from '@src/vfs/models/proc.js';
 export type { ProcessState } from '@src/vfs/models/proc.js';
+export { TempModel } from '@src/vfs/models/temp.js';
 
 // =============================================================================
 // ERROR TYPES
