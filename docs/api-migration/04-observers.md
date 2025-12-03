@@ -19,7 +19,7 @@ Observers implement the behavioral enforcement specified in field/model metadata
 | 6 | 10 | DdlCreateModel | ✅ Registered | Active in pipeline |
 | 6 | 10 | DdlCreateField | ✅ Registered | Active in pipeline |
 | 7 | 60 | Tracked | ❌ Not started | |
-| 8 | 50 | Cache | ❌ Not started | |
+| 8 | 50 | Cache | ✅ Registered | Active in pipeline |
 
 ## Observer Inventory
 
@@ -873,6 +873,9 @@ import { SqlCreate, SqlUpdate, SqlDelete } from '../ring/5/index.js';
 // Ring 6: Post-Database (DDL)
 import { DdlCreateModel, DdlCreateField } from '../ring/6/index.js';
 
+// Ring 8: Integration
+import { Cache } from '../ring/8/index.js';
+
 export function createObserverRunner(): ObserverRunner {
     const runner = new ObserverRunner();
 
@@ -914,7 +917,7 @@ export function createObserverRunner(): ObserverRunner {
     // =========================================================================
     // RING 8: INTEGRATION
     // =========================================================================
-    // TODO: runner.register(new Cache());
+    runner.register(new Cache());
 
     return runner;
 }
@@ -953,8 +956,9 @@ src/model/
 │   │   └── index.ts             ✅
 │   ├── 7/                       # Ring 7: Audit (not started)
 │   │   └── 60-tracked.ts
-│   └── 8/                       # Ring 8: Integration (not started)
-│       └── 50-cache.ts
+│   └── 8/                       # Ring 8: Integration (registered)
+│       ├── 50-cache.ts          ✅
+│       └── index.ts             ✅
 ```
 
 File naming convention: `{priority}-{observer-name}.ts` (e.g., `50-sql-create.ts`)
@@ -978,16 +982,17 @@ File naming convention: `{priority}-{observer-name}.ts` (e.g., `50-sql-create.ts
 - [x] DdlCreateModel creates tables for new models
 - [x] DdlCreateField adds columns for new fields
 
-### Ring 7-8: Audit & Integration (not started)
+### Ring 7: Audit (not started)
 - [ ] Tracked records change history
-- [ ] Cache clears cache on model/field changes
+
+### Ring 8: Integration (registered, active)
+- [x] Cache clears cache on model/field changes
 
 ## Next Steps
 
-1. **Implement Ring 8 (Cache)** - Invalidate model cache on model/field changes
-2. **Implement Ring 0 (UpdateMerger)** - Merge input with existing data for updates
-3. **Implement Ring 4 (TransformProcessor)** - Apply auto-transforms
-4. **Implement Ring 7 (Tracked)** - Audit trail for tracked fields
+1. **Implement Ring 0 (UpdateMerger)** - Merge input with existing data for updates
+2. **Implement Ring 4 (TransformProcessor)** - Apply auto-transforms
+3. **Implement Ring 7 (Tracked)** - Audit trail for tracked fields
 
 ## Next Phase
 

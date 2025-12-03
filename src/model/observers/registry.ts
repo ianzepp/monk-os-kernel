@@ -54,6 +54,9 @@ import { SqlCreate, SqlUpdate, SqlDelete } from '../ring/5/index.js';
 // Ring 6: Post-Database (DDL)
 import { DdlCreateModel, DdlCreateField } from '../ring/6/index.js';
 
+// Ring 8: Integration
+import { Cache } from '../ring/8/index.js';
+
 // =============================================================================
 // FACTORY
 // =============================================================================
@@ -69,12 +72,12 @@ import { DdlCreateModel, DdlCreateField } from '../ring/6/index.js';
  * - Ring 1: Frozen, Immutable, Constraints (input validation)
  * - Ring 5: SqlCreate, SqlUpdate, SqlDelete (database operations)
  * - Ring 6: DdlCreateModel, DdlCreateField (schema management)
+ * - Ring 8: Cache (cache invalidation)
  *
  * TODO:
  * - Ring 0: UpdateMerger (data preparation)
  * - Ring 4: TransformProcessor (enrichment)
  * - Ring 7: Tracked (audit)
- * - Ring 8: Cache (integration)
  *
  * @returns Configured ObserverRunner
  */
@@ -129,7 +132,7 @@ export function createObserverRunner(): ObserverRunner {
     // =========================================================================
     // RING 8: INTEGRATION
     // =========================================================================
-    // Phase 4: runner.register(new CacheInvalidator());
+    runner.register(new Cache());
 
     // =========================================================================
     // RING 9: NOTIFICATION
