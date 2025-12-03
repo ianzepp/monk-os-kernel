@@ -12,6 +12,7 @@
         "start": "bun src/boot.ts",
         "start:sqlite": "bun src/boot.ts --sqlite",
         "build": "scripts/build.sh",
+        "build:warn": "scripts/build-warn.sh",
         "build:standalone": "scripts/build-standalone.sh",
         "test": "bun test --preload ./spec/bun-test-setup.ts ./spec/**/*.test.ts",
         "perf": "bun test --preload ./spec/bun-test-setup.ts ./perf/**/*.perf.ts",
