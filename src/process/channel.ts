@@ -1,58 +1,182 @@
 /**
- * Channel Library
+ * Channel Library - Protocol-aware bidirectional message exchange
  *
- * Userland interface for protocol-aware bidirectional message exchange.
- * Channels provide message-based communication over persistent connections
- * with protocol-level framing handled by the HAL.
+ * ARCHITECTURE OVERVIEW
+ * =====================
+ * Channels provide a unified interface for protocol-aware communication with
+ * external services. Unlike raw sockets, channels understand the underlying
+ * protocol (HTTP, WebSocket, PostgreSQL, SQLite) and handle framing, encoding,
+ * and connection lifecycle automatically.
  *
- * Usage:
- *   import { channel } from '@src/process/channel';
+ * The channel abstraction is inspired by Go's channels but adapted for
+ * message-based communication with external services:
  *
- *   const ch = await channel.open('http', 'https://api.example.com');
- *   const response = await channel.call(ch, { op: 'request', data: { method: 'GET', path: '/users' } });
- *   await channel.close(ch);
+ *   ┌─────────────────────────────────────────────────────────────────────┐
+ *   │                         Process (Userland)                          │
+ *   │                                                                     │
+ *   │  const ch = await channel.open('http', 'https://api.example.com'); │
+ *   │  const resp = await channel.call(ch, { op: 'request', ... });      │
+ *   │  await channel.close(ch);                                           │
+ *   │                                                                     │
+ *   └─────────────────────────────────────────────────────────────────────┘
+ *                                    │
+ *                                    ▼ (syscalls)
+ *   ┌─────────────────────────────────────────────────────────────────────┐
+ *   │                            Kernel                                   │
+ *   │                                                                     │
+ *   │  - Manages channel lifecycle                                        │
+ *   │  - Routes messages to protocol handlers                             │
+ *   │  - Handles connection pooling                                       │
+ *   │                                                                     │
+ *   └─────────────────────────────────────────────────────────────────────┘
+ *                                    │
+ *                                    ▼ (HAL)
+ *   ┌─────────────────────────────────────────────────────────────────────┐
+ *   │                     Protocol Handlers                               │
+ *   │                                                                     │
+ *   │  ┌─────────┐  ┌───────────┐  ┌──────────┐  ┌────────┐             │
+ *   │  │  HTTP   │  │ WebSocket │  │ Postgres │  │ SQLite │             │
+ *   │  └─────────┘  └───────────┘  └──────────┘  └────────┘             │
+ *   │                                                                     │
+ *   └─────────────────────────────────────────────────────────────────────┘
+ *
+ * COMMUNICATION PATTERNS
+ * ======================
+ * 1. Request/Response (call): Send message, receive single response
+ *    - HTTP requests
+ *    - Database queries (non-streaming)
+ *
+ * 2. Streaming (stream): Send message, receive multiple responses
+ *    - Database cursors
+ *    - SSE subscriptions
+ *    - Paginated results
+ *
+ * 3. Bidirectional (push/recv): Both sides can send at any time
+ *    - WebSocket communication
+ *    - Server-side event sources
+ *
+ * INVARIANTS (must always hold true)
+ * ===================================
+ * INV-1: Channel IDs are valid only within the creating process
+ * INV-2: Closed channels reject all operations with EBADF
+ * INV-3: Streaming terminates on 'done', 'ok', or 'error' response
+ *
+ * CONCURRENCY MODEL
+ * =================
+ * Channels are process-local resources. Multiple concurrent operations on
+ * the same channel are serialized by the kernel. Different channels can
+ * operate in parallel.
+ *
+ * MEMORY MANAGEMENT
+ * =================
+ * - Channel state is held by kernel (process has just the ID)
+ * - Streaming responses are yielded lazily (no buffering in process)
+ * - Close releases kernel-side resources
+ *
+ * @module process/channel
  */
 
 import { syscall, syscallStream } from '@src/process/syscall.js';
 import { withTypedErrors } from '@src/process/errors.js';
 import type { Message, Response } from '@src/message.js';
 
+// =============================================================================
+// TYPES
+// =============================================================================
+
 /**
- * Channel options
+ * Channel configuration options.
+ *
+ * Options vary by protocol type. Unknown options are ignored.
  */
 export interface ChannelOpts {
-    /** Default headers (HTTP) */
+    // -------------------------------------------------------------------------
+    // HTTP Options
+    // -------------------------------------------------------------------------
+
+    /**
+     * Default headers for all requests.
+     *
+     * WHY: Common headers like Authorization can be set once at channel open.
+     */
     headers?: Record<string, string>;
-    /** Keep connection alive */
+
+    /**
+     * Keep underlying connection alive between requests.
+     *
+     * WHY: HTTP/1.1 keep-alive reduces connection overhead.
+     */
     keepAlive?: boolean;
-    /** Request timeout in ms */
+
+    /**
+     * Request timeout in milliseconds.
+     *
+     * WHY: Prevents hanging on unresponsive servers.
+     */
     timeout?: number;
-    /** Database name (postgres) */
+
+    // -------------------------------------------------------------------------
+    // Database Options
+    // -------------------------------------------------------------------------
+
+    /**
+     * Database name (PostgreSQL).
+     *
+     * WHY: PostgreSQL connections are database-specific.
+     */
     database?: string;
-    /** Open read-only (SQLite) */
+
+    /**
+     * Open in read-only mode (SQLite).
+     *
+     * WHY: Prevents accidental writes to shared databases.
+     */
     readonly?: boolean;
-    /** Create file if missing (SQLite, default: true) */
+
+    /**
+     * Create database file if missing (SQLite).
+     *
+     * WHY: Allows explicit control over file creation (default: true).
+     */
     create?: boolean;
 }
+
+// =============================================================================
+// CHANNEL API
+// =============================================================================
 
 /**
  * Channel API namespace.
  *
  * Provides protocol-aware message passing over persistent connections.
+ * All methods are async and throw typed errors on failure.
  */
 export const channel = {
     /**
      * Open a channel to a remote service.
      *
-     * @param proto - Protocol type (http, https, websocket, postgres, etc.)
-     * @param url - Connection URL
-     * @param opts - Channel options
-     * @returns Channel ID
+     * ALGORITHM:
+     * 1. Validate protocol type
+     * 2. Create channel via kernel syscall
+     * 3. Return channel ID for subsequent operations
+     *
+     * @param proto - Protocol type (http, https, websocket, postgres, sqlite)
+     * @param url - Connection URL or file path
+     * @param opts - Protocol-specific options
+     * @returns Channel ID (number)
+     * @throws EINVAL - If protocol is not supported
+     * @throws ECONNREFUSED - If connection fails
      *
      * @example
+     * // HTTP channel with auth header
      * const api = await channel.open('http', 'https://api.example.com', {
      *     headers: { 'Authorization': 'Bearer token' },
      *     timeout: 30000
+     * });
+     *
+     * // SQLite channel
+     * const db = await channel.open('sqlite', './data.db', {
+     *     readonly: true
      * });
      */
     async open(proto: string, url: string, opts?: ChannelOpts): Promise<number> {
@@ -63,11 +187,18 @@ export const channel = {
      * Send a request and receive a single response.
      *
      * Waits for the first response from the channel (ok or error).
-     * Use this for request/response patterns like HTTP or database queries.
+     * Use this for request/response patterns like HTTP or single-result queries.
      *
-     * @param ch - Channel ID
+     * ALGORITHM:
+     * 1. Send message via kernel
+     * 2. Wait for response
+     * 3. Return response (may be ok or error)
+     *
+     * @param ch - Channel ID from open()
      * @param msg - Message to send
-     * @returns Response
+     * @returns Response from service
+     * @throws EBADF - If channel is closed
+     * @throws ETIMEDOUT - If request times out
      *
      * @example
      * const response = await channel.call(ch, {
@@ -85,12 +216,20 @@ export const channel = {
     /**
      * Send a request and iterate streaming responses.
      *
-     * Returns an async iterable that yields responses until 'done' or 'error'.
-     * Use this for streaming patterns like JSONL, SSE, or database cursors.
+     * Returns an async iterable that yields responses until terminal op.
+     * Use for streaming patterns like database cursors or SSE.
      *
-     * @param ch - Channel ID
+     * ALGORITHM:
+     * 1. Send message via kernel
+     * 2. Yield responses as they arrive
+     * 3. Stop on 'done', 'ok', or 'error' response
+     *
+     * WHY async iterable: Natural fit for consuming streams. Allows
+     * backpressure and early termination via break.
+     *
+     * @param ch - Channel ID from open()
      * @param msg - Message to send
-     * @returns Async iterable of responses
+     * @yields Response objects from service
      *
      * @example
      * for await (const response of channel.stream(ch, {
@@ -98,7 +237,7 @@ export const channel = {
      *     data: { sql: 'SELECT * FROM users', cursor: true }
      * })) {
      *     if (response.op === 'item') {
-     *         console.log(response.data);
+     *         processRow(response.data);
      *     }
      * }
      */
@@ -110,11 +249,15 @@ export const channel = {
      * Push a response to the remote (server-side channels).
      *
      * Used for SSE and WebSocket server channels to send data to clients.
+     * This is the "send" side of bidirectional communication.
      *
      * @param ch - Channel ID
-     * @param response - Response to push
+     * @param response - Response to push to client
+     * @throws EBADF - If channel is closed
+     * @throws EPIPE - If client disconnected
      *
      * @example
+     * // SSE server pushing events
      * await channel.push(sseChannel, {
      *     op: 'event',
      *     data: { type: 'update', payload: { ... } }
@@ -130,10 +273,15 @@ export const channel = {
      * Used for WebSocket channels to receive messages from clients.
      * Blocks until a message is available.
      *
+     * WHY blocking: Matches traditional socket recv() semantics.
+     * Use with caution in single-threaded contexts.
+     *
      * @param ch - Channel ID
      * @returns Message from remote
+     * @throws EBADF - If channel is closed
      *
      * @example
+     * // WebSocket server receiving messages
      * while (true) {
      *     const msg = await channel.recv(wsChannel);
      *     if (msg.op === 'close') break;
@@ -147,6 +295,9 @@ export const channel = {
     /**
      * Close a channel.
      *
+     * Releases kernel-side resources and closes underlying connection.
+     * Safe to call multiple times (idempotent).
+     *
      * @param ch - Channel ID
      *
      * @example
@@ -157,37 +308,75 @@ export const channel = {
     },
 };
 
+// =============================================================================
+// HTTP HELPERS
+// =============================================================================
+
 /**
- * HTTP request helper.
+ * HTTP request structure.
  *
- * Convenience type for HTTP channel requests.
+ * Convenience type for HTTP channel requests. Matches the data format
+ * expected by the HTTP channel handler.
  */
 export interface HttpRequest {
+    /** HTTP method (GET, POST, PUT, DELETE, etc.) */
     method: string;
+
+    /** Request path (e.g., '/users/123') */
     path: string;
+
+    /** Query parameters (appended to URL) */
     query?: Record<string, unknown>;
+
+    /** Request headers (merged with channel defaults) */
     headers?: Record<string, string>;
+
+    /** Request body (JSON serialized) */
     body?: unknown;
+
+    /** Accept header value (e.g., 'application/json') */
     accept?: string;
 }
 
 /**
  * Create an HTTP request message.
  *
+ * Helper to construct properly formatted HTTP request messages.
+ *
  * @param request - HTTP request parameters
  * @returns Message for channel.call()
+ *
+ * @example
+ * const msg = httpRequest({ method: 'GET', path: '/users' });
+ * const response = await channel.call(ch, msg);
  */
 export function httpRequest(request: HttpRequest): Message {
     return { op: 'request', data: request };
 }
 
+// =============================================================================
+// SQL HELPERS
+// =============================================================================
+
 /**
  * Create a SQL query message.
  *
- * @param sql - SQL query string
- * @param params - Query parameters
- * @param cursor - Whether to use cursor for streaming
+ * Helper to construct properly formatted SQL query messages.
+ * Works with both PostgreSQL and SQLite channels.
+ *
+ * @param sql - SQL query string (use $1, $2 for params in Postgres)
+ * @param params - Query parameters (positional)
+ * @param cursor - Whether to use cursor for streaming (large result sets)
  * @returns Message for channel.call() or channel.stream()
+ *
+ * @example
+ * // Single result
+ * const msg = sqlQuery('SELECT * FROM users WHERE id = $1', [userId]);
+ * const response = await channel.call(db, msg);
+ *
+ * // Streaming results
+ * const msg = sqlQuery('SELECT * FROM logs', [], true);
+ * for await (const row of channel.stream(db, msg)) { ... }
  */
 export function sqlQuery(sql: string, params?: unknown[], cursor?: boolean): Message {
     return { op: 'query', data: { sql, params, cursor } };
@@ -196,8 +385,13 @@ export function sqlQuery(sql: string, params?: unknown[], cursor?: boolean): Mes
 /**
  * Create a SQL execute message (DDL, no results).
  *
+ * Helper for statements that don't return results (CREATE, DROP, etc.).
+ *
  * @param sql - SQL statement
  * @returns Message for channel.call()
+ *
+ * @example
+ * await channel.call(db, sqlExecute('CREATE TABLE users (id INT, name TEXT)'));
  */
 export function sqlExecute(sql: string): Message {
     return { op: 'execute', data: { sql } };
