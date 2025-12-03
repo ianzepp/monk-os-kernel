@@ -8,7 +8,7 @@ Observers implement the behavioral enforcement specified in field/model metadata
 
 | Ring | Priority | Observer | Status | Notes |
 |------|----------|----------|--------|-------|
-| 0 | 50 | UpdateMerger | ❌ Not started | |
+| 0 | 50 | UpdateMerger | ✅ Registered | Active in pipeline |
 | 1 | 10 | Frozen | ✅ Registered | Active in pipeline |
 | 1 | 30 | Immutable | ✅ Registered | Active in pipeline |
 | 1 | 40 | Constraints | ✅ Registered | Active in pipeline |
@@ -864,6 +864,9 @@ export default Cache;
 ```typescript
 import { ObserverRunner } from './runner.js';
 
+// Ring 0: Data Preparation
+import { UpdateMerger } from '../ring/0/index.js';
+
 // Ring 1: Input Validation
 import { Frozen, Immutable, Constraints } from '../ring/1/index.js';
 
@@ -882,7 +885,7 @@ export function createObserverRunner(): ObserverRunner {
     // =========================================================================
     // RING 0: DATA PREPARATION
     // =========================================================================
-    // TODO: runner.register(new UpdateMerger());
+    runner.register(new UpdateMerger());
 
     // =========================================================================
     // RING 1: INPUT VALIDATION
@@ -936,8 +939,9 @@ src/model/
 │   ├── registry.ts              # createObserverRunner() factory
 │   └── index.ts                 # Public exports
 ├── ring/                        # Observer implementations by ring
-│   ├── 0/                       # Ring 0: Data Preparation (not started)
-│   │   └── 50-update-merger.ts
+│   ├── 0/                       # Ring 0: Data Preparation (registered)
+│   │   ├── 50-update-merger.ts  ✅
+│   │   └── index.ts             ✅
 │   ├── 1/                       # Ring 1: Input Validation (registered)
 │   │   ├── 10-frozen.ts         ✅
 │   │   ├── 30-immutable.ts      ✅
@@ -965,6 +969,9 @@ File naming convention: `{priority}-{observer-name}.ts` (e.g., `50-sql-create.ts
 
 ## Acceptance Criteria
 
+### Ring 0: Data Preparation (registered, active)
+- [x] UpdateMerger sets updated_at for update operations
+
 ### Ring 1: Input Validation (registered, active)
 - [x] Frozen blocks changes to frozen models
 - [x] Immutable blocks changes to immutable fields
@@ -990,9 +997,8 @@ File naming convention: `{priority}-{observer-name}.ts` (e.g., `50-sql-create.ts
 
 ## Next Steps
 
-1. **Implement Ring 0 (UpdateMerger)** - Merge input with existing data for updates
-2. **Implement Ring 4 (TransformProcessor)** - Apply auto-transforms
-3. **Implement Ring 7 (Tracked)** - Audit trail for tracked fields
+1. **Implement Ring 4 (TransformProcessor)** - Apply auto-transforms
+2. **Implement Ring 7 (Tracked)** - Audit trail for tracked fields
 
 ## Next Phase
 

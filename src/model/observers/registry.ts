@@ -45,6 +45,9 @@ import { ObserverRunner } from './runner.js';
 // OBSERVER IMPORTS
 // =============================================================================
 
+// Ring 0: Data Preparation
+import { UpdateMerger } from '../ring/0/index.js';
+
 // Ring 1: Input Validation
 import { Frozen, Immutable, Constraints } from '../ring/1/index.js';
 
@@ -69,13 +72,13 @@ import { Cache } from '../ring/8/index.js';
  * separate instances allow different configurations for testing.
  *
  * Currently registered observers:
+ * - Ring 0: UpdateMerger (data preparation)
  * - Ring 1: Frozen, Immutable, Constraints (input validation)
  * - Ring 5: SqlCreate, SqlUpdate, SqlDelete (database operations)
  * - Ring 6: DdlCreateModel, DdlCreateField (schema management)
  * - Ring 8: Cache (cache invalidation)
  *
  * TODO:
- * - Ring 0: UpdateMerger (data preparation)
  * - Ring 4: TransformProcessor (enrichment)
  * - Ring 7: Tracked (audit)
  *
@@ -87,7 +90,7 @@ export function createObserverRunner(): ObserverRunner {
     // =========================================================================
     // RING 0: DATA PREPARATION
     // =========================================================================
-    // Phase 4: runner.register(new UpdateMerger());
+    runner.register(new UpdateMerger());
 
     // =========================================================================
     // RING 1: INPUT VALIDATION
