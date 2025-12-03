@@ -184,32 +184,27 @@ See: [02-schema.md](./02-schema.md)
 
 See: [03-database-layer.md](./03-database-layer.md)
 
-### Phase 4: Core Observers
+### Phase 4: Core Observers (IMPLEMENTED)
 **Goal:** Essential behavioral observers
 
-- [ ] Ring 0: UpdateMerger (merge input with existing)
-- [ ] Ring 1: FrozenValidator, ImmutableValidator, DataValidator
-- [ ] Ring 4: TransformProcessor (lowercase, trim, etc.)
-- [ ] Ring 5: SqlCreate, SqlUpdate, SqlDelete
-- [ ] Ring 6: ModelDdlCreate, FieldDdlCreate (schema evolution)
-- [ ] Ring 7: Tracked (change history)
-- [ ] Ring 8: CacheInvalidator
+- [x] Ring 0: UpdateMerger (merge input with existing)
+- [x] Ring 1: Frozen, Immutable, Constraints (validation)
+- [x] Ring 4: TransformProcessor (lowercase, trim, etc.)
+- [x] Ring 5: SqlCreate, SqlUpdate, SqlDelete
+- [x] Ring 6: DdlCreateModel, DdlCreateField (schema evolution)
+- [x] Ring 7: Tracked (change history)
+- [x] Ring 8: Cache (cache invalidation)
 
 **Deliverable:** Full behavioral enforcement on entity mutations
 
 See: [04-observers.md](./04-observers.md)
 
-### Phase 5: Model Loader
+### Phase 5: Model Loader (DEFERRED)
 **Goal:** Load YAML/JSON model definitions
 
-- [ ] YAML/JSON parser for model definitions
-- [ ] Validation of model/field definitions
-- [ ] Boot-time loading of system models
-- [ ] Loading user models from `/app/models/`
+Deferred indefinitely. System models seeded via schema.sql; user models can be created programmatically via DatabaseOps.
 
-**Deliverable:** Can define models in YAML, load at boot
-
-See: [05-model-loader.md](./05-model-loader.md)
+See: [99-deferred.md](./99-deferred.md)
 
 ### Phase 6: VFS Integration
 **Goal:** Wire VFS operations to the model layer
@@ -225,14 +220,12 @@ See: [05-model-loader.md](./05-model-loader.md)
 
 See: [06-vfs-integration.md](./06-vfs-integration.md)
 
-### Phase 7: Query API (Optional)
+### Phase 7: Query API (DEFERRED)
 **Goal:** Rich query interface beyond path access
 
-- [ ] Filter class for query building
-- [ ] Expose query via syscall or special path
-- [ ] Support aggregations (count, sum, etc.)
+Deferred indefinitely. Direct SQL queries via DatabaseConnection work for current needs.
 
-See: [07-query-api.md](./07-query-api.md)
+See: [99-deferred.md](./99-deferred.md)
 
 ## Key Decisions
 
