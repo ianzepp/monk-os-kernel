@@ -219,4 +219,69 @@ describe('Shell', () => {
     // Note: Input redirect (<) is implemented but not tested here because
     // it requires an external command that reads from stdin (e.g., cat).
     // The redirect() syscall correctly redirects fd 0, but no builtin reads stdin.
+
+    // Note: cat tests are grouped below to isolate the pipe bug
+
+    it('should spawn child that writes to stdout', async () => {
+        // Simple test: shell spawns cat which should write to inherited stdout
+        // Use a path that exists - create file first in same command
+        await kernel.boot({
+            initPath: '/bin/shell.ts',
+            initArgs: ['shell', '-c', 'echo test123 > /test.txt && cat /test.txt'],
+            env: {},
+            debug: true,  // Enable kernel debug output
+        });
+
+        await waitForInitExit(kernel);
+
+        const output = hal.console.getOutput();
+        const errors = hal.console.getErrors();
+        console.log('Cat via shell output:', JSON.stringify(output));
+        console.log('Cat via shell errors:', JSON.stringify(errors));
+
+        // The echo to file should work, but does cat output?
+        expect(output).toContain('test123');
+    });
+
+    it('should handle simple pipe (echo | cat)', async () => {
+        const shellPath = '/bin/shell.ts';
+
+        await kernel.boot({
+            initPath: shellPath,
+            initArgs: ['shell', '-c', 'echo hello | cat'],
+            env: {},
+            debug: true,
+        });
+
+        await waitForInitExit(kernel, 10000);
+
+        const output = hal.console.getOutput();
+        const errors = hal.console.getErrors();
+        console.log('Pipe stdout:', JSON.stringify(output));
+        console.log('Pipe stderr:', JSON.stringify(errors));
+
+        expect(output).toContain('hello');
+    });
+
+    it('should pipe true output to cat', async () => {
+        // Simpler test: true | cat should just exit quickly (no input to cat)
+        const shellPath = '/bin/shell.ts';
+
+        await kernel.boot({
+            initPath: shellPath,
+            initArgs: ['shell', '-c', 'true | cat'],
+            env: {},
+            debug: true,
+        });
+
+        await waitForInitExit(kernel, 10000);
+
+        // true outputs nothing, so cat should get EOF immediately and exit
+        const errors = hal.console.getErrors();
+        console.log('true|cat errors:', JSON.stringify(errors));
+
+        // If cat exited cleanly, shell should exit with 0
+        const init = kernel.getProcessTable().getInit();
+        console.log('Exit code:', init?.exitCode);
+    });
 });

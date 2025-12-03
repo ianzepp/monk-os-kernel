@@ -95,14 +95,18 @@ export function checkAccessAll(acl: ACL, caller: string, ops: string[], now: num
 
 /**
  * Create default ACL for new entity.
- * Creator gets full control, no one else has access.
+ * Creator gets full control. Everyone else gets read/stat access (world-readable).
+ * This matches traditional Unix file permissions (644: rw-r--r--).
  *
  * @param creator - Creator UUID
  * @returns Default ACL
  */
 export function defaultACL(creator: string): ACL {
     return {
-        grants: [{ to: creator, ops: ['*'] }],
+        grants: [
+            { to: creator, ops: ['*'] },
+            { to: '*', ops: ['read', 'stat'] },
+        ],
         deny: [],
     };
 }

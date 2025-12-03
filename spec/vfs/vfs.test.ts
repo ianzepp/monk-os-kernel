@@ -325,9 +325,10 @@ describe('VFS', () => {
             await vfs.setAccess('/file.txt', caller, null);
 
             const acl = await vfs.access('/file.txt', caller);
-            // Should be default ACL (owner only)
-            expect(acl.grants.length).toBe(1);
-            expect(acl.grants[0].to).toBe(caller);
+            // Should be default ACL (owner + world-readable)
+            expect(acl.grants.length).toBe(2);
+            expect(acl.grants[0]!.to).toBe(caller);
+            expect(acl.grants[1]!.to).toBe('*');
         });
     });
 

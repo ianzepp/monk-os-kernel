@@ -130,11 +130,13 @@ describe('VFS ACL', () => {
     });
 
     describe('defaultACL', () => {
-        it('should grant * to creator', () => {
+        it('should grant * to creator and read/stat to everyone', () => {
             const acl = defaultACL('creator-uuid');
-            expect(acl.grants.length).toBe(1);
-            expect(acl.grants[0].to).toBe('creator-uuid');
-            expect(acl.grants[0].ops).toContain('*');
+            expect(acl.grants.length).toBe(2);
+            expect(acl.grants[0]!.to).toBe('creator-uuid');
+            expect(acl.grants[0]!.ops).toContain('*');
+            expect(acl.grants[1]!.to).toBe('*');
+            expect(acl.grants[1]!.ops).toEqual(['read', 'stat']);
         });
 
         it('should have empty deny list', () => {
@@ -150,9 +152,18 @@ describe('VFS ACL', () => {
             expect(checkAccess(acl, 'creator-uuid', 'anything')).toBe(true);
         });
 
-        it('should deny others', () => {
+        it('should have wildcard grant for read/stat (world-readable)', () => {
+            // Note: checkAccess uses exact caller matching. Wildcard matching
+            // is handled at VFS layer via checkAccess(acl, '*', op)
             const acl = defaultACL('creator-uuid');
-            expect(checkAccess(acl, 'other-uuid', 'read')).toBe(false);
+            expect(checkAccess(acl, '*', 'read')).toBe(true);
+            expect(checkAccess(acl, '*', 'stat')).toBe(true);
+        });
+
+        it('should deny write for wildcard', () => {
+            const acl = defaultACL('creator-uuid');
+            expect(checkAccess(acl, '*', 'write')).toBe(false);
+            expect(checkAccess(acl, '*', 'delete')).toBe(false);
         });
     });
 

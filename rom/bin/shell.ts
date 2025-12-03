@@ -60,8 +60,9 @@ import { resolvePath } from '@rom/lib/path';
 const SHELL_VERSION = '0.1.0';
 const HISTSIZE_DEFAULT = 1000;
 
-// Built-in commands that must run in shell process (not spawned)
-const BUILTIN_COMMANDS = ['cd', 'export', 'exit', 'history', 'set', 'unset', 'echo', 'pwd', 'true', 'false'];
+// Built-in commands that MUST run in shell process (they modify shell state)
+// Keep this list minimal to avoid pipeline bugs with redirect/restore timing
+const BUILTIN_COMMANDS = ['cd', 'export', 'exit', 'true', 'false'];
 
 // VFS bin directory for command resolution
 const VFS_BIN_PATH = '/bin';
@@ -247,13 +248,6 @@ async function builtinExport(state: ShellState, args: string[]): Promise<number>
     return 0;
 }
 
-async function builtinHistory(state: ShellState, _args: string[]): Promise<number> {
-    for (let i = 0; i < state.history.length; i++) {
-        await println(`${String(i + 1).padStart(5)}  ${state.history[i]}`);
-    }
-    return 0;
-}
-
 async function builtinExit(state: ShellState, args: string[]): Promise<number> {
     const code = args.length > 0 ? parseInt(args[0], 10) : state.lastExitCode;
     state.shouldExit = true;
@@ -266,27 +260,16 @@ async function executeBuiltin(
     command: string,
     args: string[]
 ): Promise<number> {
+    // Only commands that MUST modify shell state belong here.
+    // Everything else (echo, pwd, history) should be external commands
+    // to avoid pipeline redirect/restore timing bugs.
     switch (command) {
         case 'cd':
             return builtinCd(state, args);
         case 'export':
             return builtinExport(state, args);
-        case 'history':
-            return builtinHistory(state, args);
         case 'exit':
             return builtinExit(state, args);
-        case 'set':
-            // TODO: implement set
-            return 0;
-        case 'unset':
-            // TODO: implement unset
-            return 0;
-        case 'echo':
-            await println(args.join(' '));
-            return 0;
-        case 'pwd':
-            await println(state.cwd);
-            return 0;
         case 'true':
             return 0;
         case 'false':
@@ -337,7 +320,11 @@ async function findCommand(command: string, cwd: string): Promise<string | null>
  * @param stdout - Optional stdout fd override
  * @returns Exit code
  */
-async function executeExternal(
+/**
+ * Spawn an external command and return pid.
+ * Does NOT wait for completion - caller must call wait().
+ */
+async function spawnExternal(
     state: ShellState,
     command: string,
     args: string[],
@@ -348,7 +335,7 @@ async function executeExternal(
 
     if (!cmdPath) {
         await eprintln(`${command}: command not found`);
-        return 127;
+        return -1; // Error indicator
     }
 
     try {
@@ -359,14 +346,30 @@ async function executeExternal(
             stdin,
             stdout,
         });
-
-        const status = await wait(pid);
-        return status.code;
+        return pid;
     } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         await eprintln(`${command}: ${msg}`);
-        return 126;
+        return -1;
     }
+}
+
+/**
+ * Execute an external command (spawn + wait).
+ * For non-pipeline use.
+ */
+async function executeExternal(
+    state: ShellState,
+    command: string,
+    args: string[],
+    stdin?: number,
+    stdout?: number
+): Promise<number> {
+    const pid = await spawnExternal(state, command, args, stdin, stdout);
+    if (pid < 0) return 126;
+
+    const status = await wait(pid);
+    return status.code;
 }
 
 // ============================================================================
@@ -459,6 +462,11 @@ async function executeSingleCommand(
                 for (const restore of restoreFns) {
                     await restore();
                 }
+                // For pipeline builtins: close the pipe stdout to signal EOF to reader.
+                // This is safe because restore already reverted fd 1 to original.
+                if (pipeStdout !== undefined) {
+                    await close(pipeStdout).catch(() => {});
+                }
             }
         }
 
@@ -475,8 +483,28 @@ async function executeSingleCommand(
 /**
  * Execute a pipeline of commands
  *
- * Creates pipes between commands and runs them concurrently.
- * Returns the exit code of the last command in the pipeline.
+ * Pipeline: cmd1 | cmd2 | cmd3
+ *
+ * Data flows left-to-right through pipes:
+ *   cmd1 stdout -> pipe1 -> cmd2 stdin
+ *   cmd2 stdout -> pipe2 -> cmd3 stdin
+ *
+ * Execution model:
+ *   1. Create all pipes upfront (N-1 pipes for N commands)
+ *   2. Initialize each command IN ORDER (critical for builtins!)
+ *   3. Execute all commands concurrently
+ *   4. Wait for all to complete
+ *   5. Return last command's exit code
+ *
+ * Why initialize in order?
+ *   Builtins run in the shell process and use redirect() to temporarily
+ *   change the shell's fd table. If we start commands concurrently,
+ *   an external command might spawn while a builtin's redirect is active,
+ *   inheriting the wrong stdout fd. This caused the infamous "cat loop" bug
+ *   where `echo hello | cat` would loop forever because cat inherited the
+ *   pipe's write end (from echo's redirect) instead of console.
+ *
+ * @returns Exit code of the last command in the pipeline
  */
 async function executePipeline(
     state: ShellState,
@@ -489,49 +517,138 @@ async function executePipeline(
         return executeSingleCommand(state, pipeline[0]);
     }
 
-    // Multi-command pipeline
-    // Create pipes between each pair of commands
+    // =========================================================================
+    // Step 1: Create all pipes upfront
+    // =========================================================================
+    //
+    // For pipeline: cmd0 | cmd1 | cmd2
+    // We need 2 pipes:
+    //   pipes[0] connects cmd0 -> cmd1
+    //   pipes[1] connects cmd1 -> cmd2
+    //
+    // Each pipe is [readFd, writeFd]:
+    //   cmd0 writes to pipes[0][1] (writeFd)
+    //   cmd1 reads from pipes[0][0] (readFd), writes to pipes[1][1]
+    //   cmd2 reads from pipes[1][0]
+
     const pipes: Array<[number, number]> = [];
     const fdsToClose: number[] = [];
 
     try {
-        // Create N-1 pipes for N commands
         for (let i = 0; i < pipeline.length - 1; i++) {
             const [readFd, writeFd] = await pipe();
             pipes.push([readFd, writeFd]);
             fdsToClose.push(readFd, writeFd);
         }
 
-        // Start all commands concurrently
-        const commandPromises: Promise<number>[] = [];
+        // =====================================================================
+        // Step 2: Initialize commands IN ORDER, collect promises
+        // =====================================================================
+        //
+        // CRITICAL: We must initialize commands sequentially, not concurrently!
+        //
+        // For builtins: executeSingleCommand does redirect -> execute -> restore.
+        //   The redirect temporarily changes shell's fd table. If we spawned
+        //   another command during this window, it would inherit wrong fds.
+        //
+        // For externals: executeSingleCommand spawns a child process.
+        //   The spawn captures the current fd table at spawn time.
+        //
+        // By awaiting each builtin before starting the next command, we ensure
+        // externals see the correct (unredirected) shell fd table.
+        //
+        // Externals don't block here - spawn returns immediately, the child
+        // runs concurrently. We just collect the wait() promise.
+
+        // Track spawned external processes so we can wait for them later
+        const spawnedPids: number[] = [];
+        const exitCodes: number[] = [];
 
         for (let i = 0; i < pipeline.length; i++) {
             const cmd = pipeline[i];
             const isFirst = i === 0;
             const isLast = i === pipeline.length - 1;
 
-            // Determine stdin/stdout for this command
-            const stdin = isFirst ? undefined : pipes[i - 1][0];  // Read from previous pipe
-            const stdout = isLast ? undefined : pipes[i][1];      // Write to next pipe
+            // Determine this command's stdin/stdout:
+            //   - First command: stdin = shell's stdin (undefined means inherit)
+            //   - Last command: stdout = shell's stdout (undefined means inherit)
+            //   - Middle commands: both connected to pipes
+            const stdinFd = isFirst ? undefined : pipes[i - 1][0];
+            const stdoutFd = isLast ? undefined : pipes[i][1];
 
-            // Start command (don't await yet - run concurrently)
-            commandPromises.push(executeSingleCommand(state, cmd, stdin, stdout));
+            if (BUILTIN_COMMANDS.includes(cmd.command)) {
+                // =============================================================
+                // Builtin: execute completely (redirect -> run -> restore)
+                // =============================================================
+                // We await the entire builtin so redirect/restore completes
+                // before the next command spawns.
+                const exitCode = await executeSingleCommand(state, cmd, stdinFd, stdoutFd);
+                exitCodes.push(exitCode);
+                spawnedPids.push(-1); // Placeholder for uniform indexing
+            } else {
+                // =============================================================
+                // External: expand globs, then spawn (but don't wait yet)
+                // =============================================================
+                const expandedArgs = await expandGlobs(cmd.args, state.cwd, readdirForGlob);
+                const pid = await spawnExternal(state, cmd.command, expandedArgs, stdinFd, stdoutFd);
+                spawnedPids.push(pid);
+                exitCodes.push(pid < 0 ? 126 : -1); // -1 means "need to wait"
+            }
         }
 
-        // Close our copies of the pipe ends
-        // The child processes have their own references
+        // =====================================================================
+        // Step 2b: Close shell's pipe fd copies
+        // =====================================================================
+        //
+        // NOW we can safely close our pipe fd copies. All spawn() calls have
+        // completed, so children have inherited their fd copies. Closing ours
+        // ensures the pipe will signal EOF when the writing child exits.
+        //
+        // This is the key fix for the "cat loop" bug: without closing these,
+        // cat would never see EOF because the shell still held the write end.
+
         for (const fd of fdsToClose) {
             await close(fd).catch(() => {});
         }
         fdsToClose.length = 0;
 
-        // Wait for all commands to complete
-        const results = await Promise.all(commandPromises);
+        // =====================================================================
+        // Step 3: Wait for all external commands to complete
+        // =====================================================================
+        //
+        // Builtins already completed above (exitCodes has their values).
+        // Externals are running concurrently - wait for each and update exitCodes.
 
-        // Return exit code of last command
-        return results[results.length - 1];
+        const waitPromises: Promise<void>[] = [];
+
+        for (let i = 0; i < spawnedPids.length; i++) {
+            const pid = spawnedPids[i];
+            if (pid > 0) {
+                // This is an external command that needs waiting
+                const idx = i; // Capture for closure
+                waitPromises.push(
+                    wait(pid).then(status => {
+                        exitCodes[idx] = status.code;
+                    }).catch(() => {
+                        exitCodes[idx] = 126;
+                    })
+                );
+            }
+        }
+
+        await Promise.all(waitPromises);
+
+        // =====================================================================
+        // Step 4: Return exit code of last command
+        // =====================================================================
+        //
+        // Pipeline exit code is the exit code of the LAST command.
+        // This is standard shell behavior.
+
+        return exitCodes[exitCodes.length - 1];
+
     } finally {
-        // Clean up any remaining fds on error
+        // Cleanup on error - close any remaining pipe fds
         for (const fd of fdsToClose) {
             await close(fd).catch(() => {});
         }
