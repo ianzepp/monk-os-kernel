@@ -72,13 +72,34 @@ export { ModelRecord, type RecordData, type FieldDiff, type RecordDiff } from '.
 export { ModelCache } from './model-cache.js';
 
 // =============================================================================
+// FILTER SYSTEM
+// =============================================================================
+
+export {
+    FilterOp,
+    type FilterData,
+    type WhereConditions,
+    type WhereValue,
+    type OrderSpec,
+    type SelectOptions,
+    type TrashedOption,
+    type CreateInput,
+    type UpdateInput,
+    type DeleteInput,
+    type RevertInput,
+    type SqlResult,
+    type WhereResult,
+} from './filter-types.js';
+
+export { Filter } from './filter.js';
+
+// =============================================================================
 // DATABASE SERVICE
 // =============================================================================
 
 export {
     DatabaseService,
     type DbRecord,
-    type SelectOptions,
     type ModelSystemContext,
 } from './database.js';
 

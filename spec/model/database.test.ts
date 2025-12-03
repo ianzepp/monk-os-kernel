@@ -1,7 +1,7 @@
 /**
- * Model Layer - Phase 3 Tests
+ * Model Layer - Phase 3/3.5 Tests
  *
- * Tests for Model, ModelRecord, ModelCache, and DatabaseService classes.
+ * Tests for Model, ModelRecord, ModelCache, Filter, and DatabaseService classes.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
@@ -10,6 +10,8 @@ import { createDatabase, type DatabaseConnection } from '@src/model/connection.j
 import { Model, type ModelRow, type FieldRow } from '@src/model/model.js';
 import { ModelRecord } from '@src/model/model-record.js';
 import { ModelCache } from '@src/model/model-cache.js';
+import { Filter } from '@src/model/filter.js';
+import { FilterOp, type FilterData } from '@src/model/filter-types.js';
 import { DatabaseService, type DbRecord } from '@src/model/database.js';
 import { ObserverRunner } from '@src/model/observers/runner.js';
 
@@ -130,10 +132,7 @@ describe('Model', () => {
         });
 
         it('should report field count', () => {
-            const fields = [
-                createFieldRow({ field_name: 'a' }),
-                createFieldRow({ field_name: 'b' }),
-            ];
+            const fields = [createFieldRow({ field_name: 'a' }), createFieldRow({ field_name: 'b' })];
             const model = new Model(createModelRow(), fields);
             expect(model.fieldCount).toBe(2);
         });
@@ -342,6 +341,143 @@ describe('ModelCache', () => {
 });
 
 // =============================================================================
+// FILTER TESTS
+// =============================================================================
+
+describe('Filter', () => {
+    describe('basic queries', () => {
+        it('should generate simple SELECT', () => {
+            const filter = new Filter('file');
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL');
+            expect(params).toEqual([]);
+        });
+
+        it('should handle where clause with equality', () => {
+            const filter = new Filter('file').where({ status: 'active' });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL AND status = ?');
+            expect(params).toEqual(['active']);
+        });
+
+        it('should handle where clause with operators', () => {
+            const filter = new Filter('file').where({ size: { $gte: 1000 } });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL AND size >= ?');
+            expect(params).toEqual([1000]);
+        });
+
+        it('should handle $in operator', () => {
+            const filter = new Filter('file').where({ status: { $in: ['a', 'b'] } });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toBe('SELECT * FROM file WHERE trashed_at IS NULL AND status IN (?, ?)');
+            expect(params).toEqual(['a', 'b']);
+        });
+
+        it('should handle $or operator', () => {
+            const filter = new Filter('file').where({
+                $or: [{ status: 'a' }, { status: 'b' }],
+            });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toContain('(status = ? OR status = ?)');
+            expect(params).toEqual(['a', 'b']);
+        });
+
+        it('should handle $and operator', () => {
+            const filter = new Filter('file').where({
+                $and: [{ status: 'active' }, { size: { $gt: 0 } }],
+            });
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toContain('(status = ? AND size > ?)');
+            expect(params).toEqual(['active', 0]);
+        });
+    });
+
+    describe('soft delete handling', () => {
+        it('should exclude trashed by default', () => {
+            const filter = new Filter('file');
+            const { sql } = filter.toSQL();
+            expect(sql).toContain('trashed_at IS NULL');
+        });
+
+        it('should include trashed when specified', () => {
+            const filter = new Filter('file').trashed('include');
+            const { sql } = filter.toSQL();
+            expect(sql).not.toContain('trashed_at');
+        });
+
+        it('should only trashed when specified', () => {
+            const filter = new Filter('file').trashed('only');
+            const { sql } = filter.toSQL();
+            expect(sql).toContain('trashed_at IS NOT NULL');
+        });
+    });
+
+    describe('ordering and pagination', () => {
+        it('should handle order by', () => {
+            const filter = new Filter('file').order([{ field: 'name', sort: 'asc' }]);
+            const { sql } = filter.toSQL();
+            expect(sql).toContain('ORDER BY name ASC');
+        });
+
+        it('should handle multiple order clauses', () => {
+            const filter = new Filter('file').order([
+                { field: 'status', sort: 'desc' },
+                { field: 'name', sort: 'asc' },
+            ]);
+            const { sql } = filter.toSQL();
+            expect(sql).toContain('ORDER BY status DESC, name ASC');
+        });
+
+        it('should handle limit', () => {
+            const filter = new Filter('file').limit(10);
+            const { sql } = filter.toSQL();
+            expect(sql).toContain('LIMIT 10');
+        });
+
+        it('should handle offset', () => {
+            const filter = new Filter('file').limit(10).offset(20);
+            const { sql } = filter.toSQL();
+            expect(sql).toContain('LIMIT 10 OFFSET 20');
+        });
+    });
+
+    describe('count queries', () => {
+        it('should generate COUNT query', () => {
+            const filter = new Filter('file').where({ status: 'active' });
+            const { sql, params } = filter.toCountSQL();
+
+            expect(sql).toBe('SELECT COUNT(*) as count FROM file WHERE trashed_at IS NULL AND status = ?');
+            expect(params).toEqual(['active']);
+        });
+    });
+
+    describe('static factory', () => {
+        it('should create filter from FilterData', () => {
+            const filterData: FilterData = {
+                where: { status: 'active' },
+                order: [{ field: 'name', sort: 'asc' }],
+                limit: 10,
+            };
+
+            const filter = Filter.from('file', filterData);
+            const { sql, params } = filter.toSQL();
+
+            expect(sql).toContain('status = ?');
+            expect(sql).toContain('ORDER BY name ASC');
+            expect(sql).toContain('LIMIT 10');
+            expect(params).toEqual(['active']);
+        });
+    });
+});
+
+// =============================================================================
 // DATABASE SERVICE TESTS
 // =============================================================================
 
@@ -356,46 +492,69 @@ describe('DatabaseService', () => {
         service = new DatabaseService(db, cache, runner);
     });
 
-    describe('selectMany', () => {
+    describe('selectAny', () => {
         it('should select all records', async () => {
-            const models = await service.selectMany<DbRecord>('models');
+            const models = await service.selectAny<DbRecord>('models');
             expect(models.length).toBe(8); // 3 meta + 5 VFS
         });
 
-        it('should filter by where clause', async () => {
-            const models = await service.selectMany<DbRecord>('models', { status: 'system' });
+        it('should filter with where clause', async () => {
+            const models = await service.selectAny<DbRecord>('models', {
+                where: { status: 'system' },
+            });
             expect(models.length).toBe(8);
         });
 
         it('should respect limit', async () => {
-            const models = await service.selectMany<DbRecord>('models', {}, { limit: 2 });
+            const models = await service.selectAny<DbRecord>('models', { limit: 2 });
             expect(models.length).toBe(2);
         });
     });
 
     describe('selectOne', () => {
         it('should select single record', async () => {
-            const model = await service.selectOne<DbRecord>('models', { model_name: 'file' });
+            const model = await service.selectOne<DbRecord>('models', {
+                where: { model_name: 'file' },
+            });
             expect(model).not.toBeNull();
             expect(model!.model_name).toBe('file');
         });
 
         it('should return null for no match', async () => {
-            const model = await service.selectOne<DbRecord>('models', { model_name: 'nonexistent' });
+            const model = await service.selectOne<DbRecord>('models', {
+                where: { model_name: 'nonexistent' },
+            });
             expect(model).toBeNull();
         });
     });
 
     describe('select404', () => {
         it('should return record when found', async () => {
-            const model = await service.select404<DbRecord>('models', { model_name: 'folder' });
+            const model = await service.select404<DbRecord>('models', {
+                where: { model_name: 'folder' },
+            });
             expect(model.model_name).toBe('folder');
         });
 
         it('should throw when not found', async () => {
             await expect(
-                service.select404('models', { model_name: 'nonexistent' })
+                service.select404('models', { where: { model_name: 'nonexistent' } })
             ).rejects.toThrow(/not found/);
+        });
+    });
+
+    describe('selectIds', () => {
+        it('should select records by IDs', async () => {
+            const allModels = await service.selectAny<DbRecord>('models', { limit: 2 });
+            const ids = allModels.map((m) => m.id);
+
+            const selected = await service.selectIds<DbRecord>('models', ids);
+            expect(selected.length).toBe(2);
+        });
+
+        it('should return empty for empty IDs', async () => {
+            const selected = await service.selectIds<DbRecord>('models', []);
+            expect(selected.length).toBe(0);
         });
     });
 
@@ -406,7 +565,7 @@ describe('DatabaseService', () => {
         });
 
         it('should count with filter', async () => {
-            const count = await service.count('fields', { model_name: 'file' });
+            const count = await service.count('fields', { where: { model_name: 'file' } });
             expect(count).toBeGreaterThan(0);
         });
     });
@@ -444,6 +603,19 @@ describe('DatabaseService', () => {
         });
     });
 
+    describe('createAll', () => {
+        it('should create multiple records', async () => {
+            const files = await service.createAll<DbRecord>('file', [
+                { name: 'a.txt', owner: 'owner-1' },
+                { name: 'b.txt', owner: 'owner-2' },
+            ]);
+
+            expect(files.length).toBe(2);
+            expect(files[0].name).toBe('a.txt');
+            expect(files[1].name).toBe('b.txt');
+        });
+    });
+
     describe('updateOne', () => {
         it('should update a record', async () => {
             const created = await service.createOne<DbRecord>('file', {
@@ -459,16 +631,33 @@ describe('DatabaseService', () => {
             });
 
             expect(updated.name).toBe('renamed.txt');
-            // Check that update time is >= create time (may be same in fast tests)
             expect(new Date(updated.updated_at).getTime()).toBeGreaterThanOrEqual(
                 new Date(created.created_at).getTime()
             );
         });
 
         it('should throw for nonexistent record', async () => {
-            await expect(
-                service.updateOne('file', 'nonexistent', { name: 'test' })
-            ).rejects.toThrow(/not found/);
+            await expect(service.updateOne('file', 'nonexistent', { name: 'test' })).rejects.toThrow(
+                /not found/
+            );
+        });
+    });
+
+    describe('updateAny', () => {
+        it('should update records matching filter', async () => {
+            await service.createOne<DbRecord>('file', { name: 'update-test.txt', owner: 'owner-x' });
+            await service.createOne<DbRecord>('file', { name: 'update-test2.txt', owner: 'owner-x' });
+
+            const updated = await service.updateAny<DbRecord>(
+                'file',
+                { where: { owner: 'owner-x' } },
+                { mimetype: 'text/plain' }
+            );
+
+            expect(updated.length).toBe(2);
+            for (const file of updated) {
+                expect(file.mimetype).toBe('text/plain');
+            }
         });
     });
 
@@ -483,11 +672,11 @@ describe('DatabaseService', () => {
             expect(deleted.id).toBe(created.id);
 
             // Should not appear in normal queries
-            const found = await service.selectById('file', created.id);
+            const found = await service.selectOne<DbRecord>('file', { where: { id: created.id } });
             expect(found).toBeNull();
         });
 
-        it('should still find with includeTrashed', async () => {
+        it('should still find with trashed option', async () => {
             const created = await service.createOne<DbRecord>('file', {
                 name: 'delete-me.txt',
                 owner: 'test-owner',
@@ -495,13 +684,111 @@ describe('DatabaseService', () => {
 
             await service.deleteOne('file', created.id);
 
-            const found = await service.selectMany<DbRecord>(
+            const found = await service.selectAny<DbRecord>(
                 'file',
-                { id: created.id },
-                { includeTrashed: true }
+                { where: { id: created.id } },
+                { trashed: 'include' }
             );
             expect(found.length).toBe(1);
             expect(found[0].trashed_at).toBeTruthy();
+        });
+    });
+
+    describe('deleteAny', () => {
+        it('should delete records matching filter', async () => {
+            await service.createOne<DbRecord>('file', { name: 'del-a.txt', owner: 'del-owner' });
+            await service.createOne<DbRecord>('file', { name: 'del-b.txt', owner: 'del-owner' });
+
+            const deleted = await service.deleteAny<DbRecord>('file', {
+                where: { owner: 'del-owner' },
+            });
+            expect(deleted.length).toBe(2);
+
+            const remaining = await service.selectAny<DbRecord>('file', {
+                where: { owner: 'del-owner' },
+            });
+            expect(remaining.length).toBe(0);
+        });
+    });
+
+    describe('revertOne', () => {
+        it('should revert a soft-deleted record', async () => {
+            const created = await service.createOne<DbRecord>('file', {
+                name: 'revert-me.txt',
+                owner: 'test-owner',
+            });
+
+            await service.deleteOne('file', created.id);
+
+            // Verify it's deleted
+            const deleted = await service.selectOne<DbRecord>('file', { where: { id: created.id } });
+            expect(deleted).toBeNull();
+
+            // Revert
+            const reverted = await service.revertOne<DbRecord>('file', created.id);
+            expect(reverted.trashed_at).toBeNull();
+
+            // Should be visible again
+            const found = await service.selectOne<DbRecord>('file', { where: { id: created.id } });
+            expect(found).not.toBeNull();
+        });
+    });
+
+    describe('expireOne', () => {
+        it('should hard delete a record', async () => {
+            const created = await service.createOne<DbRecord>('file', {
+                name: 'expire-me.txt',
+                owner: 'test-owner',
+            });
+
+            const expired = await service.expireOne<DbRecord>('file', created.id);
+            expect(expired.id).toBe(created.id);
+
+            // Should not be found even with trashed: include
+            const found = await service.selectOne<DbRecord>(
+                'file',
+                { where: { id: created.id } },
+                { trashed: 'include' }
+            );
+            expect(found).toBeNull();
+        });
+    });
+
+    describe('upsertOne', () => {
+        it('should create when record does not exist', async () => {
+            const file = await service.upsertOne<DbRecord>('file', {
+                name: 'upsert-new.txt',
+                owner: 'test-owner',
+            });
+
+            expect(file.id).toBeTruthy();
+            expect(file.name).toBe('upsert-new.txt');
+        });
+
+        it('should update when record exists', async () => {
+            const created = await service.createOne<DbRecord>('file', {
+                name: 'upsert-existing.txt',
+                owner: 'test-owner',
+            });
+
+            const updated = await service.upsertOne<DbRecord>('file', {
+                id: created.id,
+                name: 'upsert-updated.txt',
+                owner: 'test-owner',
+            });
+
+            expect(updated.id).toBe(created.id);
+            expect(updated.name).toBe('upsert-updated.txt');
+        });
+    });
+
+    describe('streamAny', () => {
+        it('should stream records', async () => {
+            const records: DbRecord[] = [];
+            for await (const record of service.streamAny<DbRecord>('models', { limit: 3 })) {
+                records.push(record);
+            }
+            expect(records.length).toBe(3);
         });
     });
 });

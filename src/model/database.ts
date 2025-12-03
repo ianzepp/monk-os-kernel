@@ -4,28 +4,29 @@
  * ARCHITECTURE OVERVIEW
  * =====================
  * The DatabaseService provides high-level CRUD operations for entity metadata.
- * All mutations (create, update, delete) flow through the observer pipeline,
- * while reads bypass it for performance.
+ * All mutations (create, update, delete, revert, expire) flow through the
+ * observer pipeline, while reads bypass it for performance.
  *
- * This is the structured SQL side of the entity+data architecture:
- * - Entity metadata (structured) → DatabaseService → SQLite via HAL
- * - Blob data (raw bytes) → HAL block storage (separate path)
+ * API NAMING CONVENTIONS
+ * ======================
+ * | Suffix   | Input Type     | Description                           |
+ * |----------|----------------|---------------------------------------|
+ * | *All()   | Record array   | Operates on array of full records     |
+ * | *Any()   | FilterData     | Uses filter criteria to find records  |
+ * | *Ids()   | UUID array     | Operates on specific record IDs       |
+ * | *One()   | Single ID      | Single record operation               |
+ * | *404()   | FilterData     | Like *Any but throws if not found     |
  *
- * OPERATION FLOW
- * ==============
- * ```
- * Read Operations (bypass pipeline):
- * selectOne/selectById → DatabaseConnection.query → SQLite
- *
- * Write Operations (through pipeline):
- * createOne → ObserverRunner.run(context) → Ring 0-9 observers → SQLite
- * ```
- *
- * OBSERVER PIPELINE INTEGRATION
- * =============================
- * The DatabaseService creates ObserverContext for mutations and invokes
- * the ObserverRunner. The actual SQL execution happens in Ring 5 observers
- * (implemented in Phase 4). For now, direct SQL is used as fallback.
+ * OPERATIONS
+ * ==========
+ * - select*  - reads (bypass pipeline)
+ * - create*  - creates (through pipeline)
+ * - update*  - updates (through pipeline)
+ * - delete*  - soft delete (through pipeline)
+ * - revert*  - undo soft delete (through pipeline)
+ * - expire*  - hard delete (through pipeline)
+ * - upsert*  - create or update (through pipeline)
+ * - stream*  - async generators (bypass pipeline)
  *
  * INVARIANTS
  * ==========
@@ -33,12 +34,6 @@
  * INV-2: All mutations go through observer pipeline (unless model.passthrough)
  * INV-3: Reads bypass observer pipeline for performance
  * INV-4: System fields (id, created_at, updated_at) auto-populated
- *
- * CONCURRENCY MODEL
- * =================
- * DatabaseService is stateless - safe for concurrent use. Each mutation
- * creates its own ObserverContext. The underlying DatabaseConnection
- * handles SQLite concurrency (WAL mode).
  *
  * @module model/database
  */
@@ -51,6 +46,15 @@ import type { ObserverRunner } from './observers/runner.js';
 import type { ObserverContext, SystemContext } from './observers/interfaces.js';
 import type { OperationType } from './observers/types.js';
 import { EOBSINVALID } from './observers/errors.js';
+import { Filter } from './filter.js';
+import type {
+    FilterData,
+    SelectOptions,
+    CreateInput,
+    UpdateInput,
+    DeleteInput,
+    RevertInput,
+} from './filter-types.js';
 
 // =============================================================================
 // TYPES
@@ -58,8 +62,6 @@ import { EOBSINVALID } from './observers/errors.js';
 
 /**
  * Base record with system fields.
- *
- * WHY: All entity records have these fields. Concrete types extend this.
  */
 export interface DbRecord {
     /** UUID primary key */
@@ -82,26 +84,7 @@ export interface DbRecord {
 }
 
 /**
- * Options for select operations.
- */
-export interface SelectOptions {
-    /** Maximum number of records to return */
-    limit?: number;
-
-    /** Number of records to skip */
-    offset?: number;
-
-    /** Order by clauses (e.g., ['name ASC', 'created_at DESC']) */
-    order?: string[];
-
-    /** Include soft-deleted records */
-    includeTrashed?: boolean;
-}
-
-/**
  * System context for observer pipeline.
- *
- * WHY explicit type: Provides typed access to system services within observers.
  */
 export interface ModelSystemContext extends SystemContext {
     /** Database connection (HAL-based) */
@@ -120,35 +103,18 @@ export interface ModelSystemContext extends SystemContext {
 
 /**
  * High-level CRUD service with observer pipeline integration.
- *
- * TESTABILITY:
- * - All dependencies injected via constructor
- * - Direct SQL methods for testing without observers
- * - System context exposed for observer testing
  */
 export class DatabaseService {
     // =========================================================================
     // STATE
     // =========================================================================
 
-    /**
-     * System context for observer pipeline.
-     *
-     * WHY readonly: System services are stable for lifetime of service.
-     */
     private readonly system: ModelSystemContext;
 
     // =========================================================================
     // CONSTRUCTOR
     // =========================================================================
 
-    /**
-     * Create a DatabaseService.
-     *
-     * @param db - DatabaseConnection for HAL-based database access
-     * @param cache - ModelCache for model metadata
-     * @param runner - ObserverRunner for pipeline execution
-     */
     constructor(db: DatabaseConnection, cache: ModelCache, runner: ObserverRunner) {
         this.system = { db, cache, runner };
     }
@@ -158,89 +124,44 @@ export class DatabaseService {
     // =========================================================================
 
     /**
-     * Select multiple records.
-     *
-     * WHY bypass pipeline: Read operations don't need validation/audit.
-     * Performance is critical for reads.
-     *
-     * @param modelName - Model to query (e.g., 'file', 'folder')
-     * @param where - Filter conditions (field: value)
-     * @param options - Limit, offset, order
-     * @returns Array of matching records
+     * Select records matching filter criteria.
      */
-    async selectMany<T extends DbRecord>(
+    async selectAny<T extends DbRecord>(
         modelName: string,
-        where: Record<string, unknown> = {},
+        filterData: FilterData = {},
         options: SelectOptions = {}
     ): Promise<T[]> {
-        // Build WHERE clause
-        const conditions: string[] = [];
-        const params: unknown[] = [];
-
-        if (!options.includeTrashed) {
-            conditions.push('trashed_at IS NULL');
-        }
-
-        for (const [key, value] of Object.entries(where)) {
-            if (value === null) {
-                conditions.push(`${key} IS NULL`);
-            } else {
-                conditions.push(`${key} = ?`);
-                params.push(value);
-            }
-        }
-
-        // Build SQL
-        let sql = `SELECT * FROM ${modelName}`;
-        if (conditions.length > 0) {
-            sql += ` WHERE ${conditions.join(' AND ')}`;
-        }
-        if (options.order?.length) {
-            sql += ` ORDER BY ${options.order.join(', ')}`;
-        }
-        if (options.limit !== undefined) {
-            sql += ` LIMIT ${options.limit}`;
-        }
-        if (options.offset !== undefined) {
-            sql += ` OFFSET ${options.offset}`;
-        }
-
+        const filter = Filter.from(modelName, filterData, options);
+        const { sql, params } = filter.toSQL();
         return this.system.db.query<T>(sql, params);
     }
 
     /**
-     * Select a single record by filter.
-     *
-     * @param modelName - Model to query
-     * @param where - Filter conditions
-     * @returns First matching record or null
+     * Select first record matching filter criteria.
      */
     async selectOne<T extends DbRecord>(
         modelName: string,
-        where: Record<string, unknown>
+        filterData: FilterData,
+        options: SelectOptions = {}
     ): Promise<T | null> {
-        const results = await this.selectMany<T>(modelName, where, { limit: 1 });
+        const results = await this.selectAny<T>(
+            modelName,
+            { ...filterData, limit: 1 },
+            options
+        );
         return results[0] ?? null;
     }
 
     /**
-     * Select a single record or throw.
-     *
-     * WHY: Many operations require a record to exist. This provides
-     * a convenient way to assert existence.
-     *
-     * @param modelName - Model to query
-     * @param where - Filter conditions
-     * @param message - Optional custom error message
-     * @returns Matching record (never null)
-     * @throws Error if record not found
+     * Select first record or throw if not found.
      */
     async select404<T extends DbRecord>(
         modelName: string,
-        where: Record<string, unknown>,
-        message?: string
+        filterData: FilterData,
+        message?: string,
+        options: SelectOptions = {}
     ): Promise<T> {
-        const result = await this.selectOne<T>(modelName, where);
+        const result = await this.selectOne<T>(modelName, filterData, options);
         if (!result) {
             throw new Error(message || `Record not found in ${modelName}`);
         }
@@ -248,79 +169,102 @@ export class DatabaseService {
     }
 
     /**
-     * Select a record by ID.
-     *
-     * @param modelName - Model to query
-     * @param id - Record UUID
-     * @returns Record or null
+     * Select records by IDs.
      */
-    async selectById<T extends DbRecord>(modelName: string, id: string): Promise<T | null> {
-        return this.selectOne<T>(modelName, { id });
+    async selectIds<T extends DbRecord>(
+        modelName: string,
+        ids: string[],
+        options: SelectOptions = {}
+    ): Promise<T[]> {
+        if (ids.length === 0) return [];
+        return this.selectAny<T>(modelName, { where: { id: { $in: ids } } }, options);
+    }
+
+    /**
+     * Re-select records (refresh from database by their IDs).
+     */
+    async selectAll<T extends DbRecord>(
+        modelName: string,
+        records: T[]
+    ): Promise<T[]> {
+        const ids = records.map((r) => r.id);
+        return this.selectIds<T>(modelName, ids);
     }
 
     /**
      * Count records matching filter.
-     *
-     * @param modelName - Model to count
-     * @param where - Filter conditions
-     * @param options - Include trashed option
-     * @returns Count of matching records
      */
     async count(
         modelName: string,
-        where: Record<string, unknown> = {},
-        options: Pick<SelectOptions, 'includeTrashed'> = {}
+        filterData: FilterData = {},
+        options: SelectOptions = {}
     ): Promise<number> {
-        const conditions: string[] = [];
-        const params: unknown[] = [];
-
-        if (!options.includeTrashed) {
-            conditions.push('trashed_at IS NULL');
-        }
-
-        for (const [key, value] of Object.entries(where)) {
-            if (value === null) {
-                conditions.push(`${key} IS NULL`);
-            } else {
-                conditions.push(`${key} = ?`);
-                params.push(value);
-            }
-        }
-
-        let sql = `SELECT COUNT(*) as count FROM ${modelName}`;
-        if (conditions.length > 0) {
-            sql += ` WHERE ${conditions.join(' AND ')}`;
-        }
-
+        const filter = Filter.from(modelName, filterData, options);
+        const { sql, params } = filter.toCountSQL();
         const result = await this.system.db.queryOne<{ count: number }>(sql, params);
         return result?.count ?? 0;
     }
 
     // =========================================================================
-    // MUTATION OPERATIONS (through observer pipeline)
+    // STREAM OPERATIONS (bypass observer pipeline)
     // =========================================================================
 
     /**
+     * Stream records matching filter criteria.
+     */
+    async *streamAny<T extends DbRecord>(
+        modelName: string,
+        filterData: FilterData = {},
+        options: SelectOptions = {}
+    ): AsyncGenerator<T, void, unknown> {
+        const records = await this.selectAny<T>(modelName, filterData, options);
+        for (const record of records) {
+            yield record;
+        }
+    }
+
+    /**
+     * Stream records by IDs.
+     */
+    async *streamIds<T extends DbRecord>(
+        modelName: string,
+        ids: string[],
+        options: SelectOptions = {}
+    ): AsyncGenerator<T, void, unknown> {
+        const records = await this.selectIds<T>(modelName, ids, options);
+        for (const record of records) {
+            yield record;
+        }
+    }
+
+    // =========================================================================
+    // CREATE OPERATIONS (through observer pipeline)
+    // =========================================================================
+
+    /**
+     * Create multiple records.
+     */
+    async createAll<T extends DbRecord>(
+        modelName: string,
+        records: CreateInput<T>[]
+    ): Promise<T[]> {
+        const results: T[] = [];
+        for (const data of records) {
+            const result = await this.createOne<T>(modelName, data);
+            results.push(result);
+        }
+        return results;
+    }
+
+    /**
      * Create a single record.
-     *
-     * ALGORITHM:
-     * 1. Load model metadata
-     * 2. Create ModelRecord (empty original, input as changes)
-     * 3. Generate ID and timestamps
-     * 4. Run observer pipeline
-     * 5. If no Ring 5 observer executed SQL, do direct INSERT
-     * 6. Return created record
-     *
-     * @param modelName - Model to create in
-     * @param data - Record data
-     * @returns Created record with generated ID and timestamps
      */
     async createOne<T extends DbRecord>(
         modelName: string,
-        data: Record<string, unknown>
+        data: CreateInput<T>
     ): Promise<T> {
         const model = await this.system.cache.require(modelName);
-        const record = new ModelRecord({}, data);
+        const record = new ModelRecord({}, data as Record<string, unknown>);
 
         // Generate ID if not provided
         if (!record.get('id')) {
@@ -332,38 +276,38 @@ export class DatabaseService {
         record.set('created_at', now);
         record.set('updated_at', now);
 
-        // Create context and run pipeline
+        // Run observer pipeline
         const context = this.createContext('create', model, record);
-
-        // Check if model bypasses pipeline
         if (!model.isPassthrough) {
             await this.system.runner.run(context);
         }
 
-        // Direct SQL insert (Ring 5 observers will replace this in Phase 4)
+        // Execute SQL
         await this.executeInsert(modelName, record);
 
-        // Return the created record
-        return (await this.selectById<T>(modelName, record.get('id') as string))!;
+        // Return created record
+        const id = record.get('id') as string;
+        return (await this.selectOne<T>(modelName, { where: { id } }, { trashed: 'include' }))!;
     }
 
+    // =========================================================================
+    // UPDATE OPERATIONS (through observer pipeline)
+    // =========================================================================
+
     /**
-     * Create multiple records.
-     *
-     * WHY not batch: Each record needs individual validation and tracking.
-     * Batching can be added later as optimization if needed.
-     *
-     * @param modelName - Model to create in
-     * @param dataArray - Array of record data
-     * @returns Array of created records
+     * Update multiple records with individual changes.
      */
-    async createMany<T extends DbRecord>(
+    async updateAll<T extends DbRecord>(
         modelName: string,
-        dataArray: Record<string, unknown>[]
+        updates: UpdateInput<T>[]
     ): Promise<T[]> {
         const results: T[] = [];
-        for (const data of dataArray) {
-            const result = await this.createOne<T>(modelName, data);
+        for (const update of updates) {
+            const result = await this.updateOne<T>(
+                modelName,
+                update.id,
+                update.changes as Partial<T>
+            );
             results.push(result);
         }
         return results;
@@ -371,86 +315,329 @@ export class DatabaseService {
 
     /**
      * Update a single record by ID.
-     *
-     * ALGORITHM:
-     * 1. Load existing record
-     * 2. Create ModelRecord (existing as original, changes as input)
-     * 3. Update timestamp
-     * 4. Run observer pipeline
-     * 5. If no Ring 5 observer executed SQL, do direct UPDATE
-     * 6. Return updated record
-     *
-     * @param modelName - Model to update in
-     * @param id - Record UUID
-     * @param changes - Fields to update
-     * @returns Updated record
-     * @throws Error if record not found
      */
     async updateOne<T extends DbRecord>(
         modelName: string,
         id: string,
-        changes: Record<string, unknown>
+        changes: Partial<T>
     ): Promise<T> {
         const model = await this.system.cache.require(modelName);
 
-        // Load existing record
-        const existing = await this.selectById(modelName, id);
+        // Load existing
+        const existing = await this.selectOne<T>(modelName, { where: { id } }, { trashed: 'include' });
         if (!existing) {
             throw new Error(`Record ${id} not found in ${modelName}`);
         }
 
-        const record = new ModelRecord(existing, changes);
+        const record = new ModelRecord(existing as Record<string, unknown>, changes as Record<string, unknown>);
         record.set('updated_at', new Date().toISOString());
 
-        // Create context and run pipeline
+        // Run observer pipeline
         const context = this.createContext('update', model, record);
-
         if (!model.isPassthrough) {
             await this.system.runner.run(context);
         }
 
-        // Direct SQL update (Ring 5 observers will replace this in Phase 4)
+        // Execute SQL
         await this.executeUpdate(modelName, id, record);
 
-        return (await this.selectById<T>(modelName, id))!;
+        return (await this.selectOne<T>(modelName, { where: { id } }, { trashed: 'include' }))!;
     }
 
     /**
-     * Soft delete a record.
-     *
-     * WHY soft delete: Preserves data for audit, recovery, and compliance.
-     * Hard delete can be done via separate purge operation.
-     *
-     * @param modelName - Model to delete from
-     * @param id - Record UUID
-     * @returns Record as it was before deletion
-     * @throws Error if record not found
+     * Update records by IDs with same changes.
+     */
+    async updateIds<T extends DbRecord>(
+        modelName: string,
+        ids: string[],
+        changes: Partial<T>
+    ): Promise<T[]> {
+        const results: T[] = [];
+        for (const id of ids) {
+            const result = await this.updateOne<T>(modelName, id, changes);
+            results.push(result);
+        }
+        return results;
+    }
+
+    /**
+     * Update records matching filter with same changes.
+     */
+    async updateAny<T extends DbRecord>(
+        modelName: string,
+        filterData: FilterData,
+        changes: Partial<T>
+    ): Promise<T[]> {
+        const records = await this.selectAny<T>(modelName, filterData);
+        return this.updateIds<T>(
+            modelName,
+            records.map((r) => r.id),
+            changes
+        );
+    }
+
+    /**
+     * Update first matching record or throw if not found.
+     */
+    async update404<T extends DbRecord>(
+        modelName: string,
+        filterData: FilterData,
+        changes: Partial<T>,
+        message?: string
+    ): Promise<T> {
+        const existing = await this.selectOne<T>(modelName, filterData);
+        if (!existing) {
+            throw new Error(message || `Record not found in ${modelName}`);
+        }
+        return this.updateOne<T>(modelName, existing.id, changes);
+    }
+
+    // =========================================================================
+    // DELETE OPERATIONS - Soft Delete (through observer pipeline)
+    // =========================================================================
+
+    /**
+     * Soft delete multiple records.
+     */
+    async deleteAll<T extends DbRecord>(
+        modelName: string,
+        deletes: DeleteInput[]
+    ): Promise<T[]> {
+        const results: T[] = [];
+        for (const del of deletes) {
+            const result = await this.deleteOne<T>(modelName, del.id);
+            results.push(result);
+        }
+        return results;
+    }
+
+    /**
+     * Soft delete a single record.
      */
     async deleteOne<T extends DbRecord>(modelName: string, id: string): Promise<T> {
         const model = await this.system.cache.require(modelName);
 
-        // Load existing record
-        const existing = await this.selectById<T>(modelName, id);
+        // Load existing
+        const existing = await this.selectOne<T>(modelName, { where: { id } });
         if (!existing) {
             throw new Error(`Record ${id} not found in ${modelName}`);
         }
 
-        const record = new ModelRecord(existing, {
+        const record = new ModelRecord(existing as Record<string, unknown>, {
             trashed_at: new Date().toISOString(),
         });
 
-        // Create context and run pipeline
+        // Run observer pipeline
         const context = this.createContext('delete', model, record);
-
         if (!model.isPassthrough) {
             await this.system.runner.run(context);
         }
 
-        // Direct SQL update (Ring 5 observers will replace this in Phase 4)
+        // Execute SQL
         await this.executeUpdate(modelName, id, record);
 
-        // Return the record as it was before deletion
         return existing;
+    }
+
+    /**
+     * Soft delete records by IDs.
+     */
+    async deleteIds<T extends DbRecord>(modelName: string, ids: string[]): Promise<T[]> {
+        return this.deleteAll<T>(
+            modelName,
+            ids.map((id) => ({ id }))
+        );
+    }
+
+    /**
+     * Soft delete records matching filter.
+     */
+    async deleteAny<T extends DbRecord>(
+        modelName: string,
+        filterData: FilterData
+    ): Promise<T[]> {
+        const records = await this.selectAny<T>(modelName, filterData);
+        return this.deleteIds<T>(
+            modelName,
+            records.map((r) => r.id)
+        );
+    }
+
+    /**
+     * Soft delete first matching record or throw if not found.
+     */
+    async delete404<T extends DbRecord>(
+        modelName: string,
+        filterData: FilterData,
+        message?: string
+    ): Promise<T> {
+        const existing = await this.selectOne<T>(modelName, filterData);
+        if (!existing) {
+            throw new Error(message || `Record not found in ${modelName}`);
+        }
+        return this.deleteOne<T>(modelName, existing.id);
+    }
+
+    // =========================================================================
+    // REVERT OPERATIONS - Undo Soft Delete (through observer pipeline)
+    // =========================================================================
+
+    /**
+     * Revert (undelete) multiple records.
+     */
+    async revertAll<T extends DbRecord>(
+        modelName: string,
+        reverts: RevertInput[]
+    ): Promise<T[]> {
+        const results: T[] = [];
+        for (const rev of reverts) {
+            const result = await this.revertOne<T>(modelName, rev.id);
+            results.push(result);
+        }
+        return results;
+    }
+
+    /**
+     * Revert (undelete) a single record.
+     */
+    async revertOne<T extends DbRecord>(modelName: string, id: string): Promise<T> {
+        const model = await this.system.cache.require(modelName);
+
+        // Load existing (must be trashed)
+        const existing = await this.selectOne<T>(modelName, { where: { id } }, { trashed: 'only' });
+        if (!existing) {
+            throw new Error(`Trashed record ${id} not found in ${modelName}`);
+        }
+
+        const record = new ModelRecord(existing as Record<string, unknown>, {
+            trashed_at: null,
+            updated_at: new Date().toISOString(),
+        });
+
+        // Run observer pipeline (using 'update' operation for revert)
+        const context = this.createContext('update', model, record);
+        if (!model.isPassthrough) {
+            await this.system.runner.run(context);
+        }
+
+        // Execute SQL
+        await this.executeUpdate(modelName, id, record);
+
+        return (await this.selectOne<T>(modelName, { where: { id } }))!;
+    }
+
+    /**
+     * Revert records matching filter.
+     */
+    async revertAny<T extends DbRecord>(
+        modelName: string,
+        filterData: FilterData = {}
+    ): Promise<T[]> {
+        const records = await this.selectAny<T>(modelName, filterData, { trashed: 'only' });
+        return this.revertAll<T>(
+            modelName,
+            records.map((r) => ({ id: r.id }))
+        );
+    }
+
+    // =========================================================================
+    // EXPIRE OPERATIONS - Hard Delete (through observer pipeline)
+    // =========================================================================
+
+    /**
+     * Hard delete multiple records (permanent).
+     */
+    async expireAll<T extends DbRecord>(
+        modelName: string,
+        expires: DeleteInput[]
+    ): Promise<T[]> {
+        const results: T[] = [];
+        for (const exp of expires) {
+            const result = await this.expireOne<T>(modelName, exp.id);
+            results.push(result);
+        }
+        return results;
+    }
+
+    /**
+     * Hard delete a single record (permanent).
+     */
+    async expireOne<T extends DbRecord>(modelName: string, id: string): Promise<T> {
+        const model = await this.system.cache.require(modelName);
+
+        // Load existing (include trashed)
+        const existing = await this.selectOne<T>(modelName, { where: { id } }, { trashed: 'include' });
+        if (!existing) {
+            throw new Error(`Record ${id} not found in ${modelName}`);
+        }
+
+        const record = new ModelRecord(existing as Record<string, unknown>, {
+            expired_at: new Date().toISOString(),
+        });
+
+        // Run observer pipeline (using 'delete' operation for expire)
+        const context = this.createContext('delete', model, record);
+        if (!model.isPassthrough) {
+            await this.system.runner.run(context);
+        }
+
+        // Execute actual DELETE
+        const sql = `DELETE FROM ${modelName} WHERE id = ?`;
+        await this.system.db.execute(sql, [id]);
+
+        return existing;
+    }
+
+    // =========================================================================
+    // UPSERT OPERATIONS (through observer pipeline)
+    // =========================================================================
+
+    /**
+     * Upsert multiple records (create or update based on id presence).
+     */
+    async upsertAll<T extends DbRecord>(
+        modelName: string,
+        records: (CreateInput<T> | UpdateInput<T>)[]
+    ): Promise<T[]> {
+        const results: T[] = [];
+        for (const data of records) {
+            const result = await this.upsertOne<T>(modelName, data);
+            results.push(result);
+        }
+        return results;
+    }
+
+    /**
+     * Upsert a single record (create or update based on id presence).
+     */
+    async upsertOne<T extends DbRecord>(
+        modelName: string,
+        data: CreateInput<T> | UpdateInput<T>
+    ): Promise<T> {
+        // Check if it's an UpdateInput (has id and changes)
+        if ('id' in data && 'changes' in data) {
+            const updateData = data as UpdateInput<T>;
+            return this.updateOne<T>(modelName, updateData.id, updateData.changes);
+        }
+
+        // Check if CreateInput has an id
+        const createData = data as CreateInput<T> & { id?: string };
+        if (createData.id) {
+            // Check if record exists
+            const existing = await this.selectOne<T>(
+                modelName,
+                { where: { id: createData.id } },
+                { trashed: 'include' }
+            );
+            if (existing) {
+                // Update existing
+                const { id, ...changes } = createData;
+                return this.updateOne<T>(modelName, id, changes as Partial<T>);
+            }
+        }
+
+        // Create new
+        return this.createOne<T>(modelName, data as CreateInput<T>);
     }
 
     // =========================================================================
@@ -458,10 +645,7 @@ export class DatabaseService {
     // =========================================================================
 
     /**
-     * Generate a UUID for new records.
-     *
-     * WHY crypto.randomUUID: Standard, cryptographically secure UUID v4.
-     * Format: lowercase hex without dashes (32 chars) to match SQLite schema.
+     * Generate UUID without dashes (32 chars).
      */
     private generateId(): string {
         return crypto.randomUUID().replace(/-/g, '');
@@ -469,12 +653,6 @@ export class DatabaseService {
 
     /**
      * Create observer context for a mutation.
-     *
-     * @param operation - Operation type
-     * @param model - Model being operated on
-     * @param record - Record being processed
-     * @param recordIndex - Position in batch (0 for single operations)
-     * @returns ObserverContext ready for pipeline
      */
     private createContext(
         operation: OperationType,
@@ -495,12 +673,6 @@ export class DatabaseService {
 
     /**
      * Execute INSERT statement.
-     *
-     * WHY direct SQL: Phase 4 will add Ring 5 observers for SQL execution.
-     * This is a fallback/bootstrap implementation.
-     *
-     * @param modelName - Table name
-     * @param record - Record to insert
      */
     private async executeInsert(modelName: string, record: ModelRecord): Promise<void> {
         const data = record.toRecord();
@@ -514,12 +686,12 @@ export class DatabaseService {
 
     /**
      * Execute UPDATE statement.
-     *
-     * @param modelName - Table name
-     * @param id - Record ID
-     * @param record - Record with changes
      */
-    private async executeUpdate(modelName: string, id: string, record: ModelRecord): Promise<void> {
+    private async executeUpdate(
+        modelName: string,
+        id: string,
+        record: ModelRecord
+    ): Promise<void> {
         const changes = record.toChanges();
         const setClauses: string[] = [];
         const values: unknown[] = [];
@@ -529,9 +701,7 @@ export class DatabaseService {
             values.push(value);
         }
 
-        if (setClauses.length === 0) {
-            return; // Nothing to update
-        }
+        if (setClauses.length === 0) return;
 
         values.push(id);
         const sql = `UPDATE ${modelName} SET ${setClauses.join(', ')} WHERE id = ?`;
@@ -542,38 +712,18 @@ export class DatabaseService {
     // PUBLIC ACCESSORS (for testing)
     // =========================================================================
 
-    /**
-     * Get the system context.
-     *
-     * TESTING: Allows tests to access system services.
-     */
     getSystemContext(): ModelSystemContext {
         return this.system;
     }
 
-    /**
-     * Get the database connection.
-     *
-     * TESTING: Allows tests to run direct SQL.
-     */
     getConnection(): DatabaseConnection {
         return this.system.db;
     }
 
-    /**
-     * Get the model cache.
-     *
-     * TESTING: Allows tests to preload/invalidate models.
-     */
     getCache(): ModelCache {
         return this.system.cache;
     }
 
-    /**
-     * Get the observer runner.
-     *
-     * TESTING: Allows tests to register/inspect observers.
-     */
     getRunner(): ObserverRunner {
         return this.system.runner;
     }
