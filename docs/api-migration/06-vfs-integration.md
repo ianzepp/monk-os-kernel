@@ -2,296 +2,235 @@
 
 ## Overview
 
-The VFS integration wires VFS operations to the entity+data architecture. See [README.md](./README.md) for the core architecture.
+Wire VFS operations to the entity+data architecture, starting with `/tmp` as a proof-of-concept.
 
-**Key Point:** This integration affects ALL VFS entries, not just user-defined models:
-- System models (file, folder, device, proc, link) use entity+data
-- User-defined models use the same architecture
-- `stat()`/`setstat()` operate on entity metadata (SQL, observer pipeline)
-- `read()`/`write()` operate on blob data (HAL block storage, direct I/O)
+**Approach:** Incremental. Start simple, learn as we go.
 
-## Architecture Recap
+## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│  VFS Entry: /vol/documents/report.pdf (or /data/invoices/abc123)    │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│  ENTITY (SQL)                         DATA (Blob)                   │
-│  ┌───────────────────────────┐       ┌───────────────────────────┐  │
-│  │ id: "abc-123"             │       │                           │  │
-│  │ name: "report.pdf"        │       │  Raw bytes (optional)     │  │
-│  │ parent: "folder-xyz"      │       │  For files: file content  │  │
-│  │ owner: "user-456"         │       │  For folders: none        │  │
-│  │ size: 24853               │       │  For user records: none   │  │
-│  │ mimetype: "application/…" │       │                           │  │
-│  └───────────────────────────┘       └───────────────────────────┘  │
-│           │                                   │                     │
-│           ▼                                   ▼                     │
-│    stat() / setstat()                  read() / write()             │
-│           │                                   │                     │
-│    Observer Pipeline                    HAL Block I/O               │
-│    (validation, audit)                 (no observers)               │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
+/tmp/foo.txt
+    │
+    ├── Entity (SQL) ─────────────────────┐
+    │   `temp` table                      │
+    │   - id, name, parent, owner         │
+    │   - size, mimetype                  │
+    │   - created_at, updated_at          │
+    │                                     │
+    │   stat() ──► SELECT from temp       │
+    │   setstat() ──► Observer pipeline   │
+    │                                     │
+    └── Data (HAL) ───────────────────────┘
+        blob storage (keyed by entity id)
+
+        read() ──► HAL.storage.get(id)
+        write() ──► HAL.storage.put(id, data)
 ```
 
-## Path Structure
+**Key principle:** Entity metadata in SQL (with observer validation), blob data in HAL (direct I/O).
 
-### System Models (existing VFS paths)
+## Implementation Plan
 
+### Step 1: Add `temp` model to schema.sql
+
+```sql
+-- =============================================================================
+-- TEMP TABLE (for /tmp filesystem)
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS temp (
+    -- System fields
+    id          TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    created_at  TEXT DEFAULT (datetime('now')),
+    updated_at  TEXT DEFAULT (datetime('now')),
+    trashed_at  TEXT,
+
+    -- File metadata
+    name        TEXT NOT NULL,
+    parent      TEXT,           -- Parent temp id (for nested folders, future)
+    owner       TEXT NOT NULL,
+    size        INTEGER DEFAULT 0,
+    mimetype    TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_temp_parent ON temp(parent) WHERE trashed_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_temp_name ON temp(parent, name) WHERE trashed_at IS NULL;
+
+-- Seed model definition
+INSERT OR IGNORE INTO models (model_name, status, description) VALUES
+    ('temp', 'system', 'Temporary file storage');
+
+-- Seed field definitions
+INSERT OR IGNORE INTO fields (model_name, field_name, type, required, description) VALUES
+    ('temp', 'name', 'text', 1, 'Filename'),
+    ('temp', 'parent', 'text', 0, 'Parent folder id'),
+    ('temp', 'owner', 'text', 1, 'Owner process/user'),
+    ('temp', 'size', 'integer', 0, 'File size in bytes'),
+    ('temp', 'mimetype', 'text', 0, 'MIME type');
 ```
-/vol/                           # Mounted volumes (file, folder entities)
-/tmp/                           # Temporary files (file, folder entities)
-/dev/                           # Device nodes (device entities)
-/proc/                          # Process info (proc entities)
-```
 
-### User Models (new /data path)
-
-```
-/data/                          # Root for user-defined models
-/data/{model}/                  # Model directory (list records)
-/data/{model}/{id}              # Record entity
-/data/{model}/{id}/{field}      # Field value (for relationships)
-```
-
-### Introspection
-
-```
-/sys/models/                    # Model definitions
-/sys/models/{model}             # Single model definition
-/sys/fields/{model}/            # Field definitions for model
-/sys/fields/{model}/{field}     # Single field definition
-```
-
-## DataModel Implementation
-
-Create a new model type that bridges VFS and DatabaseService:
-
-### `src/vfs/models/data.ts`
+### Step 2: Create TempModel class
 
 ```typescript
-import { PosixModel } from '../model';
-import type { ModelContext, ModelStat, FileHandle, FieldDef } from '../model';
-import type { DatabaseService } from '../../model/database';
-import type { ModelCache } from '../../model/model-cache';
-import { respond } from '../../message';
+// src/vfs/models/temp.ts
+
+import { PosixModel } from '../model.js';
+import type { ModelStat, ModelContext, FieldDef } from '../model.js';
+import type { FileHandle, OpenFlags } from '../handle.js';
+import type { DatabaseOps } from '../../model/database-ops.js';
+import { ENOENT, EEXIST } from '../../hal/index.js';
 
 /**
- * DataModel - Exposes database records as files
+ * TempModel - SQL-backed file storage for /tmp
  *
- * Maps VFS operations to DatabaseService:
- * - open(id) → selectById, return JSON handle
- * - stat(id) → selectById, return metadata
- * - create(parent, name) → createOne
- * - unlink(id) → deleteOne
- * - list(modelId) → selectAny
+ * Entity metadata stored in SQL `temp` table.
+ * Blob data stored in HAL storage (keyed by entity id).
  */
-export class DataModel extends PosixModel {
-    readonly name = 'data';
+export class TempModel extends PosixModel {
+    readonly name = 'temp';
 
     constructor(
-        private db: DatabaseService,
-        private cache: ModelCache
+        private db: DatabaseOps,
+        private hal: HAL
     ) {
         super();
     }
 
     fields(): FieldDef[] {
-        // Dynamic - based on the specific model being accessed
-        return [];
+        return [
+            { name: 'id', type: 'string', required: true },
+            { name: 'name', type: 'string', required: true },
+            { name: 'parent', type: 'string' },
+            { name: 'owner', type: 'string', required: true },
+            { name: 'size', type: 'number' },
+            { name: 'mimetype', type: 'string' },
+        ];
     }
 
     /**
-     * Get record as file stat
+     * Get file metadata from SQL
      */
     async stat(ctx: ModelContext, id: string): Promise<ModelStat> {
-        // ID format: {model}:{recordId}
-        const [modelName, recordId] = this.parseId(id);
+        const records = await this.db.selectAll('temp', { id });
+        const entity = records[0];
 
-        if (!recordId) {
-            // Model directory
-            return this.modelDirectoryStat(modelName);
+        if (!entity || entity.trashed_at) {
+            throw new ENOENT(`temp file not found: ${id}`);
         }
 
-        const record = this.db.selectById(modelName, recordId);
-        if (!record) {
-            throw new Error(`Record not found: ${modelName}/${recordId}`);
-        }
-
-        return this.recordToStat(modelName, record);
+        return {
+            id: entity.id,
+            model: 'temp',
+            name: entity.name,
+            parent: entity.parent || 'tmp-root',
+            owner: entity.owner,
+            size: entity.size || 0,
+            mtime: new Date(entity.updated_at).getTime(),
+            ctime: new Date(entity.created_at).getTime(),
+            mimetype: entity.mimetype,
+        };
     }
 
     /**
-     * Open record for reading/writing
+     * Update file metadata via observer pipeline
+     */
+    async setstat(ctx: ModelContext, id: string, fields: Record<string, unknown>): Promise<void> {
+        await this.db.updateAll('temp', [{ id, ...fields }]);
+    }
+
+    /**
+     * Create new temp file
+     */
+    async create(
+        ctx: ModelContext,
+        parentId: string | null,
+        name: string,
+        fields?: Record<string, unknown>
+    ): Promise<string> {
+        const results = await this.db.createAll('temp', [{
+            name,
+            parent: parentId,
+            owner: ctx.caller,
+            size: 0,
+            mimetype: fields?.mimetype || 'application/octet-stream',
+            ...fields,
+        }]);
+
+        return results[0].id;
+    }
+
+    /**
+     * Open file for reading/writing
      */
     async open(
         ctx: ModelContext,
         id: string,
-        flags: number,
-        opts?: Record<string, unknown>
+        flags: OpenFlags
     ): Promise<FileHandle> {
-        const [modelName, recordId] = this.parseId(id);
-
-        if (!recordId) {
-            throw new Error('Cannot open model directory');
+        // Verify entity exists
+        const records = await this.db.selectAll('temp', { id });
+        if (!records[0] || records[0].trashed_at) {
+            throw new ENOENT(`temp file not found: ${id}`);
         }
 
-        const record = this.db.selectById(modelName, recordId);
-        if (!record) {
-            throw new Error(`Record not found: ${modelName}/${recordId}`);
+        // Load blob from HAL (or empty if new)
+        let content: Uint8Array;
+        try {
+            content = await this.hal.storage.get(`temp:${id}`);
+        } catch {
+            content = new Uint8Array(0);
         }
 
-        return new DataRecordHandle(
-            id,
-            modelName,
-            recordId,
-            record,
-            this.db,
-            flags
-        );
+        return new TempFileHandle(id, content, this.db, this.hal);
     }
 
     /**
-     * Create new record
-     */
-    async create(
-        ctx: ModelContext,
-        parentId: string,
-        name: string,
-        fields?: Record<string, unknown>
-    ): Promise<string> {
-        // parentId is the model name
-        const modelName = parentId;
-
-        // name could be the ID (if provided) or auto-generated
-        const data = fields || {};
-        if (name && name !== 'new') {
-            data.id = name;
-        }
-
-        const record = await this.db.createOne(modelName, data);
-        return `${modelName}:${record.id}`;
-    }
-
-    /**
-     * Delete record
+     * Delete temp file (soft delete)
      */
     async unlink(ctx: ModelContext, id: string): Promise<void> {
-        const [modelName, recordId] = this.parseId(id);
+        await this.db.deleteAll('temp', [{ id }]);
 
-        if (!recordId) {
-            throw new Error('Cannot delete model directory');
+        // Also remove blob
+        try {
+            await this.hal.storage.delete(`temp:${id}`);
+        } catch {
+            // Ignore - blob may not exist
         }
-
-        await this.db.deleteOne(modelName, recordId);
     }
 
     /**
-     * List records in model
+     * List temp files (flat for now)
      */
-    async *list(ctx: ModelContext, id: string): AsyncIterable<string> {
-        const modelName = id;
-
-        // Verify model exists
-        const model = this.cache.get(modelName);
-        if (!model) {
-            throw new Error(`Model not found: ${modelName}`);
-        }
-
-        const records = this.db.selectAny(modelName, {}, { limit: 1000 });
-
+    async *list(ctx: ModelContext, parentId: string | null): AsyncIterable<string> {
+        const records = await this.db.selectAll('temp', { parent: parentId });
         for (const record of records) {
-            yield `${modelName}:${record.id}`;
+            if (!record.trashed_at) {
+                yield record.id;
+            }
         }
-    }
-
-    /**
-     * Set record fields
-     */
-    async setstat(
-        ctx: ModelContext,
-        id: string,
-        fields: Record<string, unknown>
-    ): Promise<void> {
-        const [modelName, recordId] = this.parseId(id);
-
-        if (!recordId) {
-            throw new Error('Cannot update model directory');
-        }
-
-        await this.db.updateOne(modelName, recordId, fields);
-    }
-
-    // =========================================================================
-    // Helpers
-    // =========================================================================
-
-    private parseId(id: string): [string, string | null] {
-        const parts = id.split(':');
-        return [parts[0], parts[1] || null];
-    }
-
-    private modelDirectoryStat(modelName: string): ModelStat {
-        const model = this.cache.get(modelName);
-        if (!model) {
-            throw new Error(`Model not found: ${modelName}`);
-        }
-
-        return {
-            id: modelName,
-            model: 'folder',  // Appears as directory
-            name: modelName,
-            parent: 'data',
-            owner: 'system',
-            size: 0,
-            mtime: Date.now(),
-            ctime: Date.now(),
-        };
-    }
-
-    private recordToStat(modelName: string, record: any): ModelStat {
-        const content = JSON.stringify(record, null, 2);
-
-        return {
-            id: `${modelName}:${record.id}`,
-            model: 'data',
-            name: record.id,
-            parent: modelName,
-            owner: record.created_by || 'system',
-            size: new TextEncoder().encode(content).length,
-            mtime: new Date(record.updated_at).getTime(),
-            ctime: new Date(record.created_at).getTime(),
-            mimetype: 'application/json',
-        };
     }
 }
 
 /**
- * Handle for reading/writing a record
+ * File handle for temp files
  */
-class DataRecordHandle implements FileHandle {
+class TempFileHandle implements FileHandle {
     private content: Uint8Array;
-    private position: number = 0;
-    private dirty: boolean = false;
+    private position = 0;
+    private dirty = false;
+    private _closed = false;
 
     constructor(
         public readonly id: string,
-        private modelName: string,
-        private recordId: string,
-        private record: Record<string, unknown>,
-        private db: DatabaseService,
-        private flags: number
+        initialContent: Uint8Array,
+        private db: DatabaseOps,
+        private hal: HAL
     ) {
-        // Serialize record to JSON
-        this.content = new TextEncoder().encode(
-            JSON.stringify(record, null, 2)
-        );
+        this.content = initialContent;
     }
 
     get closed(): boolean {
-        return false;  // Managed externally
+        return this._closed;
     }
 
     async read(size?: number): Promise<Uint8Array> {
@@ -304,75 +243,73 @@ class DataRecordHandle implements FileHandle {
     }
 
     async write(data: Uint8Array): Promise<number> {
-        // Accumulate writes (simple append for now)
-        const newContent = new Uint8Array(this.content.length + data.length);
-        newContent.set(this.content);
-        newContent.set(data, this.content.length);
-        this.content = newContent;
+        // Expand buffer if needed
+        const endPos = this.position + data.length;
+        if (endPos > this.content.length) {
+            const newContent = new Uint8Array(endPos);
+            newContent.set(this.content);
+            this.content = newContent;
+        }
+
+        // Write data at position
+        this.content.set(data, this.position);
+        this.position += data.length;
         this.dirty = true;
+
         return data.length;
     }
 
     async seek(offset: number, whence: number): Promise<number> {
         switch (whence) {
-            case 0: // SEEK_SET
-                this.position = offset;
-                break;
-            case 1: // SEEK_CUR
-                this.position += offset;
-                break;
-            case 2: // SEEK_END
-                this.position = this.content.length + offset;
-                break;
+            case 0: this.position = offset; break;           // SEEK_SET
+            case 1: this.position += offset; break;          // SEEK_CUR
+            case 2: this.position = this.content.length + offset; break; // SEEK_END
         }
         return this.position;
     }
 
     async close(): Promise<void> {
+        if (this._closed) return;
+
         if (this.dirty) {
-            // Parse content back to record and update
-            const text = new TextDecoder().decode(this.content);
-            const data = JSON.parse(text);
+            // Write blob to HAL
+            await this.hal.storage.put(`temp:${this.id}`, this.content);
 
-            // Remove system fields - they shouldn't be overwritten
-            delete data.id;
-            delete data.created_at;
-            delete data.updated_at;
-            delete data.trashed_at;
-            delete data.expired_at;
-
-            await this.db.updateOne(this.modelName, this.recordId, data);
+            // Update size in SQL
+            await this.db.updateAll('temp', [{
+                id: this.id,
+                size: this.content.length,
+            }]);
         }
+
+        this._closed = true;
     }
 }
 ```
 
-## VFS Mount Configuration
-
-### Registering the DataModel
+### Step 3: Wire into Kernel
 
 ```typescript
-// In VFS initialization (src/vfs/vfs.ts)
+// In kernel boot sequence
 
-import { DataModel } from './models/data';
+import { TempModel } from '../vfs/models/temp.js';
+import { DatabaseOps } from '../model/database-ops.js';
 
-class VFS {
-    private dataModel: DataModel;
+// After VFS and database are initialized...
+private async initTempModel(): Promise<void> {
+    const tempModel = new TempModel(this.db, this.hal);
 
-    async init(db: DatabaseService, cache: ModelCache): Promise<void> {
-        // ... existing init ...
+    // Register model with VFS
+    this.vfs.registerModel('temp', tempModel);
 
-        // Register data model
-        this.dataModel = new DataModel(db, cache);
-        this.registerModel('data', this.dataModel);
-
-        // Mount /data as data model root
-        this.mountData('/data', this.dataModel);
-    }
+    // Mount at /tmp
+    // (implementation depends on VFS mount system)
 }
 ```
 
-### Path Resolution Changes
+### Step 4: Path Resolution
+
+The VFS needs to route `/tmp/*` paths to TempModel:
 
 ```typescript
 // In VFS path resolution
@@ -380,333 +317,64 @@ class VFS {
 async resolve(path: string): Promise<{ model: Model; id: string }> {
     const parts = path.split('/').filter(Boolean);
 
-    // Handle /data paths specially
-    if (parts[0] === 'data') {
+    if (parts[0] === 'tmp') {
+        // Route to TempModel
         if (parts.length === 1) {
-            // /data - list all models
-            return { model: this.dataModel, id: 'root' };
+            return { model: this.tempModel, id: null }; // /tmp directory
         }
 
-        const modelName = parts[1];
-
-        if (parts.length === 2) {
-            // /data/invoices - list records
-            return { model: this.dataModel, id: modelName };
+        // /tmp/filename - look up by name
+        const name = parts[1];
+        const records = await this.db.selectAll('temp', { name, parent: null });
+        if (records[0]) {
+            return { model: this.tempModel, id: records[0].id };
         }
 
-        // /data/invoices/abc123 - specific record
-        const recordId = parts[2];
-        return { model: this.dataModel, id: `${modelName}:${recordId}` };
+        throw new ENOENT(path);
     }
 
-    // ... existing resolution for other paths ...
+    // ... existing resolution for other paths
 }
 ```
 
-## Syscall Integration
+## What This Proves
 
-### File Operations
+Once `/tmp` works with entity+data architecture:
 
-```typescript
-// In kernel/syscalls/file.ts
+1. **Observer pipeline works for VFS** - setstat() validates via Ring 1, audits via Ring 7
+2. **SQL queryability** - Can query temp files: `SELECT * FROM temp WHERE size > 1000`
+3. **Separation works** - Entity in SQL, blob in HAL, both accessible
+4. **Pattern is repeatable** - Can apply same approach to `/vol`, `/data`, etc.
 
-case 'file:stat':
-    const resolved = await vfs.resolve(path);
-    const stat = await resolved.model.stat(ctx, resolved.id);
-    return respond.ok(stat);
+## Future Expansion
 
-case 'file:open':
-    const resolved = await vfs.resolve(path);
-    const handle = await resolved.model.open(ctx, resolved.id, flags);
-    const fd = kernel.allocHandle(handle);
-    return respond.ok({ fd });
+After `/tmp` works:
 
-case 'file:readdir':
-    const resolved = await vfs.resolve(path);
-    const entries: ModelStat[] = [];
-    for await (const id of resolved.model.list(ctx, resolved.id)) {
-        const stat = await resolved.model.stat(ctx, id);
-        entries.push(stat);
-    }
-    return respond.ok(entries);
-```
-
-### Data-Specific Operations
-
-Add new syscalls for data operations:
-
-```typescript
-// New syscalls for structured data access
-
-case 'data:query':
-    // Query with filters
-    const { model, where, limit, offset, order } = msg.data;
-    const records = db.selectAny(model, where, { limit, offset, order });
-    return respond.ok(records);
-
-case 'data:create':
-    // Create record
-    const { model, data } = msg.data;
-    const record = await db.createOne(model, data);
-    return respond.ok(record);
-
-case 'data:update':
-    // Update record
-    const { model, id, changes } = msg.data;
-    const updated = await db.updateOne(model, id, changes);
-    return respond.ok(updated);
-
-case 'data:delete':
-    // Delete record
-    const { model, id } = msg.data;
-    await db.deleteOne(model, id);
-    return respond.ok();
-```
-
-## Example Usage
-
-### From Process (Userland)
-
-```typescript
-import * as fs from 'process/fs';
-import * as data from 'process/data';
-
-// List all invoices (via filesystem)
-const entries = await fs.readdir('/data/invoices');
-for (const entry of entries) {
-    console.log(entry.name);  // Record IDs
-}
-
-// Read a record (via filesystem)
-const content = await fs.readFile('/data/invoices/abc123');
-const invoice = JSON.parse(new TextDecoder().decode(content));
-
-// Create a record (via filesystem)
-await fs.writeFile('/data/invoices/new', JSON.stringify({
-    number: 'INV-001',
-    customer_id: 'cust-xyz',
-    total: 100.00,
-    status: 'draft',
-}));
-
-// Or use data API directly (more efficient)
-const invoice = await data.create('invoices', {
-    number: 'INV-001',
-    customer_id: 'cust-xyz',
-    total: 100.00,
-    status: 'draft',
-});
-
-// Query with filters
-const paidInvoices = await data.query('invoices', {
-    where: { status: 'paid' },
-    order: ['created_at desc'],
-    limit: 10,
-});
-```
-
-### From External (OS API)
-
-```typescript
-import { OS } from '@monk/os';
-
-const os = new OS();
-await os.boot();
-
-// Via filesystem API
-const invoices = await os.fs.readdir('/data/invoices');
-
-// Via direct database (if exposed)
-const paidInvoices = os.data.query('invoices', {
-    where: { status: 'paid' },
-});
-```
-
-## Relationship Traversal
-
-### Path-Based Traversal
-
-```
-/data/invoices/abc123/customer    → Returns the related customer record
-/data/customers/xyz/invoices      → Returns all invoices for customer
-```
-
-```typescript
-// In DataModel.stat() or a specialized handler
-
-async statField(modelName: string, recordId: string, fieldName: string): Promise<ModelStat> {
-    const model = this.cache.require(modelName);
-    const field = model.getField(fieldName);
-
-    if (!field) {
-        throw new Error(`Field '${fieldName}' not found on model '${modelName}'`);
-    }
-
-    // If it's a relationship field, return the related record
-    if (field.relationship_type) {
-        const record = this.db.selectById(modelName, recordId);
-        const relatedId = record[fieldName];
-
-        if (!relatedId) {
-            throw new Error(`Record has no ${fieldName}`);
-        }
-
-        const relatedRecord = this.db.selectById(field.related_model!, relatedId as string);
-        return this.recordToStat(field.related_model!, relatedRecord);
-    }
-
-    // Otherwise return field value as file
-    const record = this.db.selectById(modelName, recordId);
-    const value = record[fieldName];
-
-    return {
-        id: `${modelName}:${recordId}:${fieldName}`,
-        model: 'data',
-        name: fieldName,
-        parent: `${modelName}:${recordId}`,
-        owner: 'system',
-        size: JSON.stringify(value).length,
-        mtime: Date.now(),
-        ctime: Date.now(),
-        mimetype: 'application/json',
-    };
-}
-```
-
-## System Models Integration
-
-Existing FileModel, FolderModel, DeviceModel, ProcModel are updated to use the entity+data architecture:
-
-```
-/tmp/                    # FileModel → entity in SQL (file table), blob in HAL
-/dev/                    # DeviceModel → entity in SQL (device table), no blob
-/proc/                   # ProcModel → entity in SQL (proc table), dynamic blob
-/vol/                    # FileModel → entity in SQL (file table), blob in HAL
-/data/                   # DataModel (NEW) → entity in SQL (user tables), no blob
-```
-
-### Changes to Existing Models
-
-```typescript
-// Before: FileModel stored everything in HAL block storage
-// After: FileModel stores entity metadata in SQL, blob in HAL
-
-class FileModel extends PosixModel {
-    /**
-     * stat() now reads from SQL instead of HAL metadata
-     */
-    async stat(ctx: ModelContext, id: string): Promise<ModelStat> {
-        // Query entity from file table
-        const entity = ctx.db.selectById('file', id);
-        if (!entity) throw ENOENT;
-        return entityToStat(entity);
-    }
-
-    /**
-     * setstat() goes through observer pipeline
-     */
-    async setstat(ctx: ModelContext, id: string, fields: Record<string, unknown>): Promise<void> {
-        // Update entity via observer pipeline
-        await ctx.db.updateOne('file', id, fields);
-    }
-
-    /**
-     * read() still goes directly to HAL
-     */
-    async read(handle: FileHandle, size: number): Promise<Uint8Array> {
-        return ctx.hal.block.read(handle.id, handle.position, size);
-    }
-
-    /**
-     * write() still goes directly to HAL
-     */
-    async write(handle: FileHandle, data: Uint8Array): Promise<number> {
-        return ctx.hal.block.write(handle.id, handle.position, data);
-    }
-}
-```
-
-The VFS routes based on path prefix:
-
-```typescript
-async resolve(path: string): Promise<{ model: Model; id: string }> {
-    const parts = path.split('/').filter(Boolean);
-
-    switch (parts[0]) {
-        case 'data':
-            return this.resolveData(parts.slice(1));
-        case 'dev':
-            return this.resolveDevice(parts.slice(1));
-        case 'proc':
-            return this.resolveProc(parts.slice(1));
-        case 'sys':
-            return this.resolveSys(parts.slice(1));
-        default:
-            return this.resolveFile(parts);
-    }
-}
-```
-
-## Directory Structure
-
-```
-src/vfs/
-├── models/
-│   ├── file.ts          # Updated - entity in SQL, blob in HAL
-│   ├── folder.ts        # Updated - entity in SQL, no blob
-│   ├── device.ts        # Updated - entity in SQL (device table)
-│   ├── proc.ts          # Updated - entity in SQL (proc table)
-│   ├── link.ts          # Updated - entity in SQL (link table)
-│   ├── data.ts          # NEW - user-defined models
-│   └── sys.ts           # NEW - model introspection (optional)
-
-src/model/               # Database layer (from earlier phases)
-├── observers/           # Observer pipeline (Phase 1 - IMPLEMENTED)
-├── schema.sql           # Schema definition (Phase 2)
-├── model.ts             # Model class (Phase 3)
-├── model-record.ts      # Change tracking (Phase 3)
-├── model-cache.ts       # Model caching (Phase 3)
-├── database.ts          # DatabaseService (Phase 3)
-└── loader/              # YAML/JSON loading (Phase 5)
-```
+| Path | Model | Entity Storage | Blob Storage |
+|------|-------|----------------|--------------|
+| `/tmp` | temp | SQL `temp` table | HAL blob |
+| `/vol` | file | SQL `file` table | HAL blob |
+| `/data/{model}` | data | SQL `{model}` table | None (JSON only) |
+| `/dev` | device | SQL `device` table | None |
+| `/proc` | proc | SQL `proc` table | Dynamic |
 
 ## Acceptance Criteria
 
-### Entity+Data Architecture (System Models)
-- [ ] `stat()` on /vol/file returns entity from SQL file table
-- [ ] `setstat()` on /vol/file goes through observer pipeline
-- [ ] `read()` on /vol/file returns blob from HAL
-- [ ] `write()` on /vol/file writes blob to HAL directly
-- [ ] Observer validation applies to file metadata changes
-- [ ] Audit trail captures entity changes (if tracked)
+- [ ] `temp` model exists in schema.sql
+- [ ] TempModel class implemented
+- [ ] Can create file in `/tmp` via VFS
+- [ ] Entity metadata stored in SQL `temp` table
+- [ ] Blob data stored in HAL
+- [ ] `stat()` reads from SQL
+- [ ] `setstat()` goes through observer pipeline
+- [ ] `read()`/`write()` use HAL blob storage
+- [ ] Existing tests pass
 
-### User Models (/data path)
-- [ ] `/data/{model}/` lists all records in model
-- [ ] `/data/{model}/{id}` returns record entity
-- [ ] `stat()` on record returns size, mtime, etc.
-- [ ] `open()` returns readable JSON content
-- [ ] `write()` and close updates record in database
-- [ ] `create()` via writeFile creates new record
-- [ ] `unlink()` soft-deletes record
-- [ ] Validation errors propagate properly
+## Non-Goals (For Now)
 
-### General
-- [ ] Existing /tmp, /dev, /proc paths still work
-- [ ] Relationship traversal works (optional)
-- [ ] Data-specific syscalls available for efficiency
+- Nested folders in `/tmp` (flat only)
+- Auto-expiration of temp files
+- Full `/vol` migration
+- `/data` path for user models
 
-## Performance Considerations
-
-1. **Caching:** ModelCache prevents repeated model/field queries
-2. **Streaming:** Large result sets should stream, not buffer
-3. **Lazy Loading:** Don't load record content until read()
-4. **Batch Operations:** Support bulk operations via syscalls
-
-## Next Steps
-
-After VFS integration:
-
-1. **Query API** (Phase 7) - Rich query interface beyond path access
-2. **Indexing** - Full-text search for searchable fields
-3. **Relationships** - Proper traversal and loading
-4. **Permissions** - ACL integration with database records
+Keep it simple. Learn as we go.
