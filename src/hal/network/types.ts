@@ -1,67 +1,271 @@
 /**
- * Network Types
+ * Network Types - Shared network interfaces
  *
- * Shared types and interfaces for network implementations.
+ * ARCHITECTURE OVERVIEW
+ * =====================
+ * This module defines the core networking types for Monk OS's Hardware Abstraction
+ * Layer (HAL). All network operations flow through these interfaces, providing a
+ * clean separation between the kernel and Bun's networking primitives.
+ *
+ * The design follows a layered approach:
+ *
+ * 1. NetworkDevice - Top-level factory for creating network resources
+ *    Creates listeners, initiates connections, starts HTTP servers
+ *
+ * 2. Listener - Server-side connection acceptance
+ *    Blocks on accept() until client connects, manages connection queue
+ *
+ * 3. Socket - Bidirectional byte stream
+ *    read()/write() operations with timeout support, metadata access
+ *
+ * 4. HttpServer - High-level HTTP serving
+ *    Request/response handling via fetch-style handlers
+ *
+ * This layering enables:
+ * - Clean separation of concerns (factory vs resources)
+ * - Type-safe network operations throughout the kernel
+ * - Easy mocking for tests (implement interfaces with mock behavior)
+ * - Platform independence (swap Bun for Node.js or Deno by reimplementing)
+ *
+ * All resources implement AsyncDisposable for automatic cleanup via `await using`.
+ * This ensures resources are released even if exceptions occur, preventing leaks.
+ *
+ * INVARIANTS (must always hold true)
+ * ===================================
+ * INV-1: All async operations support Promise-based error handling
+ * INV-2: Closed resources throw or return EOF on subsequent operations
+ * INV-3: Timeout values are in milliseconds (not seconds)
+ * INV-4: TLS configuration uses PEM-encoded strings or file paths
+ * INV-5: Port 0 in connect() indicates Unix domain socket
+ *
+ * CONCURRENCY MODEL
+ * =================
+ * All operations are async and may be called concurrently. Implementations must
+ * handle concurrent access safely:
+ *
+ * - Multiple accept() calls: Only one should succeed per connection
+ * - Multiple read() calls on same socket: Implementation-defined (usually one wins)
+ * - Concurrent read() and write(): Both safe, independent operations
+ * - Concurrent close() and operations: Operations should fail gracefully
+ *
+ * RACE CONDITION MITIGATIONS
+ * ==========================
+ * RC-1: Timeout implementations must clear state before rejecting
+ * RC-2: close() must be idempotent (safe to call multiple times)
+ * RC-3: Operations after close() must fail deterministically
+ * RC-4: AsyncDisposable ensures cleanup even if exceptions thrown
+ *
+ * MEMORY MANAGEMENT
+ * =================
+ * - Listeners own server resources (released on close)
+ * - Sockets own connection resources (released on close)
+ * - HttpServers own server resources (released on close)
+ * - Timeout timers cleaned up on operation completion
+ * - All resources support AsyncDisposable for automatic cleanup
+ *
+ * TESTABILITY
+ * ===========
+ * - All types are interfaces (easy to mock)
+ * - Timeout behavior is deterministic and testable
+ * - addr() methods return inspectable metadata
+ * - stat() methods return inspectable connection info
+ * - Error conditions are well-defined and testable
+ *
+ * @module hal/network/types
  */
 
+// =============================================================================
+// TYPES
+// =============================================================================
+
+// -------------------------------------------------------------------------
+// TLS Configuration
+// -------------------------------------------------------------------------
+
 /**
- * TLS configuration
+ * TLS configuration for secure connections.
+ *
+ * WHY: TLS is essential for production deployments. Configuration is complex
+ * enough to warrant a dedicated type rather than inline parameters.
+ *
+ * FORMATS:
+ * - key/cert: PEM-encoded strings or file paths (implementation-defined)
+ * - ca: Optional CA bundle for client verification
+ *
+ * TESTABILITY: Mock implementations can ignore TLS or use self-signed certs.
  */
 export interface TlsOpts {
-    /** Private key (PEM string or file path) */
+    /**
+     * Private key (PEM string or file path).
+     * WHY: Required for TLS server operation. Format flexibility enables both
+     * embedded keys (strings) and external keys (file paths).
+     */
     key: string;
-    /** Certificate (PEM string or file path) */
+
+    /**
+     * Certificate (PEM string or file path).
+     * WHY: Required for TLS server operation. Must match private key.
+     */
     cert: string;
-    /** CA certificates for client verification (optional) */
+
+    /**
+     * CA certificates for client verification (optional).
+     * WHY: Enables mutual TLS (mTLS) where server verifies client certificates.
+     * Optional because most deployments only verify server identity.
+     */
     ca?: string;
 }
 
+// -------------------------------------------------------------------------
+// Listen Configuration
+// -------------------------------------------------------------------------
+
 /**
- * Listen options
+ * Options for creating a TCP listener.
+ *
+ * WHY: Listen operations have multiple optional parameters. Grouping them in
+ * an options object prevents parameter explosion and enables incremental feature
+ * addition without breaking changes.
  */
 export interface ListenOpts {
-    /** Hostname to bind to (default: 0.0.0.0) */
+    /**
+     * Hostname to bind to (default: 0.0.0.0).
+     * WHY: Enables binding to specific interfaces (e.g., localhost only for
+     * development, specific IP for multi-homed servers).
+     */
     hostname?: string;
-    /** Enable TLS */
+
+    /**
+     * Enable TLS for secure connections.
+     * WHY: Essential for production HTTPS. Optional because many internal
+     * services use plain TCP.
+     */
     tls?: TlsOpts;
-    /** Connection backlog (default: OS default, typically 128) */
+
+    /**
+     * Connection backlog (default: OS default, typically 128).
+     * WHY: Controls how many pending connections can queue before accept().
+     * Relevant for high-traffic servers that may not accept() fast enough.
+     */
     backlog?: number;
 }
 
+// -------------------------------------------------------------------------
+// Connect Configuration
+// -------------------------------------------------------------------------
+
 /**
- * Connect options
+ * Options for establishing a TCP connection.
+ *
+ * WHY: Connect operations support timeouts and TLS. Options object enables
+ * clean API without parameter explosion.
  */
 export interface ConnectOpts {
-    /** Connection timeout in ms */
+    /**
+     * Connection timeout in milliseconds.
+     * WHY: Prevents hanging on unreachable hosts. Essential for robust client
+     * behavior. If not specified, may block indefinitely (OS-dependent).
+     */
     timeout?: number;
-    /** Enable TLS */
+
+    /**
+     * Enable TLS for secure connections.
+     * WHY: Essential for HTTPS clients and secure service-to-service communication.
+     * Boolean here (not TlsOpts) because clients don't need key/cert (only servers do).
+     */
     tls?: boolean;
-    /** Server name for SNI (defaults to host) */
+
+    /**
+     * Server name for SNI (defaults to host).
+     * WHY: SNI (Server Name Indication) enables TLS on virtual hosts. Server needs
+     * to know which certificate to present. Defaults to host parameter, but can
+     * be overridden for advanced scenarios (e.g., connecting to IP but verifying
+     * against hostname).
+     */
     servername?: string;
 }
 
+// -------------------------------------------------------------------------
+// Socket Metadata
+// -------------------------------------------------------------------------
+
 /**
- * Socket metadata
+ * Socket metadata (addresses and ports).
+ *
+ * WHY: Essential for logging, access control, and debugging. Answers "who am I
+ * talking to?" and "what interface am I using?".
+ *
+ * TESTABILITY: Deterministic values enable assertions in tests.
  */
 export interface SocketStat {
+    /**
+     * Remote peer address.
+     * WHY: Identifies the connected peer. Essential for access control and logging.
+     */
     remoteAddr: string;
+
+    /**
+     * Remote peer port.
+     * WHY: Identifies the peer's source port. Useful for correlating connections.
+     */
     remotePort: number;
+
+    /**
+     * Local address.
+     * WHY: Identifies which local interface accepted the connection. Relevant for
+     * multi-homed servers.
+     */
     localAddr: string;
+
+    /**
+     * Local port.
+     * WHY: Identifies which local port is being used. Especially relevant when
+     * port 0 was specified (OS auto-assigned a port).
+     */
     localPort: number;
 }
 
+// -------------------------------------------------------------------------
+// Socket Read Configuration
+// -------------------------------------------------------------------------
+
 /**
- * Socket read options
+ * Options for socket read operations.
+ *
+ * WHY: Read operations may block indefinitely if peer stalls. Timeout is
+ * essential for implementing protocol timeouts and preventing hangs.
  */
 export interface SocketReadOpts {
-    /** Read timeout in milliseconds. If exceeded, throws ETIMEDOUT. */
+    /**
+     * Read timeout in milliseconds. If exceeded, throws ETIMEDOUT.
+     * WHY: Prevents read() from blocking indefinitely if peer stops sending.
+     * Essential for implementing protocol timeouts (e.g., HTTP read timeout).
+     */
     timeout?: number;
 }
+
+// -------------------------------------------------------------------------
+// Socket Interface
+// -------------------------------------------------------------------------
 
 /**
  * Socket interface for connected TCP connections.
  *
- * Provides a read()-based interface over Bun's event-driven sockets.
+ * Provides a read()-based interface over Bun's event-driven sockets. Supports
+ * timeouts, graceful shutdown, and metadata inspection.
+ *
+ * DESIGN RATIONALE:
+ * - read() blocks until data/EOF/timeout: Natural async/await code
+ * - write() queues data: Fire-and-forget, backpressure handled internally
+ * - close() is graceful: Allows buffered data to drain
+ * - stat() provides metadata: Essential for logging and access control
+ * - AsyncDisposable: Automatic cleanup via `await using`
+ *
+ * INVARIANTS:
+ * - read() returns empty Uint8Array on EOF
+ * - write() throws EBADF after close
+ * - close() is idempotent
+ * - stat() returns deterministic metadata
  *
  * Implements AsyncDisposable for use with `await using`:
  * ```typescript
@@ -73,9 +277,21 @@ export interface SocketReadOpts {
 export interface Socket extends AsyncDisposable {
     /**
      * Read available data.
-     * Blocks until data arrives, connection closes, or timeout.
      *
-     * Bun: Data is buffered from socket 'data' events
+     * Blocks until data arrives, connection closes, or timeout exceeded.
+     *
+     * ALGORITHM:
+     * 1. If data buffered: Return immediately
+     * 2. If connection closed: Return EOF (empty Uint8Array)
+     * 3. Otherwise: Wait for data or close event
+     * 4. If timeout specified: Throw ETIMEDOUT if exceeded
+     *
+     * RACE CONDITION:
+     * Data may arrive during the check. Implementation must handle this by
+     * checking buffer again after creating the wait Promise.
+     *
+     * Bun implementation: Data is buffered from socket 'data' events. We maintain
+     * an internal queue and resolve Promises when data becomes available.
      *
      * @param opts - Read options (timeout)
      * @returns Data bytes, or empty array if connection closed
@@ -86,37 +302,111 @@ export interface Socket extends AsyncDisposable {
     /**
      * Write data to socket.
      *
-     * Bun: socket.write() - may buffer if kernel buffer full
+     * Queues data for transmission. May buffer internally if kernel buffer full.
+     * Does not wait for data to be sent (fire-and-forget).
      *
-     * Caveat: Bun's socket.write() returns number of bytes written.
-     * If less than data.length, the rest is buffered. This method
-     * blocks until all data is written or queued.
+     * ALGORITHM:
+     * 1. Check if socket closed (throw EBADF if so)
+     * 2. Queue data for transmission
+     * 3. Return immediately (don't wait for send)
+     *
+     * RACE CONDITION:
+     * Socket may close between our check and write. Implementation must handle
+     * this safely (either throw or ignore, but no corruption).
+     *
+     * Bun implementation: socket.write() queues data. Returns number of bytes
+     * written. If less than data.length, remainder is buffered internally. Bun
+     * handles the buffering and drain events.
+     *
+     * Caveat: Bun's socket.write() returns number of bytes written. If less than
+     * data.length, the rest is buffered. This method blocks until all data is
+     * written or queued (in practice, it never blocks because Bun buffers).
+     *
+     * @param data - Bytes to write
+     * @returns Promise resolving when write queued
+     * @throws EBADF if socket closed
      */
     write(data: Uint8Array): Promise<void>;
 
     /**
-     * Close socket.
+     * Close socket gracefully.
      *
-     * Bun: socket.end() for graceful close
+     * Allows buffered data to drain before closing. Idempotent (safe to call
+     * multiple times).
+     *
+     * ALGORITHM:
+     * 1. Mark socket as closed (prevents new writes)
+     * 2. Initiate graceful shutdown (drain buffered data)
+     * 3. Release resources
+     *
+     * RACE CONDITION:
+     * Operations may be in progress when close() is called. Implementation should:
+     * - Set closed flag first (prevents new operations)
+     * - Allow in-flight reads to complete with data or EOF
+     * - Allow in-flight writes to queue (then drain)
+     * - Release resources last
+     *
+     * Bun implementation: socket.end() for graceful close. Allows buffered writes
+     * to complete before closing.
+     *
+     * @returns Promise resolving when socket closed
      */
     close(): Promise<void>;
 
     /**
-     * Socket metadata.
+     * Get socket metadata.
+     *
+     * Returns peer and local address information. Useful for logging, debugging,
+     * and access control.
+     *
+     * WHY: Essential for answering "who am I talking to?" and "what interface
+     * am I using?". Needed for access control, logging, and debugging.
+     *
+     * @returns Socket metadata (addresses and ports)
      */
     stat(): SocketStat;
 }
 
+// -------------------------------------------------------------------------
+// Listener Accept Configuration
+// -------------------------------------------------------------------------
+
 /**
- * Listener accept options
+ * Options for accepting connections.
+ *
+ * WHY: Accept operations may block indefinitely if no clients connect. Timeout
+ * is essential for implementing graceful shutdown (accept with timeout, then
+ * close if no connection within N seconds).
  */
 export interface ListenerAcceptOpts {
-    /** Accept timeout in milliseconds. If exceeded, throws ETIMEDOUT. */
+    /**
+     * Accept timeout in milliseconds. If exceeded, throws ETIMEDOUT.
+     * WHY: Prevents accept() from blocking indefinitely if no clients connect.
+     * Essential for graceful shutdown scenarios and periodic health checks.
+     */
     timeout?: number;
 }
 
+// -------------------------------------------------------------------------
+// Listener Interface
+// -------------------------------------------------------------------------
+
 /**
  * Listener interface for TCP servers.
+ *
+ * Blocks on accept() until client connects. Manages connection queue internally.
+ * Supports timeout and graceful shutdown.
+ *
+ * DESIGN RATIONALE:
+ * - accept() blocks until connection: Natural async/await code
+ * - Timeout support: Essential for graceful shutdown
+ * - addr() returns bound address: Useful when port 0 specified (auto-assign)
+ * - AsyncDisposable: Automatic cleanup via `await using`
+ *
+ * INVARIANTS:
+ * - accept() throws after close()
+ * - close() is idempotent
+ * - addr() returns deterministic address
  *
  * Implements AsyncDisposable for use with `await using`:
  * ```typescript
@@ -128,35 +418,99 @@ export interface ListenerAcceptOpts {
 export interface Listener extends AsyncDisposable {
     /**
      * Accept next incoming connection.
-     * Blocks until a connection arrives or timeout.
      *
-     * Bun: Connections buffered from 'open' events
+     * Blocks until a connection arrives or timeout exceeded. Returns connected
+     * socket ready for I/O.
+     *
+     * ALGORITHM:
+     * 1. If connection queued: Return immediately
+     * 2. Otherwise: Wait for connection event
+     * 3. If timeout specified: Throw ETIMEDOUT if exceeded
+     *
+     * RACE CONDITION:
+     * Connection may arrive during the check. Implementation must handle this
+     * by checking queue again after creating the wait Promise.
+     *
+     * Bun implementation: Connections buffered from 'open' events. We maintain
+     * an internal queue and resolve Promises when connections become available.
      *
      * @param opts - Accept options (timeout)
+     * @returns Promise resolving to connected socket
      * @throws ETIMEDOUT if timeout exceeded
+     * @throws Error if listener closed
      */
     accept(opts?: ListenerAcceptOpts): Promise<Socket>;
 
     /**
-     * Stop listening and close all connections.
+     * Stop listening and close server.
      *
-     * Bun: server.stop()
+     * Stops accepting new connections. Does not automatically close accepted
+     * connections (caller's responsibility).
+     *
+     * ALGORITHM:
+     * 1. Mark listener as closed (prevents new accepts)
+     * 2. Stop server (release port)
+     * 3. Wake any pending accept() with error
+     *
+     * INVARIANTS:
+     * - Idempotent (safe to call multiple times)
+     * - After close(), accept() throws
+     * - Queued connections not automatically closed
+     *
+     * WHY not close queued connections:
+     * Queued connections are already accepted and may be in use. Closing them
+     * would break active I/O. Caller should drain the queue before closing or
+     * explicitly close sockets.
+     *
+     * Bun implementation: server.stop() releases port and stops accepting.
+     *
+     * @returns Promise resolving when server stopped
      */
     close(): Promise<void>;
 
     /**
-     * Local address.
+     * Get listener address.
+     *
+     * Returns hostname and port the listener is bound to. May differ from
+     * requested (e.g., port 0 auto-assigns a port).
+     *
+     * WHY: Essential for logging, debugging, and connecting clients. When port 0
+     * is specified (auto-assign), this is the only way to discover the actual port.
+     *
+     * @returns Listener address
      */
     addr(): { hostname: string; port: number };
 }
 
+// -------------------------------------------------------------------------
+// HTTP Server
+// -------------------------------------------------------------------------
+
 /**
- * HTTP handler function
+ * HTTP handler function.
+ *
+ * WHY: Matches Web Standards fetch() API. Enables using standard Request/Response
+ * types without Monk-specific wrappers.
+ *
+ * TESTABILITY: Easy to test with mock Request objects.
  */
 export type HttpHandler = (req: Request) => Response | Promise<Response>;
 
 /**
- * HTTP server interface
+ * HTTP server interface.
+ *
+ * High-level HTTP serving via fetch-style handlers. Handles HTTP protocol details
+ * (parsing, routing, response encoding) internally.
+ *
+ * DESIGN RATIONALE:
+ * - fetch() API: Standard Web API, familiar to developers
+ * - addr() returns bound address: Useful when port 0 specified
+ * - AsyncDisposable: Automatic cleanup via `await using`
+ *
+ * INVARIANTS:
+ * - close() stops server immediately (no graceful drain)
+ * - close() is idempotent
+ * - addr() returns deterministic address
  *
  * Implements AsyncDisposable for use with `await using`:
  * ```typescript
@@ -166,53 +520,126 @@ export type HttpHandler = (req: Request) => Response | Promise<Response>;
  */
 export interface HttpServer extends AsyncDisposable {
     /**
-     * Stop server.
+     * Stop HTTP server.
      *
-     * Bun: server.stop()
+     * Stops accepting new requests. In-flight requests may complete or abort
+     * (implementation-defined).
+     *
+     * ALGORITHM:
+     * 1. Stop accepting new connections
+     * 2. Release resources
+     *
+     * INVARIANTS:
+     * - Idempotent (safe to call multiple times)
+     * - In-flight requests behavior is implementation-defined
+     *
+     * Bun implementation: server.stop() stops immediately. In-flight requests
+     * may be aborted.
+     *
+     * @returns Promise resolving when server stopped
      */
     close(): Promise<void>;
 
     /**
-     * Server address.
+     * Get server address.
+     *
+     * Returns hostname and port the server is listening on. May differ from
+     * requested (e.g., port 0 auto-assigns a port).
+     *
+     * WHY: Essential for logging, debugging, and connecting clients. When port 0
+     * is specified (auto-assign), this is the only way to discover the actual port.
+     *
+     * @returns Server address
      */
     addr(): { hostname: string; port: number };
 }
 
+// -------------------------------------------------------------------------
+// Network Device Interface
+// -------------------------------------------------------------------------
+
 /**
  * Network device interface.
+ *
+ * Top-level factory for creating network resources. All network operations in
+ * Monk OS flow through this interface.
+ *
+ * DESIGN RATIONALE:
+ * - Factory pattern: Centralized resource creation
+ * - Platform independence: Swap Bun for Node.js by reimplementing this interface
+ * - Dependency injection: Kernel receives this as a dependency (testable)
+ *
+ * INVARIANTS:
+ * - All methods return initialized, ready-to-use resources
+ * - Port 0 in connect() indicates Unix domain socket
+ * - listen() and serve() return immediately (server is listening)
  */
 export interface NetworkDevice {
     /**
      * Create a TCP listener.
      *
-     * Bun: Bun.listen() with socket handlers
+     * Returns immediately with a listening server. Connections are queued until
+     * accept() is called.
+     *
+     * ALGORITHM:
+     * 1. Bind to hostname:port
+     * 2. Start listening with backlog
+     * 3. Return listener handle
+     *
+     * Bun implementation: Bun.listen() with socket handlers for connection events.
      *
      * @param port - Port to listen on
-     * @param opts - Listen options
-     * @returns Listener handle
+     * @param opts - Listen options (hostname, TLS, backlog)
+     * @returns Promise resolving to ready-to-use listener
      */
     listen(port: number, opts?: ListenOpts): Promise<Listener>;
 
     /**
      * Connect to a TCP server or Unix socket.
      *
-     * Bun: Bun.connect({ hostname, port }) or Bun.connect({ unix: path })
+     * Initiates connection asynchronously. Returns when connection established
+     * or error occurs.
+     *
+     * ALGORITHM:
+     * 1. If port=0: Connect to Unix socket at host path
+     * 2. Otherwise: Connect to TCP at host:port
+     * 3. If timeout specified: Abort if not connected within timeout
+     * 4. Return connected socket
+     *
+     * RACE CONDITION:
+     * Timeout may fire before or after connection succeeds. Implementation must
+     * check if connection succeeded before rejecting.
+     *
+     * WHY port=0 for Unix sockets:
+     * Port 0 is invalid for TCP, so we repurpose it to indicate Unix socket.
+     * This keeps the API simple (one connect() method instead of two).
+     *
+     * Bun implementation: Bun.connect({ hostname, port }) or Bun.connect({ unix: path })
      *
      * @param host - Hostname/IP for TCP, or socket path for Unix
      * @param port - Port number for TCP, or 0 for Unix sockets
-     * @param opts - Connection options
-     * @returns Connected socket
+     * @param opts - Connection options (timeout, TLS)
+     * @returns Promise resolving to connected socket
+     * @throws ETIMEDOUT if connection timeout exceeded
      */
     connect(host: string, port: number, opts?: ConnectOpts): Promise<Socket>;
 
     /**
      * Create an HTTP server.
      *
-     * Bun: Bun.serve()
+     * Returns immediately with a listening server. Requests are handled by the
+     * provided handler function.
+     *
+     * ALGORITHM:
+     * 1. Bind to port
+     * 2. Start HTTP server with handler
+     * 3. Return server handle
+     *
+     * Bun implementation: Bun.serve() with fetch-style handler.
      *
      * @param port - Port to listen on
-     * @param handler - Request handler
-     * @returns Server handle
+     * @param handler - Request handler function
+     * @returns Promise resolving to HTTP server handle
      */
     serve(port: number, handler: HttpHandler): Promise<HttpServer>;
 }

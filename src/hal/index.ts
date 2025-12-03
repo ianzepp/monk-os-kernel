@@ -1,14 +1,108 @@
 /**
- * Hardware Abstraction Layer (HAL)
+ * Hardware Abstraction Layer (HAL) - Unified device interface
  *
- * The lowest layer of Monk OS written in TypeScript.
- * Wraps Bun primitives to provide swappable, testable interfaces.
+ * ARCHITECTURE OVERVIEW
+ * =====================
+ * The HAL is the lowest TypeScript layer in Monk OS, sitting directly atop Bun's
+ * runtime primitives. It provides a uniform, testable interface to all hardware
+ * resources: storage, networking, timers, cryptography, entropy, console I/O,
+ * DNS, IPC, compression, and host OS access.
  *
- * Everything below HAL is Bun's responsibility.
- * Everything above accesses hardware through these interfaces.
+ * Design philosophy:
+ * - Everything below HAL is Bun's responsibility (Workers, native APIs, etc.)
+ * - Everything above HAL accesses hardware only through these interfaces
+ * - Interfaces are swappable for testing (BunHAL vs MockHAL)
+ * - All async operations use Promise/AsyncIterable patterns
+ * - Errors follow POSIX conventions (ENOENT, EBADF, etc.)
+ *
+ * The HAL aggregates 13 device interfaces:
+ *
+ * 1. BlockDevice: Raw byte storage (files, S3, databases as byte arrays)
+ * 2. StorageEngine: Key-value store with transactions (SQLite, PostgreSQL, memory)
+ * 3. NetworkDevice: TCP/UDP/HTTP networking (listen, connect, serve)
+ * 4. TimerDevice: Scheduling (setTimeout, setInterval, sleep)
+ * 5. ClockDevice: Time sources (Date.now, Bun.nanoseconds, monotonic time)
+ * 6. EntropyDevice: Random bytes, UUIDs, secure random numbers
+ * 7. CryptoDevice: Hash, encryption, signatures, key derivation
+ * 8. ConsoleDevice: stdin/stdout/stderr interaction
+ * 9. DNSDevice: Hostname resolution, reverse DNS
+ * 10. HostDevice: Escape hatch to host OS (Bun.spawn, system info)
+ * 11. IPCDevice: Shared memory, mutexes, semaphores, condition variables
+ * 12. ChannelDevice: Protocol-aware messaging (HTTP, WebSocket, PostgreSQL, SQLite)
+ * 13. CompressionDevice: Gzip/deflate compression/decompression
+ *
+ * BunHAL is the production implementation using Bun primitives. Test implementations
+ * (MockHAL, MemoryStorageEngine, etc.) enable deterministic testing without real
+ * hardware interaction.
+ *
+ * INVARIANTS (must always hold true)
+ * ===================================
+ * INV-1: HAL must be initialized via init() before use
+ * INV-2: HAL must be shut down via shutdown() to release resources
+ * INV-3: After shutdown(), HAL instance should not be used (undefined behavior)
+ * INV-4: All device interfaces remain constant after construction (readonly)
+ * INV-5: Device implementations may be swapped during construction but never after
+ *
+ * CONCURRENCY MODEL
+ * =================
+ * The HAL itself has minimal state - it's primarily a container for device
+ * interfaces. Each device manages its own concurrency:
+ *
+ * - BlockDevice: File operations may interleave (Bun handles file locking)
+ * - StorageEngine: Transactions serialize writes, reads can interleave
+ * - NetworkDevice: Multiple sockets can be active concurrently
+ * - TimerDevice: Multiple timers can be scheduled concurrently
+ * - Etc.
+ *
+ * The only HAL-level state is the initialized flag, which is set once during
+ * init() and never changes after.
+ *
+ * RACE CONDITION MITIGATIONS
+ * ==========================
+ * RC-1: init() is idempotent (safe to call multiple times, only first call has effect)
+ * RC-2: shutdown() cancels timers before closing storage (deterministic order)
+ * RC-3: Device constructors may start background work (e.g., network listeners)
+ *       but should be safe to construct multiple times for testing
+ *
+ * MEMORY MANAGEMENT
+ * =================
+ * - BunHAL owns device instances via readonly fields
+ * - Device instances own their resources (timers, sockets, file handles, etc.)
+ * - shutdown() coordinates resource cleanup across all devices:
+ *   1. Cancel all pending timers
+ *   2. Close storage connections
+ *   3. Network sockets/listeners closed by kernel (not tracked by HAL)
+ * - Devices should implement proper cleanup in their own lifecycle methods
+ *
+ * LIFECYCLE
+ * =========
+ * 1. Construction: new BunHAL(config) - creates device instances
+ * 2. Initialization: await hal.init() - async setup (database connections, etc.)
+ * 3. Operation: kernel/VFS use hal.* devices for hardware access
+ * 4. Shutdown: await hal.shutdown() - graceful resource cleanup
+ *
+ * TESTABILITY
+ * ===========
+ * HAL's primary testing benefit is interface swapping:
+ * - BunHAL for production (real Bun primitives)
+ * - MockHAL for unit tests (scripted behavior, no real I/O)
+ * - Mixed approach: BunStorageEngine + MockNetworkDevice (test specific layers)
+ *
+ * Example:
+ *   const hal = new BunHAL({ storage: { type: 'memory' } });
+ *   await hal.init();
+ *   // Use hal.storage, hal.timer, etc.
+ *   await hal.shutdown();
+ *
+ * @module hal
  */
 
-// Local imports for BunHAL class implementation
+// =============================================================================
+// DEVICE IMPLEMENTATIONS
+// =============================================================================
+
+// WHY: Import all Bun device implementations for BunHAL construction.
+// These are the production implementations that wrap Bun primitives.
 import { BunBlockDevice, MemoryBlockDevice } from './block.js';
 import { BunStorageEngine, MemoryStorageEngine } from './storage.js';
 import { BunNetworkDevice } from './network.js';
@@ -23,10 +117,15 @@ import { BunIPCDevice } from './ipc.js';
 import { BunChannelDevice } from './channel.js';
 import { BunCompressionDevice } from './compression.js';
 
-// Error types
+// =============================================================================
+// ERROR TYPES (RE-EXPORTS)
+// =============================================================================
+
+// WHY: Export all error types so higher layers can import from single module.
+// Avoids needing to import from hal/errors.js separately.
 export {
     HALError,
-    // File/Block I/O
+    // File/Block I/O errors
     EACCES,
     EAGAIN,
     EBADF,
@@ -45,7 +144,7 @@ export {
     ENOTEMPTY,
     EPERM,
     EROFS,
-    // Network
+    // Network errors
     EADDRINUSE,
     EADDRNOTAVAIL,
     ECONNREFUSED,
@@ -55,26 +154,31 @@ export {
     ENETUNREACH,
     ENOTCONN,
     EPIPE,
-    // Process/IPC
+    // Process/IPC errors
     ECANCELED,
     EDEADLK,
     EINTR,
     ECHILD,
     ESRCH,
-    // Crypto
+    // Crypto errors
     EAUTH,
-    // General
+    // General errors
     ENOSYS,
     ENOTSUP,
     EOVERFLOW,
     ERANGE,
-    // Helpers
+    // Helper functions
     isHALError,
     hasErrorCode,
     fromSystemError,
 } from './errors.js';
 
-// Device interfaces
+// =============================================================================
+// DEVICE INTERFACE TYPES (RE-EXPORTS)
+// =============================================================================
+
+// WHY: Export all device interface types so consumers can reference interfaces
+// without importing from individual device files.
 export type { BlockDevice, BlockStat, BlockLock } from './block.js';
 export type { StorageEngine, StorageStat, Transaction, WatchEvent } from './storage.js';
 export type {
@@ -101,7 +205,12 @@ export type { IPCDevice, Mutex, MutexLockOpts, Semaphore, CondVar } from './ipc.
 export type { ChannelDevice, Channel, ChannelOpts } from './channel.js';
 export type { CompressionDevice, CompressionAlg, CompressionLevel, CompressionOpts } from './compression.js';
 
-// Bun implementations
+// =============================================================================
+// DEVICE IMPLEMENTATION CLASSES (RE-EXPORTS)
+// =============================================================================
+
+// WHY: Export all device implementations (Bun and test variants) for direct use.
+// Allows constructing devices individually or swapping implementations.
 export { BunBlockDevice, MemoryBlockDevice } from './block.js';
 export { BunStorageEngine, MemoryStorageEngine } from './storage.js';
 export { BunNetworkDevice } from './network.js';
@@ -116,60 +225,136 @@ export { BunIPCDevice, MockIPCDevice } from './ipc.js';
 export { BunChannelDevice } from './channel.js';
 export { BunCompressionDevice, MockCompressionDevice } from './compression.js';
 
+// =============================================================================
+// HAL INTERFACE
+// =============================================================================
+
 /**
- * HAL aggregate interface.
+ * HAL aggregate interface
  *
- * The kernel receives this at boot time. All hardware access
- * goes through these device interfaces.
+ * The kernel receives this at boot time. All hardware access goes through
+ * these device interfaces.
+ *
+ * WHY: Aggregating all devices into single interface simplifies dependency
+ * injection. Kernel/VFS receive one HAL object instead of 13 separate devices.
+ *
+ * INVARIANTS:
+ * - All device fields are readonly (never reassigned after construction)
+ * - init() must be called before using devices
+ * - shutdown() must be called before process exit
  */
 export interface HAL {
+    /** Raw byte storage (files, S3, databases) */
     readonly block: import('./block.js').BlockDevice;
+
+    /** Key-value storage with transactions (SQLite, PostgreSQL, memory) */
     readonly storage: import('./storage.js').StorageEngine;
+
+    /** TCP/UDP/HTTP networking (listen, connect, socket operations) */
     readonly network: import('./network.js').NetworkDevice;
+
+    /** Scheduling (setTimeout, setInterval, sleep) */
     readonly timer: import('./timer.js').TimerDevice;
+
+    /** Time sources (Date.now, Bun.nanoseconds, monotonic time) */
     readonly clock: import('./clock.js').ClockDevice;
+
+    /** Random bytes, UUIDs, secure random numbers */
     readonly entropy: import('./entropy.js').EntropyDevice;
+
+    /** Hash, encryption, signatures, key derivation */
     readonly crypto: import('./crypto.js').CryptoDevice;
+
+    /** stdin/stdout/stderr interaction */
     readonly console: import('./console.js').ConsoleDevice;
+
+    /** Hostname resolution, reverse DNS */
     readonly dns: import('./dns.js').DNSDevice;
+
+    /** Escape hatch to host OS (Bun.spawn, system info) */
     readonly host: import('./host.js').HostDevice;
+
+    /** Shared memory, mutexes, semaphores, condition variables */
     readonly ipc: import('./ipc.js').IPCDevice;
+
+    /** Protocol-aware messaging (HTTP, WebSocket, PostgreSQL, SQLite) */
     readonly channel: import('./channel.js').ChannelDevice;
+
+    /** Gzip/deflate compression/decompression */
     readonly compression: import('./compression.js').CompressionDevice;
 
     /**
-     * Initialize the HAL.
-     * Must be called after construction and before use.
+     * Initialize the HAL
+     *
+     * Must be called after construction and before use. Performs async
+     * initialization like database connections.
+     *
+     * WHY: Some devices require async setup (e.g., database connections).
+     * Constructors must be synchronous in JavaScript, so we need separate
+     * async init method.
+     *
+     * INVARIANT: Idempotent - safe to call multiple times (only first call has effect).
      */
     init(): Promise<void>;
 
     /**
-     * Gracefully shut down all devices.
+     * Gracefully shut down all devices
      *
-     * Closes storage connections, network listeners, cancels timers,
-     * and releases any held resources. Should be called before process
-     * exit to ensure clean shutdown.
+     * Closes storage connections, network listeners, cancels timers, and
+     * releases any held resources. Should be called before process exit to
+     * ensure clean shutdown.
      *
-     * After shutdown(), the HAL instance should not be used.
+     * ALGORITHM:
+     * 1. Cancel all pending timers (prevents callbacks after shutdown)
+     * 2. Close storage engine (flush writes, close connections)
+     * 3. Network sockets/listeners are closed by kernel (not tracked by HAL)
+     *
+     * WHY: Order matters - timers might reference storage/network, so cancel
+     * them first. Storage should be closed last to ensure all writes complete.
+     *
+     * INVARIANT: After shutdown(), HAL instance should not be used.
+     *
+     * @returns Promise that resolves when shutdown is complete
      */
     shutdown(): Promise<void>;
 }
 
+// =============================================================================
+// HAL CONFIGURATION
+// =============================================================================
+
 /**
  * HAL configuration options
+ *
+ * WHY: Allows customizing device implementations and parameters at construction
+ * time. Production uses Bun implementations with persistent storage, tests use
+ * in-memory variants.
  */
 export interface HALConfig {
     /**
-     * Block device backing store path.
-     * If not provided, uses in-memory storage.
+     * Block device backing store path
+     *
+     * WHY: Block device can use file, memory, or remote storage. Path specifies
+     * where to persist bytes. If not provided, uses in-memory storage (tests).
+     *
+     * USAGE:
+     * - Production: './data/blocks'
+     * - Tests: undefined (memory)
      */
     blockPath?: string;
 
     /**
-     * Storage engine type and configuration.
-     * - 'memory': In-memory (testing/standalone)
-     * - 'sqlite': SQLite file path
-     * - 'postgres': PostgreSQL connection URL
+     * Storage engine type and configuration
+     *
+     * WHY: Storage engine is pluggable. Three variants supported:
+     * - memory: In-memory (testing, ephemeral)
+     * - sqlite: SQLite file (single-node, embedded)
+     * - postgres: PostgreSQL (distributed, production)
+     *
+     * USAGE:
+     * - Development: { type: 'memory' }
+     * - Single-node: { type: 'sqlite', path: './data/monk.db' }
+     * - Production: { type: 'postgres', url: 'postgresql://...' }
      */
     storage?:
         | { type: 'memory' }
@@ -177,16 +362,35 @@ export interface HALConfig {
         | { type: 'postgres'; url: string };
 }
 
+// =============================================================================
+// BUNHAL IMPLEMENTATION
+// =============================================================================
+
 /**
- * BunHAL - HAL implementation using Bun primitives.
+ * BunHAL - HAL implementation using Bun primitives
  *
- * Usage:
- *   const hal = new BunHAL(config);
+ * Production HAL implementation. Constructs all 13 device interfaces using
+ * Bun runtime primitives (Bun.spawn, Bun.listen, Bun.serve, bun:sqlite, etc.).
+ *
+ * WHY: Single class that aggregates all devices simplifies kernel/VFS construction.
+ * One `new BunHAL()` call instead of 13 separate device instantiations.
+ *
+ * USAGE:
+ *   const hal = new BunHAL({ storage: { type: 'sqlite', path: './monk.db' } });
  *   await hal.init();
- *   // ... use hal ...
+ *   // Use hal.storage, hal.timer, etc.
  *   await hal.shutdown();
+ *
+ * TESTABILITY: HAL interface enables swapping implementations. Tests can
+ * construct MockHAL instead of BunHAL to avoid real I/O.
  */
 export class BunHAL implements HAL {
+    // =========================================================================
+    // DEVICE INSTANCES
+    // =========================================================================
+    // WHY: readonly ensures devices cannot be reassigned after construction.
+    // Devices are constructed in constructor and remain constant.
+
     readonly block: import('./block.js').BlockDevice;
     readonly storage: import('./storage.js').StorageEngine;
     readonly network: import('./network.js').NetworkDevice;
@@ -201,15 +405,51 @@ export class BunHAL implements HAL {
     readonly channel: import('./channel.js').ChannelDevice;
     readonly compression: import('./compression.js').CompressionDevice;
 
+    // =========================================================================
+    // LIFECYCLE STATE
+    // =========================================================================
+
+    /**
+     * Initialization flag
+     *
+     * WHY: Tracks whether init() has been called. Prevents double-initialization
+     * which could leak resources (e.g., multiple database connections).
+     *
+     * INVARIANT: Set to true during first init() call, never reset.
+     */
     private initialized = false;
 
+    // =========================================================================
+    // CONSTRUCTION
+    // =========================================================================
+
+    /**
+     * Construct BunHAL with optional configuration
+     *
+     * Creates all 13 device instances based on config. Storage and block devices
+     * are configurable (memory vs persistent), other devices use Bun implementations.
+     *
+     * ALGORITHM:
+     * 1. Create block device (file-based or memory)
+     * 2. Create storage engine (SQLite, PostgreSQL, or memory)
+     * 3. Create remaining devices with Bun implementations
+     *
+     * WHY: Configuration allows tests to use memory storage while production
+     * uses persistent storage. Other devices are less frequently mocked.
+     *
+     * @param config - HAL configuration options
+     */
     constructor(config?: HALConfig) {
-        // Block device
+        // Block device: file-based or memory
+        // WHY: Block device is where VFS stores file content as raw bytes.
+        // Memory block device is fast for tests, file-based is durable.
         this.block = config?.blockPath
             ? new BunBlockDevice(config.blockPath)
             : new MemoryBlockDevice();
 
-        // Storage engine
+        // Storage engine: SQLite, PostgreSQL, or memory
+        // WHY: Storage engine is where VFS stores metadata (filenames, UUIDs, etc.).
+        // Choice of engine affects performance, durability, and scalability.
         const storageConfig = config?.storage ?? { type: 'memory' };
         switch (storageConfig.type) {
             case 'memory':
@@ -219,12 +459,16 @@ export class BunHAL implements HAL {
                 this.storage = new BunStorageEngine(storageConfig.path);
                 break;
             case 'postgres':
-                // TODO: PostgresStorageEngine
+                // TODO: PostgresStorageEngine not yet implemented
+                // WHY: PostgreSQL would enable distributed VFS with multiple Monk nodes
                 throw new Error('PostgreSQL storage not yet implemented');
             default:
                 this.storage = new MemoryStorageEngine();
         }
 
+        // Remaining devices: Bun implementations
+        // WHY: These devices are less frequently mocked. Tests that need mocked
+        // timers/clocks/etc. can construct devices individually.
         this.timer = new BunTimerDevice();
         this.network = new BunNetworkDevice();
         this.clock = new BunClockDevice();
@@ -238,36 +482,78 @@ export class BunHAL implements HAL {
         this.compression = new BunCompressionDevice();
     }
 
+    // =========================================================================
+    // LIFECYCLE METHODS
+    // =========================================================================
+
     /**
-     * Initialize the HAL.
-     * Currently a no-op but reserved for future async initialization.
+     * Initialize the HAL
+     *
+     * Performs async initialization for devices that need it (e.g., database
+     * connections). Currently a no-op but reserved for future use.
+     *
+     * WHY: Some devices may need async setup (database connections, network
+     * listeners, etc.). Constructors must be sync, so we need separate init().
+     *
+     * INVARIANT: Idempotent - safe to call multiple times. Only first call
+     * has effect (initialized flag prevents double-init).
      */
     async init(): Promise<void> {
         if (this.initialized) return;
         this.initialized = true;
-        // Reserved for future async initialization (e.g., database connections)
+        // WHY: Reserved for future async initialization (e.g., database connections)
+        // Currently all devices initialize synchronously in constructor
     }
 
     /**
-     * Gracefully shut down all devices.
+     * Gracefully shut down all devices
+     *
+     * Coordinates cleanup across all devices to ensure clean shutdown.
+     *
+     * ALGORITHM:
+     * 1. Cancel all pending timers
+     * 2. Close storage engine (flush writes, close connections)
+     * 3. Note: Network sockets closed by kernel, not tracked here
+     *
+     * WHY: Order matters - cancel timers first (they might reference storage),
+     * then close storage (ensures writes complete before exit).
+     *
+     * MEMORY LEAK PREVENTION: Without this, timers continue firing after HAL
+     * is destroyed, potentially accessing freed resources.
      */
     async shutdown(): Promise<void> {
-        // Cancel all pending timers
+        // WHY: Cancel timers first to prevent callbacks from firing during shutdown
         (this.timer as BunTimerDevice).cancelAll();
 
-        // Close storage engine (database connections)
+        // WHY: Close storage last to ensure all writes complete
         await this.storage.close();
 
-        // Note: Network listeners/sockets are closed via their own
-        // dispose methods. The HAL doesn't track active connections.
-        // Kernel is responsible for tracking and closing them.
+        // WHY: Network listeners/sockets are closed via their own dispose methods.
+        // The HAL doesn't track active connections - that's the kernel's job.
+        // Kernel is responsible for tracking and closing them before HAL shutdown.
     }
 }
 
+// =============================================================================
+// DEPRECATED FACTORY FUNCTION
+// =============================================================================
+
 /**
- * Create a HAL instance with Bun implementations.
+ * Create a HAL instance with Bun implementations
  *
  * @deprecated Use `new BunHAL(config)` and `await hal.init()` instead.
+ *
+ * WHY: Factory function obscures construction. Better to use constructor
+ * directly so caller sees exactly what's being created.
+ *
+ * MIGRATION:
+ *   // Old
+ *   const hal = await createBunHAL(config);
+ *
+ *   // New
+ *   const hal = new BunHAL(config);
+ *   await hal.init();
+ *
  * @param config - HAL configuration
  * @returns Configured HAL instance
  */
