@@ -14,7 +14,7 @@ import { join, resolve } from 'path';
  */
 export interface BootDeps {
     vfs: {
-        mkdir(path: string, caller: string): Promise<string>;
+        mkdir(path: string, caller: string, opts?: { recursive?: boolean }): Promise<string>;
         setAccess(path: string, caller: string, acl: {
             grants: { to: string; ops: string[] }[];
             deny: string[];
@@ -52,8 +52,8 @@ async function copyDirToVfs(deps: BootDeps, hostDir: string, vfsDir: string): Pr
         const vfsPath = vfsDir === '/' ? `/${entry.name}` : `${vfsDir}/${entry.name}`;
 
         if (entry.isDirectory()) {
-            // Create directory in VFS
-            await vfs.mkdir(vfsPath, 'kernel');
+            // Create directory in VFS (recursive: true to handle existing dirs)
+            await vfs.mkdir(vfsPath, 'kernel', { recursive: true });
 
             // Set directory ACL: world-readable
             await vfs.setAccess(vfsPath, 'kernel', {

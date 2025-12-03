@@ -16,6 +16,7 @@ export {
     EPERM,
     EMFILE,
     ETIMEDOUT,
+    EACCES,
 } from '@src/hal/index.js';
 
 /**
