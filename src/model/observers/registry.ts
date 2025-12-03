@@ -45,13 +45,14 @@ import { ObserverRunner } from './runner.js';
 // OBSERVER IMPORTS
 // =============================================================================
 
+// Ring 1: Input Validation
+import { Frozen, Immutable, Constraints } from '../ring/1/index.js';
+
 // Ring 5: Database Operations
 import { SqlCreate, SqlUpdate, SqlDelete } from '../ring/5/index.js';
 
-// Phase 4 (remaining observers):
-// import UpdateMerger from './impl/update-merger.js';
-// import FrozenValidator from './impl/frozen-validator.js';
-// ... etc
+// Ring 6: Post-Database (DDL)
+import { DdlCreateModel, DdlCreateField } from '../ring/6/index.js';
 
 // =============================================================================
 // FACTORY
@@ -64,14 +65,16 @@ import { SqlCreate, SqlUpdate, SqlDelete } from '../ring/5/index.js';
  * Runners could theoretically be shared (observers are stateless), but
  * separate instances allow different configurations for testing.
  *
- * PHASE 4 will populate this with actual observers:
- * - Ring 0: UpdateMerger
- * - Ring 1: FrozenValidator, ImmutableValidator, DataValidator
- * - Ring 4: TransformProcessor
- * - Ring 5: SqlCreate, SqlUpdate, SqlDelete
- * - Ring 6: ModelDdlCreate, FieldDdlCreate
- * - Ring 7: Tracked
- * - Ring 8: CacheInvalidator
+ * Currently registered observers:
+ * - Ring 1: Frozen, Immutable, Constraints (input validation)
+ * - Ring 5: SqlCreate, SqlUpdate, SqlDelete (database operations)
+ * - Ring 6: DdlCreateModel, DdlCreateField (schema management)
+ *
+ * TODO:
+ * - Ring 0: UpdateMerger (data preparation)
+ * - Ring 4: TransformProcessor (enrichment)
+ * - Ring 7: Tracked (audit)
+ * - Ring 8: Cache (integration)
  *
  * @returns Configured ObserverRunner
  */
@@ -86,9 +89,9 @@ export function createObserverRunner(): ObserverRunner {
     // =========================================================================
     // RING 1: INPUT VALIDATION
     // =========================================================================
-    // Phase 4: runner.register(new FrozenValidator());
-    // Phase 4: runner.register(new ImmutableValidator());
-    // Phase 4: runner.register(new DataValidator());
+    runner.register(new Frozen());
+    runner.register(new Immutable());
+    runner.register(new Constraints());
 
     // =========================================================================
     // RING 2: SECURITY
@@ -115,8 +118,8 @@ export function createObserverRunner(): ObserverRunner {
     // =========================================================================
     // RING 6: POST-DATABASE (DDL)
     // =========================================================================
-    // Phase 4: runner.register(new ModelDdlCreate());
-    // Phase 4: runner.register(new FieldDdlCreate());
+    runner.register(new DdlCreateModel());
+    runner.register(new DdlCreateField());
 
     // =========================================================================
     // RING 7: AUDIT
