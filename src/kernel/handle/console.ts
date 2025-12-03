@@ -26,7 +26,7 @@ type ConsoleMode = 'stdin' | 'stdout' | 'stderr';
  *
  * Supported ops:
  * - recv: Read lines from console, yield as item messages (stdin only)
- * - send: Accept item/chunk messages, write as bytes (stdout/stderr only)
+ * - send: Accept item/data messages, write as bytes (stdout/stderr only)
  */
 export class ConsoleHandleAdapter implements Handle {
     readonly type: HandleType = 'file';
@@ -94,7 +94,7 @@ export class ConsoleHandleAdapter implements Handle {
 
     /**
      * Write to console stdout/stderr from Response messages.
-     * Extracts text from items, bytes from chunks.
+     * Extracts text from items, bytes from data responses.
      */
     private async *send(msg: Response): AsyncIterable<Response> {
         if (this.mode === 'stdin') {
@@ -120,11 +120,10 @@ export class ConsoleHandleAdapter implements Handle {
                 break;
             }
 
-            case 'chunk': {
-                // Binary chunk - write bytes directly
-                const data = msg.data as { bytes?: Uint8Array } | undefined;
-                if (data?.bytes instanceof Uint8Array) {
-                    writer(data.bytes);
+            case 'data': {
+                // Binary data - write bytes directly
+                if (msg.bytes instanceof Uint8Array) {
+                    writer(msg.bytes);
                 }
                 break;
             }

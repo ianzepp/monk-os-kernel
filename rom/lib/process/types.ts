@@ -93,8 +93,9 @@ export interface Message {
 }
 
 export interface Response {
-    op: 'ok' | 'error' | 'item' | 'chunk' | 'event' | 'progress' | 'done' | 'redirect';
+    op: 'ok' | 'error' | 'item' | 'data' | 'event' | 'progress' | 'done' | 'redirect';
     data?: unknown;
+    bytes?: Uint8Array;
 }
 
 /**
@@ -104,7 +105,7 @@ export const respond = {
     ok: (data?: unknown): Response => ({ op: 'ok', data }),
     error: (code: string, message: string): Response => ({ op: 'error', data: { code, message } }),
     item: (data: unknown): Response => ({ op: 'item', data }),
-    chunk: (bytes: Uint8Array): Response => ({ op: 'chunk', data: { bytes } }),
+    data: (bytes: Uint8Array): Response => ({ op: 'data', bytes }),
     done: (): Response => ({ op: 'done' }),
 };
 

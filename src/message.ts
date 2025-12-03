@@ -27,9 +27,11 @@ export interface Message {
  */
 export interface Response {
     /** Response type */
-    op: 'ok' | 'error' | 'item' | 'chunk' | 'event' | 'progress' | 'done' | 'redirect';
-    /** Response data */
+    op: 'ok' | 'error' | 'item' | 'data' | 'event' | 'progress' | 'done' | 'redirect';
+    /** Response data (for item, ok, error, event, progress, redirect) */
     data?: unknown;
+    /** Binary bytes (for op: 'data' only) */
+    bytes?: Uint8Array;
 }
 
 /**
@@ -54,11 +56,9 @@ export namespace Responses {
         data: unknown;
     }
 
-    export interface Chunk extends Response {
-        op: 'chunk';
-        data: {
-            bytes: Uint8Array;
-        };
+    export interface Data extends Response {
+        op: 'data';
+        bytes: Uint8Array;
     }
 
     export interface Event extends Response {
@@ -108,7 +108,7 @@ export const respond = {
 
     item: (data: unknown): Responses.Item => ({ op: 'item', data }),
 
-    chunk: (bytes: Uint8Array): Responses.Chunk => ({ op: 'chunk', data: { bytes } }),
+    data: (bytes: Uint8Array): Responses.Data => ({ op: 'data', bytes }),
 
     event: (type: string, data: Record<string, unknown> = {}): Responses.Event => ({
         op: 'event',

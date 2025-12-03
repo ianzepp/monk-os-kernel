@@ -94,7 +94,7 @@ export class FileHandleAdapter implements Handle {
                     return;
                 }
 
-                yield respond.chunk(chunk);
+                yield respond.data(chunk);
 
                 // Short read indicates EOF
                 if (chunk.length < size) {
@@ -133,10 +133,9 @@ export class FileHandleAdapter implements Handle {
                     const itemData = response.data as { text?: string } | undefined;
                     const text = itemData?.text ?? '';
                     bytes = this.encoder.encode(text);
-                } else if (response.op === 'chunk') {
-                    // Binary chunk - use directly
-                    const chunkData = response.data as { bytes?: Uint8Array } | undefined;
-                    bytes = chunkData?.bytes ?? new Uint8Array(0);
+                } else if (response.op === 'data') {
+                    // Binary data - use directly
+                    bytes = response.bytes ?? new Uint8Array(0);
                 } else {
                     // done, ok, error - nothing to write
                     yield respond.ok({ written: 0 });

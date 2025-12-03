@@ -14,6 +14,8 @@
         "build": "scripts/build.sh",
         "build:standalone": "scripts/build-standalone.sh",
         "test": "bun test --preload ./spec/bun-test-setup.ts ./spec/**/*.test.ts",
+        "perf": "bun test --preload ./spec/bun-test-setup.ts ./perf/**/*.perf.ts",
+        "perf:fixtures": "bun run ./perf/fixtures.ts",
         "typecheck": "bun x tsc --noEmit"
     },
     "keywords": [

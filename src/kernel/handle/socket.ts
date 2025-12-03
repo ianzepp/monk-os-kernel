@@ -83,7 +83,7 @@ export class SocketHandleAdapter implements Handle {
                     return;
                 }
 
-                yield respond.chunk(chunk);
+                yield respond.data(chunk);
             }
 
             yield respond.done();
