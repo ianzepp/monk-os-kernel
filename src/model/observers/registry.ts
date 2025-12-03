@@ -51,11 +51,17 @@ import { UpdateMerger } from '../ring/0/index.js';
 // Ring 1: Input Validation
 import { Frozen, Immutable, Constraints } from '../ring/1/index.js';
 
+// Ring 4: Enrichment
+import { TransformProcessor } from '../ring/4/index.js';
+
 // Ring 5: Database Operations
 import { SqlCreate, SqlUpdate, SqlDelete } from '../ring/5/index.js';
 
 // Ring 6: Post-Database (DDL)
 import { DdlCreateModel, DdlCreateField } from '../ring/6/index.js';
+
+// Ring 7: Audit
+import { Tracked } from '../ring/7/index.js';
 
 // Ring 8: Integration
 import { Cache } from '../ring/8/index.js';
@@ -74,13 +80,11 @@ import { Cache } from '../ring/8/index.js';
  * Currently registered observers:
  * - Ring 0: UpdateMerger (data preparation)
  * - Ring 1: Frozen, Immutable, Constraints (input validation)
+ * - Ring 4: TransformProcessor (enrichment)
  * - Ring 5: SqlCreate, SqlUpdate, SqlDelete (database operations)
  * - Ring 6: DdlCreateModel, DdlCreateField (schema management)
- * - Ring 8: Cache (cache invalidation)
- *
- * TODO:
- * - Ring 4: TransformProcessor (enrichment)
  * - Ring 7: Tracked (audit)
+ * - Ring 8: Cache (cache invalidation)
  *
  * @returns Configured ObserverRunner
  */
@@ -112,7 +116,7 @@ export function createObserverRunner(): ObserverRunner {
     // =========================================================================
     // RING 4: ENRICHMENT
     // =========================================================================
-    // Phase 4: runner.register(new TransformProcessor());
+    runner.register(new TransformProcessor());
 
     // =========================================================================
     // RING 5: DATABASE
@@ -130,7 +134,7 @@ export function createObserverRunner(): ObserverRunner {
     // =========================================================================
     // RING 7: AUDIT
     // =========================================================================
-    // Phase 4: runner.register(new Tracked());
+    runner.register(new Tracked());
 
     // =========================================================================
     // RING 8: INTEGRATION

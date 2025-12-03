@@ -128,6 +128,9 @@ export interface ModelRecord {
 
     /** Get diff for tracking: { field: { old, new } } */
     getDiff(): Record<string, { old: unknown; new: unknown }>;
+
+    /** Get diff filtered to specific fields only */
+    getDiffForFields(fields: Set<string>): Record<string, { old: unknown; new: unknown }>;
 }
 
 /**
