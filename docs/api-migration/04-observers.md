@@ -11,17 +11,17 @@ Observers implement the behavioral enforcement specified in field/model metadata
 | Ring | Priority | Observer | Operations | Purpose |
 |------|----------|----------|------------|---------|
 | 0 | 50 | UpdateMerger | update | Merge input with existing data |
-| 1 | 10 | FrozenValidator | create, update, delete | Block changes to frozen models |
-| 1 | 30 | ImmutableValidator | update | Block changes to immutable fields |
-| 1 | 40 | DataValidator | create, update | Validate types and constraints |
+| 1 | 10 | Frozen | create, update, delete | Block changes to frozen models |
+| 1 | 30 | Immutable | update | Block changes to immutable fields |
+| 1 | 40 | Constraints | create, update | Validate types and constraints |
 | 4 | 50 | TransformProcessor | create, update | Apply auto-transforms |
 | 5 | 50 | SqlCreate | create | Execute INSERT |
 | 5 | 50 | SqlUpdate | update | Execute UPDATE |
 | 5 | 50 | SqlDelete | delete | Execute soft DELETE |
-| 6 | 10 | ModelDdlCreate | create (models) | CREATE TABLE |
-| 6 | 10 | FieldDdlCreate | create (fields) | ALTER TABLE ADD COLUMN |
+| 6 | 10 | DdlCreateModel | create (models) | CREATE TABLE |
+| 6 | 10 | DdlCreateField | create (fields) | ALTER TABLE ADD COLUMN |
 | 7 | 60 | Tracked | create, update, delete | Record change history |
-| 8 | 50 | CacheInvalidator | * (models, fields) | Invalidate model cache |
+| 8 | 50 | Cache | * (models, fields) | Invalidate model cache |
 
 ### Nice-to-Have Observers
 
@@ -30,33 +30,114 @@ Observers implement the behavioral enforcement specified in field/model metadata
 | 1 | 20 | ModelSudoValidator | Require sudo for model operations |
 | 1 | 25 | FieldSudoValidator | Require sudo for field operations |
 | 2 | 50 | ExistenceValidator | Verify record exists for update/delete |
-| 6 | 10 | FieldDdlDelete | ALTER TABLE DROP COLUMN |
+| 6 | 10 | DdlDeleteField | ALTER TABLE DROP COLUMN |
 | 6 | 20 | DdlIndexes | CREATE/DROP INDEX |
+
+## System Interfaces
+
+These interfaces in `src/model/observers/interfaces.ts` define the contracts for observer execution:
+
+### DatabaseAdapter
+
+```typescript
+/**
+ * Database connection for SQL operations.
+ * Ring 5 observers use this to execute INSERT/UPDATE/DELETE.
+ */
+export interface DatabaseAdapter {
+    /**
+     * Execute an INSERT/UPDATE/DELETE statement.
+     * @param sql - SQL statement with ? placeholders
+     * @param params - Parameter values (positional)
+     * @returns Promise resolving to affected row count
+     */
+    execute(sql: string, params?: unknown[]): Promise<number>;
+
+    /**
+     * Execute a SELECT query and return all rows.
+     */
+    query<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<T[]>;
+
+    /**
+     * Execute raw SQL (multiple statements allowed).
+     */
+    exec(sql: string): Promise<void>;
+}
+```
+
+### ModelCacheAdapter
+
+```typescript
+/**
+ * Model cache for metadata lookup.
+ * Ring 8 (CacheInvalidator) uses this to clear cache after model/field changes.
+ */
+export interface ModelCacheAdapter {
+    /**
+     * Invalidate cached model metadata.
+     * @param modelName - Model to invalidate
+     */
+    invalidate(modelName: string): void;
+}
+```
+
+### SystemContext
+
+```typescript
+/**
+ * System services available to observers.
+ */
+export interface SystemContext {
+    /** Database connection for SQL operations */
+    db: DatabaseAdapter;
+
+    /** Model metadata cache */
+    cache: ModelCacheAdapter;
+}
+```
+
+### Model Interface
+
+```typescript
+/**
+ * Model metadata wrapper.
+ * Note: Uses camelCase (modelName, isFrozen) not snake_case.
+ */
+export interface Model {
+    readonly modelName: string;      // NOT model_name
+    readonly isFrozen: boolean;
+    readonly isImmutable: boolean;
+    readonly requiresSudo: boolean;
+
+    getImmutableFields(): Set<string>;
+    getTrackedFields(): Set<string>;
+    getTransformFields(): Map<string, string>;
+    getValidationFields(): FieldRow[];
+    getFields(): FieldRow[];
+}
+```
 
 ## Observer Implementations
 
 ### Ring 0: Data Preparation
 
-#### UpdateMerger (`src/model/observers/impl/update-merger.ts`)
-
-**Source:** `monk-api/src/observers/all/0/50-update-merger.ts`
+#### UpdateMerger (`src/model/ring/0/50-update-merger.ts`)
 
 ```typescript
-import { BaseObserver } from '../base-observer';
-import type { ObserverContext } from '../interfaces';
-import { ObserverRing } from '../types';
+import { BaseObserver } from '../../observers/base-observer.js';
+import type { ObserverContext } from '../../observers/interfaces.js';
+import { ObserverRing, type OperationType } from '../../observers/types.js';
 
 /**
- * Merges input data with existing record for updates
+ * Merges input data with existing record for updates.
  *
- * This is handled by ModelRecord, but we ensure the merge is complete
- * and apply any default values for missing fields.
+ * Ensures updated_at is set and applies default values for missing fields.
  */
-export default class UpdateMerger extends BaseObserver {
+export class UpdateMerger extends BaseObserver {
     readonly name = 'UpdateMerger';
     readonly ring = ObserverRing.DataPreparation;
     readonly priority = 50;
-    readonly operations = ['update'] as const;
+    readonly operations: readonly OperationType[] = ['update'];
 
     async execute(context: ObserverContext): Promise<void> {
         const { record, model } = context;
@@ -70,70 +151,69 @@ export default class UpdateMerger extends BaseObserver {
             }
         }
 
-        // Ensure updated_at will be set (done in DatabaseService, but verify)
+        // Ensure updated_at will be set
         if (!record.has('updated_at')) {
             record.set('updated_at', new Date().toISOString());
         }
     }
 }
+
+export default UpdateMerger;
 ```
 
 ### Ring 1: Input Validation
 
-#### FrozenValidator (`src/model/observers/impl/frozen-validator.ts`)
-
-**Source:** `monk-api/src/observers/all/1/10-frozen-validator.ts`
+#### Frozen (`src/model/ring/1/10-frozen.ts`)
 
 ```typescript
-import { BaseObserver } from '../base-observer';
-import type { ObserverContext } from '../interfaces';
-import { ObserverRing } from '../types';
-import { EOBSFROZEN } from '../errors';
+import { BaseObserver } from '../../observers/base-observer.js';
+import type { ObserverContext } from '../../observers/interfaces.js';
+import { ObserverRing, type OperationType } from '../../observers/types.js';
+import { EOBSFROZEN } from '../../observers/errors.js';
 
 /**
- * Prevents any data changes to frozen models
+ * Prevents any data changes to frozen models.
  */
-export default class FrozenValidator extends BaseObserver {
-    readonly name = 'FrozenValidator';
+export class Frozen extends BaseObserver {
+    readonly name = 'Frozen';
     readonly ring = ObserverRing.InputValidation;
     readonly priority = 10;
-    readonly operations = ['create', 'update', 'delete'] as const;
+    readonly operations: readonly OperationType[] = ['create', 'update', 'delete'];
 
     async execute(context: ObserverContext): Promise<void> {
         const { model } = context;
 
         if (model.isFrozen) {
             throw new EOBSFROZEN(
-                `Model '${model.model_name}' is frozen and cannot be modified`
+                `Model '${model.modelName}' is frozen and cannot be modified`
             );
         }
     }
 }
+
+export default Frozen;
 ```
 
-#### ImmutableValidator (`src/model/observers/impl/immutable-validator.ts`)
-
-**Source:** `monk-api/src/observers/all/1/30-immutable-validator.ts`
+#### Immutable (`src/model/ring/1/30-immutable.ts`)
 
 ```typescript
-import { BaseObserver } from '../base-observer';
-import type { ObserverContext } from '../interfaces';
-import { ObserverRing } from '../types';
-import { EOBSIMMUT } from '../errors';
+import { BaseObserver } from '../../observers/base-observer.js';
+import type { ObserverContext } from '../../observers/interfaces.js';
+import { ObserverRing, type OperationType } from '../../observers/types.js';
+import { EOBSIMMUT } from '../../observers/errors.js';
 
 /**
- * Prevents changes to fields marked as immutable
+ * Prevents changes to fields marked as immutable.
  */
-export default class ImmutableValidator extends BaseObserver {
-    readonly name = 'ImmutableValidator';
+export class Immutable extends BaseObserver {
+    readonly name = 'Immutable';
     readonly ring = ObserverRing.InputValidation;
     readonly priority = 30;
-    readonly operations = ['update'] as const;
+    readonly operations: readonly OperationType[] = ['update'];
 
     async execute(context: ObserverContext): Promise<void> {
         const { model, record } = context;
 
-        // Skip for new records
         if (record.isNew()) return;
 
         const immutableFields = model.getImmutableFields();
@@ -150,7 +230,6 @@ export default class ImmutableValidator extends BaseObserver {
             // Allow first write (old was null/undefined)
             if (oldValue === null || oldValue === undefined) continue;
 
-            // Check if actually changing
             if (JSON.stringify(oldValue) !== JSON.stringify(newValue)) {
                 violations.push({ field: fieldName, old: oldValue, new: newValue });
             }
@@ -168,18 +247,17 @@ export default class ImmutableValidator extends BaseObserver {
         }
     }
 }
+
+export default Immutable;
 ```
 
-#### DataValidator (`src/model/observers/impl/data-validator.ts`)
-
-**Source:** `monk-api/src/observers/all/1/40-data-validator.ts`
+#### Constraints (`src/model/ring/1/40-constraints.ts`)
 
 ```typescript
-import { BaseObserver } from '../base-observer';
-import type { ObserverContext } from '../interfaces';
-import { ObserverRing } from '../types';
-import { EOBSINVALID } from '../errors';
-import type { FieldRow } from '../interfaces';
+import { BaseObserver } from '../../observers/base-observer.js';
+import type { ObserverContext, FieldRow } from '../../observers/interfaces.js';
+import { ObserverRing, type OperationType } from '../../observers/types.js';
+import { EOBSINVALID } from '../../observers/errors.js';
 
 interface ValidationErrorDetail {
     field: string;
@@ -188,13 +266,13 @@ interface ValidationErrorDetail {
 }
 
 /**
- * Validates field data against constraints
+ * Validates field data against constraints.
  */
-export default class DataValidator extends BaseObserver {
-    readonly name = 'DataValidator';
+export class Constraints extends BaseObserver {
+    readonly name = 'Constraints';
     readonly ring = ObserverRing.InputValidation;
     readonly priority = 40;
-    readonly operations = ['create', 'update'] as const;
+    readonly operations: readonly OperationType[] = ['create', 'update'];
 
     async execute(context: ObserverContext): Promise<void> {
         const { model, record, operation } = context;
@@ -205,7 +283,6 @@ export default class DataValidator extends BaseObserver {
         const errors: ValidationErrorDetail[] = [];
 
         for (const field of validationFields) {
-            // For updates, only validate fields being changed
             if (operation === 'update' && !record.has(field.field_name)) {
                 continue;
             }
@@ -231,8 +308,6 @@ export default class DataValidator extends BaseObserver {
     ): void {
         // Required check
         if (field.required && (value === null || value === undefined)) {
-            // For creates, always require
-            // For updates, only if the field is being set to null
             if (operation === 'create') {
                 errors.push({
                     field: field.field_name,
@@ -240,10 +315,9 @@ export default class DataValidator extends BaseObserver {
                     code: 'REQUIRED',
                 });
             }
-            return;  // Skip other validations if null
+            return;
         }
 
-        // Skip further validation for null values
         if (value === null || value === undefined) return;
 
         // Type check
@@ -254,7 +328,7 @@ export default class DataValidator extends BaseObserver {
                 message: typeError,
                 code: 'INVALID_TYPE',
             });
-            return;  // Skip constraint checks if wrong type
+            return;
         }
 
         // Minimum/maximum for numbers
@@ -307,7 +381,6 @@ export default class DataValidator extends BaseObserver {
             if (!Array.isArray(value)) {
                 return `expected array, got ${typeof value}`;
             }
-            // Validate array elements
             const baseType = type.replace('[]', '');
             for (const item of value) {
                 const itemError = this.validateScalarType(item, baseType);
@@ -315,7 +388,6 @@ export default class DataValidator extends BaseObserver {
             }
             return null;
         }
-
         return this.validateScalarType(value, type);
     }
 
@@ -345,33 +417,32 @@ export default class DataValidator extends BaseObserver {
                 }
                 break;
             case 'jsonb':
-                // Any value is valid for JSON
                 break;
         }
         return null;
     }
 }
+
+export default Constraints;
 ```
 
 ### Ring 4: Enrichment
 
-#### TransformProcessor (`src/model/observers/impl/transform-processor.ts`)
-
-**Source:** `monk-api/src/observers/all/4/50-transform-processor.ts`
+#### TransformProcessor (`src/model/ring/4/50-transform-processor.ts`)
 
 ```typescript
-import { BaseObserver } from '../base-observer';
-import type { ObserverContext } from '../interfaces';
-import { ObserverRing } from '../types';
+import { BaseObserver } from '../../observers/base-observer.js';
+import type { ObserverContext } from '../../observers/interfaces.js';
+import { ObserverRing, type OperationType } from '../../observers/types.js';
 
 /**
- * Applies auto-transforms to field values
+ * Applies auto-transforms to field values.
  */
-export default class TransformProcessor extends BaseObserver {
+export class TransformProcessor extends BaseObserver {
     readonly name = 'TransformProcessor';
     readonly ring = ObserverRing.Enrichment;
     readonly priority = 50;
-    readonly operations = ['create', 'update'] as const;
+    readonly operations: readonly OperationType[] = ['create', 'update'];
 
     async execute(context: ObserverContext): Promise<void> {
         const { model, record } = context;
@@ -412,142 +483,196 @@ export default class TransformProcessor extends BaseObserver {
         }
     }
 }
+
+export default TransformProcessor;
 ```
 
-### Ring 5: Database Operations
+### Ring 5: Database Operations (IMPLEMENTED)
 
-#### SqlCreate (`src/model/observers/impl/sql-create.ts`)
+Ring 5 observers are the persistence boundary - records that pass Ring 5 are committed to the database. Prior rings can reject; post-database rings (6-9) observe but cannot undo.
 
-**Source:** `monk-api/src/observers/all/5/50-sql-create-sqlite.ts`
+#### SqlCreate (`src/model/ring/5/50-sql-create.ts`)
 
 ```typescript
-import { BaseObserver } from '../base-observer';
-import type { ObserverContext } from '../interfaces';
-import { ObserverRing } from '../types';
+import { BaseObserver } from '../../observers/base-observer.js';
+import type { ObserverContext } from '../../observers/interfaces.js';
+import { ObserverRing, type OperationType } from '../../observers/types.js';
+import { EOBSSYS } from '../../observers/errors.js';
 
 /**
- * Executes INSERT statement
+ * Executes INSERT statement for new records.
+ *
+ * INVARIANTS:
+ * - Record must have an id before reaching this observer
+ * - Record must have created_at and updated_at set
+ * - SQL execution uses parameterized queries (no string interpolation)
+ * - Database errors are wrapped in EOBSSYS
  */
-export default class SqlCreate extends BaseObserver {
+export class SqlCreate extends BaseObserver {
     readonly name = 'SqlCreate';
     readonly ring = ObserverRing.Database;
     readonly priority = 50;
-    readonly operations = ['create'] as const;
+    readonly operations: readonly OperationType[] = ['create'];
 
     async execute(context: ObserverContext): Promise<void> {
-        const { system, model, record } = context;
+        const { model, record, system } = context;
 
         const data = record.toRecord();
-        const fields = Object.keys(data);
-        const placeholders = fields.map(() => '?');
-        const values = fields.map(f => data[f]);
+        const columns = Object.keys(data);
+        const placeholders = columns.map(() => '?').join(', ');
+        const values = columns.map((col) => data[col]);
 
-        const sql = `
-            INSERT INTO ${model.model_name} (${fields.join(', ')})
-            VALUES (${placeholders.join(', ')})
-        `;
+        const sql = `INSERT INTO ${model.modelName} (${columns.join(', ')}) VALUES (${placeholders})`;
 
-        system.db.prepare(sql).run(...values);
+        try {
+            await system.db.execute(sql, values);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            const recordId = data.id ?? 'unknown';
+            throw new EOBSSYS(
+                `INSERT failed for ${model.modelName}[${recordId}]: ${message}`
+            );
+        }
     }
 }
+
+export default SqlCreate;
 ```
 
-#### SqlUpdate (`src/model/observers/impl/sql-update.ts`)
+#### SqlUpdate (`src/model/ring/5/50-sql-update.ts`)
 
 ```typescript
-import { BaseObserver } from '../base-observer';
-import type { ObserverContext } from '../interfaces';
-import { ObserverRing } from '../types';
+import { BaseObserver } from '../../observers/base-observer.js';
+import type { ObserverContext } from '../../observers/interfaces.js';
+import { ObserverRing, type OperationType } from '../../observers/types.js';
+import { EOBSSYS } from '../../observers/errors.js';
 
 /**
- * Executes UPDATE statement
+ * Executes UPDATE statement for modified records.
+ *
+ * INVARIANTS:
+ * - Record must have an id
+ * - Only changed fields are included in SET clause
+ * - Empty changes result in no-op (no SQL executed)
  */
-export default class SqlUpdate extends BaseObserver {
+export class SqlUpdate extends BaseObserver {
     readonly name = 'SqlUpdate';
     readonly ring = ObserverRing.Database;
     readonly priority = 50;
-    readonly operations = ['update'] as const;
+    readonly operations: readonly OperationType[] = ['update'];
 
     async execute(context: ObserverContext): Promise<void> {
-        const { system, model, record } = context;
+        const { model, record, system } = context;
 
         const changes = record.toChanges();
-        const id = record.get('id');
+        const id = record.get('id') as string;
+        const columns = Object.keys(changes);
 
-        const setClauses = Object.keys(changes).map(f => `${f} = ?`);
-        const values = [...Object.values(changes), id];
+        // No changes to apply - valid no-op
+        if (columns.length === 0) {
+            return;
+        }
 
-        const sql = `
-            UPDATE ${model.model_name}
-            SET ${setClauses.join(', ')}
-            WHERE id = ?
-        `;
+        const setClauses = columns.map((col) => `${col} = ?`).join(', ');
+        const values = columns.map((col) => changes[col]);
+        values.push(id);
 
-        system.db.prepare(sql).run(...values);
+        const sql = `UPDATE ${model.modelName} SET ${setClauses} WHERE id = ?`;
+
+        try {
+            await system.db.execute(sql, values);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            throw new EOBSSYS(
+                `UPDATE failed for ${model.modelName}[${id}]: ${message}`
+            );
+        }
     }
 }
+
+export default SqlUpdate;
 ```
 
-#### SqlDelete (`src/model/observers/impl/sql-delete.ts`)
+#### SqlDelete (`src/model/ring/5/50-sql-delete.ts`)
 
 ```typescript
-import { BaseObserver } from '../base-observer';
-import type { ObserverContext } from '../interfaces';
-import { ObserverRing } from '../types';
+import { BaseObserver } from '../../observers/base-observer.js';
+import type { ObserverContext } from '../../observers/interfaces.js';
+import { ObserverRing, type OperationType } from '../../observers/types.js';
+import { EOBSSYS } from '../../observers/errors.js';
 
 /**
- * Executes soft DELETE (sets trashed_at)
+ * Executes soft DELETE (sets trashed_at) for records.
+ *
+ * WHY soft delete: Preserves data for recovery and audit. Hard delete
+ * (expireAll) is a separate, explicit operation for permanent removal.
+ *
+ * INVARIANTS:
+ * - Record must have an id
+ * - trashed_at is set by DatabaseOps before observer pipeline
+ * - Soft delete is UPDATE, not DELETE (data preserved)
  */
-export default class SqlDelete extends BaseObserver {
+export class SqlDelete extends BaseObserver {
     readonly name = 'SqlDelete';
     readonly ring = ObserverRing.Database;
     readonly priority = 50;
-    readonly operations = ['delete'] as const;
+    readonly operations: readonly OperationType[] = ['delete'];
 
     async execute(context: ObserverContext): Promise<void> {
-        const { system, model, record } = context;
+        const { model, record, system } = context;
 
-        const id = record.get('id');
+        const id = record.get('id') as string;
         const trashedAt = record.get('trashed_at');
 
-        const sql = `
-            UPDATE ${model.model_name}
-            SET trashed_at = ?
-            WHERE id = ?
-        `;
+        const sql = `UPDATE ${model.modelName} SET trashed_at = ? WHERE id = ?`;
 
-        system.db.prepare(sql).run(trashedAt, id);
+        try {
+            await system.db.execute(sql, [trashedAt, id]);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            throw new EOBSSYS(
+                `DELETE (soft) failed for ${model.modelName}[${id}]: ${message}`
+            );
+        }
     }
 }
+
+export default SqlDelete;
+```
+
+#### Ring 5 Index (`src/model/ring/5/index.ts`)
+
+```typescript
+export { SqlCreate } from './50-sql-create.js';
+export { SqlUpdate } from './50-sql-update.js';
+export { SqlDelete } from './50-sql-delete.js';
 ```
 
 ### Ring 6: DDL Operations
 
-#### ModelDdlCreate (`src/model/observers/impl/model-ddl-create.ts`)
-
-**Source:** `monk-api/src/observers/models/6/10-model-ddl-create-sqlite.ts`
+#### DdlCreateModel (`src/model/ring/6/10-ddl-create-model.ts`)
 
 ```typescript
-import { BaseObserver } from '../base-observer';
-import type { ObserverContext } from '../interfaces';
-import { ObserverRing } from '../types';
+import { BaseObserver } from '../../observers/base-observer.js';
+import type { ObserverContext } from '../../observers/interfaces.js';
+import { ObserverRing, type OperationType } from '../../observers/types.js';
 
 /**
- * Creates table for new model
+ * Creates table for new model.
+ * Only runs for 'models' table creates.
  */
-export default class ModelDdlCreate extends BaseObserver {
-    readonly name = 'ModelDdlCreate';
+export class DdlCreateModel extends BaseObserver {
+    readonly name = 'DdlCreateModel';
     readonly ring = ObserverRing.PostDatabase;
     readonly priority = 10;
-    readonly operations = ['create'] as const;
-    readonly models = ['models'] as const;
+    readonly operations: readonly OperationType[] = ['create'];
+    readonly models: readonly string[] = ['models'];
 
     async execute(context: ObserverContext): Promise<void> {
         const { system, record } = context;
 
         const modelName = record.get('model_name') as string;
 
-        // Create table with system fields
         const sql = `
             CREATE TABLE IF NOT EXISTS ${modelName} (
                 id          TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
@@ -558,29 +683,30 @@ export default class ModelDdlCreate extends BaseObserver {
             )
         `;
 
-        system.db.exec(sql);
+        await system.db.exec(sql);
     }
 }
+
+export default DdlCreateModel;
 ```
 
-#### FieldDdlCreate (`src/model/observers/impl/field-ddl-create.ts`)
-
-**Source:** `monk-api/src/observers/fields/6/10-field-ddl-create-sqlite.ts`
+#### DdlCreateField (`src/model/ring/6/10-ddl-create-field.ts`)
 
 ```typescript
-import { BaseObserver } from '../base-observer';
-import type { ObserverContext } from '../interfaces';
-import { ObserverRing } from '../types';
+import { BaseObserver } from '../../observers/base-observer.js';
+import type { ObserverContext } from '../../observers/interfaces.js';
+import { ObserverRing, type OperationType } from '../../observers/types.js';
 
 /**
- * Adds column for new field
+ * Adds column for new field.
+ * Only runs for 'fields' table creates.
  */
-export default class FieldDdlCreate extends BaseObserver {
-    readonly name = 'FieldDdlCreate';
+export class DdlCreateField extends BaseObserver {
+    readonly name = 'DdlCreateField';
     readonly ring = ObserverRing.PostDatabase;
     readonly priority = 10;
-    readonly operations = ['create'] as const;
-    readonly models = ['fields'] as const;
+    readonly operations: readonly OperationType[] = ['create'];
+    readonly models: readonly string[] = ['fields'];
 
     async execute(context: ObserverContext): Promise<void> {
         const { system, record } = context;
@@ -590,11 +716,10 @@ export default class FieldDdlCreate extends BaseObserver {
         const fieldType = record.get('type') as string;
 
         const sqlType = this.mapType(fieldType);
-
         const sql = `ALTER TABLE ${modelName} ADD COLUMN ${fieldName} ${sqlType}`;
 
         try {
-            system.db.exec(sql);
+            await system.db.exec(sql);
         } catch (error) {
             // Column might already exist
             console.warn(`Failed to add column ${fieldName} to ${modelName}:`, error);
@@ -616,27 +741,27 @@ export default class FieldDdlCreate extends BaseObserver {
         }
     }
 }
+
+export default DdlCreateField;
 ```
 
 ### Ring 7: Audit
 
-#### Tracked (`src/model/observers/impl/tracked.ts`)
-
-**Source:** `monk-api/src/observers/all/7/60-tracked.ts`
+#### Tracked (`src/model/ring/7/60-tracked.ts`)
 
 ```typescript
-import { BaseObserver } from '../base-observer';
-import type { ObserverContext } from '../interfaces';
-import { ObserverRing } from '../types';
+import { BaseObserver } from '../../observers/base-observer.js';
+import type { ObserverContext } from '../../observers/interfaces.js';
+import { ObserverRing, type OperationType } from '../../observers/types.js';
 
 /**
- * Records changes to tracked fields
+ * Records changes to tracked fields.
  */
-export default class Tracked extends BaseObserver {
+export class Tracked extends BaseObserver {
     readonly name = 'Tracked';
     readonly ring = ObserverRing.Audit;
     readonly priority = 60;
-    readonly operations = ['create', 'update', 'delete'] as const;
+    readonly operations: readonly OperationType[] = ['create', 'update', 'delete'];
 
     async execute(context: ObserverContext): Promise<void> {
         const { system, model, record, operation } = context;
@@ -644,7 +769,6 @@ export default class Tracked extends BaseObserver {
         const trackedFields = model.getTrackedFields();
         if (trackedFields.size === 0) return;
 
-        // Build changes object
         const diff = record.getDiff();
         const trackedChanges: Record<string, { old: unknown; new: unknown }> = {};
 
@@ -656,10 +780,9 @@ export default class Tracked extends BaseObserver {
 
         if (Object.keys(trackedChanges).length === 0) return;
 
-        // Insert tracking record
         const trackRecord = {
             id: crypto.randomUUID(),
-            model_name: model.model_name,
+            model_name: model.modelName,
             record_id: record.get('id'),
             operation,
             changes: JSON.stringify(trackedChanges),
@@ -671,116 +794,109 @@ export default class Tracked extends BaseObserver {
             VALUES (?, ?, ?, ?, ?, ?)
         `;
 
-        system.db.prepare(sql).run(
+        await system.db.execute(sql, [
             trackRecord.id,
             trackRecord.model_name,
             trackRecord.record_id,
             trackRecord.operation,
             trackRecord.changes,
             trackRecord.created_at
-        );
+        ]);
     }
 }
+
+export default Tracked;
 ```
 
 ### Ring 8: Integration
 
-#### CacheInvalidator (`src/model/observers/impl/cache-invalidator.ts`)
+#### Cache (`src/model/ring/8/50-cache.ts`)
 
 ```typescript
-import { BaseObserver } from '../base-observer';
-import type { ObserverContext } from '../interfaces';
-import { ObserverRing } from '../types';
+import { BaseObserver } from '../../observers/base-observer.js';
+import type { ObserverContext } from '../../observers/interfaces.js';
+import { ObserverRing, type OperationType } from '../../observers/types.js';
 
 /**
- * Invalidates model cache after model/field changes
+ * Invalidates model cache after model/field changes.
+ * Only runs for 'models' and 'fields' table operations.
  */
-export default class CacheInvalidator extends BaseObserver {
-    readonly name = 'CacheInvalidator';
+export class Cache extends BaseObserver {
+    readonly name = 'Cache';
     readonly ring = ObserverRing.Integration;
     readonly priority = 50;
-    readonly operations = ['create', 'update', 'delete'] as const;
-    readonly models = ['models', 'fields'] as const;
+    readonly operations: readonly OperationType[] = ['create', 'update', 'delete'];
+    readonly models: readonly string[] = ['models', 'fields'];
 
     async execute(context: ObserverContext): Promise<void> {
         const { system, model, record } = context;
 
-        // Determine which model to invalidate
-        let targetModel: string;
-
-        if (model.model_name === 'models') {
-            targetModel = record.get('model_name') as string;
-        } else {
-            // fields table
-            targetModel = record.get('model_name') as string;
-        }
-
+        // Both 'models' and 'fields' tables have model_name column
+        const targetModel = record.get('model_name') as string;
         system.cache.invalidate(targetModel);
     }
 }
+
+export default Cache;
 ```
 
 ## Observer Registry
 
-Update `src/model/observers/registry.ts`:
+`src/model/observers/registry.ts`:
 
 ```typescript
-import { ObserverRunner } from './runner';
+import { ObserverRunner } from './runner.js';
 
-// Ring 0
-import UpdateMerger from './impl/update-merger';
+// Ring 5: Database Operations (IMPLEMENTED)
+import { SqlCreate, SqlUpdate, SqlDelete } from '../ring/5/index.js';
 
-// Ring 1
-import FrozenValidator from './impl/frozen-validator';
-import ImmutableValidator from './impl/immutable-validator';
-import DataValidator from './impl/data-validator';
-
-// Ring 4
-import TransformProcessor from './impl/transform-processor';
-
-// Ring 5
-import SqlCreate from './impl/sql-create';
-import SqlUpdate from './impl/sql-update';
-import SqlDelete from './impl/sql-delete';
-
-// Ring 6
-import ModelDdlCreate from './impl/model-ddl-create';
-import FieldDdlCreate from './impl/field-ddl-create';
-
-// Ring 7
-import Tracked from './impl/tracked';
-
-// Ring 8
-import CacheInvalidator from './impl/cache-invalidator';
+// Phase 4 (remaining observers):
+// import { UpdateMerger } from '../ring/0/50-update-merger.js';
+// import { FrozenValidator } from '../ring/1/10-frozen-validator.js';
+// ... etc
 
 export function createObserverRunner(): ObserverRunner {
     const runner = new ObserverRunner();
 
-    // Ring 0: Data Preparation
-    runner.register(new UpdateMerger());
+    // =========================================================================
+    // RING 0: DATA PREPARATION
+    // =========================================================================
+    // Phase 4: runner.register(new UpdateMerger());
 
-    // Ring 1: Input Validation
-    runner.register(new FrozenValidator());
-    runner.register(new ImmutableValidator());
-    runner.register(new DataValidator());
+    // =========================================================================
+    // RING 1: INPUT VALIDATION
+    // =========================================================================
+    // Phase 4: runner.register(new Frozen());
+    // Phase 4: runner.register(new Immutable());
+    // Phase 4: runner.register(new Constraints());
 
-    // Ring 4: Enrichment
-    runner.register(new TransformProcessor());
+    // =========================================================================
+    // RING 4: ENRICHMENT
+    // =========================================================================
+    // Phase 4: runner.register(new TransformProcessor());
 
-    // Ring 5: Database
+    // =========================================================================
+    // RING 5: DATABASE (IMPLEMENTED)
+    // =========================================================================
     runner.register(new SqlCreate());
     runner.register(new SqlUpdate());
     runner.register(new SqlDelete());
 
-    // Ring 6: DDL
-    runner.register(new ModelDdlCreate());
-    runner.register(new FieldDdlCreate());
+    // =========================================================================
+    // RING 6: POST-DATABASE (DDL)
+    // =========================================================================
+    // Phase 4: runner.register(new DdlCreateModel());
+    // Phase 4: runner.register(new DdlCreateField());
 
-    // Ring 7: Audit
-    runner.register(new Tracked());
+    // =========================================================================
+    // RING 7: AUDIT
+    // =========================================================================
+    // Phase 4: runner.register(new Tracked());
 
-    // Ring 8: Integration
-    runner.register(new CacheInvalidator());
+    // =========================================================================
+    // RING 8: INTEGRATION
+    // =========================================================================
+    // Phase 4: runner.register(new Cache());
 
     return runner;
 }
@@ -789,42 +905,53 @@ export function createObserverRunner(): ObserverRunner {
 ## Directory Structure
 
 ```
-src/model/observers/
-├── impl/                        # Observer implementations (Phase 4)
-│   ├── update-merger.ts
-│   ├── frozen-validator.ts
-│   ├── immutable-validator.ts
-│   ├── data-validator.ts
-│   ├── transform-processor.ts
-│   ├── sql-create.ts
-│   ├── sql-update.ts
-│   ├── sql-delete.ts
-│   ├── model-ddl-create.ts
-│   ├── field-ddl-create.ts
-│   ├── tracked.ts
-│   └── cache-invalidator.ts
-├── types.ts                     # (Phase 1 - IMPLEMENTED)
-├── interfaces.ts                # (Phase 1 - IMPLEMENTED)
-├── errors.ts                    # EOBS* error classes (Phase 1 - IMPLEMENTED)
-├── base-observer.ts             # (Phase 1 - IMPLEMENTED)
-├── runner.ts                    # (Phase 1 - IMPLEMENTED)
-├── registry.ts                  # (Phase 1 - IMPLEMENTED, empty until Phase 4)
-└── index.ts                     # (Phase 1 - IMPLEMENTED)
+src/model/
+├── observers/                   # Observer infrastructure (Phase 1)
+│   ├── types.ts                 # ObserverRing enum, OperationType
+│   ├── interfaces.ts            # Model, ModelRecord, Observer, SystemContext
+│   ├── errors.ts                # EOBS* error classes
+│   ├── base-observer.ts         # BaseObserver abstract class
+│   ├── runner.ts                # ObserverRunner pipeline executor
+│   ├── registry.ts              # createObserverRunner() factory
+│   └── index.ts                 # Public exports
+├── ring/                        # Observer implementations by ring
+│   ├── 0/                       # Ring 0: Data Preparation
+│   │   └── 50-update-merger.ts
+│   ├── 1/                       # Ring 1: Input Validation
+│   │   ├── 10-frozen.ts
+│   │   ├── 30-immutable.ts
+│   │   └── 40-constraints.ts
+│   ├── 4/                       # Ring 4: Enrichment
+│   │   └── 50-transform-processor.ts
+│   ├── 5/                       # Ring 5: Database (IMPLEMENTED)
+│   │   ├── 50-sql-create.ts
+│   │   ├── 50-sql-update.ts
+│   │   ├── 50-sql-delete.ts
+│   │   └── index.ts
+│   ├── 6/                       # Ring 6: Post-Database (DDL)
+│   │   ├── 10-ddl-create-model.ts
+│   │   └── 10-ddl-create-field.ts
+│   ├── 7/                       # Ring 7: Audit
+│   │   └── 60-tracked.ts
+│   └── 8/                       # Ring 8: Integration
+│       └── 50-cache.ts
 ```
+
+File naming convention: `{priority}-{observer-name}.ts` (e.g., `50-sql-create.ts`)
 
 ## Acceptance Criteria
 
-- [ ] FrozenValidator blocks changes to frozen models
-- [ ] ImmutableValidator blocks changes to immutable fields
-- [ ] DataValidator validates required, type, min/max, pattern, enum
+- [ ] Frozen blocks changes to frozen models
+- [ ] Immutable blocks changes to immutable fields
+- [ ] Constraints validates required, type, min/max, pattern, enum
 - [ ] TransformProcessor applies lowercase, uppercase, trim, normalize_*
-- [ ] SqlCreate inserts records
-- [ ] SqlUpdate updates records
-- [ ] SqlDelete soft-deletes records
-- [ ] ModelDdlCreate creates tables for new models
-- [ ] FieldDdlCreate adds columns for new fields
+- [x] SqlCreate inserts records (IMPLEMENTED)
+- [x] SqlUpdate updates records (IMPLEMENTED)
+- [x] SqlDelete soft-deletes records (IMPLEMENTED)
+- [ ] DdlCreateModel creates tables for new models
+- [ ] DdlCreateField adds columns for new fields
 - [ ] Tracked records change history
-- [ ] CacheInvalidator clears cache on model/field changes
+- [ ] Cache clears cache on model/field changes
 
 ## Next Phase
 
