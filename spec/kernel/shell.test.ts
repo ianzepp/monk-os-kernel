@@ -284,4 +284,22 @@ describe('Shell', () => {
         const init = kernel.getProcessTable().getInit();
         console.log('Exit code:', init?.exitCode);
     });
+
+    it('should pipe cat from file through more cats', async () => {
+        await kernel.boot({
+            initPath: '/bin/shell.ts',
+            initArgs: ['shell', '-c', 'echo "file content" > /pipetest.txt && cat /pipetest.txt | cat'],
+            env: {},
+            debug: true,
+        });
+
+        await waitForInitExit(kernel, 10000);
+
+        const output = hal.console.getOutput();
+        const errors = hal.console.getErrors();
+        console.log('Cat file pipe stdout:', JSON.stringify(output));
+        console.log('Cat file pipe stderr:', JSON.stringify(errors));
+
+        expect(output).toContain('file content');
+    });
 });

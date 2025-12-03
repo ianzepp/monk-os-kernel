@@ -269,8 +269,8 @@ describe('Process Spawn: Rapid Exit Codes', () => {
     });
 });
 
-// TODO: Pipe chains produce empty output - shell pipe→stdout routing bug
-describe.skip('Process Spawn: Pipe Chains', () => {
+// Pipe chain tests - validates the CAT_LOOP bug fix
+describe('Process Spawn: Pipe Chains', () => {
     let hal: HAL & { console: BufferConsoleDevice };
     let vfs: VFS;
     let kernel: Kernel;

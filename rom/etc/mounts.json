@@ -5,7 +5,8 @@
             "type": "memory",
             "description": "Temporary files (cleared on reboot)",
             "options": {
-                "maxSize": "50MB"
+                "maxSize": "50MB",
+                "worldWritable": true
             }
         }
     ]

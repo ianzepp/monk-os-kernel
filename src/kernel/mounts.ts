@@ -29,6 +29,8 @@ export interface MemoryMountDef extends BaseMountDef {
     options?: {
         /** Maximum size (e.g., "50MB", "1GB") */
         maxSize?: string;
+        /** Make directory world-writable (default: false) */
+        worldWritable?: boolean;
     };
 }
 
@@ -93,6 +95,14 @@ export interface MountsConfig {
 }
 
 /**
+ * ACL structure for mount permissions
+ */
+interface ACL {
+    grants: Array<{ to: string; ops: string[] }>;
+    deny: string[];
+}
+
+/**
  * Dependencies for mount loading
  */
 export interface MountLoaderDeps {
@@ -104,6 +114,7 @@ export interface MountLoaderDeps {
         }>;
         mkdir(path: string, caller: string, opts?: { recursive?: boolean }): Promise<string>;
         mountHost(path: string, source: string, opts?: { readonly?: boolean }): void;
+        setAccess(path: string, caller: string, acl: ACL | null): Promise<void>;
     };
     hal: {
         console: {
@@ -177,7 +188,16 @@ export async function applyMount(deps: MountLoaderDeps, mount: MountDef): Promis
     switch (mount.type) {
         case 'memory':
             // Memory mounts are the default VFS behavior (HAL storage)
-            // Nothing special to do - path already exists in VFS
+            // Set world-writable ACL if requested (e.g., for /tmp)
+            if (mount.options?.worldWritable) {
+                await vfs.setAccess(mount.path, 'kernel', {
+                    grants: [
+                        { to: 'kernel', ops: ['*'] },
+                        { to: '*', ops: ['read', 'write', 'create', 'delete', 'list', 'stat'] },
+                    ],
+                    deny: [],
+                });
+            }
             break;
 
         case 'host':
