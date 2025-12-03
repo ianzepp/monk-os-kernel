@@ -3,6 +3,10 @@
  *
  * This module re-exports the public API for the model layer, which provides:
  * - Database schema and connection management
+ * - Model and field metadata classes
+ * - Change tracking for entity mutations
+ * - Model caching with async HAL-based access
+ * - DatabaseService for high-level CRUD operations
  * - Observer pipeline for entity mutations
  *
  * USAGE
@@ -11,11 +15,24 @@
  * import {
  *     createDatabase,
  *     createDatabaseConnection,
+ *     Model,
+ *     ModelRecord,
+ *     ModelCache,
+ *     DatabaseService,
  *     ObserverRunner,
  *     ObserverRing,
  * } from '@src/model/index.js';
  *
- * const db = await createDatabase();
+ * // Create database with schema
+ * const db = await createDatabase(channelDevice, fileDevice);
+ *
+ * // Create cache and service
+ * const cache = new ModelCache(db);
+ * const runner = new ObserverRunner();
+ * const service = new DatabaseService(db, cache, runner);
+ *
+ * // Use the service
+ * const file = await service.createOne('file', { name: 'test.txt', owner: 'user-123' });
  * ```
  *
  * @module model
@@ -37,6 +54,35 @@ export {
 } from './connection.js';
 
 // =============================================================================
+// MODEL METADATA
+// =============================================================================
+
+export { Model, type ModelRow, type FieldRow as ModelFieldRow } from './model.js';
+
+// =============================================================================
+// CHANGE TRACKING
+// =============================================================================
+
+export { ModelRecord, type RecordData, type FieldDiff, type RecordDiff } from './model-record.js';
+
+// =============================================================================
+// MODEL CACHE
+// =============================================================================
+
+export { ModelCache } from './model-cache.js';
+
+// =============================================================================
+// DATABASE SERVICE
+// =============================================================================
+
+export {
+    DatabaseService,
+    type DbRecord,
+    type SelectOptions,
+    type ModelSystemContext,
+} from './database.js';
+
+// =============================================================================
 // OBSERVER PIPELINE
 // =============================================================================
 
@@ -45,13 +91,10 @@ export {
     ObserverRing,
     type OperationType,
     type ObserverResult,
-    // Interfaces
+    // Interfaces (Model, ModelRecord, FieldRow exported above from concrete implementations)
     type Observer,
     type ObserverContext,
     type SystemContext,
-    type Model,
-    type ModelRecord,
-    type FieldRow,
     // Errors
     ObserverError,
     EOBSINVALID,

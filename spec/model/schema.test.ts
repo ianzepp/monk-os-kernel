@@ -620,6 +620,242 @@ describe('Model Schema', () => {
             ).rejects.toThrow();
         });
     });
+
+    // =========================================================================
+    // SYSTEM ENTITY TABLES
+    // =========================================================================
+
+    describe('file entity table', () => {
+        it('should create file table', async () => {
+            const tables = await db.query<{ name: string }>(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='file'"
+            );
+            expect(tables.length).toBe(1);
+        });
+
+        it('should have all required columns', async () => {
+            const columns = await db.query<{ name: string }>('PRAGMA table_info(file)');
+            const names = columns.map((c) => c.name);
+
+            // System fields
+            expect(names).toContain('id');
+            expect(names).toContain('created_at');
+            expect(names).toContain('updated_at');
+            expect(names).toContain('trashed_at');
+            expect(names).toContain('expired_at');
+
+            // File-specific fields
+            expect(names).toContain('name');
+            expect(names).toContain('parent');
+            expect(names).toContain('owner');
+            expect(names).toContain('size');
+            expect(names).toContain('mimetype');
+            expect(names).toContain('checksum');
+        });
+
+        it('should create indexes', async () => {
+            const indexes = await db.query<{ name: string }>(
+                "SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_file_%'"
+            );
+            const names = indexes.map((i) => i.name);
+
+            expect(names).toContain('idx_file_parent');
+            expect(names).toContain('idx_file_parent_name');
+            expect(names).toContain('idx_file_owner');
+        });
+
+        it('should allow inserting file entities', async () => {
+            await db.execute(`
+                INSERT INTO file (name, owner) VALUES ('test.txt', 'owner-123')
+            `);
+
+            const file = await db.queryOne<{ name: string; owner: string; size: number }>(
+                "SELECT name, owner, size FROM file WHERE name = 'test.txt'"
+            );
+
+            expect(file).not.toBeNull();
+            expect(file!.name).toBe('test.txt');
+            expect(file!.owner).toBe('owner-123');
+            expect(file!.size).toBe(0); // default
+        });
+
+        it('should enforce name NOT NULL', async () => {
+            await expect(
+                db.execute("INSERT INTO file (owner) VALUES ('owner-123')")
+            ).rejects.toThrow();
+        });
+
+        it('should enforce owner NOT NULL', async () => {
+            await expect(
+                db.execute("INSERT INTO file (name) VALUES ('test.txt')")
+            ).rejects.toThrow();
+        });
+    });
+
+    describe('folder entity table', () => {
+        it('should create folder table', async () => {
+            const tables = await db.query<{ name: string }>(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='folder'"
+            );
+            expect(tables.length).toBe(1);
+        });
+
+        it('should have all required columns', async () => {
+            const columns = await db.query<{ name: string }>('PRAGMA table_info(folder)');
+            const names = columns.map((c) => c.name);
+
+            expect(names).toContain('id');
+            expect(names).toContain('name');
+            expect(names).toContain('parent');
+            expect(names).toContain('owner');
+        });
+
+        it('should create indexes', async () => {
+            const indexes = await db.query<{ name: string }>(
+                "SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_folder_%'"
+            );
+            const names = indexes.map((i) => i.name);
+
+            expect(names).toContain('idx_folder_parent');
+            expect(names).toContain('idx_folder_parent_name');
+            expect(names).toContain('idx_folder_owner');
+        });
+
+        it('should allow inserting folder entities', async () => {
+            await db.execute(`
+                INSERT INTO folder (name, owner) VALUES ('docs', 'owner-123')
+            `);
+
+            const folder = await db.queryOne<{ name: string }>(
+                "SELECT name FROM folder WHERE name = 'docs'"
+            );
+            expect(folder).not.toBeNull();
+        });
+    });
+
+    describe('device entity table', () => {
+        it('should create device table', async () => {
+            const tables = await db.query<{ name: string }>(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='device'"
+            );
+            expect(tables.length).toBe(1);
+        });
+
+        it('should have all required columns', async () => {
+            const columns = await db.query<{ name: string }>('PRAGMA table_info(device)');
+            const names = columns.map((c) => c.name);
+
+            expect(names).toContain('id');
+            expect(names).toContain('name');
+            expect(names).toContain('parent');
+            expect(names).toContain('owner');
+            expect(names).toContain('driver');
+        });
+
+        it('should enforce driver NOT NULL', async () => {
+            await expect(
+                db.execute("INSERT INTO device (name, owner) VALUES ('console', 'kernel')")
+            ).rejects.toThrow();
+        });
+
+        it('should allow inserting device entities', async () => {
+            await db.execute(`
+                INSERT INTO device (name, owner, driver) VALUES ('console', 'kernel', 'hal:console')
+            `);
+
+            const device = await db.queryOne<{ driver: string }>(
+                "SELECT driver FROM device WHERE name = 'console'"
+            );
+            expect(device).not.toBeNull();
+            expect(device!.driver).toBe('hal:console');
+        });
+    });
+
+    describe('proc entity table', () => {
+        it('should create proc table', async () => {
+            const tables = await db.query<{ name: string }>(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='proc'"
+            );
+            expect(tables.length).toBe(1);
+        });
+
+        it('should have all required columns', async () => {
+            const columns = await db.query<{ name: string }>('PRAGMA table_info(proc)');
+            const names = columns.map((c) => c.name);
+
+            expect(names).toContain('id');
+            expect(names).toContain('name');
+            expect(names).toContain('parent');
+            expect(names).toContain('owner');
+            expect(names).toContain('handler');
+        });
+
+        it('should enforce handler NOT NULL', async () => {
+            await expect(
+                db.execute("INSERT INTO proc (name, owner) VALUES ('stat', 'kernel')")
+            ).rejects.toThrow();
+        });
+
+        it('should allow inserting proc entities', async () => {
+            await db.execute(`
+                INSERT INTO proc (name, owner, handler) VALUES ('stat', 'kernel', 'kernel:proc_stat')
+            `);
+
+            const proc = await db.queryOne<{ handler: string }>(
+                "SELECT handler FROM proc WHERE name = 'stat'"
+            );
+            expect(proc).not.toBeNull();
+            expect(proc!.handler).toBe('kernel:proc_stat');
+        });
+    });
+
+    describe('link entity table', () => {
+        it('should create link table', async () => {
+            const tables = await db.query<{ name: string }>(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='link'"
+            );
+            expect(tables.length).toBe(1);
+        });
+
+        it('should have all required columns', async () => {
+            const columns = await db.query<{ name: string }>('PRAGMA table_info(link)');
+            const names = columns.map((c) => c.name);
+
+            expect(names).toContain('id');
+            expect(names).toContain('name');
+            expect(names).toContain('parent');
+            expect(names).toContain('owner');
+            expect(names).toContain('target');
+        });
+
+        it('should enforce target NOT NULL', async () => {
+            await expect(
+                db.execute("INSERT INTO link (name, owner) VALUES ('mylink', 'user-123')")
+            ).rejects.toThrow();
+        });
+
+        it('should allow inserting link entities', async () => {
+            await db.execute(`
+                INSERT INTO link (name, owner, target) VALUES ('mylink', 'user-123', '/vol/data/file')
+            `);
+
+            const link = await db.queryOne<{ target: string }>(
+                "SELECT target FROM link WHERE name = 'mylink'"
+            );
+            expect(link).not.toBeNull();
+            expect(link!.target).toBe('/vol/data/file');
+        });
+    });
+
+    describe('entity table count', () => {
+        it('should have 8 total tables (3 meta + 5 entity)', async () => {
+            const tables = await db.query<{ name: string }>(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+            );
+            // models, fields, tracked + file, folder, device, proc, link = 8
+            expect(tables.length).toBe(8);
+        });
+    });
 });
 
 // =============================================================================

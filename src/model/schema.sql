@@ -304,6 +304,235 @@ CREATE INDEX IF NOT EXISTS idx_tracked_record
     ON tracked(model_name, record_id, change_id DESC);
 
 -- =============================================================================
+-- SYSTEM ENTITY TABLES
+-- =============================================================================
+-- These are the actual storage tables for VFS entity metadata.
+--
+-- WHY static DDL for system models: Bootstrap problem - observers need the
+-- models/fields tables to exist, but DDL observers would create entity tables.
+-- System models (file, folder, device, proc, link) are part of the OS firmware,
+-- so they get static DDL here. User-defined models use dynamic DDL via observers.
+--
+-- WHY separate tables per model: Enables SQL-level constraints, indexes, and
+-- efficient queries. Alternative (single entities table with JSON) would lose
+-- queryability - violating the "files are queryable" principle from AGENTS.md.
+--
+-- BLOB DATA: Not stored here. Entity tables hold metadata only.
+-- Blob content is in HAL block storage, keyed by entity ID.
+
+-- =============================================================================
+-- FILE TABLE
+-- =============================================================================
+-- Regular file entities. Metadata here, blob content in HAL block storage.
+--
+-- WHY no FK on parent: Parent could be folder or null (root-level).
+-- Referential integrity enforced by application layer (observers).
+
+CREATE TABLE IF NOT EXISTS file (
+    -- -------------------------------------------------------------------------
+    -- System Fields (all entities have these - see INV-1)
+    -- -------------------------------------------------------------------------
+    id          TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    created_at  TEXT DEFAULT (datetime('now')),
+    updated_at  TEXT DEFAULT (datetime('now')),
+    trashed_at  TEXT,
+    expired_at  TEXT,
+
+    -- -------------------------------------------------------------------------
+    -- File-Specific Fields
+    -- -------------------------------------------------------------------------
+    -- WHY name NOT NULL: Every file must have a name.
+    name        TEXT NOT NULL,
+
+    -- WHY parent nullable: Root-level files have no parent.
+    -- References folder.id but no FK constraint (cross-table complexity).
+    parent      TEXT,
+
+    -- WHY owner NOT NULL: Every file must have an owner for permissions.
+    owner       TEXT NOT NULL,
+
+    -- WHY size default 0: New files start empty.
+    size        INTEGER DEFAULT 0,
+
+    -- WHY mimetype nullable: Can be auto-detected or unset.
+    mimetype    TEXT,
+
+    -- WHY checksum nullable: Computed lazily on first read or explicitly.
+    checksum    TEXT
+);
+
+-- Index for listing files in a folder (readdir)
+CREATE INDEX IF NOT EXISTS idx_file_parent
+    ON file(parent)
+    WHERE trashed_at IS NULL;
+
+-- Index for finding files by name within a folder (path resolution)
+CREATE INDEX IF NOT EXISTS idx_file_parent_name
+    ON file(parent, name)
+    WHERE trashed_at IS NULL;
+
+-- Index for listing files by owner
+CREATE INDEX IF NOT EXISTS idx_file_owner
+    ON file(owner)
+    WHERE trashed_at IS NULL;
+
+-- =============================================================================
+-- FOLDER TABLE
+-- =============================================================================
+-- Directory entities. No blob data - children computed via parent field query.
+
+CREATE TABLE IF NOT EXISTS folder (
+    -- -------------------------------------------------------------------------
+    -- System Fields
+    -- -------------------------------------------------------------------------
+    id          TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    created_at  TEXT DEFAULT (datetime('now')),
+    updated_at  TEXT DEFAULT (datetime('now')),
+    trashed_at  TEXT,
+    expired_at  TEXT,
+
+    -- -------------------------------------------------------------------------
+    -- Folder-Specific Fields
+    -- -------------------------------------------------------------------------
+    name        TEXT NOT NULL,
+    parent      TEXT,  -- null for root folders
+    owner       TEXT NOT NULL
+);
+
+-- Index for listing folders in a folder (readdir)
+CREATE INDEX IF NOT EXISTS idx_folder_parent
+    ON folder(parent)
+    WHERE trashed_at IS NULL;
+
+-- Index for finding folders by name within a folder (path resolution)
+CREATE INDEX IF NOT EXISTS idx_folder_parent_name
+    ON folder(parent, name)
+    WHERE trashed_at IS NULL;
+
+-- Index for listing folders by owner
+CREATE INDEX IF NOT EXISTS idx_folder_owner
+    ON folder(owner)
+    WHERE trashed_at IS NULL;
+
+-- =============================================================================
+-- DEVICE TABLE
+-- =============================================================================
+-- Device node entities. Kernel-provided virtual files (/dev/console, etc.).
+--
+-- WHY driver field: Maps to HAL device implementation.
+-- Format: "hal:{device}" (e.g., "hal:console", "hal:random", "hal:entropy")
+
+CREATE TABLE IF NOT EXISTS device (
+    -- -------------------------------------------------------------------------
+    -- System Fields
+    -- -------------------------------------------------------------------------
+    id          TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    created_at  TEXT DEFAULT (datetime('now')),
+    updated_at  TEXT DEFAULT (datetime('now')),
+    trashed_at  TEXT,
+    expired_at  TEXT,
+
+    -- -------------------------------------------------------------------------
+    -- Device-Specific Fields
+    -- -------------------------------------------------------------------------
+    name        TEXT NOT NULL,
+    parent      TEXT,  -- typically /dev folder
+    owner       TEXT NOT NULL,
+
+    -- WHY driver NOT NULL: Every device must map to a HAL implementation.
+    driver      TEXT NOT NULL
+);
+
+-- Index for listing devices in a folder
+CREATE INDEX IF NOT EXISTS idx_device_parent
+    ON device(parent)
+    WHERE trashed_at IS NULL;
+
+-- Index for finding devices by name within a folder
+CREATE INDEX IF NOT EXISTS idx_device_parent_name
+    ON device(parent, name)
+    WHERE trashed_at IS NULL;
+
+-- =============================================================================
+-- PROC TABLE
+-- =============================================================================
+-- Process/virtual file entities. Dynamic content generated by handler.
+--
+-- WHY handler field: Function identifier for content generation.
+-- Format: "kernel:{handler}" (e.g., "kernel:proc_stat", "kernel:proc_env")
+
+CREATE TABLE IF NOT EXISTS proc (
+    -- -------------------------------------------------------------------------
+    -- System Fields
+    -- -------------------------------------------------------------------------
+    id          TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    created_at  TEXT DEFAULT (datetime('now')),
+    updated_at  TEXT DEFAULT (datetime('now')),
+    trashed_at  TEXT,
+    expired_at  TEXT,
+
+    -- -------------------------------------------------------------------------
+    -- Proc-Specific Fields
+    -- -------------------------------------------------------------------------
+    name        TEXT NOT NULL,
+    parent      TEXT,  -- typically /proc/{pid} folder
+    owner       TEXT NOT NULL,
+
+    -- WHY handler NOT NULL: Every proc entry must have content generator.
+    handler     TEXT NOT NULL
+);
+
+-- Index for listing proc entries in a folder
+CREATE INDEX IF NOT EXISTS idx_proc_parent
+    ON proc(parent)
+    WHERE trashed_at IS NULL;
+
+-- Index for finding proc entries by name within a folder
+CREATE INDEX IF NOT EXISTS idx_proc_parent_name
+    ON proc(parent, name)
+    WHERE trashed_at IS NULL;
+
+-- =============================================================================
+-- LINK TABLE
+-- =============================================================================
+-- Symbolic link entities. Redirect path resolution to another location.
+--
+-- WHY target as text not UUID: Can point to paths, not just entities.
+-- Supports both absolute (/vol/data/file) and relative (../other) targets.
+
+CREATE TABLE IF NOT EXISTS link (
+    -- -------------------------------------------------------------------------
+    -- System Fields
+    -- -------------------------------------------------------------------------
+    id          TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    created_at  TEXT DEFAULT (datetime('now')),
+    updated_at  TEXT DEFAULT (datetime('now')),
+    trashed_at  TEXT,
+    expired_at  TEXT,
+
+    -- -------------------------------------------------------------------------
+    -- Link-Specific Fields
+    -- -------------------------------------------------------------------------
+    name        TEXT NOT NULL,
+    parent      TEXT,
+    owner       TEXT NOT NULL,
+
+    -- WHY target NOT NULL: A link without a target is meaningless.
+    -- WHY TEXT not UUID: Target is a path, not necessarily an entity ID.
+    target      TEXT NOT NULL
+);
+
+-- Index for listing links in a folder
+CREATE INDEX IF NOT EXISTS idx_link_parent
+    ON link(parent)
+    WHERE trashed_at IS NULL;
+
+-- Index for finding links by name within a folder
+CREATE INDEX IF NOT EXISTS idx_link_parent_name
+    ON link(parent, name)
+    WHERE trashed_at IS NULL;
+
+-- =============================================================================
 -- SEED DATA: SYSTEM META-MODELS
 -- =============================================================================
 -- These models define the schema system itself. They require sudo access

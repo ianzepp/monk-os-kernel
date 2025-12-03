@@ -169,15 +169,18 @@ See: [01-foundation.md](./01-foundation.md)
 
 See: [02-schema.md](./02-schema.md)
 
-### Phase 3: Database Layer
+### Phase 3: Database Layer (IMPLEMENTED)
 **Goal:** High-level database service with observer pipeline
 
-- [ ] `Model` class wrapping model metadata
-- [ ] `ModelRecord` for change tracking (old vs new values)
-- [ ] `ModelCache` for model/field lookup
-- [ ] `DatabaseService` with CRUD + observer execution
+- [x] `Model` class wrapping model metadata with field categorization
+- [x] `ModelRecord` for change tracking (old vs new values, diff generation)
+- [x] `ModelCache` for async model/field lookup with request deduplication
+- [x] `DatabaseService` with CRUD + observer execution
+- [x] System entity tables (file, folder, device, proc, link) in schema.sql
 
-**Deliverable:** Can CRUD entity records with observer enforcement
+**Location:** `src/model/model.ts`, `src/model/model-record.ts`, `src/model/model-cache.ts`, `src/model/database.ts`
+
+**Note:** DatabaseService API needs revision in Phase 3.5 to align with VFS patterns.
 
 See: [03-database-layer.md](./03-database-layer.md)
 
@@ -279,13 +282,13 @@ src/model/
 │   ├── runner.ts
 │   ├── registry.ts
 │   └── impl/            # Observer implementations (Phase 4)
-├── schema.sql           # models/fields/tracked tables (Phase 2 - DONE)
+├── schema.sql           # models/fields/tracked + entity tables (Phase 2/3 - DONE)
 ├── connection.ts        # DatabaseConnection class (Phase 2 - DONE)
-├── index.ts             # Public exports (Phase 2 - DONE)
-├── model.ts             # Model class (Phase 3)
-├── model-record.ts      # Change tracking (Phase 3)
-├── model-cache.ts       # Caching (Phase 3)
-├── database.ts          # DatabaseService (Phase 3)
+├── index.ts             # Public exports (Phase 2/3 - DONE)
+├── model.ts             # Model class (Phase 3 - DONE)
+├── model-record.ts      # Change tracking (Phase 3 - DONE)
+├── model-cache.ts       # Async caching (Phase 3 - DONE)
+├── database.ts          # DatabaseService (Phase 3 - DONE, needs 3.5 revision)
 └── loader/              # YAML/JSON loading (Phase 5)
 
 src/hal/

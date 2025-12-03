@@ -767,15 +767,38 @@ describe('DatabaseService', () => {
 
 ## Acceptance Criteria
 
-- [ ] Model class wraps metadata with field accessors
-- [ ] ModelRecord tracks changes between original and new values
-- [ ] ModelCache caches loaded models
-- [ ] DatabaseService.selectAny/One/ById work
-- [ ] DatabaseService.createOne runs through observer pipeline
-- [ ] DatabaseService.updateOne loads existing, applies changes
-- [ ] DatabaseService.deleteOne performs soft delete
-- [ ] Timestamps (created_at, updated_at) auto-populated
-- [ ] IDs auto-generated if not provided
+- [x] Model class wraps metadata with field accessors
+- [x] ModelRecord tracks changes between original and new values
+- [x] ModelCache caches loaded models (async, HAL-based)
+- [x] DatabaseService.selectMany/One/ById work
+- [x] DatabaseService.createOne runs through observer pipeline
+- [x] DatabaseService.updateOne loads existing, applies changes
+- [x] DatabaseService.deleteOne performs soft delete
+- [x] Timestamps (created_at, updated_at) auto-populated
+- [x] IDs auto-generated if not provided
+- [x] System entity tables (file, folder, device, proc, link) in schema.sql
+
+## Implementation Notes
+
+**Files Created:**
+- `src/model/model.ts` - Model class with lazy field categorization
+- `src/model/model-record.ts` - Change tracking with diff generation
+- `src/model/model-cache.ts` - Async cache with request deduplication
+- `src/model/database.ts` - DatabaseService with observer pipeline integration
+- `spec/model/database.test.ts` - 48 tests for Phase 3 classes
+
+**Files Modified:**
+- `src/model/schema.sql` - Added 5 system entity tables with indexes
+- `src/model/index.ts` - Exports for new classes
+- `spec/model/schema.test.ts` - Tests for entity tables
+
+**Key Design Decisions:**
+1. All database access through HAL channels (DatabaseConnection)
+2. ModelCache is async with pending request deduplication (RC-1)
+3. System entity tables have static DDL (solves bootstrap problem)
+4. Direct SQL in DatabaseService as fallback until Ring 5 observers (Phase 4)
+
+**Note:** DatabaseService API needs revision in Phase 3.5 to better align with VFS patterns.
 
 ## Next Phase
 
