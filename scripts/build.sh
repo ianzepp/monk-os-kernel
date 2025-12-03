@@ -79,6 +79,38 @@ main() {
     fi
     log_info "Message-pure validation passed"
 
+    # Step 0b: Warn about generic Error usage (prefer typed errors like ENOENT, EACCES, etc.)
+    # Exemptions:
+    #   - hal/errors.ts   : defines the error classes themselves
+    #   - hal/channel/    : external protocol boundaries
+    #   - hal/network/    : external protocol boundaries
+    #   - hal/crypto.ts   : crypto-specific errors
+    #   - hal/ipc.ts      : IPC-specific errors (mutex/semaphore)
+    #   - hal/entropy.ts  : entropy-specific errors
+    log_info "Checking for generic Error usage..."
+    local error_violations=$(grep -rn 'new Error(' src/ \
+        --include='*.ts' \
+        --exclude-dir='channel' \
+        --exclude-dir='network' \
+        2>/dev/null \
+        | grep -v 'hal/errors.ts' \
+        | grep -v 'hal/crypto.ts' \
+        | grep -v 'hal/ipc.ts' \
+        | grep -v 'hal/entropy.ts' \
+        || true)
+    if [[ -n "$error_violations" ]]; then
+        log_warn "Prefer typed errors (ENOENT, EACCES, EBADF, etc.) over generic Error"
+        log_warn "Found 'new Error(' in non-exempted code:"
+        echo "$error_violations" | while read -r line; do
+            log_warn "  $line"
+        done
+        log_warn "Typed errors are defined in hal/errors.ts"
+        log_warn "Generic errors are allowed in:"
+        log_warn "  - Error definitions (hal/errors.ts)"
+        log_warn "  - External boundaries (hal/channel/, hal/network/)"
+        log_warn "  - Low-level HAL (hal/crypto.ts, hal/ipc.ts, hal/entropy.ts)"
+    fi
+
     # Clean existing dist directory
     if [[ -d "dist" ]]; then
         log_info "Cleaning existing dist/ directory"
