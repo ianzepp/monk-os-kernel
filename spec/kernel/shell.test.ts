@@ -52,6 +52,20 @@ function createTestHAL(): HAL & { console: BufferConsoleDevice } {
     };
 }
 
+/**
+ * Wait for the init process to exit (become zombie).
+ * Much faster than fixed timeouts since we poll every 10ms.
+ */
+async function waitForInitExit(kernel: Kernel, timeout = 5000): Promise<void> {
+    const start = Date.now();
+    while (Date.now() - start < timeout) {
+        const init = kernel.getProcessTable().getInit();
+        if (!init || init.state === 'zombie') return;
+        await new Promise(r => setTimeout(r, 10));
+    }
+    throw new Error('Timeout waiting for init to exit');
+}
+
 describe('Shell', () => {
     let hal: HAL & { console: BufferConsoleDevice };
     let vfs: VFS;
@@ -82,7 +96,7 @@ describe('Shell', () => {
             env: {},
         });
 
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await waitForInitExit(kernel);
 
         const output = hal.console.getOutput();
         expect(output).toContain('hello world');
@@ -97,7 +111,7 @@ describe('Shell', () => {
             env: {},
         });
 
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await waitForInitExit(kernel);
 
         const output = hal.console.getOutput();
         expect(output).toContain('Monk Shell');
@@ -113,7 +127,7 @@ describe('Shell', () => {
             env: {},
         });
 
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await waitForInitExit(kernel);
 
         const output = hal.console.getOutput();
         console.log('Output:', output);
@@ -131,7 +145,7 @@ describe('Shell', () => {
             env: {},
         });
 
-        await new Promise(resolve => setTimeout(resolve, 1500));
+        await waitForInitExit(kernel);
 
         const output = hal.console.getOutput();
         console.log('Output:', output);
@@ -149,7 +163,7 @@ describe('Shell', () => {
             env: { HOME: '/home/test' },
         });
 
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await waitForInitExit(kernel);
 
         const output = hal.console.getOutput();
         console.log('Output:', output);
@@ -166,7 +180,7 @@ describe('Shell', () => {
             env: {},
         });
 
-        await new Promise(resolve => setTimeout(resolve, 1500));
+        await waitForInitExit(kernel);
 
         // Read the file from VFS
         const handle = await vfs.open('/test.txt', { read: true }, 'kernel');
@@ -189,7 +203,7 @@ describe('Shell', () => {
             env: {},
         });
 
-        await new Promise(resolve => setTimeout(resolve, 1500));
+        await waitForInitExit(kernel);
 
         // Read the file from VFS
         const handle = await vfs.open('/append.txt', { read: true }, 'kernel');

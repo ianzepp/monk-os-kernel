@@ -326,8 +326,8 @@ export class Kernel {
         init.worker = await this.spawnWorker(init, env.initPath);
         init.state = 'running';
 
-        // Register init
-        this.processes.register(init);
+        // Register init (explicitly as the init process)
+        this.processes.register(init, true);
 
         this.booted = true;
     }
