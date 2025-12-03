@@ -782,13 +782,29 @@ describe('DatabaseService', () => {
         });
     });
 
-    describe('streamAny', () => {
-        it('should stream records', async () => {
+    describe('DatabaseOps streaming', () => {
+        it('should stream records via getOps().selectAny', async () => {
             const records: DbRecord[] = [];
-            for await (const record of service.streamAny<DbRecord>('models', { limit: 3 })) {
+            for await (const record of service.getOps().selectAny<DbRecord>('models', { limit: 3 })) {
                 records.push(record);
             }
             expect(records.length).toBe(3);
+        });
+
+        it('should stream created records', async () => {
+            const inputs = [
+                { name: 'stream-1.txt', owner: 'user-1' },
+                { name: 'stream-2.txt', owner: 'user-2' },
+            ];
+
+            const created: DbRecord[] = [];
+            for await (const record of service.getOps().createAll<DbRecord>('file', inputs)) {
+                created.push(record);
+            }
+
+            expect(created.length).toBe(2);
+            expect(created[0]?.name).toBe('stream-1.txt');
+            expect(created[1]?.name).toBe('stream-2.txt');
         });
     });
 });

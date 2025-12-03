@@ -94,7 +94,13 @@ export {
 export { Filter } from './filter.js';
 
 // =============================================================================
-// DATABASE SERVICE
+// DATABASE OPERATIONS (Kernel - Streaming)
+// =============================================================================
+
+export { DatabaseOps, collect, type Source } from './database-ops.js';
+
+// =============================================================================
+// DATABASE SERVICE (Userspace - Arrays)
 // =============================================================================
 
 export {
