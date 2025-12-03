@@ -1,0 +1,97 @@
+# Monk OS
+
+A Plan 9/BeOS-inspired operating system where **Bun is the hardware**.
+
+The single-executable deployment (`bun build --compile`) isn't packaging an app—it's burning firmware.
+
+## Core Design
+
+- **Everything is a file**: Uniform namespace following Plan 9's paradigm
+- **Files are queryable**: BeOS-style database-centric filesystem—files have UUIDs, are indexed, queryable
+- **Process isolation**: Each process is a Bun Worker with isolated memory
+- **Message-driven**: All internal communication uses structured `Message`/`Response` objects—no JSON serialization in the kernel
+- **Streams-first**: Default API is `AsyncIterable<Response>`, not arrays
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Userland (rom/bin/*, services)                             │
+├─────────────────────────────────────────────────────────────┤
+│  Process Library & Syscall API                              │
+├─────────────────────────────────────────────────────────────┤
+│  OS Public API (boot, exec, lifecycle hooks)                │
+├─────────────────────────────────────────────────────────────┤
+│  Kernel (syscalls, processes, handles, worker pools)        │
+├─────────────────────────────────────────────────────────────┤
+│  VFS - Virtual File System (models: file, folder, device,   │
+│        proc, link)                                          │
+├─────────────────────────────────────────────────────────────┤
+│  HAL - Hardware Abstraction (13 device interfaces)          │
+├─────────────────────────────────────────────────────────────┤
+│  Bun Runtime                                                │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Key Abstractions
+
+**HAL Devices**: Block storage, network, timers, clock, entropy, crypto, console, DNS, host escape, IPC, channels, compression.
+
+**Handle Types**: Unified I/O via `exec(msg) → AsyncIterable<Response>`:
+- `file` - VFS files, folders, devices
+- `socket` - TCP connections
+- `pipe` - Message-based inter-process pipes
+- `port` - Listeners, watchers, pubsub
+- `channel` - Protocol-aware (HTTP, WebSocket, PostgreSQL)
+
+**Response Ops**: `ok`, `error`, `item`, `chunk`, `event`, `progress`, `done`, `redirect`—terminal vs streaming semantics baked in.
+
+## Usage
+
+```typescript
+import { OS } from '@monk-api/os';
+
+const os = new OS();
+os.mount('./src', '/vol/app');
+```
+
+**Headless** — boot and return control to your app:
+
+```typescript
+await os.boot();
+await os.fs.write('/vol/app/data.json', data);
+await os.shutdown();
+```
+
+**Hybrid** — boot with init, keep control:
+
+```typescript
+await os.boot({ main: '/vol/app/init.ts' });
+// init runs in a Worker, your app continues
+await os.shell('ps');
+```
+
+**Takeover** — OS owns the process:
+
+```typescript
+await os.exec({ main: '/vol/app/init.ts' });
+// never returns (until init exits)
+```
+
+Takeover is the `bun build --compile` path—your app becomes the OS.
+
+## ROM Utilities
+
+45+ UNIX-like commands in `rom/bin/`: cat, ls, cp, mv, rm, mkdir, grep, sed, awk, sort, uniq, head, tail, wc, chmod, stat, etc.
+
+Streaming utilities use message-based I/O—`recv(0)` for stdin, `send(1, msg)` for stdout.
+
+## Status
+
+Active development. The architecture is stable; individual subsystems are at varying levels of completion.
+
+See `AGENTS.md` for detailed technical documentation.
+
+## License
+
+Source-available under [Polyform Noncommercial 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0). See [LICENSE.md](LICENSE.md).
