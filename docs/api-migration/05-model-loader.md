@@ -102,7 +102,7 @@ fields:
 
 ## Loader Implementation
 
-### Types (`src/db/loader/types.ts`)
+### Types (`src/model/loader/types.ts`)
 
 ```typescript
 /**
@@ -182,7 +182,7 @@ export type TransformType =
     | 'normalize_phone';
 ```
 
-### Parser (`src/db/loader/parser.ts`)
+### Parser (`src/model/loader/parser.ts`)
 
 ```typescript
 import { parse as parseYaml } from 'yaml';
@@ -283,7 +283,7 @@ function validateFieldDefinition(raw: unknown, index: number): FieldDefinition {
 }
 ```
 
-### Loader (`src/db/loader/loader.ts`)
+### Loader (`src/model/loader/loader.ts`)
 
 ```typescript
 import { parseModelDefinition } from './parser';
@@ -496,7 +496,7 @@ export class ModelLoader {
 ```typescript
 // In OS boot sequence (src/os/os.ts or similar)
 
-import { ModelLoader } from '../db/loader/loader';
+import { ModelLoader } from '../model/loader/loader';
 
 // After database and VFS are initialized...
 async function loadModels(db: DatabaseService, vfs: VFS): Promise<void> {
@@ -535,11 +535,18 @@ interface OSConfig {
 ## Directory Structure
 
 ```
-src/db/
+src/model/
 ├── loader/
 │   ├── types.ts       # ModelDefinition, FieldDefinition types
 │   ├── parser.ts      # YAML/JSON parsing
 │   └── loader.ts      # ModelLoader class
+├── observers/         # (Phase 1 - IMPLEMENTED)
+├── model.ts           # (Phase 3)
+├── model-record.ts    # (Phase 3)
+├── model-cache.ts     # (Phase 3)
+├── database.ts        # (Phase 3)
+├── context.ts         # (Phase 3)
+└── schema.sql         # (Phase 2)
 ```
 
 ## Example Usage
@@ -607,9 +614,9 @@ fields:
 ### Loading Programmatically
 
 ```typescript
-import { createDbContext, createDatabase } from './db/context';
-import { ModelLoader } from './db/loader/loader';
-import { parseModelDefinition } from './db/loader/parser';
+import { createDbContext, createDatabase } from './model/context';
+import { ModelLoader } from './model/loader/loader';
+import { parseModelDefinition } from './model/loader/parser';
 
 const ctx = createDbContext();
 const db = createDatabase(ctx);

@@ -2,7 +2,11 @@
 
 ## Overview
 
-The schema defines how model and field metadata is stored. This is the foundation for the data-driven system - everything else interprets these tables.
+The schema defines how model and field metadata is stored. This is the foundation for the entity+data architecture - every VFS entry has an entity stored in these tables.
+
+**Key Point:** Both system models (file, folder, device, proc, link) and user models (invoice, customer) are defined here. There is no distinction in how they're handled - all entity mutations flow through the observer pipeline.
+
+See [README.md](./README.md) for the complete entity+data architecture.
 
 ## Source Reference
 
@@ -10,14 +14,15 @@ The schema defines how model and field metadata is stored. This is the foundatio
 
 ## Schema Definition
 
-Create `src/db/schema.sql`:
+Create `src/model/schema.sql`:
 
 ```sql
 -- =============================================================================
--- MONK OS DATABASE SCHEMA
+-- MONK OS MODEL SCHEMA
 -- =============================================================================
--- Core tables for data-driven model/field system
--- SQLite with WAL mode for concurrent access
+-- Core tables for the entity+data architecture.
+-- All VFS entries have their entity metadata stored here.
+-- Blob data is stored separately in HAL block storage.
 
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
@@ -25,7 +30,7 @@ PRAGMA foreign_keys = ON;
 -- =============================================================================
 -- SYSTEM FIELDS
 -- =============================================================================
--- All tables include these columns automatically:
+-- All entity tables include these columns automatically:
 --   id            UUID primary key
 --   created_at    Creation timestamp
 --   updated_at    Last modification timestamp
@@ -35,7 +40,7 @@ PRAGMA foreign_keys = ON;
 -- =============================================================================
 -- MODELS TABLE
 -- =============================================================================
--- Defines entity types (tables) in the system
+-- Defines entity types in the system (both system and user models)
 
 CREATE TABLE IF NOT EXISTS models (
     -- System fields
@@ -51,11 +56,11 @@ CREATE TABLE IF NOT EXISTS models (
     description TEXT,
 
     -- Behavioral flags
-    sudo        INTEGER DEFAULT 0,  -- Requires elevated access to modify records
-    frozen      INTEGER DEFAULT 0,  -- All data changes prevented
-    immutable   INTEGER DEFAULT 0,  -- Records are write-once (no updates)
+    sudo        INTEGER DEFAULT 0,  -- Requires elevated access to modify entities
+    frozen      INTEGER DEFAULT 0,  -- All entity changes prevented
+    immutable   INTEGER DEFAULT 0,  -- Entities are write-once (no updates)
     external    INTEGER DEFAULT 0,  -- Managed externally (reject local changes)
-    passthrough INTEGER DEFAULT 0   -- Skip observer pipeline
+    passthrough INTEGER DEFAULT 0   -- Skip observer pipeline (dangerous)
 );
 
 CREATE INDEX IF NOT EXISTS idx_models_status ON models(status) WHERE trashed_at IS NULL;
@@ -63,7 +68,7 @@ CREATE INDEX IF NOT EXISTS idx_models_status ON models(status) WHERE trashed_at 
 -- =============================================================================
 -- FIELDS TABLE
 -- =============================================================================
--- Defines columns for each model
+-- Defines entity fields for each model
 
 CREATE TABLE IF NOT EXISTS fields (
     -- System fields
@@ -145,7 +150,7 @@ CREATE INDEX IF NOT EXISTS idx_tracked_record
     ON tracked(model_name, record_id, change_id DESC);
 
 -- =============================================================================
--- SEED DATA: SYSTEM MODELS
+-- SEED DATA: SYSTEM MODELS (Meta)
 -- =============================================================================
 
 INSERT OR IGNORE INTO models (model_name, status, sudo, description) VALUES
@@ -154,21 +159,86 @@ INSERT OR IGNORE INTO models (model_name, status, sudo, description) VALUES
     ('tracked', 'system', 1, 'Change tracking history');
 
 -- =============================================================================
--- SEED DATA: MODELS FIELDS
+-- SEED DATA: SYSTEM MODELS (VFS)
+-- =============================================================================
+-- These are the core VFS entity types. Their blob data (if any) is stored
+-- separately in HAL block storage.
+
+INSERT OR IGNORE INTO models (model_name, status, description) VALUES
+    ('file', 'system', 'Regular file entity'),
+    ('folder', 'system', 'Directory entity'),
+    ('device', 'system', 'Device node entity'),
+    ('proc', 'system', 'Process/virtual file entity'),
+    ('link', 'system', 'Symbolic link entity');
+
+-- =============================================================================
+-- SEED DATA: FILE FIELDS
+-- =============================================================================
+-- Fields for the file entity type
+
+INSERT OR IGNORE INTO fields (model_name, field_name, type, required, description) VALUES
+    ('file', 'name', 'text', 1, 'File name'),
+    ('file', 'parent', 'uuid', 0, 'Parent folder ID'),
+    ('file', 'owner', 'uuid', 1, 'Owner user/process ID'),
+    ('file', 'size', 'integer', 0, 'Blob size in bytes'),
+    ('file', 'mimetype', 'text', 0, 'MIME type'),
+    ('file', 'checksum', 'text', 0, 'Content hash');
+
+-- =============================================================================
+-- SEED DATA: FOLDER FIELDS
+-- =============================================================================
+
+INSERT OR IGNORE INTO fields (model_name, field_name, type, required, description) VALUES
+    ('folder', 'name', 'text', 1, 'Folder name'),
+    ('folder', 'parent', 'uuid', 0, 'Parent folder ID'),
+    ('folder', 'owner', 'uuid', 1, 'Owner user/process ID');
+
+-- =============================================================================
+-- SEED DATA: DEVICE FIELDS
+-- =============================================================================
+
+INSERT OR IGNORE INTO fields (model_name, field_name, type, required, description) VALUES
+    ('device', 'name', 'text', 1, 'Device name'),
+    ('device', 'parent', 'uuid', 0, 'Parent folder ID'),
+    ('device', 'owner', 'uuid', 1, 'Owner user/process ID'),
+    ('device', 'driver', 'text', 1, 'Device driver identifier');
+
+-- =============================================================================
+-- SEED DATA: PROC FIELDS
+-- =============================================================================
+
+INSERT OR IGNORE INTO fields (model_name, field_name, type, required, description) VALUES
+    ('proc', 'name', 'text', 1, 'Proc name'),
+    ('proc', 'parent', 'uuid', 0, 'Parent folder ID'),
+    ('proc', 'owner', 'uuid', 1, 'Owner user/process ID'),
+    ('proc', 'handler', 'text', 1, 'Handler function identifier');
+
+-- =============================================================================
+-- SEED DATA: LINK FIELDS
+-- =============================================================================
+
+INSERT OR IGNORE INTO fields (model_name, field_name, type, required, description) VALUES
+    ('link', 'name', 'text', 1, 'Link name'),
+    ('link', 'parent', 'uuid', 0, 'Parent folder ID'),
+    ('link', 'owner', 'uuid', 1, 'Owner user/process ID'),
+    ('link', 'target', 'text', 1, 'Link target path');
+
+-- =============================================================================
+-- SEED DATA: MODELS FIELDS (Meta)
 -- =============================================================================
 
 INSERT OR IGNORE INTO fields (model_name, field_name, type, required, description) VALUES
     ('models', 'model_name', 'text', 1, 'Unique name for the model'),
     ('models', 'status', 'text', 0, 'Model status (active, disabled, system)'),
     ('models', 'description', 'text', 0, 'Human-readable description'),
-    ('models', 'sudo', 'boolean', 0, 'Requires sudo for record modifications'),
-    ('models', 'frozen', 'boolean', 0, 'All data changes prevented'),
-    ('models', 'immutable', 'boolean', 0, 'Records are write-once'),
+    ('models', 'sudo', 'boolean', 0, 'Requires sudo for entity modifications'),
+    ('models', 'frozen', 'boolean', 0, 'All entity changes prevented'),
+    ('models', 'immutable', 'boolean', 0, 'Entities are write-once'),
     ('models', 'external', 'boolean', 0, 'Managed externally'),
     ('models', 'passthrough', 'boolean', 0, 'Skip observer pipeline');
 
 -- =============================================================================
--- SEED DATA: FIELDS FIELDS
+-- SEED DATA: FIELDS FIELDS (Meta)
 -- =============================================================================
 
 INSERT OR IGNORE INTO fields (model_name, field_name, type, required, description) VALUES
@@ -198,13 +268,13 @@ INSERT OR IGNORE INTO fields (model_name, field_name, type, required, descriptio
     ('fields', 'description', 'text', 0, 'Field description');
 
 -- =============================================================================
--- SEED DATA: TRACKED FIELDS
+-- SEED DATA: TRACKED FIELDS (Meta)
 -- =============================================================================
 
 INSERT OR IGNORE INTO fields (model_name, field_name, type, required, description) VALUES
     ('tracked', 'change_id', 'integer', 1, 'Change sequence number'),
     ('tracked', 'model_name', 'text', 1, 'Model where change occurred'),
-    ('tracked', 'record_id', 'text', 1, 'Record that changed'),
+    ('tracked', 'record_id', 'text', 1, 'Entity that changed'),
     ('tracked', 'operation', 'text', 1, 'Operation type'),
     ('tracked', 'changes', 'text', 1, 'Field changes (JSON)'),
     ('tracked', 'created_by', 'text', 0, 'User/process'),
@@ -212,9 +282,18 @@ INSERT OR IGNORE INTO fields (model_name, field_name, type, required, descriptio
     ('tracked', 'metadata', 'text', 0, 'Additional context');
 ```
 
-## Field Types
+## Entity vs Blob
 
-Supported types and their SQLite mappings:
+The schema only stores **entity metadata**. Blob data is stored separately:
+
+| What | Where | Example |
+|------|-------|---------|
+| Entity (metadata) | SQLite table for model | `SELECT * FROM file WHERE id = 'abc'` |
+| Blob (raw bytes) | HAL block storage | `hal.block.read('abc')` |
+
+A file entity has fields like `name`, `size`, `mimetype`. The actual file contents are in blob storage, keyed by entity ID.
+
+## Field Types
 
 | User Type | SQLite Type | Notes |
 |-----------|-------------|-------|
@@ -226,47 +305,34 @@ Supported types and their SQLite mappings:
 | `timestamp` | TEXT | ISO 8601 format |
 | `date` | TEXT | YYYY-MM-DD |
 | `jsonb` | TEXT | JSON string |
-| `binary` | BLOB | Raw bytes |
+| `binary` | BLOB | Raw bytes (rarely used - prefer blob storage) |
 | `text[]` | TEXT | JSON array |
 | `integer[]` | TEXT | JSON array |
 | `uuid[]` | TEXT | JSON array |
-
-## Field Behavioral Properties
-
-| Property | Type | Purpose |
-|----------|------|---------|
-| `required` | boolean | Field must have non-null value |
-| `default_value` | string | Default if not provided |
-| `minimum` | number | Min value for numerics |
-| `maximum` | number | Max value for numerics |
-| `pattern` | string | Regex for text validation |
-| `enum_values` | JSON array | Allowed values |
-| `immutable` | boolean | Cannot change after creation |
-| `sudo` | boolean | Requires elevated access |
-| `unique_` | boolean | Unique constraint |
-| `index_` | boolean | Create database index |
-| `tracked` | boolean | Record change history |
-| `searchable` | boolean | Enable full-text search |
-| `transform` | string | Auto-transform (lowercase, trim, etc.) |
 
 ## Model Behavioral Flags
 
 | Flag | Purpose |
 |------|---------|
-| `sudo` | All record operations require elevated access |
-| `frozen` | No data changes allowed (read-only) |
-| `immutable` | Records cannot be updated, only created/deleted |
+| `sudo` | All entity operations require elevated access |
+| `frozen` | No entity changes allowed (read-only) |
+| `immutable` | Entities cannot be updated, only created/deleted |
 | `external` | Model is managed externally, reject local changes |
 | `passthrough` | Skip observer pipeline (dangerous) |
 
-## Integration with StorageEngine
+## Directory Structure
 
-### Option A: Separate Database
+```
+src/model/
+├── schema.sql        # Full schema definition
+├── connection.ts     # Database connection management
+└── migrations/       # Future: schema migrations
+```
 
-Create a dedicated SQLite database for the model system:
+## Database Connection
 
 ```typescript
-// src/db/connection.ts
+// src/model/connection.ts
 import { Database } from 'bun:sqlite';
 import schema from './schema.sql';
 
@@ -277,43 +343,6 @@ export function createDatabase(path: string = ':memory:'): Database {
     db.exec(schema);
     return db;
 }
-```
-
-### Option B: Enhance StorageEngine
-
-Add relational methods to existing StorageEngine:
-
-```typescript
-// Extend StorageEngine interface
-interface StorageEngine {
-    // Existing KV methods...
-    get(key: string): Promise<Uint8Array | null>;
-    put(key: string, value: Uint8Array): Promise<void>;
-
-    // New relational methods
-    query<T>(sql: string, params?: unknown[]): Promise<T[]>;
-    execute(sql: string, params?: unknown[]): Promise<void>;
-}
-```
-
-**Recommendation:** Option A - separate database is cleaner and allows independent evolution.
-
-## Schema Evolution
-
-When fields are added/removed/modified, DDL observers (Phase 4) will:
-
-1. **Field Create:** `ALTER TABLE {model} ADD COLUMN {field} {type}`
-2. **Field Delete:** `ALTER TABLE {model} DROP COLUMN {field}` (SQLite limitation: requires table rebuild)
-3. **Field Update:** May require table rebuild for type changes
-
-## Directory Structure
-
-```
-src/db/
-├── schema.sql        # Full schema definition
-├── connection.ts     # Database connection management
-├── migrations/       # Future: schema migrations
-│   └── 001-initial.sql
 ```
 
 ## Testing Strategy
@@ -336,28 +365,20 @@ describe('Schema', () => {
 
     it('seeds system models', () => {
         const models = db.query("SELECT model_name FROM models WHERE status = 'system'").all();
-        expect(models.map(m => m.model_name)).toContain('models');
-        expect(models.map(m => m.model_name)).toContain('fields');
+        const names = models.map(m => m.model_name);
+        expect(names).toContain('models');
+        expect(names).toContain('fields');
+        expect(names).toContain('file');
+        expect(names).toContain('folder');
     });
 
-    it('seeds fields for models table', () => {
-        const fields = db.query("SELECT field_name FROM fields WHERE model_name = 'models'").all();
-        expect(fields.length).toBeGreaterThan(0);
-    });
-
-    it('enforces model_name uniqueness', () => {
-        expect(() => {
-            db.exec("INSERT INTO models (model_name) VALUES ('test')");
-            db.exec("INSERT INTO models (model_name) VALUES ('test')");
-        }).toThrow();
-    });
-
-    it('enforces field uniqueness per model', () => {
-        db.exec("INSERT INTO models (model_name) VALUES ('test')");
-        expect(() => {
-            db.exec("INSERT INTO fields (model_name, field_name, type) VALUES ('test', 'foo', 'text')");
-            db.exec("INSERT INTO fields (model_name, field_name, type) VALUES ('test', 'foo', 'text')");
-        }).toThrow();
+    it('seeds fields for file entity', () => {
+        const fields = db.query("SELECT field_name FROM fields WHERE model_name = 'file'").all();
+        const names = fields.map(f => f.field_name);
+        expect(names).toContain('name');
+        expect(names).toContain('parent');
+        expect(names).toContain('size');
+        expect(names).toContain('mimetype');
     });
 });
 ```
@@ -367,12 +388,11 @@ describe('Schema', () => {
 - [ ] `models` table created with all columns
 - [ ] `fields` table created with all columns
 - [ ] `tracked` table created for change history
-- [ ] System models seeded (models, fields, tracked)
-- [ ] Fields for system models seeded
+- [ ] System meta-models seeded (models, fields, tracked)
+- [ ] System VFS models seeded (file, folder, device, proc, link)
+- [ ] Fields for all system models seeded
 - [ ] Foreign key constraint works (fields.model_name → models.model_name)
 - [ ] Unique constraints enforced
-- [ ] Can insert user-defined model
-- [ ] Can insert fields for user-defined model
 
 ## Next Phase
 

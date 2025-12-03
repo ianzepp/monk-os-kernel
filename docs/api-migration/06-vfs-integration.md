@@ -2,17 +2,64 @@
 
 ## Overview
 
-The VFS integration makes model records accessible as files. The path `/data/{model}/{id}` maps to a record in the database. CRUD operations through the filesystem are translated to database operations.
+The VFS integration wires VFS operations to the entity+data architecture. See [README.md](./README.md) for the core architecture.
+
+**Key Point:** This integration affects ALL VFS entries, not just user-defined models:
+- System models (file, folder, device, proc, link) use entity+data
+- User-defined models use the same architecture
+- `stat()`/`setstat()` operate on entity metadata (SQL, observer pipeline)
+- `read()`/`write()` operate on blob data (HAL block storage, direct I/O)
+
+## Architecture Recap
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  VFS Entry: /vol/documents/report.pdf (or /data/invoices/abc123)    │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  ENTITY (SQL)                         DATA (Blob)                   │
+│  ┌───────────────────────────┐       ┌───────────────────────────┐  │
+│  │ id: "abc-123"             │       │                           │  │
+│  │ name: "report.pdf"        │       │  Raw bytes (optional)     │  │
+│  │ parent: "folder-xyz"      │       │  For files: file content  │  │
+│  │ owner: "user-456"         │       │  For folders: none        │  │
+│  │ size: 24853               │       │  For user records: none   │  │
+│  │ mimetype: "application/…" │       │                           │  │
+│  └───────────────────────────┘       └───────────────────────────┘  │
+│           │                                   │                     │
+│           ▼                                   ▼                     │
+│    stat() / setstat()                  read() / write()             │
+│           │                                   │                     │
+│    Observer Pipeline                    HAL Block I/O               │
+│    (validation, audit)                 (no observers)               │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
 
 ## Path Structure
 
-```
-/data/                          # Root for all user-defined models
-/data/{model}/                  # Model directory (list records)
-/data/{model}/{id}              # Record as JSON file
-/data/{model}/{id}/{field}      # Field value (for relationships)
+### System Models (existing VFS paths)
 
-/sys/models/                    # Model definitions (introspection)
+```
+/vol/                           # Mounted volumes (file, folder entities)
+/tmp/                           # Temporary files (file, folder entities)
+/dev/                           # Device nodes (device entities)
+/proc/                          # Process info (proc entities)
+```
+
+### User Models (new /data path)
+
+```
+/data/                          # Root for user-defined models
+/data/{model}/                  # Model directory (list records)
+/data/{model}/{id}              # Record entity
+/data/{model}/{id}/{field}      # Field value (for relationships)
+```
+
+### Introspection
+
+```
+/sys/models/                    # Model definitions
 /sys/models/{model}             # Single model definition
 /sys/fields/{model}/            # Field definitions for model
 /sys/fields/{model}/{field}     # Single field definition
@@ -27,8 +74,8 @@ Create a new model type that bridges VFS and DatabaseService:
 ```typescript
 import { PosixModel } from '../model';
 import type { ModelContext, ModelStat, FileHandle, FieldDef } from '../model';
-import type { DatabaseService } from '../../db/database';
-import type { ModelCache } from '../../db/model-cache';
+import type { DatabaseService } from '../../model/database';
+import type { ModelCache } from '../../model/model-cache';
 import { respond } from '../../message';
 
 /**
@@ -526,16 +573,57 @@ async statField(modelName: string, recordId: string, fieldName: string): Promise
 }
 ```
 
-## Preserving Existing Models
+## System Models Integration
 
-The existing FileModel, FolderModel, DeviceModel, ProcModel continue to work for:
+Existing FileModel, FolderModel, DeviceModel, ProcModel are updated to use the entity+data architecture:
 
 ```
-/tmp/                    # FileModel (temporary files)
-/dev/                    # DeviceModel (virtual devices)
-/proc/                   # ProcModel (process info)
-/vol/                    # FileModel (mounted volumes)
-/data/                   # DataModel (NEW - database records)
+/tmp/                    # FileModel → entity in SQL (file table), blob in HAL
+/dev/                    # DeviceModel → entity in SQL (device table), no blob
+/proc/                   # ProcModel → entity in SQL (proc table), dynamic blob
+/vol/                    # FileModel → entity in SQL (file table), blob in HAL
+/data/                   # DataModel (NEW) → entity in SQL (user tables), no blob
+```
+
+### Changes to Existing Models
+
+```typescript
+// Before: FileModel stored everything in HAL block storage
+// After: FileModel stores entity metadata in SQL, blob in HAL
+
+class FileModel extends PosixModel {
+    /**
+     * stat() now reads from SQL instead of HAL metadata
+     */
+    async stat(ctx: ModelContext, id: string): Promise<ModelStat> {
+        // Query entity from file table
+        const entity = ctx.db.selectById('file', id);
+        if (!entity) throw ENOENT;
+        return entityToStat(entity);
+    }
+
+    /**
+     * setstat() goes through observer pipeline
+     */
+    async setstat(ctx: ModelContext, id: string, fields: Record<string, unknown>): Promise<void> {
+        // Update entity via observer pipeline
+        await ctx.db.updateOne('file', id, fields);
+    }
+
+    /**
+     * read() still goes directly to HAL
+     */
+    async read(handle: FileHandle, size: number): Promise<Uint8Array> {
+        return ctx.hal.block.read(handle.id, handle.position, size);
+    }
+
+    /**
+     * write() still goes directly to HAL
+     */
+    async write(handle: FileHandle, data: Uint8Array): Promise<number> {
+        return ctx.hal.block.write(handle.id, handle.position, data);
+    }
+}
 ```
 
 The VFS routes based on path prefix:
@@ -564,24 +652,45 @@ async resolve(path: string): Promise<{ model: Model; id: string }> {
 ```
 src/vfs/
 ├── models/
-│   ├── file.ts          # Existing - regular files
-│   ├── folder.ts        # Existing - directories
-│   ├── device.ts        # Existing - /dev/*
-│   ├── proc.ts          # Existing - /proc/*
-│   ├── data.ts          # NEW - database records
+│   ├── file.ts          # Updated - entity in SQL, blob in HAL
+│   ├── folder.ts        # Updated - entity in SQL, no blob
+│   ├── device.ts        # Updated - entity in SQL (device table)
+│   ├── proc.ts          # Updated - entity in SQL (proc table)
+│   ├── link.ts          # Updated - entity in SQL (link table)
+│   ├── data.ts          # NEW - user-defined models
 │   └── sys.ts           # NEW - model introspection (optional)
+
+src/model/               # Database layer (from earlier phases)
+├── observers/           # Observer pipeline (Phase 1 - IMPLEMENTED)
+├── schema.sql           # Schema definition (Phase 2)
+├── model.ts             # Model class (Phase 3)
+├── model-record.ts      # Change tracking (Phase 3)
+├── model-cache.ts       # Model caching (Phase 3)
+├── database.ts          # DatabaseService (Phase 3)
+└── loader/              # YAML/JSON loading (Phase 5)
 ```
 
 ## Acceptance Criteria
 
+### Entity+Data Architecture (System Models)
+- [ ] `stat()` on /vol/file returns entity from SQL file table
+- [ ] `setstat()` on /vol/file goes through observer pipeline
+- [ ] `read()` on /vol/file returns blob from HAL
+- [ ] `write()` on /vol/file writes blob to HAL directly
+- [ ] Observer validation applies to file metadata changes
+- [ ] Audit trail captures entity changes (if tracked)
+
+### User Models (/data path)
 - [ ] `/data/{model}/` lists all records in model
-- [ ] `/data/{model}/{id}` returns record as JSON
+- [ ] `/data/{model}/{id}` returns record entity
 - [ ] `stat()` on record returns size, mtime, etc.
 - [ ] `open()` returns readable JSON content
 - [ ] `write()` and close updates record in database
 - [ ] `create()` via writeFile creates new record
 - [ ] `unlink()` soft-deletes record
 - [ ] Validation errors propagate properly
+
+### General
 - [ ] Existing /tmp, /dev, /proc paths still work
 - [ ] Relationship traversal works (optional)
 - [ ] Data-specific syscalls available for efficiency

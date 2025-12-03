@@ -2,64 +2,154 @@
 
 This document outlines the migration of the monk-api's data-driven model/field system into monk-os, enabling downstream developers to define models as YAML/JSON and have them become first-class database-backed entities accessible through the VFS.
 
-## Vision
+## Core Architecture: Entity + Data
 
-**Before:** Hardcoded TypeScript models (FileModel, FolderModel, etc.) with JSON blobs in key-value storage.
+**Every VFS entry has two components:**
 
-**After:** Dynamic, user-defined models loaded from YAML/JSON definitions, backed by real SQLite tables with full queryability, validation, and behavioral enforcement.
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  VFS Entry: /vol/documents/report.pdf                               │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  ENTITY (SQL)                         DATA (Blob)                   │
+│  ┌───────────────────────────┐       ┌───────────────────────────┐  │
+│  │ id: "abc-123"             │       │                           │  │
+│  │ model: "file"             │       │  %PDF-1.4...              │  │
+│  │ name: "report.pdf"        │       │  (raw bytes)              │  │
+│  │ parent: "folder-xyz"      │       │                           │  │
+│  │ owner: "user-456"         │       │  No schema.               │  │
+│  │ size: 24853               │       │  No validation.           │  │
+│  │ mtime: 2024-12-03         │       │  Direct I/O.              │  │
+│  │ mimetype: "application/…" │       │                           │  │
+│  │ custom_field: "value"     │       │                           │  │
+│  └───────────────────────────┘       └───────────────────────────┘  │
+│           │                                   │                     │
+│           ▼                                   ▼                     │
+│    stat() / setstat()                  read() / write()             │
+│           │                                   │                     │
+│    Observer Pipeline                    HAL Block I/O               │
+│    (validation, audit, etc.)           (no observers)               │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Key Principles
+
+1. **Entity = Structured Metadata (SQL)**
+   - Stored in SQLite with schema defined by `models` and `fields` tables
+   - Shape determined by model type (file, folder, device, invoice, etc.)
+   - Accessed via `stat()`, mutated via `setstat()`
+   - **All mutations go through the observer pipeline**
+
+2. **Data = Raw Bytes (Blob)**
+   - Stored via HAL block storage
+   - No schema, no validation
+   - Accessed via `read()`, mutated via `write()`
+   - **Bypasses observer pipeline entirely**
+
+3. **Universal Application**
+   - This applies to ALL VFS entries, not just user-defined models
+   - System models (file, folder, device, proc) have entities too
+   - The observer pipeline enforces validation/audit for everything
+
+### Operation Routing
+
+| Operation | Target | Observer Pipeline? | Purpose |
+|-----------|--------|-------------------|---------|
+| `stat()` | Entity | No (read-only) | Get metadata |
+| `setstat()` | Entity | **Yes** | Update metadata |
+| `create()` | Entity | **Yes** | Create new entry |
+| `unlink()` | Entity | **Yes** | Soft-delete entry |
+| `read()` | Data | No | Get raw bytes |
+| `write()` | Data | No | Set raw bytes |
+
+### Example: Creating a File
+
+```typescript
+// 1. Create entity (goes through observers)
+await vfs.create('/vol/docs', 'report.pdf', {
+    mimetype: 'application/pdf',
+    owner: currentUser,
+});
+// → Ring 1: Validate required fields
+// → Ring 5: INSERT INTO file (...)
+// → Ring 7: Audit log
+
+// 2. Write data (direct I/O, no observers)
+await vfs.write('/vol/docs/report.pdf', pdfBytes);
+// → HAL.block.write() directly
+```
+
+### Example: Updating Metadata
+
+```typescript
+// Change owner (goes through observers)
+await vfs.setstat('/vol/docs/report.pdf', { owner: 'new-owner' });
+// → Ring 1: Validate owner exists
+// → Ring 2: Check permissions
+// → Ring 5: UPDATE file SET owner = ?
+// → Ring 7: Audit the change
+```
+
+## Models Define Entity Shape
+
+The `models` and `fields` tables define what fields exist on each entity type:
 
 ```yaml
-# /app/models/invoice.yaml
+# System model (seeded at boot)
+name: file
+status: system
+fields:
+  - name: mimetype
+    type: text
+  - name: size
+    type: integer
+  - name: checksum
+    type: text
+
+# User-defined model (loaded from YAML)
 name: invoice
 fields:
   - name: number
     type: text
     required: true
-    unique: true
     immutable: true
-  - name: customer_id
-    type: uuid
-    relationship_type: referenced
-    related_model: customer
   - name: total
     type: numeric
     minimum: 0
   - name: status
     type: text
-    enum_values: [draft, sent, paid]
+    enum: [draft, sent, paid]
     tracked: true
 ```
 
-Results in:
-- SQLite table `invoice` with proper columns and constraints
-- Full CRUD via VFS: `/data/invoices/`, `/data/invoices/{id}`
-- Validation, immutability, change tracking enforced automatically
-- Queryable: `SELECT * FROM invoice WHERE status = 'paid' AND total > 1000`
+Both system and user models:
+- Have their entity stored in SQL
+- Have mutations validated by observers
+- Can have custom fields, constraints, and behaviors
 
-## Architecture Mapping
+## Vision
 
-| monk-api Component | monk-os Target | Purpose |
-|--------------------|----------------|---------|
-| `models` table | `src/db/schema.sql` | Model metadata storage |
-| `fields` table | `src/db/schema.sql` | Field metadata storage |
-| Observer infrastructure | `src/db/observers/` | Ring-based pipeline |
-| Database service | `src/db/database.ts` | CRUD with observer execution |
-| Filter/query system | `src/db/filter.ts` | SQL query building |
-| Describe API | `src/db/describe.ts` | Model/field management |
-| DDL observers | `src/db/observers/ddl/` | Schema evolution |
+**Before:** Hardcoded TypeScript models with JSON blobs in key-value storage.
+
+**After:** Dynamic, schema-driven models where:
+- Entity metadata is stored in SQLite with full queryability
+- All entity mutations flow through the observer pipeline
+- User-defined models work identically to system models
+- Blob data remains separate, accessed via standard POSIX I/O
 
 ## Migration Phases
 
-### Phase 1: Foundation
+### Phase 1: Foundation (IMPLEMENTED)
 **Goal:** Observer infrastructure and base classes
 
-- [ ] Port observer interfaces and types (`ObserverContext`, `ObserverRing`, etc.)
-- [ ] Port `BaseObserver` class with error handling
-- [ ] Port `ObserverRunner` for ring execution
-- [ ] Port observer error types (`ValidationError`, `SecurityError`, etc.)
-- [ ] Create observer registry pattern
+- [x] Observer interfaces and types (`ObserverContext`, `ObserverRing`, etc.)
+- [x] `BaseObserver` class with timeout handling
+- [x] `ObserverRunner` for ring execution
+- [x] Observer error types (`EOBSINVALID`, `EOBSSEC`, etc.)
+- [x] Observer registry pattern
 
-**Deliverable:** Can define and execute observers in rings 0-9
+**Location:** `src/model/observers/`
 
 See: [01-foundation.md](./01-foundation.md)
 
@@ -68,9 +158,9 @@ See: [01-foundation.md](./01-foundation.md)
 
 - [ ] Create `models` table with behavioral flags
 - [ ] Create `fields` table with all constraint columns
-- [ ] Create system field definitions
-- [ ] Define seed data for system models
-- [ ] Integrate with existing StorageEngine or replace
+- [ ] Create `tracked` table for audit history
+- [ ] Seed system models (file, folder, device, proc, link)
+- [ ] Define system fields for each model type
 
 **Deliverable:** Can store model/field definitions in SQLite
 
@@ -79,13 +169,12 @@ See: [02-schema.md](./02-schema.md)
 ### Phase 3: Database Layer
 **Goal:** High-level database service with observer pipeline
 
-- [ ] Port `Database` service class
-- [ ] Port select operations (selectOne, selectAny, etc.)
-- [ ] Port mutate operations (createOne, updateOne, etc.)
-- [ ] Port `ModelRecord` for change tracking
-- [ ] Integrate observer pipeline with mutations
+- [ ] `Model` class wrapping model metadata
+- [ ] `ModelRecord` for change tracking (old vs new values)
+- [ ] `ModelCache` for model/field lookup
+- [ ] `DatabaseService` with CRUD + observer execution
 
-**Deliverable:** Can CRUD records with observer enforcement
+**Deliverable:** Can CRUD entity records with observer enforcement
 
 See: [03-database-layer.md](./03-database-layer.md)
 
@@ -93,15 +182,14 @@ See: [03-database-layer.md](./03-database-layer.md)
 **Goal:** Essential behavioral observers
 
 - [ ] Ring 0: UpdateMerger (merge input with existing)
-- [ ] Ring 1: DataValidator (type, required, constraints)
-- [ ] Ring 1: ImmutableValidator (prevent field changes)
-- [ ] Ring 1: FrozenValidator (prevent model changes)
-- [ ] Ring 5: SQL observers for SQLite (create, update, delete)
-- [ ] Ring 6: DDL observers (CREATE TABLE, ALTER TABLE)
-- [ ] Ring 7: Tracked observer (change history)
-- [ ] Ring 8: Cache invalidation
+- [ ] Ring 1: FrozenValidator, ImmutableValidator, DataValidator
+- [ ] Ring 4: TransformProcessor (lowercase, trim, etc.)
+- [ ] Ring 5: SqlCreate, SqlUpdate, SqlDelete
+- [ ] Ring 6: ModelDdlCreate, FieldDdlCreate (schema evolution)
+- [ ] Ring 7: Tracked (change history)
+- [ ] Ring 8: CacheInvalidator
 
-**Deliverable:** Full behavioral enforcement on mutations
+**Deliverable:** Full behavioral enforcement on entity mutations
 
 See: [04-observers.md](./04-observers.md)
 
@@ -110,178 +198,88 @@ See: [04-observers.md](./04-observers.md)
 
 - [ ] YAML/JSON parser for model definitions
 - [ ] Validation of model/field definitions
-- [ ] Conversion to models/fields table records
-- [ ] Boot-time loading from `/etc/models/` or config
-- [ ] Hot-reload support (optional)
+- [ ] Boot-time loading of system models
+- [ ] Loading user models from `/app/models/`
 
 **Deliverable:** Can define models in YAML, load at boot
 
 See: [05-model-loader.md](./05-model-loader.md)
 
 ### Phase 6: VFS Integration
-**Goal:** VFS becomes path interface to models
+**Goal:** Wire VFS operations to the model layer
 
-- [ ] Replace/refactor FileModel to use database layer
-- [ ] Map paths to model records: `/data/{model}/{id}`
-- [ ] Implement list/stat/read/write via Database service
-- [ ] Preserve existing device/proc models
-- [ ] Handle relationships via path traversal
+- [ ] `stat()` returns entity from database
+- [ ] `setstat()` routes through observer pipeline
+- [ ] `create()` creates entity via observers, allocates blob storage
+- [ ] `unlink()` soft-deletes entity via observers
+- [ ] `read()`/`write()` continue to use HAL block storage directly
+- [ ] Existing FileModel, FolderModel become thin wrappers
 
-**Deliverable:** Files ARE database rows, accessible via VFS
+**Deliverable:** VFS operations use entity+data architecture
 
 See: [06-vfs-integration.md](./06-vfs-integration.md)
 
 ### Phase 7: Query API (Optional)
 **Goal:** Rich query interface beyond path access
 
-- [ ] Port Filter class for query building
-- [ ] Expose query via special path or syscall
+- [ ] Filter class for query building
+- [ ] Expose query via syscall or special path
 - [ ] Support aggregations (count, sum, etc.)
-- [ ] Relationship traversal in queries
-
-**Deliverable:** Can query models with SQL-like semantics
 
 See: [07-query-api.md](./07-query-api.md)
 
-## Component Inventory
-
-### From monk-api (to port)
-
-```
-src/lib/observers/           → src/db/observers/
-  interfaces.ts                 Core observer contracts
-  types.ts                      Ring system, operation types
-  errors.ts                     ValidationError, SecurityError, etc.
-  base-observer.ts              Abstract base class
-  runner.ts                     Ring execution engine
-  loader.ts                     Observer registry/loading
-
-src/observers/               → src/db/observers/impl/
-  all/0/50-update-merger.ts     Data preparation
-  all/1/40-data-validator.ts    Type/constraint validation
-  all/1/30-immutable-validator  Immutable field enforcement
-  all/1/10-frozen-validator     Frozen model enforcement
-  all/5/50-sql-*-sqlite.ts      SQLite CRUD operations
-  fields/6/10-field-ddl-*       ALTER TABLE operations
-  models/6/10-model-ddl-*       CREATE/DROP TABLE
-  all/7/60-tracked.ts           Change tracking
-
-src/lib/database/            → src/db/
-  service.ts                    Database class
-  select.ts                     Read operations
-  mutate.ts                     Write operations
-  pipeline.ts                   Observer execution
-  types.ts                      TypeScript interfaces
-
-src/lib/
-  model.ts                   → src/db/model.ts
-  field.ts                   → src/db/field.ts
-  model-record.ts            → src/db/model-record.ts
-  describe.ts                → src/db/describe.ts
-  describe-models.ts         → src/db/describe-models.ts
-  describe-fields.ts         → src/db/describe-fields.ts
-  filter.ts                  → src/db/filter.ts
-  filter-types.ts            → src/db/filter-types.ts
-  filter-where-sqlite.ts     → src/db/filter-where.ts
-
-src/lib/sql/
-  tenant.sqlite.sql          → src/db/schema.sql
-```
-
-### In monk-os (to modify)
-
-```
-src/hal/storage/sqlite.ts    May need enhancement for relational ops
-src/vfs/model.ts             Refactor to delegate to Database service
-src/vfs/models/file.ts       Simplify to thin wrapper
-src/vfs/vfs.ts               Add /data mount for model access
-src/kernel/boot.ts           Add model loading step
-```
-
 ## Key Decisions
 
-### 1. Storage Engine Evolution
+### 1. Entity Storage
 
-**Option A:** Enhance existing `StorageEngine` with SQL capabilities
-- Pros: Minimal disruption, gradual migration
-- Cons: Awkward API mixing KV and relational
-
-**Option B:** New `DatabaseEngine` alongside `StorageEngine`
-- Pros: Clean separation, purpose-built API
-- Cons: Two storage systems to manage
-
-**Option C:** Replace `StorageEngine` with relational-first design
-- Pros: Unified model, full SQL power
-- Cons: Breaking change, migration effort
-
-**Recommendation:** Option B initially, migrate to C over time.
+All entity metadata stored in SQLite tables. Each model type has its own table (file, folder, invoice, etc.) with columns defined by the `fields` table.
 
 ### 2. System Models
 
-How to handle existing FileModel, FolderModel, etc.?
+System models (file, folder, device, proc, link) are seeded at boot with `status: 'system'`. They use the same observer pipeline as user models - no special cases.
 
-**Option A:** Convert to model definitions in database
-- Pros: Unified, consistent
-- Cons: Bootstrap complexity (need models to load models)
+### 3. Blob Storage
 
-**Option B:** Keep as hardcoded "system" models
-- Pros: Simple bootstrap, always available
-- Cons: Two model systems
+Blob data remains in HAL block storage, keyed by entity ID. The `size` field in the entity tracks blob size. Blobs are optional (folders have no blob).
 
-**Recommendation:** Option B with system models seeded at boot, marked as `status: 'system'`.
-
-### 3. VFS Path Mapping
-
-How do model records appear in the filesystem?
+### 4. Path Resolution
 
 ```
-/data/                       Root for all user models
-/data/{model}/               List records
-/data/{model}/{id}           Record as file (JSON content)
-/data/{model}/{id}/{field}   Field value (for relationships)
-
-/sys/models/                 Model definitions (read-only?)
-/sys/fields/                 Field definitions
+/vol/docs/report.pdf
+    │
+    ├─ Resolve path → entity ID "abc-123"
+    │
+    ├─ stat()     → SELECT * FROM file WHERE id = 'abc-123'
+    ├─ setstat()  → Observer pipeline → UPDATE file ...
+    ├─ read()     → HAL.block.read('abc-123')
+    └─ write()    → HAL.block.write('abc-123', data)
 ```
-
-### 4. Multi-tenancy
-
-monk-api uses PostgreSQL schemas for tenant isolation. In monk-os:
-
-**Option A:** Separate SQLite files per tenant
-**Option B:** Single SQLite with tenant_id column
-**Option C:** No multi-tenancy (single-tenant OS)
-
-**Recommendation:** Option C for initial implementation. Add tenancy later if needed.
 
 ## Success Criteria
 
-1. **Model Definition:** Can define a model in YAML and have it create a table
-2. **CRUD Operations:** Can create, read, update, delete records via VFS paths
-3. **Validation:** Invalid data is rejected based on field constraints
-4. **Immutability:** Immutable fields cannot be changed after creation
-5. **Relationships:** Can traverse relationships via paths
-6. **Change Tracking:** Tracked fields record history
-7. **Queryability:** Can query beyond simple path access
-8. **Performance:** Observer overhead is acceptable (<10ms per operation)
+1. **Unified Model:** System and user models use identical entity+data architecture
+2. **Observer Enforcement:** All entity mutations go through observer pipeline
+3. **Validation:** Invalid entity data rejected based on field constraints
+4. **Audit:** Tracked fields record change history
+5. **Blob Separation:** Raw data I/O bypasses observers for performance
+6. **Queryability:** Can query entities with SQL semantics
 
-## Timeline Estimate
+## Directory Structure
 
-| Phase | Effort | Dependencies |
-|-------|--------|--------------|
-| 1. Foundation | 2-3 days | None |
-| 2. Schema | 1 day | Phase 1 |
-| 3. Database Layer | 3-4 days | Phase 2 |
-| 4. Core Observers | 3-4 days | Phase 3 |
-| 5. Model Loader | 2 days | Phase 4 |
-| 6. VFS Integration | 3-4 days | Phase 5 |
-| 7. Query API | 2-3 days | Phase 6 (optional) |
-
-**Total:** ~2-3 weeks for core functionality
-
-## Next Steps
-
-1. Review this plan and confirm architectural decisions
-2. Start with Phase 1: Foundation
-3. Create test harness for observer pipeline
-4. Iterate through phases with tests at each step
+```
+src/model/
+├── observers/           # Observer pipeline (Phase 1 - DONE)
+│   ├── types.ts
+│   ├── errors.ts
+│   ├── interfaces.ts
+│   ├── base-observer.ts
+│   ├── runner.ts
+│   ├── registry.ts
+│   └── impl/            # Observer implementations (Phase 4)
+├── schema.sql           # models/fields/tracked tables (Phase 2)
+├── model.ts             # Model class (Phase 3)
+├── model-record.ts      # Change tracking (Phase 3)
+├── model-cache.ts       # Caching (Phase 3)
+├── database.ts          # DatabaseService (Phase 3)
+└── loader/              # YAML/JSON loading (Phase 5)
+```

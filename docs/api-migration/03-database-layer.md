@@ -2,11 +2,17 @@
 
 ## Overview
 
-The database layer provides high-level CRUD operations that flow through the observer pipeline. Read operations bypass the pipeline for performance; mutations always go through it.
+The database layer provides high-level CRUD operations for **entity metadata**. This is the structured SQL side of the entity+data architecture (see [README.md](./README.md)).
+
+- **Entity reads** (`selectOne`, `selectById`) bypass observers for performance
+- **Entity mutations** (`createOne`, `updateOne`, `deleteOne`) always go through the observer pipeline
+- **Blob data** (raw file contents) is handled separately via HAL block storage
+
+The VFS will call this layer for `stat()`, `setstat()`, `create()`, `unlink()` operations.
 
 ## Core Components
 
-### 1. Model Class (`src/db/model.ts`)
+### 1. Model Class (`src/model/model.ts`)
 
 **Source:** `monk-api/src/lib/model.ts`
 
@@ -180,7 +186,7 @@ export class Model {
 }
 ```
 
-### 2. ModelRecord Class (`src/db/model-record.ts`)
+### 2. ModelRecord Class (`src/model/model-record.ts`)
 
 **Source:** `monk-api/src/lib/model-record.ts`
 
@@ -309,7 +315,7 @@ export class ModelRecord {
 }
 ```
 
-### 3. Model Cache (`src/db/model-cache.ts`)
+### 3. Model Cache (`src/model/model-cache.ts`)
 
 Caches loaded models to avoid repeated queries:
 
@@ -382,7 +388,7 @@ export class ModelCache {
 }
 ```
 
-### 4. Database Service (`src/db/database.ts`)
+### 4. Database Service (`src/model/database.ts`)
 
 **Source:** `monk-api/src/lib/database/service.ts`
 
@@ -633,7 +639,7 @@ export class DatabaseService {
 }
 ```
 
-### 5. System Context Factory (`src/db/context.ts`)
+### 5. System Context Factory (`src/model/context.ts`)
 
 Creates the system context:
 
@@ -675,15 +681,21 @@ export function createDatabase(ctx: SystemContext): DatabaseService {
 ## Directory Structure
 
 ```
-src/db/
+src/model/
 ├── model.ts           # Model class with field metadata
 ├── model-record.ts    # Change tracking wrapper
 ├── model-cache.ts     # Model metadata cache
 ├── database.ts        # DatabaseService (CRUD + pipeline)
 ├── context.ts         # System context factory
 ├── schema.sql         # (from Phase 2)
-└── observers/         # (from Phase 1)
-    └── ...
+└── observers/         # (from Phase 1 - IMPLEMENTED)
+    ├── types.ts
+    ├── errors.ts
+    ├── interfaces.ts
+    ├── base-observer.ts
+    ├── runner.ts
+    ├── registry.ts
+    └── index.ts
 ```
 
 ## Testing Strategy

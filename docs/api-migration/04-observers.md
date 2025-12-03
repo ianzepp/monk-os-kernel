@@ -37,7 +37,7 @@ Observers implement the behavioral enforcement specified in field/model metadata
 
 ### Ring 0: Data Preparation
 
-#### UpdateMerger (`src/db/observers/impl/update-merger.ts`)
+#### UpdateMerger (`src/model/observers/impl/update-merger.ts`)
 
 **Source:** `monk-api/src/observers/all/0/50-update-merger.ts`
 
@@ -80,7 +80,7 @@ export default class UpdateMerger extends BaseObserver {
 
 ### Ring 1: Input Validation
 
-#### FrozenValidator (`src/db/observers/impl/frozen-validator.ts`)
+#### FrozenValidator (`src/model/observers/impl/frozen-validator.ts`)
 
 **Source:** `monk-api/src/observers/all/1/10-frozen-validator.ts`
 
@@ -88,7 +88,7 @@ export default class UpdateMerger extends BaseObserver {
 import { BaseObserver } from '../base-observer';
 import type { ObserverContext } from '../interfaces';
 import { ObserverRing } from '../types';
-import { ValidationError } from '../errors';
+import { EOBSFROZEN } from '../errors';
 
 /**
  * Prevents any data changes to frozen models
@@ -103,17 +103,15 @@ export default class FrozenValidator extends BaseObserver {
         const { model } = context;
 
         if (model.isFrozen) {
-            throw new ValidationError(
-                `Model '${model.model_name}' is frozen and cannot be modified`,
-                undefined,
-                'MODEL_FROZEN'
+            throw new EOBSFROZEN(
+                `Model '${model.model_name}' is frozen and cannot be modified`
             );
         }
     }
 }
 ```
 
-#### ImmutableValidator (`src/db/observers/impl/immutable-validator.ts`)
+#### ImmutableValidator (`src/model/observers/impl/immutable-validator.ts`)
 
 **Source:** `monk-api/src/observers/all/1/30-immutable-validator.ts`
 
@@ -121,7 +119,7 @@ export default class FrozenValidator extends BaseObserver {
 import { BaseObserver } from '../base-observer';
 import type { ObserverContext } from '../interfaces';
 import { ObserverRing } from '../types';
-import { ValidationError } from '../errors';
+import { EOBSIMMUT } from '../errors';
 
 /**
  * Prevents changes to fields marked as immutable
@@ -163,17 +161,16 @@ export default class ImmutableValidator extends BaseObserver {
                 .map(v => `${v.field} (was: ${JSON.stringify(v.old)})`)
                 .join(', ');
 
-            throw new ValidationError(
+            throw new EOBSIMMUT(
                 `Cannot modify immutable field(s): ${details}`,
-                violations[0].field,
-                'IMMUTABLE_FIELD'
+                violations[0].field
             );
         }
     }
 }
 ```
 
-#### DataValidator (`src/db/observers/impl/data-validator.ts`)
+#### DataValidator (`src/model/observers/impl/data-validator.ts`)
 
 **Source:** `monk-api/src/observers/all/1/40-data-validator.ts`
 
@@ -181,8 +178,8 @@ export default class ImmutableValidator extends BaseObserver {
 import { BaseObserver } from '../base-observer';
 import type { ObserverContext } from '../interfaces';
 import { ObserverRing } from '../types';
-import { ValidationError } from '../errors';
-import type { FieldRow } from '../../model';
+import { EOBSINVALID } from '../errors';
+import type { FieldRow } from '../interfaces';
 
 interface ValidationErrorDetail {
     field: string;
@@ -219,10 +216,9 @@ export default class DataValidator extends BaseObserver {
 
         if (errors.length > 0) {
             const summary = errors.map(e => `${e.field}: ${e.message}`).join('; ');
-            throw new ValidationError(
+            throw new EOBSINVALID(
                 `Validation failed: ${summary}`,
-                errors[0].field,
-                'VALIDATION_FAILED'
+                errors[0].field
             );
         }
     }
@@ -359,7 +355,7 @@ export default class DataValidator extends BaseObserver {
 
 ### Ring 4: Enrichment
 
-#### TransformProcessor (`src/db/observers/impl/transform-processor.ts`)
+#### TransformProcessor (`src/model/observers/impl/transform-processor.ts`)
 
 **Source:** `monk-api/src/observers/all/4/50-transform-processor.ts`
 
@@ -420,7 +416,7 @@ export default class TransformProcessor extends BaseObserver {
 
 ### Ring 5: Database Operations
 
-#### SqlCreate (`src/db/observers/impl/sql-create.ts`)
+#### SqlCreate (`src/model/observers/impl/sql-create.ts`)
 
 **Source:** `monk-api/src/observers/all/5/50-sql-create-sqlite.ts`
 
@@ -456,7 +452,7 @@ export default class SqlCreate extends BaseObserver {
 }
 ```
 
-#### SqlUpdate (`src/db/observers/impl/sql-update.ts`)
+#### SqlUpdate (`src/model/observers/impl/sql-update.ts`)
 
 ```typescript
 import { BaseObserver } from '../base-observer';
@@ -492,7 +488,7 @@ export default class SqlUpdate extends BaseObserver {
 }
 ```
 
-#### SqlDelete (`src/db/observers/impl/sql-delete.ts`)
+#### SqlDelete (`src/model/observers/impl/sql-delete.ts`)
 
 ```typescript
 import { BaseObserver } from '../base-observer';
@@ -527,7 +523,7 @@ export default class SqlDelete extends BaseObserver {
 
 ### Ring 6: DDL Operations
 
-#### ModelDdlCreate (`src/db/observers/impl/model-ddl-create.ts`)
+#### ModelDdlCreate (`src/model/observers/impl/model-ddl-create.ts`)
 
 **Source:** `monk-api/src/observers/models/6/10-model-ddl-create-sqlite.ts`
 
@@ -567,7 +563,7 @@ export default class ModelDdlCreate extends BaseObserver {
 }
 ```
 
-#### FieldDdlCreate (`src/db/observers/impl/field-ddl-create.ts`)
+#### FieldDdlCreate (`src/model/observers/impl/field-ddl-create.ts`)
 
 **Source:** `monk-api/src/observers/fields/6/10-field-ddl-create-sqlite.ts`
 
@@ -624,7 +620,7 @@ export default class FieldDdlCreate extends BaseObserver {
 
 ### Ring 7: Audit
 
-#### Tracked (`src/db/observers/impl/tracked.ts`)
+#### Tracked (`src/model/observers/impl/tracked.ts`)
 
 **Source:** `monk-api/src/observers/all/7/60-tracked.ts`
 
@@ -689,7 +685,7 @@ export default class Tracked extends BaseObserver {
 
 ### Ring 8: Integration
 
-#### CacheInvalidator (`src/db/observers/impl/cache-invalidator.ts`)
+#### CacheInvalidator (`src/model/observers/impl/cache-invalidator.ts`)
 
 ```typescript
 import { BaseObserver } from '../base-observer';
@@ -726,7 +722,7 @@ export default class CacheInvalidator extends BaseObserver {
 
 ## Observer Registry
 
-Update `src/db/observers/registry.ts`:
+Update `src/model/observers/registry.ts`:
 
 ```typescript
 import { ObserverRunner } from './runner';
@@ -793,8 +789,8 @@ export function createObserverRunner(): ObserverRunner {
 ## Directory Structure
 
 ```
-src/db/observers/
-├── impl/
+src/model/observers/
+├── impl/                        # Observer implementations (Phase 4)
 │   ├── update-merger.ts
 │   ├── frozen-validator.ts
 │   ├── immutable-validator.ts
@@ -807,12 +803,13 @@ src/db/observers/
 │   ├── field-ddl-create.ts
 │   ├── tracked.ts
 │   └── cache-invalidator.ts
-├── types.ts
-├── interfaces.ts
-├── errors.ts
-├── base-observer.ts
-├── runner.ts
-└── registry.ts
+├── types.ts                     # (Phase 1 - IMPLEMENTED)
+├── interfaces.ts                # (Phase 1 - IMPLEMENTED)
+├── errors.ts                    # EOBS* error classes (Phase 1 - IMPLEMENTED)
+├── base-observer.ts             # (Phase 1 - IMPLEMENTED)
+├── runner.ts                    # (Phase 1 - IMPLEMENTED)
+├── registry.ts                  # (Phase 1 - IMPLEMENTED, empty until Phase 4)
+└── index.ts                     # (Phase 1 - IMPLEMENTED)
 ```
 
 ## Acceptance Criteria
