@@ -45,18 +45,16 @@ describe('ProcessTable', () => {
             expect(table.get(proc.id)).toBe(proc);
         });
 
-        it('should set process as init when asInit=true', () => {
-            const service = createMockProcess({ cmd: '/bin/logd' });
+        it('should set first registered process as init', () => {
             const init = createMockProcess({ cmd: '/bin/init' });
+            const service = createMockProcess({ cmd: '/bin/logd' });
             const other = createMockProcess({ cmd: '/bin/shell' });
 
-            // Services may register before init
+            // First registered becomes init
+            table.register(init);
             table.register(service);
-            // Init explicitly marked as init
-            table.register(init, true);
             table.register(other);
 
-            // Init is the process marked as init, not the first registered
             expect(table.getInit()).toBe(init);
         });
     });

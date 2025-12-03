@@ -71,3 +71,7 @@ export type {
 // Worker Pools
 export { PoolManager, WorkerPool } from '@src/kernel/pool.js';
 export type { PoolConfig, LeasedWorker } from '@src/kernel/pool.js';
+
+// Utilities
+export { poll } from '@src/kernel/poll.js';
+export type { PollOptions } from '@src/kernel/poll.js';

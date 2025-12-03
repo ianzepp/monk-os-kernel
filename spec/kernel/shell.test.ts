@@ -6,6 +6,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { Kernel } from '@src/kernel/kernel.js';
+import { poll } from '@src/kernel/poll.js';
 import { VFS } from '@src/vfs/vfs.js';
 import type { HAL } from '@src/hal/index.js';
 import {
@@ -57,13 +58,11 @@ function createTestHAL(): HAL & { console: BufferConsoleDevice } {
  * Much faster than fixed timeouts since we poll every 10ms.
  */
 async function waitForInitExit(kernel: Kernel, timeout = 5000): Promise<void> {
-    const start = Date.now();
-    while (Date.now() - start < timeout) {
+    const exited = await poll(() => {
         const init = kernel.getProcessTable().getInit();
-        if (!init || init.state === 'zombie') return;
-        await new Promise(r => setTimeout(r, 10));
-    }
-    throw new Error('Timeout waiting for init to exit');
+        return !init || init.state === 'zombie';
+    }, { timeout });
+    if (!exited) throw new Error('Timeout waiting for init to exit');
 }
 
 describe('Shell', () => {

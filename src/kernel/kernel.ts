@@ -17,6 +17,7 @@ import type {
     BootEnv,
 } from '@src/kernel/types.js';
 import { SIGTERM, SIGKILL, TERM_GRACE_MS } from '@src/kernel/types.js';
+import { poll } from '@src/kernel/poll.js';
 import { ProcessTable } from '@src/kernel/process-table.js';
 import { MAX_HANDLES, STREAM_HIGH_WATER, STREAM_LOW_WATER, STREAM_STALL_TIMEOUT } from '@src/kernel/types.js';
 import type { Handle } from '@src/kernel/handle.js';
@@ -309,15 +310,16 @@ export class Kernel {
         // Load worker pool configuration from /etc/pools.json
         await this.poolManager.loadConfig(this.vfs);
 
-        // Load and activate services
-        await this.loadServices();
-
-        // Create init process
+        // Create and register init first (must be PID 1)
         const init = this.createProcess({
             cmd: env.initPath,
             env: env.env,
             args: env.initArgs,
         });
+        this.processes.register(init);
+
+        // Load and activate services (after init is registered)
+        await this.loadServices();
 
         // Setup stdio for init - open /dev/console
         await this.setupInitStdio(init);
@@ -325,9 +327,6 @@ export class Kernel {
         // Start init worker
         init.worker = await this.spawnWorker(init, env.initPath);
         init.state = 'running';
-
-        // Register init (explicitly as the init process)
-        this.processes.register(init, true);
 
         this.booted = true;
     }
@@ -351,9 +350,14 @@ export class Kernel {
             }
         }
 
-        // Only wait for grace period if there are running processes to terminate
+        // Poll for processes to exit, with grace period as timeout
         if (runningCount > 0) {
-            await new Promise(resolve => setTimeout(resolve, TERM_GRACE_MS));
+            await poll(() => {
+                for (const proc of this.processes.all()) {
+                    if (proc !== init && proc.state === 'running') return false;
+                }
+                return true;
+            }, { timeout: TERM_GRACE_MS });
         }
 
         // Force kill ALL remaining processes including init

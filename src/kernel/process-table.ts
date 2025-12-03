@@ -19,15 +19,13 @@ export class ProcessTable {
 
     /**
      * Register a process in the table.
-     *
-     * @param proc - Process to register
-     * @param asInit - If true, explicitly set this as the init process
+     * The first registered process becomes init.
      */
-    register(proc: Process, asInit = false): void {
+    register(proc: Process): void {
         this.processes.set(proc.id, proc);
 
-        // Explicit init registration takes precedence
-        if (asInit) {
+        // First process is init
+        if (!this.initProcess) {
             this.initProcess = proc;
         }
     }
