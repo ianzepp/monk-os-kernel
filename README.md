@@ -73,6 +73,16 @@ The kernel is **message-pure**—structured objects flow between components, nev
 - Lease/release model—workers are reusable across invocations
 - Idle timeout returns workers to pool, shrinks under low pressure
 
+## Notable Features
+
+**Protocol Channels**: HTTP, WebSocket, PostgreSQL, and SSE abstracted behind a unified `channel` interface. Userland never sees wire protocols—just `send(msg)` and `recv()`. The kernel handles framing, encoding, and connection lifecycle.
+
+**VFS Module Loader**: TypeScript/ESM loaded directly from VFS paths, transpiled on demand. `import '@app/foo'` resolves against the virtual filesystem, not the host. Hot-swappable code without touching the host disk.
+
+**Capability-Based Permissions**: No UNIX rwx bits. Handles are capabilities—if you have the handle, you have permission. Access is granted at `open()` time; the handle itself is the proof of authorization.
+
+**Message Pipes**: Inter-process pipes carry `Response` objects, not byte streams. Structured data flows natively between processes. No serialization overhead inside the kernel—the `item` you `send()` is the `item` the other process `recv()`s.
+
 ## Usage
 
 ```typescript
