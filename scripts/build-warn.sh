@@ -114,7 +114,43 @@ main() {
         'debugger'
 
     # =========================================================================
-    # CHECK 3: TypeScript escape hatches (@ts-ignore, @ts-nocheck)
+    # CHECK 3: JSON serialization in kernel code
+    # =========================================================================
+    # Kernel code should be message-pure (no JSON serialization)
+    # Exemptions:
+    #   - hal/channel/: Network boundary (TCP/UDP/WebSocket)
+    #   - vfs/: Storage boundary (entity/ACL persistence)
+    #   - kernel/mounts.ts: Parses /etc/mounts.json config
+    #   - kernel/pool.ts: Parses /etc/pools.json config
+    #   - kernel/kernel.ts: Parses service .json definitions
+    #   - kernel/types.ts: Type definitions
+    #   - hal/crypto.ts: Crypto utilities
+    log_check "JSON serialization in kernel code"
+    local json_results
+    json_results=$(grep -rn 'JSON\.parse\|JSON\.stringify' src/ --include='*.ts' \
+        --exclude-dir='channel' \
+        --exclude-dir='vfs' \
+        2>/dev/null \
+        | grep -v 'hal/crypto.ts' \
+        | grep -v 'kernel/mounts.ts' \
+        | grep -v 'kernel/pool.ts' \
+        | grep -v 'kernel/kernel.ts' \
+        | grep -v 'kernel/types.ts' \
+        || true)
+    if [[ -n "$json_results" ]]; then
+        local count=$(echo "$json_results" | wc -l | tr -d ' ')
+        total_warnings=$((total_warnings + count))
+        log_warn "Found $count instance(s): Kernel should be message-pure (no JSON serialization)"
+        echo "$json_results" | while read -r line; do
+            echo -e "  ${YELLOW}→${NC} $line"
+        done
+        echo ""
+    else
+        log_info "No issues found"
+    fi
+
+    # =========================================================================
+    # CHECK 5: TypeScript escape hatches (@ts-ignore, @ts-nocheck)
     # =========================================================================
     # Type suppression comments hide type errors
     # Exemptions:
@@ -125,7 +161,7 @@ main() {
         '@ts-ignore\|@ts-nocheck\|@ts-expect-error'
 
     # =========================================================================
-    # CHECK 4: Type any usage
+    # CHECK 6: Type any usage
     # =========================================================================
     # 'any' bypasses type checking entirely
     # Exemptions:
@@ -161,7 +197,7 @@ main() {
     fi
 
     # =========================================================================
-    # CHECK 5: Deep relative imports (architecture smell)
+    # CHECK 7: Deep relative imports (architecture smell)
     # =========================================================================
     # Imports with 3+ levels of ../ suggest poor module boundaries
     # Exemptions:
@@ -172,7 +208,7 @@ main() {
         'from ['\''"]\.\.\/\.\.\/\.\.\/'
 
     # =========================================================================
-    # CHECK 6: Generic Error usage (from build.sh, included for completeness)
+    # CHECK 8: Generic Error usage
     # =========================================================================
     # Prefer typed errors (ENOENT, EACCES, etc.) over generic Error
     # Exemptions:
