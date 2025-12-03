@@ -133,7 +133,7 @@ export abstract class BaseObserver implements Observer {
      *
      * ALGORITHM:
      * 1. Start execute() and timeout race
-     * 2. If execute() wins, return normally
+     * 2. If execute() wins, clear timeout and return normally
      * 3. If timeout wins, throw ObserverError
      *
      * RACE CONDITION NOTE:
@@ -141,12 +141,19 @@ export abstract class BaseObserver implements Observer {
      * timeout error wins. This is acceptable - observer exceeded its
      * time budget even if it eventually completed.
      *
+     * CLEANUP:
+     * The timeout is always cleared in finally block to prevent:
+     * - Memory leaks (closure holding references)
+     * - Spurious rejections after successful completion
+     *
      * @param context - Execution context
      * @throws ObserverError on timeout or execution failure
      */
     async executeWithTimeout(context: ObserverContext): Promise<void> {
+        let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
         const timeoutPromise = new Promise<never>((_, reject) => {
-            setTimeout(() => {
+            timeoutId = setTimeout(() => {
                 reject(
                     new EOBSTIMEOUT(
                         `Observer '${this.name}' timed out after ${this.timeout}ms`
@@ -169,6 +176,12 @@ export abstract class BaseObserver implements Observer {
             throw new EOBSERVER(
                 `Observer '${this.name}' failed: ${message}`
             );
+        } finally {
+            // CLEANUP: Always clear timeout to prevent memory leaks and spurious rejections.
+            // This runs whether execute() succeeds, fails, or times out.
+            if (timeoutId !== undefined) {
+                clearTimeout(timeoutId);
+            }
         }
     }
 }

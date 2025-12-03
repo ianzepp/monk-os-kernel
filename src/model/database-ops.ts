@@ -536,6 +536,16 @@ export class DatabaseOps {
 
     /**
      * Stream upserted records (create or update based on id presence).
+     *
+     * RACE CONDITION MITIGATION (TOCTOU):
+     * Instead of check-then-act (select exists → create/update), we use
+     * try-create-catch-update pattern:
+     * 1. If input has id, attempt create first
+     * 2. If unique constraint violation, fall back to update
+     * 3. This handles concurrent inserts gracefully
+     *
+     * WHY not INSERT ON CONFLICT: That would bypass the observer pipeline.
+     * We want observers to run for both create and update paths.
      */
     async *upsertAll<T extends DbRecord>(
         modelName: string,
@@ -549,29 +559,39 @@ export class DatabaseOps {
                 continue;
             }
 
-            // Check if CreateInput has an id
+            // CreateInput - may or may not have id
             const createData = data as CreateInput<T> & { id?: string };
-            if (createData.id) {
-                // Check if record exists
-                let existing: T | null = null;
-                for await (const row of this.selectAny<T>(
-                    modelName,
-                    { where: { id: createData.id }, limit: 1 },
-                    { trashed: 'include' }
-                )) {
-                    existing = row;
-                    break;
-                }
 
-                if (existing) {
-                    // Update existing
-                    const { id, ...changes } = createData;
-                    yield* this.updateAll<T>(modelName, [{ id: id!, changes: changes as Partial<T> }]);
+            if (createData.id) {
+                // RACE FIX: Try create first, catch unique constraint and update
+                // This is atomic at the database level and handles concurrent inserts.
+                try {
+                    for await (const created of this.createAll<T>(modelName, [createData])) {
+                        yield created;
+                    }
                     continue;
+                } catch (err) {
+                    // Check for unique constraint violation (SQLite SQLITE_CONSTRAINT)
+                    const message = err instanceof Error ? err.message : String(err);
+                    const isUniqueViolation =
+                        message.includes('UNIQUE constraint failed') ||
+                        message.includes('SQLITE_CONSTRAINT');
+
+                    if (isUniqueViolation) {
+                        // Record exists - fall back to update
+                        const { id, ...changes } = createData;
+                        yield* this.updateAll<T>(modelName, [
+                            { id: id!, changes: changes as Partial<T> },
+                        ]);
+                        continue;
+                    }
+
+                    // Re-throw non-unique errors
+                    throw err;
                 }
             }
 
-            // Create new
+            // No id provided - always create (will generate new id)
             yield* this.createAll<T>(modelName, [data as CreateInput<T>]);
         }
     }

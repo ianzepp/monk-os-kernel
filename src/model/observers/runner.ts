@@ -181,7 +181,10 @@ export class ObserverRunner {
 
         // Execute rings 0-9 in order
         for (let ring = 0; ring < RING_COUNT; ring++) {
-            const ringObservers = this.observers.get(ring as ObserverRing) || [];
+            // RACE FIX (RC-1): Copy observer array to prevent mutation during iteration.
+            // If register() is called during run(), it modifies the original array.
+            // Copying ensures stable iteration even with concurrent registration.
+            const ringObservers = [...(this.observers.get(ring as ObserverRing) || [])];
 
             for (const observer of ringObservers) {
                 // Skip if observer doesn't handle this operation

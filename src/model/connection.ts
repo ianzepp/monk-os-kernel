@@ -201,13 +201,21 @@ export class DatabaseConnection {
         const rows: T[] = [];
 
         for await (const response of this.channel.handle({ op: 'query', data: { sql, params } })) {
-            if (response.op === 'item') {
-                rows.push(response.data as T);
-            } else if (response.op === 'done') {
-                break;
-            } else if (response.op === 'error') {
-                const err = response.data as { code: string; message: string };
-                throw new Error(`Query failed: ${err.message}`);
+            switch (response.op) {
+                case 'item':
+                    rows.push(response.data as T);
+                    break;
+                case 'done':
+                    return rows;
+                case 'error': {
+                    const err = response.data as { code: string; message: string };
+                    throw new Error(`Query failed [${err.code}]: ${err.message}`);
+                }
+                default:
+                    // SAFETY: Ignore unexpected response types (progress, event, etc.)
+                    // These should not occur in SQLite channel but don't break if they do.
+                    // Log for debugging if needed: console.warn(`Unexpected response.op: ${response.op}`);
+                    break;
             }
         }
 
@@ -247,12 +255,18 @@ export class DatabaseConnection {
      */
     async execute(sql: string, params?: unknown[]): Promise<number> {
         for await (const response of this.channel.handle({ op: 'execute', data: { sql, params } })) {
-            if (response.op === 'ok') {
-                const data = response.data as { affectedRows: number };
-                return data.affectedRows;
-            } else if (response.op === 'error') {
-                const err = response.data as { code: string; message: string };
-                throw new Error(`Execute failed: ${err.message}`);
+            switch (response.op) {
+                case 'ok': {
+                    const data = response.data as { affectedRows: number };
+                    return data.affectedRows;
+                }
+                case 'error': {
+                    const err = response.data as { code: string; message: string };
+                    throw new Error(`Execute failed [${err.code}]: ${err.message}`);
+                }
+                default:
+                    // SAFETY: Ignore unexpected response types (progress, event, etc.)
+                    break;
             }
         }
 
@@ -275,11 +289,16 @@ export class DatabaseConnection {
      */
     async exec(sql: string): Promise<void> {
         for await (const response of this.channel.handle({ op: 'exec', data: { sql } })) {
-            if (response.op === 'ok') {
-                return;
-            } else if (response.op === 'error') {
-                const err = response.data as { code: string; message: string };
-                throw new Error(`Exec failed: ${err.message}`);
+            switch (response.op) {
+                case 'ok':
+                    return;
+                case 'error': {
+                    const err = response.data as { code: string; message: string };
+                    throw new Error(`Exec failed [${err.code}]: ${err.message}`);
+                }
+                default:
+                    // SAFETY: Ignore unexpected response types (progress, event, etc.)
+                    break;
             }
         }
 
