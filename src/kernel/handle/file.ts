@@ -56,7 +56,7 @@ export class FileHandleAdapter implements Handle {
                 break;
 
             case 'send':
-                yield* this.send(data?.data as Uint8Array);
+                yield* this.send(msg.data);
                 break;
 
             case 'seek':
@@ -108,14 +108,51 @@ export class FileHandleAdapter implements Handle {
         }
     }
 
-    private async *send(data: Uint8Array): AsyncIterable<Response> {
-        if (!(data instanceof Uint8Array)) {
-            yield respond.error('EINVAL', 'data must be Uint8Array');
+    private encoder = new TextEncoder();
+
+    /**
+     * Write data to file.
+     *
+     * Accepts:
+     * - { data: Uint8Array } from write() syscall
+     * - Response item from send() syscall (for redirected stdout)
+     */
+    private async *send(data: unknown): AsyncIterable<Response> {
+        let bytes: Uint8Array;
+
+        // Handle different input formats
+        if (data && typeof data === 'object') {
+            if ('data' in data && (data as { data: unknown }).data instanceof Uint8Array) {
+                // From write() syscall: { data: Uint8Array }
+                bytes = (data as { data: Uint8Array }).data;
+            } else if ('op' in data) {
+                // From send() syscall: Response object (for redirected stdout)
+                const response = data as Response;
+                if (response.op === 'item') {
+                    // Text item - extract and encode
+                    const itemData = response.data as { text?: string } | undefined;
+                    const text = itemData?.text ?? '';
+                    bytes = this.encoder.encode(text);
+                } else if (response.op === 'chunk') {
+                    // Binary chunk - use directly
+                    const chunkData = response.data as { bytes?: Uint8Array } | undefined;
+                    bytes = chunkData?.bytes ?? new Uint8Array(0);
+                } else {
+                    // done, ok, error - nothing to write
+                    yield respond.ok({ written: 0 });
+                    return;
+                }
+            } else {
+                yield respond.error('EINVAL', 'Invalid data format for send');
+                return;
+            }
+        } else {
+            yield respond.error('EINVAL', 'data must be object');
             return;
         }
 
         try {
-            const written = await this.handle.write(data);
+            const written = await this.handle.write(bytes);
             yield respond.ok({ written });
         } catch (err) {
             yield respond.error('EIO', (err as Error).message);

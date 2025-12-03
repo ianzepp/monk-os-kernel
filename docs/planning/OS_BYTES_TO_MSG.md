@@ -1,5 +1,7 @@
 # Userspace Byte-to-Message Migration
 
+> **Status: COMPLETE** - All 4 phases implemented. This document is now historical reference.
+
 ## Terminology
 
 **IMPORTANT**: Monk OS uses distinct terminology for message-based vs byte-based I/O:
@@ -31,7 +33,7 @@ type PipeEnd = 'recv' | 'send';
 
 The kernel was designed around message-passing (`Message` and `Response` objects), but userspace was never updated to match. This creates unnecessary byte serialization at process boundaries.
 
-### Current Architecture (Wrong)
+### Old Architecture (Before Migration)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -73,7 +75,7 @@ The kernel was designed around message-passing (`Message` and `Response` objects
 
 **Conversion count for `ls | grep | sort`**: 6 encode/decode cycles
 
-### Correct Architecture (Message-First)
+### Current Architecture (Message-First)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -116,9 +118,9 @@ The kernel was designed around message-passing (`Message` and `Response` objects
 
 ---
 
-## Root Cause
+## Root Cause (Historical)
 
-The kernel architecture was updated to be message-first, but the userspace process library (`rom/lib/process/`) still uses byte-oriented I/O primitives that date from earlier design.
+The kernel architecture was updated to be message-first, but the userspace process library (`rom/lib/process/`) was still using byte-oriented I/O primitives. This has been fixed.
 
 ### Evidence: Kernel is Message-First
 
@@ -168,25 +170,24 @@ export async function write(fd: number, data: Uint8Array): Promise<number>
 
 ---
 
-## Specific Files Requiring Changes
+## Changes Made (Summary)
 
-### Layer 1: Pipe Infrastructure
+### Layer 1: Pipe Infrastructure ✓
 
 | File | Action |
 |------|--------|
-| `src/kernel/resource/pipe-buffer.ts` | **DELETE** |
-| `src/kernel/handle/pipe.ts` | **DELETE** |
-| `src/kernel/resource/message-pipe.ts` | **CREATE** - `MessagePipe` implements `Handle` directly |
-| `src/kernel/kernel.ts:createPipe()` | **UPDATE** - use `MessagePipe` |
+| `src/kernel/resource/pipe-buffer.ts` | Deleted |
+| `src/kernel/handle/pipe.ts` | Deleted |
+| `src/kernel/resource/message-pipe.ts` | Created - `MessagePipe` implements `Handle` |
+| `src/kernel/kernel.ts:createPipe()` | Updated to use `MessagePipe` |
 
-### Layer 2: Process Library (Userspace)
+### Layer 2: Process Library ✓
 
-| File | Current | Required |
-|------|---------|----------|
-| `rom/lib/process/file.ts` | `read()` returns `Uint8Array` | `read()` returns `Response` items |
-| `rom/lib/process/file.ts` | `write()` takes `Uint8Array` | `write()` takes `Response` or has message variant |
-| `rom/lib/process/io.ts` | `println()` encodes to bytes | `println()` yields `Response` item |
-| `rom/lib/process/io.ts` | `print()` encodes to bytes | `print()` yields `Response` item |
+| File | Change |
+|------|--------|
+| `rom/lib/process/pipe.ts` | Added `recv()` and `send()` for message I/O |
+| `rom/lib/process/io.ts` | `println()`/`print()` now send Response items |
+| `rom/lib/process/file.ts` | `read()`/`write()` remain byte-based for files |
 
 ### Layer 3: Userspace Utilities ✓ COMPLETED
 
@@ -207,11 +208,12 @@ All streaming utilities updated to use message-based I/O for stdin. See Phase 3 
 
 **Note**: `grep` does not exist yet. File input still uses byte-based `readFile()` (disk is a byte boundary).
 
-### Layer 4: Console Device (Byte Boundary)
+### Layer 4: Console Device ✓
 
-| File | Current | Required |
-|------|---------|----------|
-| `src/vfs/models/device.ts` | Console accepts bytes | Console accepts Response items, converts to bytes for display |
+| File | Change |
+|------|--------|
+| `src/kernel/handle/console.ts` | Created `ConsoleHandleAdapter` - bridges messages ↔ bytes |
+| `src/kernel/kernel.ts` | Uses `ConsoleHandleAdapter` for init stdio |
 
 ---
 
@@ -525,7 +527,9 @@ If Monk OS ever needs to interact with actual Unix processes (via HAL host escap
 
 ---
 
-## Boundary Adapters: LineReader / LineWriter
+## Boundary Adapters: LineReader / LineWriter (Alternative Design - Not Used)
+
+> **Note**: This section describes an alternative design approach. The actual implementation uses `ConsoleHandleAdapter` which does inline conversion without separate adapter classes.
 
 The system needs adapters at the boundaries where bytes meet messages.
 
@@ -660,10 +664,10 @@ class ConsoleDevice {
 | Component | Data Format | Notes |
 |-----------|-------------|-------|
 | Keyboard/Display | bytes | Hardware boundary |
-| `/dev/console` | bytes ↔ Response | Uses LineReader/LineWriter |
+| `/dev/console` | bytes ↔ Response | Uses `ConsoleHandleAdapter` |
 | Disk files | bytes | Storage boundary |
-| File handles (text) | bytes ↔ Response | Uses LineReader/LineWriter |
-| Pipes | Response | Pure message passing |
+| File handles | bytes | `read()`/`write()` for fd 3+ |
+| Pipes | Response | Pure message passing via `MessagePipe` |
 | Network sockets | bytes | Wire boundary |
 | Channels (HTTP, SQL) | Response | Protocol-aware messages |
 
