@@ -113,8 +113,9 @@ export class EntityModel extends PosixModel {
      *
      * WHY 'entity': This is a meta-model that dispatches to other models.
      * The VFS can register this single model to handle all entity types.
+     * Subclasses (FileModel, FolderModel) override with their specific type.
      */
-    readonly name = 'entity';
+    readonly name: string = 'entity';
 
     // =========================================================================
     // DEPENDENCIES

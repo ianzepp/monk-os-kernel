@@ -904,40 +904,12 @@ class ProcHandle implements FileHandle {
  * @returns UUID of the created process folder
  */
 export async function createProcessProc(
-    ctx: ModelContext,
-    procFolderId: string,
-    processState: ProcessState
+    _ctx: ModelContext,
+    _procFolderId: string,
+    _processState: ProcessState
 ): Promise<string> {
-    // Temporary model instances for creation
-    // WHY: Need to create folder and proc entities
-    const procModel = new ProcModel(new ProcessRegistry());
-    const folderModel = await import('@src/vfs/models/folder.js').then((m) => new m.FolderModel());
-
-    // Create process folder: /proc/{uuid}
-    const processFolderId = await folderModel.create(ctx, procFolderId, processState.id, {
-        owner: processState.id,
-    });
-
-    // Define the standard proc files to create
-    const procFiles: Array<{ name: string; procType: ProcType }> = [
-        { name: 'stat', procType: 'stat' },
-        { name: 'env', procType: 'env' },
-        { name: 'cwd', procType: 'cwd' },
-    ];
-
-    // Create each proc file
-    for (const { name, procType } of procFiles) {
-        await procModel.create(ctx, processFolderId, name, {
-            owner: processState.id,
-            procType,
-            processId: processState.id,
-        } as ModelStat & { procType: ProcType; processId: string });
-    }
-
-    // Create fd subdirectory for file descriptors
-    await folderModel.create(ctx, processFolderId, 'fd', {
-        owner: processState.id,
-    });
-
-    return processFolderId;
+    // TODO: Re-implement when VFS integration is complete
+    // FolderModel now requires EMS dependencies (EntityCache, DatabaseOps)
+    // which must be passed through or obtained from context
+    throw new Error('createProcessProc not yet implemented for EMS-backed models');
 }

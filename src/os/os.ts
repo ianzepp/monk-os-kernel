@@ -21,6 +21,7 @@ import { DatabaseAPI } from './database.js';
 import { createDatabase, type DatabaseConnection } from '@src/ems/connection.js';
 import { DatabaseOps } from '@src/ems/database-ops.js';
 import { ModelCache } from '@src/ems/model-cache.js';
+import { EntityCache } from '@src/ems/entity-cache.js';
 import { createObserverRunner } from '@src/ems/observers/registry.js';
 
 /**
@@ -231,12 +232,13 @@ export class OS {
         const modelCache = new ModelCache(this.db);
         const runner = createObserverRunner();
         this.dbOps = new DatabaseOps(this.db, modelCache, runner);
+        const entityCache = new EntityCache();
 
         // 4. Emit 'ems' event - os.database.* available
         await this.emit('ems', this);
 
         // 5. Create and initialize VFS
-        this.vfs = new VFS(this.hal);
+        this.vfs = new VFS(this.hal, entityCache, this.dbOps);
         await this.vfs.init();
 
         // 6. Emit 'vfs' event - os.fs.* available
