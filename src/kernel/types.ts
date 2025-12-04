@@ -42,6 +42,13 @@ export interface Process {
     /** Command-line arguments */
     args: string[];
 
+    /**
+     * PATH directories as named entries.
+     * Key = priority name (e.g., '00-core', '50-httpd'), sorted alphabetically
+     * Value = directory path (e.g., '/bin', '/pkg/httpd/bin')
+     */
+    pathDirs: Map<string, string>;
+
     /** Open handles: local handle id -> handle UUID */
     handles: Map<number, string>;
 

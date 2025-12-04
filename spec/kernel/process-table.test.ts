@@ -19,6 +19,7 @@ function createMockProcess(overrides: Partial<Process> = {}): Process {
         cwd: '/',
         env: {},
         args: [],
+        pathDirs: new Map([['00-bin', '/bin']]),
         handles: new Map(),
         nextHandle: 3,
         children: new Map(),

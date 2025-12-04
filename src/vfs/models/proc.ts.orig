@@ -908,8 +908,9 @@ export async function createProcessProc(
     _procFolderId: string,
     _processState: ProcessState
 ): Promise<string> {
-    // TODO: Re-implement when VFS integration is complete
-    // FolderModel now requires EMS dependencies (EntityCache, DatabaseOps)
-    // which must be passed through or obtained from context
-    throw new ENOSYS('createProcessProc not yet implemented for EMS-backed models');
+    // TODO: Implement proc entry creation
+    // This requires creating /proc/{uuid}/ folder (EMS-backed via FolderModel)
+    // and proc files inside it (HAL-backed via ProcModel).
+    // The kernel should call this when spawning processes.
+    throw new ENOSYS('createProcessProc not yet implemented');
 }
