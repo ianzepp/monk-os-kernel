@@ -41,7 +41,7 @@ import {
     DatabaseOps,
     collect,
     type DbRecord,
-} from '@src/model/database-ops.js';
+} from '@src/ems/database-ops.js';
 import type {
     FilterData,
     SelectOptions,
@@ -49,14 +49,14 @@ import type {
     UpdateInput,
     DeleteInput,
     RevertInput,
-} from '@src/model/filter-types.js';
+} from '@src/ems/filter-types.js';
 import { ENOENT, EIO } from '@src/hal/errors.js';
 
 // =============================================================================
 // RE-EXPORTS
 // =============================================================================
 
-export type { DbRecord } from '@src/model/database-ops.js';
+export type { DbRecord } from '@src/ems/database-ops.js';
 export type {
     FilterData,
     SelectOptions,
@@ -64,7 +64,7 @@ export type {
     UpdateInput,
     DeleteInput,
     RevertInput,
-} from '@src/model/filter-types.js';
+} from '@src/ems/filter-types.js';
 
 // =============================================================================
 // HOST INTERFACE

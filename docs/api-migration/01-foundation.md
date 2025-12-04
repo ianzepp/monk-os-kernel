@@ -139,7 +139,7 @@ export class EOBSERVER extends ObserverError { /* errno 1032 */ }
 ### Creating an Observer
 
 ```typescript
-import { BaseObserver, ObserverRing, type ObserverContext } from '@src/model/observers/index.js';
+import { BaseObserver, ObserverRing, type ObserverContext } from '@src/ems/observers/index.js';
 
 export class MyValidator extends BaseObserver {
     readonly name = 'MyValidator';
@@ -159,7 +159,7 @@ export class MyValidator extends BaseObserver {
 ### Running the Pipeline
 
 ```typescript
-import { createObserverRunner } from '@src/model/observers/index.js';
+import { createObserverRunner } from '@src/ems/observers/index.js';
 
 const runner = createObserverRunner();
 runner.register(new MyValidator());

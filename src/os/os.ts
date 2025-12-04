@@ -18,10 +18,10 @@ import { ProcessAPI } from './process.js';
 import { ServiceAPI } from './service.js';
 import { PackageAPI } from './pkg.js';
 import { DatabaseAPI } from './database.js';
-import { createDatabase, type DatabaseConnection } from '@src/model/connection.js';
-import { DatabaseOps } from '@src/model/database-ops.js';
-import { ModelCache } from '@src/model/model-cache.js';
-import { createObserverRunner } from '@src/model/observers/registry.js';
+import { createDatabase, type DatabaseConnection } from '@src/ems/connection.js';
+import { DatabaseOps } from '@src/ems/database-ops.js';
+import { ModelCache } from '@src/ems/model-cache.js';
+import { createObserverRunner } from '@src/ems/observers/registry.js';
 
 /**
  * Type for storing event listeners

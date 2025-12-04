@@ -79,7 +79,7 @@
 import { PosixModel } from '@src/vfs/model.js';
 import type { ModelStat, ModelContext, FieldDef, WatchEvent } from '@src/vfs/model.js';
 import type { FileHandle, OpenFlags, OpenOptions, SeekWhence } from '@src/vfs/handle.js';
-import type { DatabaseOps, DbRecord } from '@src/model/database-ops.js';
+import type { DatabaseOps, DbRecord } from '@src/ems/database-ops.js';
 import { ENOENT, EBADF, EACCES, EINVAL } from '@src/hal/index.js';
 
 // =============================================================================

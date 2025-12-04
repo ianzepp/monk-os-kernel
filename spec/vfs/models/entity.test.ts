@@ -8,11 +8,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { OS } from '@src/index.js';
 import { EntityModel } from '@src/vfs/models/entity.js';
-import { EntityCache, ROOT_ID } from '@src/model/entity-cache.js';
-import { DatabaseOps, type DbRecord } from '@src/model/database-ops.js';
-import { createDatabase, type DatabaseConnection } from '@src/model/connection.js';
-import { ModelCache } from '@src/model/model-cache.js';
-import { createObserverRunner } from '@src/model/observers/registry.js';
+import { EntityCache, ROOT_ID } from '@src/ems/entity-cache.js';
+import { DatabaseOps, type DbRecord } from '@src/ems/database-ops.js';
+import { createDatabase, type DatabaseConnection } from '@src/ems/connection.js';
+import { ModelCache } from '@src/ems/model-cache.js';
+import { createObserverRunner } from '@src/ems/observers/registry.js';
 import { BunHAL } from '@src/hal/index.js';
 import type { ModelContext } from '@src/vfs/model.js';
 
