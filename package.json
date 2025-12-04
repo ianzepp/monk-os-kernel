@@ -19,7 +19,9 @@
         "perf": "bun test --preload ./spec/bun-test-setup.ts ./perf/**/*.perf.ts",
         "perf:coverage": "bun test --coverage --preload ./spec/bun-test-setup.ts ./perf/**/*.perf.ts",
         "perf:fixtures": "bun run ./perf/fixtures.ts",
-        "typecheck": "bun x tsc --noEmit"
+        "typecheck": "bun x tsc --noEmit",
+        "typecheck:spec": "bun x tsc --noEmit -p tsconfig.spec.json",
+        "typecheck:perf": "bun x tsc --noEmit -p tsconfig.perf.json"
     },
     "keywords": [
         "os",

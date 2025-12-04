@@ -9,7 +9,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { OS } from '@src/index.js';
 import { EntityModel } from '@src/vfs/models/entity.js';
 import { EntityCache, ROOT_ID } from '@src/ems/entity-cache.js';
-import { DatabaseOps, type DbRecord } from '@src/ems/database-ops.js';
+import { EntityOps, type EntityRecord } from '@src/ems/entity-ops.js';
 import { createDatabase, type DatabaseConnection } from '@src/ems/connection.js';
 import { ModelCache } from '@src/ems/model-cache.js';
 import { createObserverRunner } from '@src/ems/observers/registry.js';
@@ -24,7 +24,7 @@ let hal: BunHAL;
 let db: DatabaseConnection;
 let cache: ModelCache;
 let entityCache: EntityCache;
-let ops: DatabaseOps;
+let ops: EntityOps;
 let model: EntityModel;
 let ctx: ModelContext;
 
@@ -42,8 +42,8 @@ beforeEach(async () => {
     // Create observer runner
     const runner = createObserverRunner();
 
-    // Create DatabaseOps
-    ops = new DatabaseOps(db, cache, runner);
+    // Create EntityOps
+    ops = new EntityOps(db, cache, runner);
 
     // Create EntityCache and load from database
     entityCache = new EntityCache();
@@ -218,7 +218,7 @@ describe('EntityModel', () => {
             expect(entity).toBeDefined();
 
             // But detail should have trashed_at set
-            const rows = await db.query<DbRecord>(
+            const rows = await db.query<EntityRecord>(
                 'SELECT trashed_at FROM folder WHERE id = ?',
                 [id]
             );
@@ -265,29 +265,29 @@ describe('EntityModel with booted OS', () => {
         expect(stat.model).toBe('device');
     });
 
-    it('should have os.database available', () => {
-        expect(os.database).toBeDefined();
+    it('should have os.ems available', () => {
+        expect(os.ems).toBeDefined();
     });
 
-    it('should query models via os.database', async () => {
-        const models = await os.database.selectAny('models');
+    it('should query models via os.ems', async () => {
+        const models = await os.ems.selectAny('models');
         expect(models.length).toBeGreaterThan(0);
 
         // Should have core models
-        const modelNames = models.map((m: DbRecord) => m.model_name);
+        const modelNames = models.map((m: EntityRecord) => m.model_name);
         expect(modelNames).toContain('folder');
         expect(modelNames).toContain('file');
     });
 
-    it('should query fields via os.database', async () => {
-        const fields = await os.database.selectAny('fields', {
+    it('should query fields via os.ems', async () => {
+        const fields = await os.ems.selectAny('fields', {
             where: { model_name: 'folder' }
         });
         expect(fields.length).toBeGreaterThan(0);
     });
 
-    it('should create a folder entity via os.database', async () => {
-        const folder = await os.database.createOne('folder', {
+    it('should create a folder entity via os.ems', async () => {
+        const folder = await os.ems.createOne('folder', {
             parent: ROOT_ID,
             pathname: 'test-via-os-db',
             owner: 'test-user',
@@ -297,10 +297,10 @@ describe('EntityModel with booted OS', () => {
         expect(folder.owner).toBe('test-user');
 
         // Verify in entities table (entities has no trashed_at, so use 'include')
-        const entities = await os.database.selectAny('entities', {
+        const entities = await os.ems.selectAny('entities', {
             where: { id: folder.id }
         }, { trashed: 'include' });
         expect(entities.length).toBe(1);
-        expect((entities[0] as DbRecord).pathname).toBe('test-via-os-db');
+        expect((entities[0] as EntityRecord).pathname).toBe('test-via-os-db');
     });
 });
