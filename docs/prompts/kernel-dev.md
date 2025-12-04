@@ -41,12 +41,24 @@ The rewritten file should follow this structure:
  * INVARIANTS (must always hold true)
  * ===================================
  * INV-1: [First invariant]
+ *        VIOLATED BY: [What operation could break this]
  * INV-2: [Second invariant]
+ *        VIOLATED BY: [What operation could break this]
  * ...
  *
  * CONCURRENCY MODEL
  * =================
  * [Explain what's single-threaded vs async, what can interleave]
+ *
+ * NOTE: Bun workers are truly parallel (separate threads), not just async.
+ * postMessage crosses thread boundaries. The kernel runs in the main thread
+ * while each process runs in its own worker thread.
+ *
+ * LOCK ORDERING (to prevent deadlock)
+ * ===================================
+ * [If multiple locks exist, document acquisition order]
+ * L-1: Always acquire [first lock] before [second lock]
+ * L-2: ...
  *
  * RACE CONDITION MITIGATIONS
  * ==========================
@@ -252,6 +264,40 @@ try {
 } catch (err) {
     if (err.code === 'EEXIST') {
         // Handle conflict
+    }
+}
+```
+
+### 4. Event Listener Cleanup
+
+```typescript
+// BEFORE (leaky)
+class RequestHandler {
+    start(proc: Process) {
+        proc.on('exit', this.handleExit); // Never removed if handler outlives proc!
+    }
+}
+
+// AFTER (clean)
+class RequestHandler {
+    private cleanupFns = new Map<number, () => void>();
+
+    start(proc: Process) {
+        const handler = () => this.handleExit(proc);
+        proc.on('exit', handler);
+
+        // Store cleanup function
+        this.cleanupFns.set(proc.pid, () => {
+            proc.off('exit', handler);
+        });
+    }
+
+    stop(proc: Process) {
+        const cleanup = this.cleanupFns.get(proc.pid);
+        if (cleanup) {
+            cleanup();
+            this.cleanupFns.delete(proc.pid);
+        }
     }
 }
 ```
