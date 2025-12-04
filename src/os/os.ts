@@ -233,6 +233,10 @@ export class OS {
         const runner = createObserverRunner();
         this.entityOps = new EntityOps(this.db, modelCache, runner);
         const entityCache = new EntityCache();
+        await entityCache.loadFromDatabase(this.db);
+
+        // Wire entityCache to entityOps for Ring 8 EntityCacheSync observer
+        this.entityOps.setEntityCache(entityCache);
 
         // 4. Emit 'ems' event - os.ems.* available
         await this.emit('ems', this);

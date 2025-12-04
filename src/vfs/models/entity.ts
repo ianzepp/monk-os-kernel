@@ -255,13 +255,22 @@ export class EntityModel extends PosixModel {
         }
 
         // Merge entity + detail
-        // entities.pathname → ModelStat.name (VFS interface uses 'name')
+        // Map EMS fields to VFS ModelStat fields
+        const rec = detail as Record<string, unknown>;
+        const updatedAt = rec.updated_at as string | undefined;
+        const createdAt = rec.created_at as string | undefined;
+
         return {
             ...detail,
             id: entity.id,
             model: entity.model,
             parent: entity.parent,
             name: entity.pathname,
+            // Map EMS timestamps to VFS format (milliseconds)
+            mtime: updatedAt ? new Date(updatedAt).getTime() : Date.now(),
+            ctime: createdAt ? new Date(createdAt).getTime() : Date.now(),
+            // Default size for models without it (folders)
+            size: (rec.size as number) ?? 0,
         } as unknown as ModelStat;
     }
 
@@ -285,13 +294,21 @@ export class EntityModel extends PosixModel {
             throw new ENOENT(`Entity not found: ${id}`);
         }
 
+        // Map VFS fields to EMS fields
+        // VFS uses 'name', EMS uses 'pathname'
+        const emsFields: Record<string, unknown> = { ...fields };
+        if ('name' in emsFields) {
+            emsFields.pathname = emsFields.name;
+            delete emsFields.name;
+        }
+
         // Update detail table (flows through observer pipeline)
         // The observer pipeline handles:
         // - Updating entities.parent if parent changed
         // - Updating entities.pathname if pathname source field changed
         // - Updating EntityCache
         // Consume the generator to execute the update
-        for await (const _ of this.db.updateIds(entity.model, [id], fields)) {
+        for await (const _ of this.db.updateIds(entity.model, [id], emsFields)) {
             // Consume results
         }
     }

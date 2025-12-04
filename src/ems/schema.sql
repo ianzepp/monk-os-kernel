@@ -400,6 +400,7 @@ CREATE TABLE IF NOT EXISTS file (
 
     -- File-specific fields
     owner       TEXT NOT NULL,
+    data        TEXT,                -- UUID reference to blob in HAL block storage
     size        INTEGER DEFAULT 0,
     mimetype    TEXT,
     checksum    TEXT
