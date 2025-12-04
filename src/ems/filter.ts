@@ -163,11 +163,31 @@ import {
 import { EINVAL } from '@src/hal/errors.js';
 
 // =============================================================================
+// CONSTANTS
+// =============================================================================
+
+/**
+ * Columns that live in the `entities` table.
+ * All other columns are assumed to be in the detail table.
+ */
+const ENTITY_COLUMNS = new Set(['id', 'model', 'parent', 'pathname']);
+
+/**
+ * Metadata tables that should NOT be joined with entities.
+ * All other tables are assumed to be entity detail tables and get auto-joined.
+ */
+const METADATA_TABLES = new Set(['models', 'fields', 'tracked', 'entities']);
+
+// =============================================================================
 // FILTER CLASS
 // =============================================================================
 
 /**
  * Query builder with SQL generation for SQLite.
+ *
+ * For entity detail tables (file, folder, etc.), automatically joins with
+ * the entities table to provide hierarchy columns (parent, pathname).
+ * Metadata tables (models, fields, tracked, entities) are queried directly.
  *
  * TESTABILITY: Pure class with no external dependencies.
  * All SQL generation is deterministic and testable.
@@ -197,6 +217,14 @@ export class Filter {
     constructor(tableName: string) {
         this.validateIdentifier(tableName, 'table name');
         this.tableName = tableName;
+    }
+
+    /**
+     * Whether this table should be joined with entities.
+     * Returns true for entity detail tables, false for metadata tables.
+     */
+    private get shouldJoinEntities(): boolean {
+        return !METADATA_TABLES.has(this.tableName);
     }
 
     // =========================================================================
@@ -321,14 +349,31 @@ export class Filter {
     /**
      * Generate complete SELECT query.
      *
+     * When joinEntities is true, joins the detail table with entities to provide
+     * hierarchy columns (parent, pathname) alongside model-specific columns.
+     *
      * @returns SQL and parameters
      */
     toSQL(): SqlResult {
         const parts: string[] = [];
         const params: unknown[] = [];
 
-        // SELECT
-        parts.push(`SELECT ${this.selectFields.join(', ')} FROM ${this.tableName}`);
+        // SELECT - always alias main table as 'd', optionally JOIN entities as 'e'
+        if (this.shouldJoinEntities) {
+            // Detail table (d) drives the query, join entities (e) for hierarchy columns
+            const selectExpr = this.selectFields.includes('*')
+                ? 'e.id, e.model, e.parent, e.pathname, d.*'
+                : this.selectFields.map((f) => this.qualifyField(f)).join(', ');
+            parts.push(
+                `SELECT ${selectExpr} FROM ${this.tableName} d JOIN entities e ON d.id = e.id`
+            );
+        } else {
+            // Metadata table - alias as 'd' but no JOIN
+            const selectExpr = this.selectFields.includes('*')
+                ? 'd.*'
+                : this.selectFields.map((f) => `d.${f}`).join(', ');
+            parts.push(`SELECT ${selectExpr} FROM ${this.tableName} d`);
+        }
 
         // WHERE
         const where = this.buildWhereClause(params);
@@ -339,7 +384,7 @@ export class Filter {
         // ORDER BY
         if (this.orderSpecs.length > 0) {
             const orderClauses = this.orderSpecs.map(
-                (s) => `${s.field} ${s.sort.toUpperCase()}`
+                (s) => `${this.qualifyField(s.field)} ${s.sort.toUpperCase()}`
             );
             parts.push(`ORDER BY ${orderClauses.join(', ')}`);
         }
@@ -362,7 +407,10 @@ export class Filter {
      */
     toCountSQL(): SqlResult {
         const params: unknown[] = [];
-        const parts: string[] = [`SELECT COUNT(*) as count FROM ${this.tableName}`];
+        const fromClause = this.shouldJoinEntities
+            ? `${this.tableName} d JOIN entities e ON d.id = e.id`
+            : `${this.tableName} d`;
+        const parts: string[] = [`SELECT COUNT(*) as count FROM ${fromClause}`];
 
         const where = this.buildWhereClause(params);
         if (where) {
@@ -410,13 +458,14 @@ export class Filter {
 
     /**
      * Build soft-delete condition.
+     * Always uses d.trashed_at since main table is always aliased as 'd'.
      */
     private buildTrashedCondition(): string {
         switch (this.trashedOption) {
             case 'exclude':
-                return 'trashed_at IS NULL';
+                return 'd.trashed_at IS NULL';
             case 'only':
-                return 'trashed_at IS NOT NULL';
+                return 'd.trashed_at IS NOT NULL';
             case 'include':
             default:
                 return '';
@@ -502,21 +551,24 @@ export class Filter {
 
     /**
      * Build condition for a single field.
+     * Field names are always qualified with 'd.' (main table) or 'e.' (entities).
      */
     private buildFieldCondition(
         field: string,
         value: unknown,
         params: unknown[]
     ): string {
+        const qualifiedField = this.qualifyField(field);
+
         // Null value
         if (value === null) {
-            return `${field} IS NULL`;
+            return `${qualifiedField} IS NULL`;
         }
 
         // Primitive value (implicit $eq)
         if (typeof value !== 'object') {
             params.push(value);
-            return `${field} = ?`;
+            return `${qualifiedField} = ?`;
         }
 
         // Operator object
@@ -524,7 +576,7 @@ export class Filter {
         const conditions: string[] = [];
 
         for (const [op, opValue] of Object.entries(operators)) {
-            const condition = this.buildOperatorCondition(field, op, opValue, params);
+            const condition = this.buildOperatorCondition(qualifiedField, op, opValue, params);
             if (condition) {
                 conditions.push(condition);
             }
@@ -535,6 +587,7 @@ export class Filter {
 
     /**
      * Build condition for a specific operator.
+     * Field is already qualified with table alias (e.field or d.field).
      */
     private buildOperatorCondition(
         field: string,
@@ -721,6 +774,18 @@ export class Filter {
     // =========================================================================
     // PRIVATE - HELPERS
     // =========================================================================
+
+    /**
+     * Qualify a field name with the appropriate table alias.
+     * When joining entities: entity columns use 'e.', others use 'd.'
+     * When not joining: all columns use 'd.'
+     */
+    private qualifyField(field: string): string {
+        if (this.shouldJoinEntities && ENTITY_COLUMNS.has(field)) {
+            return `e.${field}`;
+        }
+        return `d.${field}`;
+    }
 
     /**
      * Validate identifier (table/field name) for SQL injection.
