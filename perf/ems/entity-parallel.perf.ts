@@ -55,6 +55,11 @@ interface FileEntity {
     parent: string | null;
     pathname: string;
     owner: string;
+    created_at: string;
+    updated_at: string;
+    trashed_at: string | null;
+    expired_at: string | null;
+    [key: string]: unknown;
 }
 
 // =============================================================================
@@ -265,7 +270,7 @@ describe('EMS Parallel: Write Contention', () => {
             const sqliteRun = await runParallel(concurrency, totalOps, async (i) => {
                 return collect(
                     sqlite.entityOps!.updateAll<FileEntity>('file', [
-                        { id: sqliteFiles[i]!.id, pathname: `sqlite-upd-done-${i}.txt` },
+                        { id: sqliteFiles[i]!.id, changes: { pathname: `sqlite-upd-done-${i}.txt` } },
                     ])
                 );
             });
@@ -282,7 +287,7 @@ describe('EMS Parallel: Write Contention', () => {
             const pgRun = await runParallel(concurrency, totalOps, async (i) => {
                 return collect(
                     postgres.entityOps!.updateAll<FileEntity>('file', [
-                        { id: pgFiles[i]!.id, pathname: `pg-upd-done-${i}.txt` },
+                        { id: pgFiles[i]!.id, changes: { pathname: `pg-upd-done-${i}.txt` } },
                     ])
                 );
             });

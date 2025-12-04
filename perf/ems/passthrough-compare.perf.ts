@@ -13,7 +13,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import { createOsStack, type OsStack } from '@src/os/stack.js';
 import { collect } from '@src/ems/entity-ops.js';
-import type { HALConfig } from '@src/hal/index.js';
 
 // =============================================================================
 // CONFIGURATION

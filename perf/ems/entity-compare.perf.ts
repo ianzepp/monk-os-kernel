@@ -12,7 +12,7 @@
  * Run with: bun test ./perf/ems/entity-compare.perf.ts
  */
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'bun:test';
+import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import { createOsStack, type OsStack } from '@src/os/stack.js';
 import { collect } from '@src/ems/entity-ops.js';
 import type { HALConfig } from '@src/hal/index.js';
@@ -50,9 +50,11 @@ interface FileEntity {
     owner: string;
     data?: string;
     size?: number;
-    created_at?: string;
-    updated_at?: string;
-    trashed_at?: string | null;
+    created_at: string;
+    updated_at: string;
+    trashed_at: string | null;
+    expired_at: string | null;
+    [key: string]: unknown;
 }
 
 interface FolderEntity {
@@ -61,9 +63,11 @@ interface FolderEntity {
     parent: string | null;
     pathname: string;
     owner: string;
-    created_at?: string;
-    updated_at?: string;
-    trashed_at?: string | null;
+    created_at: string;
+    updated_at: string;
+    trashed_at: string | null;
+    expired_at: string | null;
+    [key: string]: unknown;
 }
 
 // =============================================================================
@@ -255,7 +259,7 @@ describe('EMS Entity Compare: File Operations', () => {
             const id = sqliteFiles[i % sqliteFiles.length]!.id;
             await collect(
                 stack.entityOps!.updateAll<FileEntity>('file', [
-                    { id, pathname: `sqlite-updated-${i}.txt` },
+                    { id, changes: { pathname: `sqlite-updated-${i}.txt` } },
                 ])
             );
         });
@@ -264,7 +268,7 @@ describe('EMS Entity Compare: File Operations', () => {
             const id = pgFiles[i % pgFiles.length]!.id;
             await collect(
                 stack.entityOps!.updateAll<FileEntity>('file', [
-                    { id, pathname: `pg-updated-${i}.txt` },
+                    { id, changes: { pathname: `pg-updated-${i}.txt` } },
                 ])
             );
         });
@@ -547,7 +551,7 @@ describe('EMS Entity Compare: Bulk Operations', () => {
         const sqliteStart = performance.now();
         await collect(
             sqlite.entityOps!.updateAll<FileEntity>('file',
-                sqliteFiles.map((f, i) => ({ id: f.id, pathname: `sqlite-bupd-updated-${i}.txt` }))
+                sqliteFiles.map((f, i) => ({ id: f.id, changes: { pathname: `sqlite-bupd-updated-${i}.txt` } }))
             )
         );
         const sqliteMs = performance.now() - sqliteStart;
@@ -555,7 +559,7 @@ describe('EMS Entity Compare: Bulk Operations', () => {
         const pgStart = performance.now();
         await collect(
             postgres.entityOps!.updateAll<FileEntity>('file',
-                pgFiles.map((f, i) => ({ id: f.id, pathname: `pg-bupd-updated-${i}.txt` }))
+                pgFiles.map((f, i) => ({ id: f.id, changes: { pathname: `pg-bupd-updated-${i}.txt` } }))
             )
         );
         const pgMs = performance.now() - pgStart;
@@ -679,7 +683,7 @@ describe('EMS Entity Compare: Mixed Workload', () => {
             // Update
             await collect(
                 sqlite.entityOps!.updateAll<FileEntity>('file', [
-                    { id, pathname: `sqlite-crud-updated-${i}.txt` },
+                    { id, changes: { pathname: `sqlite-crud-updated-${i}.txt` } },
                 ])
             );
 
@@ -704,7 +708,7 @@ describe('EMS Entity Compare: Mixed Workload', () => {
             // Update
             await collect(
                 postgres.entityOps!.updateAll<FileEntity>('file', [
-                    { id, pathname: `pg-crud-updated-${i}.txt` },
+                    { id, changes: { pathname: `pg-crud-updated-${i}.txt` } },
                 ])
             );
 
