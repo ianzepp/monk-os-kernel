@@ -67,9 +67,9 @@ describe('Database Channels', () => {
                 );
 
                 expect(rows).toHaveLength(3);
-                expect(rows[0].name).toBe('Alice');
-                expect(rows[1].name).toBe('Bob');
-                expect(rows[2].name).toBe('Carol');
+                expect(rows[0]!.name).toBe('Alice');
+                expect(rows[1]!.name).toBe('Bob');
+                expect(rows[2]!.name).toBe('Carol');
             });
 
             it('should support parameter binding', async () => {
@@ -278,7 +278,7 @@ describe('Database Channels', () => {
                 );
 
                 expect(rows).toHaveLength(1);
-                expect(rows[0].value).toBe(100);
+                expect(rows[0]!.value).toBe(100);
             });
 
             it('should support rollback', async () => {
@@ -330,7 +330,7 @@ describe('Database Channels', () => {
                 );
 
                 expect(rows).toHaveLength(1);
-                expect(rows[0].value).toBe(1);
+                expect(rows[0]!.value).toBe(1);
             });
         });
 

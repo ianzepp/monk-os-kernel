@@ -8,7 +8,7 @@
 
 import { describe, it, expect, mock } from 'bun:test';
 import { ListenerPort, WatchPort, PubsubPort, matchTopic, createMessagePipe } from '@src/kernel/resource.js';
-import { EAGAIN, ENOTSUP } from '@src/kernel/errors.js';
+import { ENOTSUP } from '@src/kernel/errors.js';
 import { respond } from '@src/message.js';
 import type { WatchEvent } from '@src/vfs/model.js';
 import type { Listener, Socket } from '@src/hal/index.js';
@@ -123,9 +123,9 @@ describe('MessagePipe', () => {
         const [recvEnd, sendEnd] = createMessagePipe('test-pipe');
 
         // Send multiple messages
-        for await (const _ of sendEnd.exec({ op: 'send', data: respond.item('first') })) {}
-        for await (const _ of sendEnd.exec({ op: 'send', data: respond.item('second') })) {}
-        for await (const _ of sendEnd.exec({ op: 'send', data: respond.item('third') })) {}
+        for await (const _r of sendEnd.exec({ op: 'send', data: respond.item('first') })) {}
+        for await (const _r of sendEnd.exec({ op: 'send', data: respond.item('second') })) {}
+        for await (const _r of sendEnd.exec({ op: 'send', data: respond.item('third') })) {}
 
         await sendEnd.close();
 
@@ -142,7 +142,7 @@ describe('MessagePipe', () => {
     });
 
     it('should return EBADF when recv from send end', async () => {
-        const [_, sendEnd] = createMessagePipe('test-pipe');
+        const [, sendEnd] = createMessagePipe('test-pipe');
 
         const result = [];
         for await (const r of sendEnd.exec({ op: 'recv' })) {
@@ -153,7 +153,7 @@ describe('MessagePipe', () => {
     });
 
     it('should return EBADF when send to recv end', async () => {
-        const [recvEnd, _] = createMessagePipe('test-pipe');
+        const [recvEnd] = createMessagePipe('test-pipe');
 
         const result = [];
         for await (const r of recvEnd.exec({ op: 'send', data: respond.item('test') })) {
@@ -191,7 +191,7 @@ describe('MessagePipe', () => {
     });
 
     it('should return EBADF when handle is closed', async () => {
-        const [recvEnd, sendEnd] = createMessagePipe('test-pipe');
+        const [, sendEnd] = createMessagePipe('test-pipe');
 
         await sendEnd.close();
 
@@ -236,7 +236,7 @@ describe('MessagePipe', () => {
 
         // Small delay, then send
         await new Promise(r => setTimeout(r, 10));
-        for await (const _ of sendEnd.exec({ op: 'send', data: respond.item('delayed') })) {}
+        for await (const _r of sendEnd.exec({ op: 'send', data: respond.item('delayed') })) {}
         await sendEnd.close();
 
         const result = await recvPromise;
@@ -245,7 +245,7 @@ describe('MessagePipe', () => {
     });
 
     it('should return EINVAL for unknown op', async () => {
-        const [recvEnd, _] = createMessagePipe('test-pipe');
+        const [recvEnd] = createMessagePipe('test-pipe');
 
         const result = [];
         for await (const r of recvEnd.exec({ op: 'unknown' })) {

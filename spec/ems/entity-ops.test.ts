@@ -15,7 +15,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { BunHAL } from '@src/hal/index.js';
 import { createDatabase } from '@src/ems/connection.js';
 import { ModelCache } from '@src/ems/model-cache.js';
-import { EntityOps, collect, type EntityRecord } from '@src/ems/entity-ops.js';
+import { EntityOps, collect } from '@src/ems/entity-ops.js';
 import { createObserverRunner, ObserverRunner } from '@src/ems/observers/index.js';
 import type { DatabaseConnection } from '@src/ems/connection.js';
 
@@ -94,7 +94,7 @@ describe('EntityOps', () => {
             );
 
             expect(files).toHaveLength(1);
-            expect(files[0].owner).toBe(uniqueOwner);
+            expect(files[0]!.owner).toBe(uniqueOwner);
         });
 
         it('should apply limit', async () => {
@@ -184,8 +184,8 @@ describe('EntityOps', () => {
             );
 
             expect(created).toHaveLength(1);
-            expect(created[0].id).toBeTruthy();
-            expect(created[0].id.length).toBe(32); // UUID without dashes
+            expect(created[0]!.id).toBeTruthy();
+            expect(created[0]!.id.length).toBe(32); // UUID without dashes
         });
 
         it('should set created_at and updated_at timestamps', async () => {
@@ -195,7 +195,7 @@ describe('EntityOps', () => {
             );
             const after = new Date().toISOString();
 
-            const record = created[0];
+            const record = created[0]!;
             expect(record.created_at).toBeTruthy();
             expect(record.updated_at).toBeTruthy();
             expect(record.created_at >= before).toBe(true);
@@ -210,10 +210,10 @@ describe('EntityOps', () => {
             // Verify via direct query
             const rows = await db.query<{ pathname: string }>(
                 'SELECT pathname FROM entities WHERE id = ?',
-                [created[0].id]
+                [created[0]!.id]
             );
             expect(rows).toHaveLength(1);
-            expect(rows[0].pathname).toBe('persist.txt');
+            expect(rows[0]!.pathname).toBe('persist.txt');
         });
 
         it('should allow providing custom ID', async () => {
@@ -222,7 +222,7 @@ describe('EntityOps', () => {
                 entityOps.createAll('file', [{ id: customId, pathname: 'custom-id.txt', owner: 'test' }])
             );
 
-            expect(created[0].id).toBe(customId);
+            expect(created[0]!.id).toBe(customId);
         });
 
         it('should stream multiple records', async () => {
@@ -252,11 +252,11 @@ describe('EntityOps', () => {
 
             // Update
             const updated = await collect(
-                entityOps.updateAll('file', [{ id: created[0].id, changes: { owner: 'changed' } }])
+                entityOps.updateAll('file', [{ id: created[0]!.id, changes: { owner: 'changed' } }])
             );
 
             expect(updated).toHaveLength(1);
-            expect(updated[0].owner).toBe('changed');
+            expect(updated[0]!.owner).toBe('changed');
         });
 
         it('should update updated_at timestamp', async () => {
@@ -268,10 +268,10 @@ describe('EntityOps', () => {
             await new Promise((r) => setTimeout(r, 10));
 
             const updated = await collect(
-                entityOps.updateAll('file', [{ id: created[0].id, changes: { owner: 'new' } }])
+                entityOps.updateAll('file', [{ id: created[0]!.id, changes: { owner: 'new' } }])
             );
 
-            expect(updated[0].updated_at > created[0].updated_at).toBe(true);
+            expect(updated[0]!.updated_at > created[0]!.updated_at).toBe(true);
         });
 
         it('should throw for non-existent record', async () => {
@@ -310,16 +310,16 @@ describe('EntityOps', () => {
                 entityOps.createAll('file', [{ pathname: 'soft-delete.txt', owner: 'test' }])
             );
 
-            const deleted = await collect(entityOps.deleteIds('file', [created[0].id]));
+            const deleted = await collect(entityOps.deleteIds('file', [created[0]!.id]));
 
             expect(deleted).toHaveLength(1);
 
             // Verify trashed_at is set
             const rows = await db.query<{ trashed_at: string | null }>(
                 'SELECT trashed_at FROM file WHERE id = ?',
-                [created[0].id]
+                [created[0]!.id]
             );
-            expect(rows[0].trashed_at).toBeTruthy();
+            expect(rows[0]!.trashed_at).toBeTruthy();
         });
 
         it('should not hard delete the record', async () => {
@@ -327,10 +327,10 @@ describe('EntityOps', () => {
                 entityOps.createAll('file', [{ pathname: 'no-hard-delete.txt', owner: 'test' }])
             );
 
-            await collect(entityOps.deleteIds('file', [created[0].id]));
+            await collect(entityOps.deleteIds('file', [created[0]!.id]));
 
             // Record should still exist
-            const rows = await db.query('SELECT id FROM file WHERE id = ?', [created[0].id]);
+            const rows = await db.query('SELECT id FROM file WHERE id = ?', [created[0]!.id]);
             expect(rows).toHaveLength(1);
         });
 
@@ -350,15 +350,15 @@ describe('EntityOps', () => {
             const created = await collect(
                 entityOps.createAll('file', [{ pathname: 'revert-me.txt', owner: 'test' }])
             );
-            await collect(entityOps.deleteIds('file', [created[0].id]));
+            await collect(entityOps.deleteIds('file', [created[0]!.id]));
 
             // Revert
             const reverted = await collect(
-                entityOps.revertAll('file', [{ id: created[0].id }])
+                entityOps.revertAll('file', [{ id: created[0]!.id }])
             );
 
             expect(reverted).toHaveLength(1);
-            expect(reverted[0].trashed_at).toBeNull();
+            expect(reverted[0]!.trashed_at).toBeNull();
         });
 
         it('should throw for non-trashed record', async () => {
@@ -367,7 +367,7 @@ describe('EntityOps', () => {
             );
 
             // Try to revert non-trashed - should throw
-            const promise = collect(entityOps.revertAll('file', [{ id: created[0].id }]));
+            const promise = collect(entityOps.revertAll('file', [{ id: created[0]!.id }]));
             await expect(promise).rejects.toThrow();
         });
     });
@@ -382,10 +382,10 @@ describe('EntityOps', () => {
                 entityOps.createAll('file', [{ pathname: 'expire-me.txt', owner: 'test' }])
             );
 
-            await collect(entityOps.expireAll('file', [{ id: created[0].id }]));
+            await collect(entityOps.expireAll('file', [{ id: created[0]!.id }]));
 
             // Record should be gone from detail table
-            const rows = await db.query('SELECT id FROM file WHERE id = ?', [created[0].id]);
+            const rows = await db.query('SELECT id FROM file WHERE id = ?', [created[0]!.id]);
             expect(rows).toHaveLength(0);
         });
 
@@ -397,14 +397,14 @@ describe('EntityOps', () => {
                 entityOps.createAll('file', [{ pathname: 'expire-entity.txt', owner: 'test' }])
             );
 
-            await collect(entityOps.expireAll('file', [{ id: created[0].id }]));
+            await collect(entityOps.expireAll('file', [{ id: created[0]!.id }]));
 
             // Entity entry remains (stale) - this is expected behavior
-            const entityRows = await db.query('SELECT id FROM entities WHERE id = ?', [created[0].id]);
+            const entityRows = await db.query('SELECT id FROM entities WHERE id = ?', [created[0]!.id]);
             expect(entityRows).toHaveLength(1);
 
             // But detail table entry is gone
-            const detailRows = await db.query('SELECT id FROM file WHERE id = ?', [created[0].id]);
+            const detailRows = await db.query('SELECT id FROM file WHERE id = ?', [created[0]!.id]);
             expect(detailRows).toHaveLength(0);
         });
     });
@@ -420,7 +420,7 @@ describe('EntityOps', () => {
             );
 
             expect(upserted).toHaveLength(1);
-            expect(upserted[0].id).toBeTruthy();
+            expect(upserted[0]!.id).toBeTruthy();
         });
 
         it('should update existing record when ID exists', async () => {
@@ -432,12 +432,12 @@ describe('EntityOps', () => {
             // Upsert with same ID
             const upserted = await collect(
                 entityOps.upsertAll('file', [
-                    { id: created[0].id, changes: { owner: 'updated' } },
+                    { id: created[0]!.id, changes: { owner: 'updated' } },
                 ])
             );
 
             expect(upserted).toHaveLength(1);
-            expect(upserted[0].owner).toBe('updated');
+            expect(upserted[0]!.owner).toBe('updated');
         });
     });
 

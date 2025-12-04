@@ -17,6 +17,12 @@ import {
     BunEntropyDevice,
     BunCryptoDevice,
     BufferConsoleDevice,
+    BunDNSDevice,
+    BunHostDevice,
+    MockIPCDevice,
+    BunChannelDevice,
+    MockCompressionDevice,
+    MockFileDevice,
 } from '@src/hal/index.js';
 
 /**
@@ -36,6 +42,16 @@ function createTestHAL(): HAL {
         entropy: new BunEntropyDevice(),
         crypto: new BunCryptoDevice(),
         console,
+        dns: new BunDNSDevice(),
+        host: new BunHostDevice(),
+        ipc: new MockIPCDevice(),
+        channel: new BunChannelDevice(),
+        compression: new MockCompressionDevice(),
+        file: new MockFileDevice(),
+
+        async init(): Promise<void> {
+            // No initialization needed for these mock devices
+        },
 
         async shutdown(): Promise<void> {
             timer.cancelAll();
@@ -44,7 +60,6 @@ function createTestHAL(): HAL {
     };
 }
 
-const TIMEOUT_SHORT = 10_000;
 const TIMEOUT_MEDIUM = 30_000;
 const TIMEOUT_LONG = 60_000;
 
@@ -115,7 +130,7 @@ describe('VFS Storage: Write Performance', () => {
         expect(elapsed).toBeLessThan(500);
     });
 
-    it('should write 10MB file', { timeout: TIMEOUT_MEDIUM }, async () => {
+    it('should write 10MB file', async () => {
         const data = new Uint8Array(10 * 1024 * 1024).fill(65);
         const path = `/tmp/${crypto.randomUUID()}.bin`;
 
@@ -127,7 +142,7 @@ describe('VFS Storage: Write Performance', () => {
 
         console.log(`Write 10MB: ${elapsed.toFixed(2)}ms`);
         expect(elapsed).toBeLessThan(2000);
-    });
+    }, { timeout: TIMEOUT_MEDIUM });
 
     it('should write 100 small files (1KB each)', async () => {
         const data = new Uint8Array(1024).fill(65);
@@ -147,7 +162,7 @@ describe('VFS Storage: Write Performance', () => {
         expect(elapsed).toBeLessThan(5000);
     });
 
-    it('should write 1000 small files (1KB each)', { timeout: TIMEOUT_MEDIUM }, async () => {
+    it('should write 1000 small files (1KB each)', async () => {
         const data = new Uint8Array(1024).fill(65);
 
         const start = performance.now();
@@ -161,9 +176,9 @@ describe('VFS Storage: Write Performance', () => {
 
         console.log(`Write 1000 x 1KB files: ${elapsed.toFixed(2)}ms (${(elapsed / 1000).toFixed(2)}ms/file)`);
         expect(elapsed).toBeLessThan(30000);
-    });
+    }, { timeout: TIMEOUT_MEDIUM });
 
-    it('should write 100 medium files (100KB each)', { timeout: TIMEOUT_MEDIUM }, async () => {
+    it('should write 100 medium files (100KB each)', async () => {
         const data = new Uint8Array(100 * 1024).fill(65);
 
         const start = performance.now();
@@ -177,7 +192,7 @@ describe('VFS Storage: Write Performance', () => {
 
         console.log(`Write 100 x 100KB files: ${elapsed.toFixed(2)}ms (${(elapsed / 100).toFixed(2)}ms/file)`);
         expect(elapsed).toBeLessThan(10000);
-    });
+    }, { timeout: TIMEOUT_MEDIUM });
 });
 
 describe('VFS Storage: Read Performance', () => {
@@ -256,7 +271,7 @@ describe('VFS Storage: Read Performance', () => {
         expect(elapsed).toBeLessThan(200);
     });
 
-    it('should read 10MB file', { timeout: TIMEOUT_MEDIUM }, async () => {
+    it('should read 10MB file', async () => {
         const path = `/tmp/${crypto.randomUUID()}.bin`;
         await createFile(path, 10 * 1024 * 1024);
 
@@ -269,7 +284,7 @@ describe('VFS Storage: Read Performance', () => {
         console.log(`Read 10MB: ${elapsed.toFixed(2)}ms`);
         expect(data.length).toBe(10 * 1024 * 1024);
         expect(elapsed).toBeLessThan(1000);
-    });
+    }, { timeout: TIMEOUT_MEDIUM });
 
     it('should read 100 small files (1KB each)', async () => {
         const files: string[] = [];
@@ -291,7 +306,7 @@ describe('VFS Storage: Read Performance', () => {
         expect(elapsed).toBeLessThan(2000);
     });
 
-    it('should read 1000 small files (1KB each)', { timeout: TIMEOUT_MEDIUM }, async () => {
+    it('should read 1000 small files (1KB each)', async () => {
         const files: string[] = [];
         for (let i = 0; i < 1000; i++) {
             const path = `/tmp/${crypto.randomUUID()}.bin`;
@@ -309,7 +324,7 @@ describe('VFS Storage: Read Performance', () => {
 
         console.log(`Read 1000 x 1KB files: ${elapsed.toFixed(2)}ms (${(elapsed / 1000).toFixed(2)}ms/file)`);
         expect(elapsed).toBeLessThan(15000);
-    });
+    }, { timeout: TIMEOUT_MEDIUM });
 });
 
 describe('VFS Storage: List Performance', () => {
@@ -378,7 +393,7 @@ describe('VFS Storage: List Performance', () => {
         expect(elapsed).toBeLessThan(200);
     });
 
-    it('should list directory with 1000 files', { timeout: TIMEOUT_MEDIUM }, async () => {
+    it('should list directory with 1000 files', async () => {
         await createFiles(1000);
 
         const start = performance.now();
@@ -388,9 +403,9 @@ describe('VFS Storage: List Performance', () => {
         console.log(`List 1000 files: ${elapsed.toFixed(2)}ms`);
         expect(count).toBe(1000);
         expect(elapsed).toBeLessThan(2000);
-    });
+    }, { timeout: TIMEOUT_MEDIUM });
 
-    it('should list directory with 5000 files', { timeout: TIMEOUT_LONG }, async () => {
+    it('should list directory with 5000 files', async () => {
         await createFiles(5000);
 
         const start = performance.now();
@@ -400,7 +415,7 @@ describe('VFS Storage: List Performance', () => {
         console.log(`List 5000 files: ${elapsed.toFixed(2)}ms`);
         expect(count).toBe(5000);
         expect(elapsed).toBeLessThan(10000);
-    });
+    }, { timeout: TIMEOUT_LONG });
 
     it('should list directory 100 times (10 files)', async () => {
         await createFiles(10);
@@ -479,7 +494,7 @@ describe('VFS Storage: Delete Performance', () => {
         expect(elapsed).toBeLessThan(2000);
     });
 
-    it('should delete 1000 files', { timeout: TIMEOUT_MEDIUM }, async () => {
+    it('should delete 1000 files', async () => {
         const files = await createFiles(1000);
 
         const start = performance.now();
@@ -490,7 +505,7 @@ describe('VFS Storage: Delete Performance', () => {
 
         console.log(`Delete 1000 files: ${elapsed.toFixed(2)}ms (${(elapsed / 1000).toFixed(2)}ms/file)`);
         expect(elapsed).toBeLessThan(15000);
-    });
+    }, { timeout: TIMEOUT_MEDIUM });
 
     it('should delete 1MB file', async () => {
         const path = `/tmp/${crypto.randomUUID()}.bin`;
@@ -507,7 +522,7 @@ describe('VFS Storage: Delete Performance', () => {
         expect(elapsed).toBeLessThan(50);
     });
 
-    it('should delete 10MB file', { timeout: TIMEOUT_MEDIUM }, async () => {
+    it('should delete 10MB file', async () => {
         const path = `/tmp/${crypto.randomUUID()}.bin`;
         const data = new Uint8Array(10 * 1024 * 1024).fill(65);
         const handle = await vfs.open(path, { write: true, create: true }, caller);
@@ -520,7 +535,7 @@ describe('VFS Storage: Delete Performance', () => {
 
         console.log(`Delete 10MB file: ${elapsed.toFixed(2)}ms`);
         expect(elapsed).toBeLessThan(100);
-    });
+    }, { timeout: TIMEOUT_MEDIUM });
 });
 
 describe('VFS Storage: Mixed Workload', () => {
@@ -573,7 +588,7 @@ describe('VFS Storage: Mixed Workload', () => {
         expect(elapsed).toBeLessThan(10000);
     });
 
-    it('should handle concurrent-style workload (write while reading)', { timeout: TIMEOUT_MEDIUM }, async () => {
+    it('should handle concurrent-style workload (write while reading)', async () => {
         // Create initial files
         const files: string[] = [];
         const data = new Uint8Array(10 * 1024).fill(65); // 10KB
@@ -607,9 +622,9 @@ describe('VFS Storage: Mixed Workload', () => {
 
         console.log(`Interleaved read/write x 100: ${elapsed.toFixed(2)}ms (${(elapsed / 100).toFixed(2)}ms/op)`);
         expect(elapsed).toBeLessThan(15000);
-    });
+    }, { timeout: TIMEOUT_MEDIUM });
 
-    it('should handle stat operations (1000 files)', { timeout: TIMEOUT_MEDIUM }, async () => {
+    it('should handle stat operations (1000 files)', async () => {
         const files: string[] = [];
         const data = new Uint8Array(100).fill(65);
 
@@ -629,5 +644,5 @@ describe('VFS Storage: Mixed Workload', () => {
 
         console.log(`Stat 1000 files: ${elapsed.toFixed(2)}ms (${(elapsed / 1000).toFixed(2)}ms/stat)`);
         expect(elapsed).toBeLessThan(5000);
-    });
+    }, { timeout: TIMEOUT_MEDIUM });
 });

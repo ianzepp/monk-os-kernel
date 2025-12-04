@@ -58,7 +58,7 @@ describe('Entropy Device', () => {
             it('should have correct variant bits', () => {
                 const uuid = entropy.uuid();
                 // Variant is in position 19 (0-indexed), should be 8, 9, a, or b
-                expect(['8', '9', 'a', 'b']).toContain(uuid[19]);
+                expect(['8', '9', 'a', 'b']).toContain(uuid[19]!);
             });
 
             it('should generate unique UUIDs', () => {

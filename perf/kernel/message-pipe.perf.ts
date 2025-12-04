@@ -36,7 +36,7 @@ describe('MessagePipe: High Message Count', () => {
         expect(received.length).toBe(1_000);
     });
 
-    it('should transfer 10,000 messages without loss (concurrent)', { timeout: TIMEOUT_LONG }, async () => {
+    it('should transfer 10,000 messages without loss (concurrent)', async () => {
         // Use higher water mark to allow buffering
         const [recvEnd, sendEnd] = createMessagePipe('perf-10k', 15_000);
         const sent = [...generateMessages(10_000)];
@@ -49,9 +49,9 @@ describe('MessagePipe: High Message Count', () => {
 
         expect(result.ok).toBe(true);
         expect(received.length).toBe(10_000);
-    });
+    }, { timeout: TIMEOUT_LONG });
 
-    it('should transfer 100,000 messages without loss (streaming)', { timeout: TIMEOUT_LONG }, async () => {
+    it('should transfer 100,000 messages without loss (streaming)', async () => {
         const [recvEnd, sendEnd] = createMessagePipe('perf-100k');
         const messageCount = 100_000;
         const sent: Response[] = [];
@@ -76,7 +76,7 @@ describe('MessagePipe: High Message Count', () => {
 
         expect(result.ok).toBe(true);
         expect(received.length).toBe(messageCount);
-    });
+    }, { timeout: TIMEOUT_LONG });
 });
 
 describe('MessagePipe: Large Payloads', () => {
@@ -126,7 +126,7 @@ describe('MessagePipe: Large Payloads', () => {
         expect(recv.length).toBe(sent.length);
     });
 
-    it('should transfer 10MB payload intact', { timeout: TIMEOUT_LONG }, async () => {
+    it('should transfer 10MB payload intact', async () => {
         const [recvEnd, sendEnd] = createMessagePipe('perf-10mb');
         const payload = generateLargePayload(10 * 1024 * 1024);
 
@@ -139,7 +139,7 @@ describe('MessagePipe: Large Payloads', () => {
         const sent = extractBytes(payload);
         const recv = extractBytes(received[0]!);
         expect(recv.length).toBe(sent.length);
-    });
+    }, { timeout: TIMEOUT_LONG });
 });
 
 describe('MessagePipe: Text Streaming', () => {
@@ -174,7 +174,7 @@ describe('MessagePipe: Text Streaming', () => {
         expect(recvText.length).toBe(sentText.length);
     });
 
-    it('should transfer 1MB text payload intact', { timeout: TIMEOUT_LONG }, async () => {
+    it('should transfer 1MB text payload intact', async () => {
         const [recvEnd, sendEnd] = createMessagePipe('perf-text-1m');
         const payload = generateTextPayload(1_000_000);
 
@@ -187,7 +187,7 @@ describe('MessagePipe: Text Streaming', () => {
         const sentText = (payload.data as { text: string }).text;
         const recvText = (received[0]!.data as { text: string }).text;
         expect(recvText.length).toBe(sentText.length);
-    });
+    }, { timeout: TIMEOUT_LONG });
 });
 
 describe('MessagePipe: Chunked File Simulation', () => {
@@ -255,7 +255,7 @@ describe('MessagePipe: Chunked File Simulation', () => {
         expect(reassembled.every((b, i) => b === original[i])).toBe(true);
     });
 
-    it('should stream 1MB file as 4KB chunks (256 chunks)', { timeout: TIMEOUT_LONG }, async () => {
+    it('should stream 1MB file as 4KB chunks (256 chunks)', async () => {
         const [recvEnd, sendEnd] = createMessagePipe('perf-chunked-1m');
         const original = new Uint8Array(1024 * 1024);
         for (let i = 0; i < original.length; i++) original[i] = i % 256;
@@ -277,9 +277,9 @@ describe('MessagePipe: Chunked File Simulation', () => {
         expect(chunkCount).toBe(256);
         expect(received.length).toBe(256);
         expect(reassembled.length).toBe(original.length);
-    });
+    }, { timeout: TIMEOUT_LONG });
 
-    it('should stream 10MB file as 4KB chunks (2560 chunks)', { timeout: TIMEOUT_LONG }, async () => {
+    it('should stream 10MB file as 4KB chunks (2560 chunks)', async () => {
         const [recvEnd, sendEnd] = createMessagePipe('perf-chunked-10m');
         const original = new Uint8Array(10 * 1024 * 1024);
         for (let i = 0; i < original.length; i++) original[i] = i % 256;
@@ -301,7 +301,7 @@ describe('MessagePipe: Chunked File Simulation', () => {
         expect(chunkCount).toBe(2560);
         expect(received.length).toBe(2560);
         expect(reassembled.length).toBe(original.length);
-    });
+    }, { timeout: TIMEOUT_LONG });
 });
 
 describe('MessagePipe: Backpressure', () => {
@@ -476,7 +476,7 @@ describe('MessagePipe: Chain (Multi-hop)', () => {
 });
 
 describe('MessagePipe: Fixture-based Tests', () => {
-    it('should stream 1MB fixture file as chunks', { timeout: TIMEOUT_LONG }, async () => {
+    it('should stream 1MB fixture file as chunks', async () => {
         const fixture = await readFixture('blob-1mb.bin');
         if (!fixture) {
             console.log(`  (skipped: run 'bun run perf:fixtures' first)`);
@@ -504,9 +504,9 @@ describe('MessagePipe: Fixture-based Tests', () => {
         const chunks = received.map(r => extractBytes(r));
         const totalLength = chunks.reduce((sum, c) => sum + c.length, 0);
         expect(totalLength).toBe(fixture.length);
-    });
+    }, { timeout: TIMEOUT_LONG });
 
-    it('should stream 10MB fixture file as chunks', { timeout: TIMEOUT_LONG }, async () => {
+    it('should stream 10MB fixture file as chunks', async () => {
         const fixture = await readFixture('blob-10mb.bin');
         if (!fixture) {
             console.log(`  (skipped: run 'bun run perf:fixtures' first)`);
@@ -534,5 +534,5 @@ describe('MessagePipe: Fixture-based Tests', () => {
 
         const totalLength = received.reduce((sum, r) => sum + extractBytes(r).length, 0);
         expect(totalLength).toBe(fixture.length);
-    });
+    }, { timeout: TIMEOUT_LONG });
 });

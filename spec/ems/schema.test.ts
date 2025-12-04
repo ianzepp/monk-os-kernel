@@ -51,7 +51,7 @@ describe('Model Schema', () => {
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='models'"
             );
             expect(tables.length).toBe(1);
-            expect(tables[0].name).toBe('models');
+            expect(tables[0]!.name).toBe('models');
         });
 
         it('should create fields table', async () => {
@@ -59,7 +59,7 @@ describe('Model Schema', () => {
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='fields'"
             );
             expect(tables.length).toBe(1);
-            expect(tables[0].name).toBe('fields');
+            expect(tables[0]!.name).toBe('fields');
         });
 
         it('should create tracked table', async () => {
@@ -67,7 +67,7 @@ describe('Model Schema', () => {
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='tracked'"
             );
             expect(tables.length).toBe(1);
-            expect(tables[0].name).toBe('tracked');
+            expect(tables[0]!.name).toBe('tracked');
         });
 
         it('should create indexes', async () => {

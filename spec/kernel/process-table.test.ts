@@ -163,7 +163,7 @@ describe('ProcessTable', () => {
             // Setup init's children
             init.children.set(1, parent.id);
 
-            table.register(init, true);
+            table.register(init);
             table.register(parent);
             table.register(child);
 

@@ -186,8 +186,8 @@ describe('Storage Engine', () => {
 
                 await watchPromise;
                 expect(events.length).toBe(1);
-                expect(events[0].key).toBe('test:key1');
-                expect(events[0].op).toBe('put');
+                expect(events[0]!.key).toBe('test:key1');
+                expect(events[0]!.op).toBe('put');
             });
 
             it('should emit delete events', async () => {
@@ -205,7 +205,7 @@ describe('Storage Engine', () => {
                 await storage.delete('test:key1');
 
                 await watchPromise;
-                expect(events[0].op).toBe('delete');
+                expect(events[0]!.op).toBe('delete');
             });
 
             it('should support ** pattern', async () => {

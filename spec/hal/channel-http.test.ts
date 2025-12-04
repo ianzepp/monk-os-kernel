@@ -5,7 +5,7 @@ import type { Response } from '@src/message.js';
 import type { Server } from 'bun';
 
 describe('HTTP Channel', () => {
-    let server: Server;
+    let server: Server<any>;
     let baseUrl: string;
 
     beforeAll(() => {
@@ -126,8 +126,8 @@ describe('HTTP Channel', () => {
             }
 
             expect(responses).toHaveLength(1);
-            expect(responses[0].op).toBe('ok');
-            expect(responses[0].data).toEqual([
+            expect(responses[0]!.op).toBe('ok');
+            expect(responses[0]!.data).toEqual([
                 { id: 1, name: 'Alice' },
                 { id: 2, name: 'Bob' },
             ]);
@@ -146,8 +146,8 @@ describe('HTTP Channel', () => {
                 responses.push(r);
             }
 
-            expect(responses[0].op).toBe('ok');
-            expect(responses[0].data).toEqual({ id: 1, name: 'Alice' });
+            expect(responses[0]!.op).toBe('ok');
+            expect(responses[0]!.data).toEqual({ id: 1, name: 'Alice' });
 
             await channel.close();
         });
@@ -167,8 +167,8 @@ describe('HTTP Channel', () => {
                 responses.push(r);
             }
 
-            expect(responses[0].op).toBe('ok');
-            expect(responses[0].data).toEqual({
+            expect(responses[0]!.op).toBe('ok');
+            expect(responses[0]!.data).toEqual({
                 id: 3,
                 name: 'Carol',
                 email: 'carol@example.com',
@@ -194,8 +194,8 @@ describe('HTTP Channel', () => {
                 responses.push(r);
             }
 
-            expect(responses[0].op).toBe('ok');
-            expect(responses[0].data).toEqual({ query: 'test', limit: 10 });
+            expect(responses[0]!.op).toBe('ok');
+            expect(responses[0]!.data).toEqual({ query: 'test', limit: 10 });
 
             await channel.close();
         });
@@ -215,8 +215,8 @@ describe('HTTP Channel', () => {
                 responses.push(r);
             }
 
-            expect(responses[0].op).toBe('ok');
-            expect((responses[0].data as Record<string, string>)['x-api-key']).toBe('secret123');
+            expect(responses[0]!.op).toBe('ok');
+            expect((responses[0]!.data as Record<string, string>)['x-api-key']).toBe('secret123');
 
             await channel.close();
         });
@@ -238,7 +238,7 @@ describe('HTTP Channel', () => {
                 responses.push(r);
             }
 
-            const headers = responses[0].data as Record<string, string>;
+            const headers = responses[0]!.data as Record<string, string>;
             expect(headers['x-default']).toBe('default-value');
             expect(headers['x-request']).toBe('request-value');
 
@@ -299,11 +299,11 @@ describe('HTTP Channel', () => {
             const events = responses.filter((r) => r.op === 'event');
             expect(events).toHaveLength(2);
             // respond.event(type, data) spreads data: { type, ...data }
-            expect(events[0].data).toEqual({ type: 'message', text: 'hello' });
-            expect(events[1].data).toEqual({ type: 'update', count: 42 });
+            expect(events[0]!.data).toEqual({ type: 'message', text: 'hello' });
+            expect(events[1]!.data).toEqual({ type: 'update', count: 42 });
 
             // Should end with done
-            expect(responses[responses.length - 1].op).toBe('done');
+            expect(responses[responses.length - 1]!.op).toBe('done');
 
             await channel.close();
         });
@@ -322,8 +322,8 @@ describe('HTTP Channel', () => {
             }
 
             expect(responses).toHaveLength(1);
-            expect(responses[0].op).toBe('error');
-            expect((responses[0].data as { code: string }).code).toBe('HTTP_404');
+            expect(responses[0]!.op).toBe('error');
+            expect((responses[0]!.data as { code: string }).code).toBe('HTTP_404');
 
             await channel.close();
         });
@@ -340,8 +340,8 @@ describe('HTTP Channel', () => {
             }
 
             expect(responses).toHaveLength(1);
-            expect(responses[0].op).toBe('error');
-            expect((responses[0].data as { code: string }).code).toBe('HTTP_500');
+            expect(responses[0]!.op).toBe('error');
+            expect((responses[0]!.data as { code: string }).code).toBe('HTTP_500');
 
             await channel.close();
         });
@@ -358,8 +358,8 @@ describe('HTTP Channel', () => {
             }
 
             expect(responses).toHaveLength(1);
-            expect(responses[0].op).toBe('error');
-            expect((responses[0].data as { code: string }).code).toBe('EINVAL');
+            expect(responses[0]!.op).toBe('error');
+            expect((responses[0]!.data as { code: string }).code).toBe('EINVAL');
 
             await channel.close();
         });
@@ -378,8 +378,8 @@ describe('HTTP Channel', () => {
             }
 
             expect(responses).toHaveLength(1);
-            expect(responses[0].op).toBe('error');
-            expect((responses[0].data as { code: string }).code).toBe('ETIMEDOUT');
+            expect(responses[0]!.op).toBe('error');
+            expect((responses[0]!.data as { code: string }).code).toBe('ETIMEDOUT');
 
             await channel.close();
         });
@@ -405,8 +405,8 @@ describe('HTTP Channel', () => {
                 responses.push(r);
             }
 
-            expect(responses[0].op).toBe('error');
-            expect((responses[0].data as { code: string }).code).toBe('EBADF');
+            expect(responses[0]!.op).toBe('error');
+            expect((responses[0]!.data as { code: string }).code).toBe('EBADF');
         });
     });
 

@@ -191,7 +191,7 @@ describe('SqlCreate', () => {
             await observer.execute(ctx);
 
             expect(mockDb.calls.length).toBe(1);
-            const call = mockDb.calls[0];
+            const call = mockDb.calls[0]!;
             expect(call.sql).toContain('INSERT INTO models');
             expect(call.sql).toContain('id');
             expect(call.sql).toContain('model_name');
@@ -206,7 +206,7 @@ describe('SqlCreate', () => {
 
             await observer.execute(ctx);
 
-            const call = mockDb.calls[0];
+            const call = mockDb.calls[0]!;
             expect(call.params).toContain('abc123');
             expect(call.params).toContain('test');
         });
@@ -220,7 +220,7 @@ describe('SqlCreate', () => {
 
             await observer.execute(ctx);
 
-            const call = mockDb.calls[0];
+            const call = mockDb.calls[0]!;
             expect(call.params).toContain(null);
         });
     });
@@ -241,10 +241,10 @@ describe('SqlCreate', () => {
 
             // Should have 4 calls: BEGIN, INSERT entities, INSERT detail, COMMIT
             expect(mockDb.calls.length).toBe(4);
-            expect(mockDb.calls[0].sql).toBe('BEGIN IMMEDIATE');
-            expect(mockDb.calls[1].sql).toContain('INSERT INTO entities');
-            expect(mockDb.calls[2].sql).toContain('INSERT INTO file');
-            expect(mockDb.calls[3].sql).toBe('COMMIT');
+            expect(mockDb.calls[0]!.sql).toBe('BEGIN IMMEDIATE');
+            expect(mockDb.calls[1]!.sql).toContain('INSERT INTO entities');
+            expect(mockDb.calls[2]!.sql).toContain('INSERT INTO file');
+            expect(mockDb.calls[3]!.sql).toBe('COMMIT');
         });
 
         it('should insert entity with model, parent, pathname', async () => {
@@ -259,7 +259,7 @@ describe('SqlCreate', () => {
             await observer.execute(ctx);
 
             // Check entities INSERT (second call)
-            const entityCall = mockDb.calls[1];
+            const entityCall = mockDb.calls[1]!;
             expect(entityCall.sql).toContain('INSERT INTO entities');
             expect(entityCall.params).toContain('abc123');      // id
             expect(entityCall.params).toContain('file');        // model
@@ -280,7 +280,7 @@ describe('SqlCreate', () => {
             await observer.execute(ctx);
 
             // Check detail INSERT (third call)
-            const detailCall = mockDb.calls[2];
+            const detailCall = mockDb.calls[2]!;
             expect(detailCall.sql).toContain('INSERT INTO file');
             expect(detailCall.params).toContain('abc123');  // id
             expect(detailCall.params).toContain('user1');   // owner
@@ -359,7 +359,7 @@ describe('SqlUpdate', () => {
             await observer.execute(ctx);
 
             expect(mockDb.calls.length).toBe(1);
-            const call = mockDb.calls[0];
+            const call = mockDb.calls[0]!;
             expect(call.sql).toContain('UPDATE test_model');
             expect(call.sql).toContain('SET');
             expect(call.sql).toContain('WHERE id = ?');
@@ -374,7 +374,7 @@ describe('SqlUpdate', () => {
 
             await observer.execute(ctx);
 
-            const call = mockDb.calls[0];
+            const call = mockDb.calls[0]!;
             expect(call.sql).toContain('name = ?');
             expect(call.sql).not.toContain('unchanged');
         });
@@ -388,7 +388,7 @@ describe('SqlUpdate', () => {
 
             await observer.execute(ctx);
 
-            const call = mockDb.calls[0];
+            const call = mockDb.calls[0]!;
             // id should be the last parameter (for WHERE clause)
             expect(call.params![call.params!.length - 1]).toBe('abc123');
         });
@@ -481,7 +481,7 @@ describe('SqlDelete', () => {
             await observer.execute(ctx);
 
             expect(mockDb.calls.length).toBe(1);
-            const call = mockDb.calls[0];
+            const call = mockDb.calls[0]!;
             expect(call.sql).toContain('UPDATE test_model');
             expect(call.sql).toContain('SET trashed_at = ?');
             expect(call.sql).toContain('WHERE id = ?');
@@ -496,7 +496,7 @@ describe('SqlDelete', () => {
 
             await observer.execute(ctx);
 
-            const call = mockDb.calls[0];
+            const call = mockDb.calls[0]!;
             expect(call.sql).not.toContain('DELETE FROM');
             expect(call.sql).toContain('UPDATE');
         });
@@ -511,7 +511,7 @@ describe('SqlDelete', () => {
 
             await observer.execute(ctx);
 
-            const call = mockDb.calls[0];
+            const call = mockDb.calls[0]!;
             expect(call.params).toContain(trashedAt);
         });
     });
@@ -645,7 +645,7 @@ describe('Ring 5 is required for persistence', () => {
 
         // The record should exist and have an id
         expect(results.length).toBe(1);
-        const created = results[0];
+        const created = results[0]!;
         expect(created).toBeDefined();
         expect(created.id).toBeTruthy();
         // Note: pathname is stored in entities table, owner in detail table
@@ -657,7 +657,7 @@ describe('Ring 5 is required for persistence', () => {
             [created.id]
         );
         expect(entityRows.length).toBe(1);
-        expect(entityRows[0].pathname).toBe('real-file.txt');
+        expect(entityRows[0]!.pathname).toBe('real-file.txt');
 
         // Verify detail table has the owner
         const detailRows = await db.query<{ owner: string }>(
@@ -665,7 +665,7 @@ describe('Ring 5 is required for persistence', () => {
             [created.id]
         );
         expect(detailRows.length).toBe(1);
-        expect(detailRows[0].owner).toBe('real-owner');
+        expect(detailRows[0]!.owner).toBe('real-owner');
 
         // Cleanup
         await db.close();

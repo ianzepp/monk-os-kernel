@@ -311,7 +311,6 @@ describe('Tracked', () => {
 
     describe('audit on delete', () => {
         it('should record final state on delete', async () => {
-            const trackedFields = new Set(['amount']);
             const record = createMockRecord(
                 { id: 'inv-123', amount: 100 },
                 { trashed_at: '2025-01-01T00:00:00.000Z' }
@@ -394,8 +393,8 @@ describe('Tracked', () => {
             );
 
             // IDs should be different (first param)
-            const id1 = inserts[0].params![0] as string;
-            const id2 = inserts[1].params![0] as string;
+            const id1 = inserts[0]!.params![0] as string;
+            const id2 = inserts[1]!.params![0] as string;
             expect(id1).not.toBe(id2);
         });
 

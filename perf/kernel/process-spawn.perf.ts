@@ -23,6 +23,8 @@ import {
     BunHostDevice,
     MockIPCDevice,
     BunChannelDevice,
+    MockCompressionDevice,
+    MockFileDevice,
 } from '@src/hal/index.js';
 
 const TIMEOUT_LONG = 60_000;
@@ -48,6 +50,12 @@ function createTestHAL(): HAL & { console: BufferConsoleDevice } {
         host: new BunHostDevice(),
         ipc: new MockIPCDevice(),
         channel: new BunChannelDevice(),
+        compression: new MockCompressionDevice(),
+        file: new MockFileDevice(),
+
+        async init(): Promise<void> {
+            // No initialization needed for these mock devices
+        },
 
         async shutdown(): Promise<void> {
             timer.cancelAll();
@@ -92,7 +100,7 @@ describe('Process Spawn: Sequential Boot Cycles', () => {
         expect(successCount).toBe(10);
     });
 
-    it('should complete 50 boot/shutdown cycles', { timeout: TIMEOUT_LONG }, async () => {
+    it('should complete 50 boot/shutdown cycles', async () => {
         let successCount = 0;
 
         for (let i = 0; i < 50; i++) {
@@ -115,7 +123,7 @@ describe('Process Spawn: Sequential Boot Cycles', () => {
         }
 
         expect(successCount).toBe(50);
-    });
+    }, { timeout: TIMEOUT_LONG });
 });
 
 describe('Process Spawn: Child Processes via Shell', () => {
@@ -174,7 +182,7 @@ describe('Process Spawn: Child Processes via Shell', () => {
         }
     });
 
-    it('should spawn 20 sequential child processes', { timeout: TIMEOUT_LONG }, async () => {
+    it('should spawn 20 sequential child processes', async () => {
         const cmds = Array.from({ length: 20 }, (_, i) => `echo ${i + 1}`).join(' && ');
 
         await kernel.boot({
@@ -190,7 +198,7 @@ describe('Process Spawn: Child Processes via Shell', () => {
         for (let i = 1; i <= 20; i++) {
             expect(output).toContain(String(i));
         }
-    });
+    }, { timeout: TIMEOUT_LONG });
 });
 
 describe('Process Spawn: Rapid Exit Codes', () => {
@@ -317,7 +325,7 @@ describe('Process Spawn: Pipe Chains', () => {
         expect(output.trim()).toBe('hello');
     });
 
-    it('should pipe through 10 cats (short string)', { timeout: TIMEOUT_LONG }, async () => {
+    it('should pipe through 10 cats (short string)', async () => {
         const cats = Array(10).fill('cat').join(' | ');
         await kernel.boot({
             initPath: '/bin/shell.ts',
@@ -330,7 +338,7 @@ describe('Process Spawn: Pipe Chains', () => {
 
         const output = hal.console.getOutput();
         expect(output.trim()).toBe('hello');
-    });
+    }, { timeout: TIMEOUT_LONG });
 
     it('should pipe 100 char string through 5 cats', async () => {
         const text = 'x'.repeat(100);
@@ -347,7 +355,7 @@ describe('Process Spawn: Pipe Chains', () => {
         expect(output.trim()).toBe(text);
     });
 
-    it('should pipe 1000 char string through 5 cats', { timeout: TIMEOUT_LONG }, async () => {
+    it('should pipe 1000 char string through 5 cats', async () => {
         const text = 'y'.repeat(1000);
         await kernel.boot({
             initPath: '/bin/shell.ts',
@@ -360,11 +368,9 @@ describe('Process Spawn: Pipe Chains', () => {
 
         const output = hal.console.getOutput();
         expect(output.trim()).toBe(text);
-    });
+    }, { timeout: TIMEOUT_LONG });
 
     it('should pipe 10 lines through 5 cats', async () => {
-        // Generate 10 lines with printf
-        const cmds = Array.from({ length: 10 }, (_, i) => `echo line${i + 1}`).join(' && ');
         const cats = Array(5).fill('cat').join(' | ');
 
         // Use subshell-like grouping: (echo a && echo b) | cat
@@ -422,7 +428,7 @@ describe('Process Table: Cleanup After Exit', () => {
         await hal.shutdown();
     });
 
-    it('should clean up 20 sequential boot cycles without leaking processes', { timeout: TIMEOUT_LONG }, async () => {
+    it('should clean up 20 sequential boot cycles without leaking processes', async () => {
         for (let i = 0; i < 20; i++) {
             const hal = createTestHAL();
             const vfs = new VFS(hal);
@@ -443,5 +449,5 @@ describe('Process Table: Cleanup After Exit', () => {
 
             await hal.shutdown();
         }
-    });
+    }, { timeout: TIMEOUT_LONG });
 });

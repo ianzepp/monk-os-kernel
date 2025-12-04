@@ -39,7 +39,7 @@ describe('Clock Device', () => {
                     values.push(clock.monotonic());
                 }
                 for (let i = 1; i < values.length; i++) {
-                    expect(values[i]).toBeGreaterThanOrEqual(values[i - 1]);
+                    expect(values[i]!).toBeGreaterThanOrEqual(values[i - 1]!);
                 }
             });
 

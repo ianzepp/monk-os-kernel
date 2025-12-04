@@ -149,6 +149,7 @@ Use this template for each agent:
 
 **Rules:**
 - Do NOT change src/ files - only spec/ or perf/
+- Do NOT change rom/ files - rom/ is userspace production code (like src/)
 - Preserve test intent - fix types, not test logic
 - If a test is fundamentally broken (tests removed functionality), skip and note it
 - Add `!` assertions sparingly - prefer proper null checks
@@ -379,8 +380,8 @@ git add/commit          # Must be sequential, after all agents complete
 ### Don't Do This
 
 ```typescript
-// BAD: Changing src/ to match broken tests
-// The src/ is correct - tests must adapt
+// BAD: Changing src/ or rom/ to match broken tests
+// Production code (src/, rom/) is correct - tests must adapt
 
 // BAD: Disabling tests instead of fixing
 it.skip('broken test', ...); // Only if truly obsolete

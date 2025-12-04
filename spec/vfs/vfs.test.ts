@@ -13,9 +13,10 @@ import {
     MockIPCDevice,
     BunCryptoDevice,
     BunChannelDevice,
+    MockCompressionDevice,
+    MockFileDevice,
     ENOENT,
     EEXIST,
-    ENOTDIR,
     EACCES,
     EISDIR,
 } from '@src/hal/index.js';
@@ -41,6 +42,9 @@ function createMockHAL(): HAL {
         host: new MockHostDevice(),
         ipc: new MockIPCDevice(),
         channel: new BunChannelDevice(),
+        compression: new MockCompressionDevice(),
+        file: new MockFileDevice(),
+        async init() {},
         async shutdown() {
             await storage.close();
         },

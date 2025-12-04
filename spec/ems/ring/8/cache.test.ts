@@ -187,10 +187,6 @@ describe('Cache', () => {
         });
 
         it('should invalidate cache on model update', async () => {
-            const record = createMockRecord(
-                { id: 'model-123', model_name: 'invoices', frozen: 0 },
-                { frozen: 1 }
-            );
             // The get() method returns merged, so model_name is available
             const mergedRecord = createMockRecord(
                 { id: 'model-123', model_name: 'invoices', frozen: 0 },

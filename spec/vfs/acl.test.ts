@@ -7,7 +7,6 @@ import {
     decodeACL,
     MODEL_OPS,
     type ACL,
-    type Grant,
 } from '@src/vfs/acl.js';
 
 describe('VFS ACL', () => {
@@ -133,10 +132,12 @@ describe('VFS ACL', () => {
         it('should grant * to creator and read/stat to everyone', () => {
             const acl = defaultACL('creator-uuid');
             expect(acl.grants.length).toBe(2);
-            expect(acl.grants[0]!.to).toBe('creator-uuid');
-            expect(acl.grants[0]!.ops).toContain('*');
-            expect(acl.grants[1]!.to).toBe('*');
-            expect(acl.grants[1]!.ops).toEqual(['read', 'stat']);
+            const creatorGrant = acl.grants[0]!;
+            expect(creatorGrant.to).toBe('creator-uuid');
+            expect(creatorGrant.ops).toContain('*');
+            const everyoneGrant = acl.grants[1]!;
+            expect(everyoneGrant.to).toBe('*');
+            expect(everyoneGrant.ops).toEqual(['read', 'stat']);
         });
 
         it('should have empty deny list', () => {

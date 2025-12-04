@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'bun:test';
-import { DatabaseOps, collect, type Source, type DbRecord } from '@src/ems/database-ops.js';
+import { DatabaseOps, collect, type DbRecord } from '@src/ems/database-ops.js';
 import type { DatabaseConnection } from '@src/ems/connection.js';
 
 // =============================================================================
@@ -29,6 +29,7 @@ function createMockDb(queryResults: Record<string, unknown[][]> = {}): DatabaseC
 
     return {
         calls,
+        path: ':memory:',
         async query<T>(sql: string, params?: unknown[]): Promise<T[]> {
             calls.push({ method: 'query', sql, params });
             // Return results based on query pattern or empty array
@@ -48,7 +49,7 @@ function createMockDb(queryResults: Record<string, unknown[][]> = {}): DatabaseC
             calls.push({ method: 'exec', sql });
         },
         async close(): Promise<void> {},
-    };
+    } as DatabaseConnection & { calls: SqlCall[] };
 }
 
 // =============================================================================
@@ -122,7 +123,7 @@ describe('DatabaseOps', () => {
 
             await collect(dbOps.query('SELECT * FROM test WHERE id = ?', ['123']));
 
-            expect(mockDb.calls[0].params).toEqual(['123']);
+            expect(mockDb.calls[0]!.params).toEqual(['123']);
         });
 
         it('should stream empty result set', async () => {
@@ -184,7 +185,7 @@ describe('DatabaseOps', () => {
                 dbOps.selectFrom('test_table', { where: { status: 'active' } })
             );
 
-            const call = mockDb.calls[0];
+            const call = mockDb.calls[0]!;
             expect(call.sql).toContain('WHERE');
             expect(call.sql).toContain('status');
         });
@@ -195,7 +196,7 @@ describe('DatabaseOps', () => {
 
             await collect(dbOps.selectFrom('test_table', { limit: 10 }));
 
-            expect(mockDb.calls[0].sql).toContain('LIMIT 10');
+            expect(mockDb.calls[0]!.sql).toContain('LIMIT 10');
         });
     });
 
@@ -209,7 +210,7 @@ describe('DatabaseOps', () => {
             const rows = await collect(dbOps.selectIds('test', ['a', 'b']));
 
             expect(rows).toHaveLength(2);
-            const call = mockDb.calls[0];
+            const call = mockDb.calls[0]!;
             expect(call.sql).toContain('id');
             expect(call.sql).toContain('IN');
         });
@@ -259,7 +260,7 @@ describe('DatabaseOps', () => {
             await collect(dbOps.insertInto('users', records));
 
             expect(mockDb.calls).toHaveLength(1);
-            const call = mockDb.calls[0];
+            const call = mockDb.calls[0]!;
             expect(call.method).toBe('execute');
             expect(call.sql).toContain('INSERT INTO users');
             expect(call.sql).toContain('id');
@@ -271,7 +272,7 @@ describe('DatabaseOps', () => {
 
             await collect(dbOps.insertInto('items', records));
 
-            const call = mockDb.calls[0];
+            const call = mockDb.calls[0]!;
             expect(call.params).toContain(null);
         });
 
@@ -302,7 +303,7 @@ describe('DatabaseOps', () => {
 
             expect(updated).toHaveLength(1);
             // First call is UPDATE, second is SELECT to re-read
-            const updateCall = mockDb.calls[0];
+            const updateCall = mockDb.calls[0]!;
             expect(updateCall.method).toBe('execute');
             expect(updateCall.sql).toContain('UPDATE users');
             expect(updateCall.sql).toContain('SET');
@@ -323,7 +324,7 @@ describe('DatabaseOps', () => {
 
             await collect(dbOps.updateIn('users', [{ id: 'abc', changes: { x: 1 } }]));
 
-            const updateCall = mockDb.calls[0];
+            const updateCall = mockDb.calls[0]!;
             expect(updateCall.sql).toContain('WHERE id = ?');
             // id should be last param
             const params = updateCall.params || [];
@@ -346,7 +347,7 @@ describe('DatabaseOps', () => {
         it('should execute DELETE for each ID', async () => {
             await collect(dbOps.deleteFrom('users', ['abc']));
 
-            const call = mockDb.calls[0];
+            const call = mockDb.calls[0]!;
             expect(call.method).toBe('execute');
             expect(call.sql).toBe('DELETE FROM users WHERE id = ?');
             expect(call.params).toEqual(['abc']);

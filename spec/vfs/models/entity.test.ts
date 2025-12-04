@@ -145,8 +145,8 @@ describe('EntityModel', () => {
                 [id]
             );
             expect(rows.length).toBe(1);
-            expect(rows[0].pathname).toBe('test-folder');
-            expect(rows[0].parent).toBe(ROOT_ID);
+            expect(rows[0]!.pathname).toBe('test-folder');
+            expect(rows[0]!.parent).toBe(ROOT_ID);
 
             // Manually sync cache (in production, Ring 8 EntityCacheSync does this)
             entityCache.addEntity({
@@ -223,7 +223,7 @@ describe('EntityModel', () => {
                 [id]
             );
             expect(rows.length).toBe(1);
-            expect(rows[0].trashed_at).not.toBeNull();
+            expect(rows[0]!.trashed_at).not.toBeNull();
         });
     });
 });

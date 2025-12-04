@@ -12,6 +12,8 @@ import type {
     Model,
     ModelRecord,
     OperationType,
+    DatabaseAdapter,
+    ModelCacheAdapter,
 } from '@src/ems/observers/index.js';
 
 // =============================================================================
@@ -62,7 +64,7 @@ function createMockContext(
     modelName = 'test_model'
 ): ObserverContext {
     return {
-        system: { db: null, cache: null },
+        system: { db: null as unknown as DatabaseAdapter, cache: null as unknown as ModelCacheAdapter },
         operation,
         model: createMockModel(modelName),
         record: createMockRecord(),
@@ -283,7 +285,7 @@ describe('ObserverRunner', () => {
             } catch (err) {
                 expect(err).toBeInstanceOf(AggregateError);
                 expect(ctx.errors[0]).toBeInstanceOf(EOBSINVALID);
-                expect(ctx.errors[0].message).toBe('Generic error');
+                expect(ctx.errors[0]!.message).toBe('Generic error');
             }
         });
     });
@@ -338,10 +340,10 @@ describe('ObserverRunner', () => {
             const results = await runner.run(createMockContext('create'));
 
             expect(results.length).toBe(2);
-            expect(results[0].observer).toBe('A');
-            expect(results[0].ring).toBe(ObserverRing.InputValidation);
-            expect(results[1].observer).toBe('B');
-            expect(results[1].ring).toBe(ObserverRing.Database);
+            expect(results[0]!.observer).toBe('A');
+            expect(results[0]!.ring).toBe(ObserverRing.InputValidation);
+            expect(results[1]!.observer).toBe('B');
+            expect(results[1]!.ring).toBe(ObserverRing.Database);
         });
 
         it('should track duration for each observer', async () => {
@@ -353,7 +355,7 @@ describe('ObserverRunner', () => {
 
             const results = await runner.run(createMockContext('create'));
 
-            expect(results[0].duration).toBeGreaterThanOrEqual(40); // Allow some variance
+            expect(results[0]!.duration).toBeGreaterThanOrEqual(40); // Allow some variance
         });
 
         it('should include error in result on failure', async () => {

@@ -22,6 +22,8 @@ import {
     BunHostDevice,
     MockIPCDevice,
     BunChannelDevice,
+    MockCompressionDevice,
+    MockFileDevice,
 } from '@src/hal/index.js';
 
 /**
@@ -45,6 +47,12 @@ function createTestHAL(): HAL & { console: BufferConsoleDevice } {
         host: new BunHostDevice(),
         ipc: new MockIPCDevice(),
         channel: new BunChannelDevice(),
+        compression: new MockCompressionDevice(),
+        file: new MockFileDevice(),
+
+        async init(): Promise<void> {
+            // No-op for test HAL
+        },
 
         async shutdown(): Promise<void> {
             timer.cancelAll();

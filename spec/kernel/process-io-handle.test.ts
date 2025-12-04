@@ -4,7 +4,7 @@
  * Tests for the process I/O handle that mediates stdin/stdout/stderr routing.
  */
 
-import { describe, it, expect, beforeEach } from 'bun:test';
+import { describe, it, expect } from 'bun:test';
 import { ProcessIOHandle, type Handle, type HandleType } from '@src/kernel/handle.js';
 import type { Message, Response } from '@src/message.js';
 import { respond } from '@src/message.js';
@@ -348,7 +348,7 @@ describe('ProcessIOHandle', () => {
                 type: 'file',
                 description: 'slow tap',
                 closed: false,
-                async *exec(msg: Message): AsyncIterable<Response> {
+                async *exec(): AsyncIterable<Response> {
                     await new Promise(resolve => setTimeout(resolve, 100));
                     tapReceived = true;
                     yield respond.ok();
@@ -423,7 +423,7 @@ describe('ProcessIOHandle', () => {
 
             // Create a tap that blocks only on the first message
             let firstCall = true;
-            let releaseResolve: (() => void) | null = null;
+            let releaseResolve: ((value: void) => void) | undefined;
             const blockingTap: Handle = {
                 id: 'blocking-tap',
                 type: 'file',

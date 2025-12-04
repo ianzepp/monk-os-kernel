@@ -10,7 +10,7 @@ import { createFileSyscalls } from '@src/kernel/syscalls/file.js';
 import type { Process, OpenFlags } from '@src/kernel/types.js';
 import type { Handle, HandleType } from '@src/kernel/handle.js';
 import type { Message, Response } from '@src/message.js';
-import { respond, unwrapStream } from '@src/message.js';
+import { respond } from '@src/message.js';
 import type { VFS } from '@src/vfs/vfs.js';
 import type { ModelStat } from '@src/vfs/model.js';
 import { ENOENT } from '@src/hal/errors.js';
