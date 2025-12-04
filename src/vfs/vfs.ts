@@ -64,6 +64,8 @@ import type { HAL } from '@src/hal/index.js';
 import type { Model, ModelStat, ModelContext, WatchEvent } from '@src/vfs/model.js';
 import type { FileHandle, OpenFlags, OpenOptions } from '@src/vfs/handle.js';
 import type { ACL } from '@src/vfs/acl.js';
+import type { DatabaseOps } from '@src/model/database-ops.js';
+import type { EntityCache } from '@src/model/entity-cache.js';
 import { checkAccess, defaultACL, encodeACL, decodeACL } from '@src/vfs/acl.js';
 import { FileModel } from '@src/vfs/models/file.js';
 import { FolderModel } from '@src/vfs/models/folder.js';
@@ -269,12 +271,48 @@ export class VFS {
     constructor(hal: HAL) {
         this.hal = hal;
 
-        // Register built-in models
-        // WHY HERE: Models are stateless, safe to create eagerly
-        this.registerModel(new FileModel());
-        this.registerModel(new FolderModel());
+        // Register built-in models that don't need external dependencies
+        // FileModel and FolderModel are registered separately via register*Model()
+        // when DatabaseOps and EntityCache are available
         this.registerModel(new DeviceModel());
         this.registerModel(new LinkModel());
+    }
+
+    /**
+     * Register the FileModel with its dependencies.
+     *
+     * WHY separate method: FileModel needs DatabaseOps and EntityCache,
+     * which are only available after the model layer is initialized.
+     * This allows VFS to be created early in boot, with FileModel
+     * registered later when dependencies are available.
+     *
+     * @param db - DatabaseOps for SQL operations
+     * @param entityCache - EntityCache for entity metadata
+     */
+    registerFileModel(db: DatabaseOps, entityCache: EntityCache): void {
+        this.registerModel(new FileModel(db, entityCache));
+    }
+
+    /**
+     * Register the FolderModel with its dependencies.
+     *
+     * WHY separate method: FolderModel needs DatabaseOps and EntityCache,
+     * which are only available after the model layer is initialized.
+     * This allows VFS to be created early in boot, with FolderModel
+     * registered later when dependencies are available.
+     *
+     * Also mounts the folder model at root "/" since this wasn't done
+     * during init() (FolderModel wasn't available yet).
+     *
+     * @param db - DatabaseOps for SQL operations
+     * @param entityCache - EntityCache for entity metadata
+     */
+    registerFolderModel(db: DatabaseOps, entityCache: EntityCache): void {
+        const folderModel = new FolderModel(db, entityCache);
+        this.registerModel(folderModel);
+
+        // Mount folder model at root (deferred from init())
+        this.mount('/', folderModel, {});
     }
 
     // =========================================================================
@@ -288,10 +326,14 @@ export class VFS {
      *
      * INITIALIZATION SEQUENCE:
      * 1. Check if already initialized
-     * 2. Create root folder if not exists
+     * 2. Create root folder if not exists (via HAL storage)
      * 3. Set root ACL (world-readable)
-     * 4. Mount root path
-     * 5. Create /dev and standard devices
+     * 4. Create /dev folder if not exists (via HAL storage)
+     * 5. Create standard devices
+     *
+     * NOTE: FolderModel and FileModel are registered AFTER init() via
+     * registerFolderModel()/registerFileModel() once database layer is ready.
+     * The root mount is created when registerFolderModel() is called.
      */
     async init(): Promise<void> {
         // Idempotency guard
@@ -300,15 +342,8 @@ export class VFS {
         }
         this.initialized = true;
 
-        // Create root folder if needed
+        // Create root folder if needed (HAL storage - no FolderModel yet)
         await this.ensureRootExists();
-
-        // Mount root with folder model
-        const folderModel = this.models.get('folder');
-        if (!folderModel) {
-            throw new ENOENT('Folder model not registered');
-        }
-        this.mount('/', folderModel, {});
 
         // Initialize /dev directory with standard devices
         await this.initDevices();
@@ -356,6 +391,10 @@ export class VFS {
      * Initialize /dev directory with standard devices.
      *
      * Creates: /dev/console, /dev/null, /dev/zero, /dev/random, etc.
+     *
+     * NOTE: Creates /dev folder via HAL storage (not FolderModel) since
+     * this runs before database layer is initialized. /dev is a bootstrap
+     * folder that needs to exist before process spawning can work.
      */
     private async initDevices(): Promise<void> {
         const ctx = this.createContext('kernel');
@@ -366,13 +405,23 @@ export class VFS {
             return; // Already initialized
         }
 
-        // Create /dev folder
-        const folderModel = this.models.get('folder');
-        if (!folderModel) {
-            throw new ENOENT('Folder model not registered');
-        }
-
-        devId = await folderModel.create(ctx, ROOT_ID, 'dev', { owner: 'kernel' });
+        // Create /dev folder via HAL storage (FolderModel not registered yet)
+        devId = this.hal.entropy.uuid();
+        const now = this.hal.clock.now();
+        const devFolder: ModelStat = {
+            id: devId,
+            model: 'folder',
+            name: 'dev',
+            parent: ROOT_ID,
+            owner: 'kernel',
+            size: 0,
+            mtime: now,
+            ctime: now,
+        };
+        await this.hal.storage.put(
+            entityKey(devId),
+            new TextEncoder().encode(JSON.stringify(devFolder))
+        );
 
         // Index the new folder for O(1) lookup
         await this.addChildIndex(ROOT_ID, 'dev', devId);

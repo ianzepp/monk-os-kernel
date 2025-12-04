@@ -80,6 +80,7 @@ import { PosixModel } from '@src/vfs/model.js';
 import type { ModelStat, ModelContext, FieldDef, WatchEvent } from '@src/vfs/model.js';
 import type { FileHandle, OpenFlags, OpenOptions, SeekWhence } from '@src/vfs/handle.js';
 import type { DatabaseOps, DbRecord } from '@src/model/database-ops.js';
+import type { EntityCache, CachedEntity } from '@src/model/entity-cache.js';
 import { ENOENT, EBADF, EACCES, EINVAL } from '@src/hal/index.js';
 
 // =============================================================================
@@ -104,18 +105,13 @@ const MODEL_NAME = 'temp';
 // =============================================================================
 
 /**
- * Database record type for temp table.
+ * Database record type for temp detail table.
  *
  * WHY: Typed interface for SQL rows in the temp table.
+ * Note: parent and pathname are in the entities table, not here.
  * Matches the schema definition in schema.sql.
  */
 interface TempRecord extends DbRecord {
-    /** File name (required) */
-    name: string;
-
-    /** Parent temp ID (null for root-level) */
-    parent: string | null;
-
     /** Owner process or user ID (required) */
     owner: string;
 
@@ -129,12 +125,13 @@ interface TempRecord extends DbRecord {
 /**
  * Schema definition for temp file entities.
  *
+ * Note: id, parent, pathname are in the entities table (handled by Ring 5).
+ * These are the detail table fields only.
+ *
  * TESTABILITY: Exported constant allows tests to verify schema structure.
  */
 const TEMP_FIELDS: FieldDef[] = [
     { name: 'id', type: 'string', required: true },
-    { name: 'name', type: 'string', required: true },
-    { name: 'parent', type: 'string' },
     { name: 'owner', type: 'string', required: true },
     { name: 'size', type: 'number' },
     { name: 'mimetype', type: 'string' },
@@ -158,25 +155,27 @@ function timestampToMs(isoString: string): number {
 }
 
 /**
- * Convert TempRecord from SQL to ModelStat for VFS.
+ * Merge entity (from cache) and detail (from SQL) into ModelStat.
  *
- * WHY: Bridges SQL row format to VFS metadata format.
- * Handles timestamp conversion and field mapping.
+ * WHY: Entity+detail architecture splits data across two sources:
+ * - EntityCache: id, model, parent, pathname
+ * - Detail table: timestamps, owner, size, mimetype
  *
- * @param record - SQL row from temp table
+ * @param entity - Entity data from EntityCache
+ * @param detail - Detail data from SQL temp table
  * @returns VFS-compatible ModelStat
  */
-function recordToStat(record: TempRecord): ModelStat {
+function mergeToStat(entity: CachedEntity, detail: TempRecord): ModelStat {
     return {
-        id: record.id,
-        model: MODEL_NAME,
-        name: record.name,
-        parent: record.parent,
-        owner: record.owner,
-        size: record.size ?? 0,
-        mtime: timestampToMs(record.updated_at),
-        ctime: timestampToMs(record.created_at),
-        mimetype: record.mimetype ?? undefined,
+        id: entity.id,
+        model: entity.model,
+        name: entity.pathname,
+        parent: entity.parent,
+        owner: detail.owner,
+        size: detail.size ?? 0,
+        mtime: timestampToMs(detail.updated_at),
+        ctime: timestampToMs(detail.created_at),
+        mimetype: detail.mimetype ?? undefined,
     };
 }
 
@@ -221,6 +220,14 @@ export class TempModel extends PosixModel {
      */
     private readonly db: DatabaseOps;
 
+    /**
+     * Entity cache for path resolution and entity metadata.
+     *
+     * WHY: Entity+detail architecture stores id, model, parent, pathname
+     * in the entities table. EntityCache provides O(1) access to this data.
+     */
+    private readonly entityCache: EntityCache;
+
     // =========================================================================
     // CONSTRUCTOR
     // =========================================================================
@@ -229,10 +236,12 @@ export class TempModel extends PosixModel {
      * Create a new TempModel instance.
      *
      * @param db - DatabaseOps instance for SQL operations
+     * @param entityCache - EntityCache for entity metadata
      */
-    constructor(db: DatabaseOps) {
+    constructor(db: DatabaseOps, entityCache: EntityCache) {
         super();
         this.db = db;
+        this.entityCache = entityCache;
     }
 
     // =========================================================================
@@ -310,26 +319,38 @@ export class TempModel extends PosixModel {
     /**
      * Get metadata for a temp file.
      *
+     * ALGORITHM:
+     * 1. Get entity data from EntityCache (id, model, parent, pathname)
+     * 2. Get detail data from SQL (timestamps, owner, size, mimetype)
+     * 3. Merge into ModelStat
+     *
      * @param ctx - Model context
      * @param id - Entity UUID
      * @returns Entity metadata
      * @throws ENOENT - If file does not exist
      */
     async stat(_ctx: ModelContext, id: string): Promise<ModelStat> {
-        let record: TempRecord | null = null;
+        // Get entity data from cache (with DB fallback)
+        const entity = this.entityCache.getEntity(id);
+        if (!entity) {
+            throw new ENOENT(`Temp file not found: ${id}`);
+        }
+
+        // Get detail data from SQL
+        let detail: TempRecord | null = null;
         for await (const r of this.db.selectAny<TempRecord>(MODEL_NAME, {
             where: { id },
             limit: 1,
         })) {
-            record = r;
+            detail = r;
             break;
         }
 
-        if (!record) {
-            throw new ENOENT(`Temp file not found: ${id}`);
+        if (!detail) {
+            throw new ENOENT(`Temp file detail not found: ${id}`);
         }
 
-        return recordToStat(record);
+        return mergeToStat(entity, detail);
     }
 
     /**
@@ -341,9 +362,12 @@ export class TempModel extends PosixModel {
      *
      * WHY DatabaseOps: Mutations go through observer pipeline for:
      * - Ring 1: Validation constraints
-     * - Ring 5: SQL persistence
+     * - Ring 5: SQL persistence (entities + detail tables)
      * - Ring 7: Change tracking
-     * - Ring 8: Cache invalidation
+     * - Ring 8: Cache invalidation (EntityCache sync for pathname/parent)
+     *
+     * Note: `name` in ModelStat maps to `pathname` in entities table.
+     * The observer pipeline handles updating the correct tables.
      *
      * @param ctx - Model context
      * @param id - Entity UUID
@@ -351,9 +375,11 @@ export class TempModel extends PosixModel {
      * @throws ENOENT - If file does not exist
      */
     async setstat(_ctx: ModelContext, id: string, fields: Partial<ModelStat>): Promise<void> {
-        // Build changes object with only allowed fields
-        const changes: Partial<TempRecord> = {};
-        if (fields.name !== undefined) changes.name = fields.name;
+        // Build changes object
+        // Note: name→pathname and parent go to entities table (handled by Ring 5)
+        // mimetype goes to detail table
+        const changes: Record<string, unknown> = {};
+        if (fields.name !== undefined) changes.pathname = fields.name;
         if (fields.parent !== undefined) changes.parent = fields.parent;
         if (fields.mimetype !== undefined) changes.mimetype = fields.mimetype ?? null;
 
@@ -370,41 +396,40 @@ export class TempModel extends PosixModel {
      * Create a new temp file.
      *
      * ALGORITHM:
-     * 1. Create entity metadata in SQL via DatabaseOps
+     * 1. Create entity via DatabaseOps (observer pipeline handles entities + detail)
      * 2. Create empty blob in HAL storage
      * 3. Return entity UUID
      *
-     * WHY blob first: If we crash after creating entity but before blob,
-     * the entity would reference a non-existent blob. Creating blob first
-     * means an orphaned blob (worst case) rather than a broken entity.
-     *
-     * Actually, for temp files using SQL (where ID is auto-generated by the
-     * database), we create the entity first to get the ID, then create the blob.
-     * This is acceptable for temp files given their ephemeral nature.
+     * WHY observer pipeline: Ring 5 SqlCreate handles the dual-table write:
+     * - INSERT into entities (id, model, parent, pathname)
+     * - INSERT into temp detail (id, owner, size, mimetype)
      *
      * @param ctx - Model context
      * @param parent - Parent folder UUID (or null for root-level)
-     * @param name - Filename
+     * @param pathname - Filename (becomes entities.pathname)
      * @param fields - Optional initial field values
      * @returns Created entity UUID
      */
     async create(
         ctx: ModelContext,
         parent: string,
-        name: string,
+        pathname: string,
         fields?: Partial<ModelStat>
     ): Promise<string> {
-        // Create entity in SQL via DatabaseOps
+        // Create entity via DatabaseOps
+        // Ring 5 SqlCreate splits this into entities + detail tables
         let createdId: string | null = null;
 
         for await (const created of this.db.createAll<TempRecord>(MODEL_NAME, [
             {
-                name,
+                // Entity fields (go to entities table)
+                pathname,
                 parent: parent || null,
+                // Detail fields (go to temp table)
                 owner: fields?.owner ?? ctx.caller,
                 size: 0,
                 mimetype: (fields?.mimetype as string) ?? null,
-            },
+            } as TempRecord & { pathname: string; parent: string | null },
         ])) {
             createdId = created.id;
             break;

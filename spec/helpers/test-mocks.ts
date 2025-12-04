@@ -1,178 +1,226 @@
-import { mock, spyOn } from 'bun:test';
-import type { SystemContext } from '@src/lib/system-context-types.js';
-import type { Model } from '@src/lib/model.js';
-import type { System } from '@src/lib/system.js';
-import { Database } from '@src/lib/database.js';
+import { mock } from 'bun:test';
+import type { DatabaseOps, DbRecord, SelectOptions, DeleteFilter } from '@src/model/database-ops.js';
+import type { EntityCache, CachedEntity } from '@src/model/entity-cache.js';
+import { VFS } from '@src/vfs/vfs.js';
+import type { HAL } from '@src/hal/index.js';
+
+// =============================================================================
+// VFS TEST HELPERS
+// =============================================================================
 
 /**
- * Create a mock SystemContext for testing
+ * In-memory record storage for mock DatabaseOps.
  */
-export function createMockSystemContext(
-    overrides?: Partial<SystemContext>
-): SystemContext {
-    const defaults: Partial<SystemContext> = {
-        userId: 'test-user-id',
-        context: {} as any, // Context is a Hono context type, not a string
-        options: {},
-        database: {} as any,
-        describe: {} as any,
-        getUser: mock().mockReturnValue({
-            id: 'test-user-id',
-            tenant: 'test-tenant',
-            role: 'user',
-            accessRead: [],
-            accessEdit: [],
-            accessFull: [],
-        }),
-        isRoot: mock().mockReturnValue(false),
-        isSudo: mock().mockReturnValue(false),
-    };
+class MockRecordStore {
+    private records: Map<string, Map<string, DbRecord>> = new Map();
+    private nextId = 1;
 
-    return {
-        ...defaults,
-        ...overrides,
-    } as SystemContext;
-}
-
-/**
- * Create a mock System for testing (used by BulkProcessor)
- */
-export function createMockSystem(
-    overrides?: Partial<System>
-): System {
-    const database = overrides?.database || ({} as any);
-
-    const defaults: Partial<System> = {
-        userId: 'test-user-id',
-        correlationId: 'test-correlation-id',
-        context: {} as any, // Context is a Hono context type, not a string
-        options: {},
-        database,
-        describe: {} as any,
-        getUser: mock().mockReturnValue({
-            id: 'test-user-id',
-            tenant: 'test-tenant',
-            role: 'user',
-            accessRead: [],
-            accessEdit: [],
-            accessFull: [],
-        }),
-        isRoot: mock().mockReturnValue(false),
-        isSudo: mock().mockReturnValue(false),
-    };
-
-    return {
-        ...defaults,
-        ...overrides,
-    } as System;
-}
-
-/**
- * Create a mock Model for testing
- */
-export function createMockModel(
-    overrides?: Partial<Model>
-): Model {
-    const defaults: Partial<Model> = {
-        modelName: 'test_model',
-        status: 'active',
-        immutableFields: new Set<string>(),
-        sudoFields: new Set<string>(),
-        trackedFields: new Set<string>(),
-        requiredFields: new Set<string>(),
-        typedFields: new Map(),
-        rangeFields: new Map(),
-        enumFields: new Map(),
-        transformFields: new Map(),
-        validationFields: [],
-        external: false,
-        frozen: false,
-    };
-
-    return {
-        ...defaults,
-        ...overrides,
-        // Ensure model_name getter is available
-        get model_name() {
-            return this.modelName;
-        },
-    } as Model;
-}
-
-/**
- * Create a mock NamespaceCache for testing
- */
-export function createMockNamespace(overrides?: {
-    getModel?: any;
-}): any {
-    const defaultModel = createMockModel({ modelName: 'orders' });
-
-    return {
-        getModel: overrides?.getModel ?? mock().mockReturnValue(defaultModel),
-        isLoaded: mock().mockReturnValue(true),
-        invalidateModel: mock(),
-        loadOne: mock().mockResolvedValue(undefined),
-        loadAll: mock().mockResolvedValue(undefined),
-    };
-}
-
-/**
- * Create a mock Database with common spy methods
- */
-export function createMockDatabase(overrides?: {
-    getModel?: any;
-    execute?: any;
-    getDefaultSoftDeleteOptions?: any;
-    convertPostgreSQLTypes?: any;
-    aggregate?: any;
-}): Database {
-    // Create mock namespace with getModel
-    const mockNamespace = createMockNamespace({
-        getModel: overrides?.getModel,
-    });
-
-    const mockSystem = createMockSystemContext({
-        database: {} as any,
-        namespace: mockNamespace,
-    });
-
-    const database = new Database(mockSystem);
-
-    // Set up execute spy
-    // Store the spy so tests can re-configure it
-    const executeSpy = spyOn(database as any, 'execute');
-    if (overrides?.execute !== undefined) {
-        // Handle both mock functions and regular values
-        if (typeof overrides.execute === 'function') {
-            executeSpy.mockImplementation(overrides.execute);
-        } else {
-            // If it's a value, wrap it in a resolved promise
-            executeSpy.mockResolvedValue(overrides.execute);
+    getTable(model: string): Map<string, DbRecord> {
+        if (!this.records.has(model)) {
+            this.records.set(model, new Map());
         }
-    } else {
-        executeSpy.mockResolvedValue({ rows: [] });
-    }
-    // Attach the spy to database for test access
-    (database as any)._executeSpy = executeSpy;
-
-    if (overrides?.getDefaultSoftDeleteOptions !== undefined) {
-        spyOn(database as any, 'getDefaultSoftDeleteOptions')
-            .mockImplementation(overrides.getDefaultSoftDeleteOptions);
-    } else {
-        spyOn(database as any, 'getDefaultSoftDeleteOptions').mockReturnValue({});
+        return this.records.get(model)!;
     }
 
-    if (overrides?.convertPostgreSQLTypes !== undefined) {
-        spyOn(database as any, 'convertPostgreSQLTypes')
-            .mockImplementation(overrides.convertPostgreSQLTypes);
-    } else {
-        spyOn(database as any, 'convertPostgreSQLTypes')
-            .mockImplementation((row: any) => row);
+    generateId(): string {
+        return `mock-${this.nextId++}`;
     }
+}
 
-    if (overrides?.aggregate !== undefined) {
-        spyOn(database, 'aggregate').mockImplementation(overrides.aggregate);
-    }
+/**
+ * Create a mock DatabaseOps that stores records in memory.
+ *
+ * This provides a minimal implementation for testing FileModel/FolderModel
+ * without requiring a real database connection.
+ */
+export function createMockDatabaseOps(): DatabaseOps {
+    const store = new MockRecordStore();
+    const now = () => new Date().toISOString();
 
-    return database;
+    return {
+        async *selectAny<T extends DbRecord>(
+            model: string,
+            options?: SelectOptions
+        ): AsyncGenerator<T> {
+            const table = store.getTable(model);
+            for (const record of table.values()) {
+                if (options?.where) {
+                    // Simple WHERE matching
+                    const match = Object.entries(options.where).every(
+                        ([key, value]) => (record as Record<string, unknown>)[key] === value
+                    );
+                    if (!match) continue;
+                }
+                yield record as T;
+                if (options?.limit && options.limit === 1) break;
+            }
+        },
+
+        async *createAll<T extends DbRecord>(
+            model: string,
+            records: Array<Partial<T> & { pathname?: string; parent?: string | null }>
+        ): AsyncGenerator<T> {
+            const table = store.getTable(model);
+            for (const input of records) {
+                const id = store.generateId();
+                const record: DbRecord = {
+                    id,
+                    created_at: now(),
+                    updated_at: now(),
+                    deleted_at: null,
+                    ...input,
+                };
+                table.set(id, record);
+                yield record as T;
+            }
+        },
+
+        async *updateAll<T extends DbRecord>(
+            model: string,
+            updates: Array<{ id: string; changes: Partial<T> }>
+        ): AsyncGenerator<T> {
+            const table = store.getTable(model);
+            for (const { id, changes } of updates) {
+                const existing = table.get(id);
+                if (existing) {
+                    const updated = {
+                        ...existing,
+                        ...changes,
+                        updated_at: now(),
+                    };
+                    table.set(id, updated);
+                    yield updated as T;
+                }
+            }
+        },
+
+        async *deleteAll<T extends DbRecord>(
+            model: string,
+            filters: DeleteFilter[]
+        ): AsyncGenerator<T> {
+            const table = store.getTable(model);
+            for (const filter of filters) {
+                const id = filter.id;
+                const existing = table.get(id);
+                if (existing) {
+                    // Soft delete
+                    const deleted = {
+                        ...existing,
+                        deleted_at: now(),
+                        updated_at: now(),
+                    };
+                    table.set(id, deleted);
+                    yield deleted as T;
+                }
+            }
+        },
+    } as DatabaseOps;
+}
+
+/**
+ * Create a mock EntityCache that stores entities in memory.
+ *
+ * This provides a minimal implementation for testing FileModel/FolderModel
+ * without requiring database-backed entity resolution.
+ */
+export function createMockEntityCache(): EntityCache {
+    const entities: Map<string, CachedEntity> = new Map();
+    const children: Map<string, string[]> = new Map();
+
+    return {
+        get size(): number {
+            return entities.size;
+        },
+
+        getEntity(id: string): CachedEntity | undefined {
+            return entities.get(id);
+        },
+
+        listChildren(parentId: string): string[] {
+            return children.get(parentId) || [];
+        },
+
+        getChild(parentId: string, pathname: string): string | undefined {
+            const childIds = children.get(parentId) || [];
+            for (const childId of childIds) {
+                const entity = entities.get(childId);
+                if (entity && entity.pathname === pathname) {
+                    return childId;
+                }
+            }
+            return undefined;
+        },
+
+        // Method to add entities for testing
+        addEntity(entity: CachedEntity): void {
+            entities.set(entity.id, entity);
+            if (entity.parent) {
+                const parentChildren = children.get(entity.parent) || [];
+                if (!parentChildren.includes(entity.id)) {
+                    parentChildren.push(entity.id);
+                    children.set(entity.parent, parentChildren);
+                }
+            }
+        },
+
+        // Method to update entities (rename/move)
+        updateEntity(id: string, changes: { pathname?: string; parent?: string | null }): void {
+            const entity = entities.get(id);
+            if (!entity) return;
+
+            // Handle parent change (move)
+            if (changes.parent !== undefined && changes.parent !== entity.parent) {
+                // Remove from old parent's children list
+                if (entity.parent) {
+                    const oldChildren = children.get(entity.parent) || [];
+                    const idx = oldChildren.indexOf(id);
+                    if (idx >= 0) oldChildren.splice(idx, 1);
+                }
+                // Add to new parent's children list
+                if (changes.parent) {
+                    const newChildren = children.get(changes.parent) || [];
+                    if (!newChildren.includes(id)) {
+                        newChildren.push(id);
+                        children.set(changes.parent, newChildren);
+                    }
+                }
+                entity.parent = changes.parent;
+            }
+
+            // Handle pathname change (rename)
+            if (changes.pathname !== undefined) {
+                entity.pathname = changes.pathname;
+            }
+
+            entities.set(id, entity);
+        },
+
+        // Required by interface but not needed for basic tests
+        async loadFromDatabase(): Promise<void> {},
+        async resolvePath(): Promise<string | undefined> { return undefined; },
+        async resolveParent(): Promise<string | undefined> { return undefined; },
+    } as EntityCache;
+}
+
+/**
+ * Create a VFS instance configured for testing.
+ *
+ * Sets up VFS with mock DatabaseOps and EntityCache, and registers
+ * FileModel and FolderModel. This allows tests to use VFS without
+ * requiring a full database layer.
+ *
+ * @param hal - HAL instance (must be initialized)
+ * @returns Configured VFS ready for testing
+ */
+export async function createTestVfs(hal: HAL): Promise<VFS> {
+    const vfs = new VFS(hal);
+    await vfs.init();
+
+    const mockDbOps = createMockDatabaseOps();
+    const mockEntityCache = createMockEntityCache();
+
+    vfs.registerFileModel(mockDbOps, mockEntityCache);
+    vfs.registerFolderModel(mockDbOps, mockEntityCache);
+
+    return vfs;
 }

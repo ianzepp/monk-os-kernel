@@ -27,6 +27,7 @@ import {
     MockIPCDevice,
     BunChannelDevice,
 } from '@src/hal/index.js';
+import { createTestVfs } from '../helpers/test-mocks.js';
 
 /**
  * Create a test HAL with memory backends and buffer console
@@ -64,7 +65,7 @@ describe('Kernel Boot', () => {
 
     beforeEach(async () => {
         hal = createTestHAL();
-        vfs = new VFS(hal);
+        vfs = await createTestVfs(hal);
         kernel = new Kernel(hal, vfs);
     });
 
@@ -81,8 +82,7 @@ describe('Kernel Boot', () => {
     });
 
     it('should create /dev/console during VFS init', async () => {
-        // Just init VFS, don't boot kernel
-        await vfs.init();
+        // VFS already initialized by createTestVfs
 
         // Check /dev exists
         const devStat = await vfs.stat('/dev', 'kernel');
@@ -96,7 +96,7 @@ describe('Kernel Boot', () => {
     });
 
     it('should allow reading and writing to /dev/console', async () => {
-        await vfs.init();
+        // VFS already initialized by createTestVfs
 
         // Open console for writing
         const writeHandle = await vfs.open('/dev/console', { write: true }, 'kernel');
@@ -119,9 +119,9 @@ describe('VFS Device Initialization', () => {
     let hal: HAL;
     let vfs: VFS;
 
-    beforeEach(() => {
+    beforeEach(async () => {
         hal = createTestHAL();
-        vfs = new VFS(hal);
+        vfs = await createTestVfs(hal);
     });
 
     afterEach(async () => {
@@ -129,7 +129,7 @@ describe('VFS Device Initialization', () => {
     });
 
     it('should create standard devices', async () => {
-        await vfs.init();
+        // VFS already initialized by createTestVfs
 
         const devices = ['null', 'zero', 'random', 'urandom', 'console', 'clock'];
 
@@ -142,7 +142,7 @@ describe('VFS Device Initialization', () => {
     });
 
     it('should read zeros from /dev/zero', async () => {
-        await vfs.init();
+        // VFS already initialized by createTestVfs
 
         const handle = await vfs.open('/dev/zero', { read: true }, 'kernel');
         const data = await handle.read(16);
@@ -153,7 +153,7 @@ describe('VFS Device Initialization', () => {
     });
 
     it('should discard writes to /dev/null', async () => {
-        await vfs.init();
+        // VFS already initialized by createTestVfs
 
         const handle = await vfs.open('/dev/null', { write: true }, 'kernel');
         const written = await handle.write(new Uint8Array([1, 2, 3, 4, 5]));
@@ -163,7 +163,7 @@ describe('VFS Device Initialization', () => {
     });
 
     it('should return random bytes from /dev/random', async () => {
-        await vfs.init();
+        // VFS already initialized by createTestVfs
 
         const handle = await vfs.open('/dev/random', { read: true }, 'kernel');
         const data1 = await handle.read(16);

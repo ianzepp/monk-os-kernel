@@ -19,6 +19,7 @@ import {
     EACCES,
     EISDIR,
 } from '@src/hal/index.js';
+import { createTestVfs } from '../helpers/test-mocks.js';
 
 function createMockHAL(): HAL {
     const storage = new MemoryStorageEngine();
@@ -54,8 +55,7 @@ describe('VFS', () => {
 
     beforeEach(async () => {
         hal = createMockHAL();
-        vfs = new VFS(hal);
-        await vfs.init();
+        vfs = await createTestVfs(hal);
     });
 
     describe('init', () => {

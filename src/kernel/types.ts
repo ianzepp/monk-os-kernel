@@ -282,8 +282,8 @@ export interface PortMessage {
  * Kernel boot environment
  */
 export interface BootEnv {
-    /** Path to init process */
-    initPath: string;
+    /** Path to init process (optional for headless mode) */
+    initPath?: string;
 
     /** Command-line arguments for init */
     initArgs?: string[];

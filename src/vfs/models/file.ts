@@ -68,66 +68,44 @@
 import { PosixModel } from '@src/vfs/model.js';
 import type { ModelStat, ModelContext, FieldDef, WatchEvent } from '@src/vfs/model.js';
 import type { FileHandle, OpenFlags, OpenOptions, SeekWhence } from '@src/vfs/handle.js';
+import type { DatabaseOps, DbRecord } from '@src/model/database-ops.js';
+import type { EntityCache, CachedEntity } from '@src/model/entity-cache.js';
 import { ENOENT, EBADF, EACCES, EINVAL } from '@src/hal/index.js';
-
-// =============================================================================
-// CONSTANTS
-// =============================================================================
-
-/**
- * Storage key prefix for entity metadata.
- * WHY: Separates entity namespace from data namespace in storage.
- */
-const ENTITY_PREFIX = 'entity:';
-
-/**
- * Storage key prefix for raw data blobs.
- * WHY: Allows data to be stored/retrieved independently of metadata.
- */
-const DATA_PREFIX = 'data:';
-
-/**
- * Storage key prefix for access control lists.
- * WHY: ACLs are stored separately to allow efficient permission checks.
- */
-const ACCESS_PREFIX = 'access:';
 
 // =============================================================================
 // TYPES
 // =============================================================================
 
 /**
- * Schema definition for file entities.
+ * Database record type for blob-backed model detail tables.
  *
- * TESTABILITY: Exported constant allows tests to verify schema structure.
+ * WHY: Common fields across all blob-backed models (file, temp, audio, etc.).
+ * Model-specific fields (like audio.artist) are in the DB schema, not here.
  *
- * Fields:
- * - id: UUID of the file entity
- * - model: Always 'file' for this model
- * - name: Filename (not full path)
- * - parent: UUID of parent folder
- * - data: UUID of the data blob
- * - owner: UUID of creating process/user
- * - size: Byte length of content
- * - mtime: Last modification timestamp
- * - ctime: Creation timestamp
- * - mimetype: Optional MIME type hint
- * - versioned: Whether version history is enabled
- * - version: Current version number (if versioned)
+ * Note: parent and pathname are in the entities table, not here.
+ */
+interface BlobRecord extends DbRecord {
+    /** Owner process or user ID */
+    owner: string;
+
+    /** Blob size in bytes */
+    size: number;
+
+    /** MIME type */
+    mimetype: string | null;
+}
+
+/**
+ * Schema definition for blob-backed file entities.
+ *
+ * Note: id, parent, pathname are in the entities table (handled by Ring 5).
+ * These are the common detail table fields for blob-backed models.
  */
 const FILE_FIELDS: FieldDef[] = [
     { name: 'id', type: 'string', required: true },
-    { name: 'model', type: 'string', required: true },
-    { name: 'name', type: 'string', required: true },
-    { name: 'parent', type: 'string', required: true },
-    { name: 'data', type: 'string', required: true },
     { name: 'owner', type: 'string', required: true },
-    { name: 'size', type: 'number', required: true },
-    { name: 'mtime', type: 'number', required: true },
-    { name: 'ctime', type: 'number', required: true },
+    { name: 'size', type: 'number' },
     { name: 'mimetype', type: 'string' },
-    { name: 'versioned', type: 'boolean' },
-    { name: 'version', type: 'number' },
 ];
 
 // =============================================================================
@@ -135,27 +113,39 @@ const FILE_FIELDS: FieldDef[] = [
 // =============================================================================
 
 /**
- * Decode a Uint8Array to a JSON object.
- *
- * WHY: Centralizes JSON deserialization with proper typing.
- *
- * @param data - Raw bytes to decode
- * @returns Parsed JSON object
+ * Convert SQL timestamp string to milliseconds since epoch.
  */
-function decodeEntity<T>(data: Uint8Array): T {
-    return JSON.parse(new TextDecoder().decode(data)) as T;
+function timestampToMs(isoString: string): number {
+    return new Date(isoString).getTime();
 }
 
 /**
- * Encode a JSON object to a Uint8Array.
+ * Merge entity and detail (from SQL) into ModelStat.
+ * Accepts either CachedEntity (from cache) or ModelStat (from HAL storage).
  *
- * WHY: Centralizes JSON serialization for storage.
- *
- * @param entity - Object to encode
- * @returns Encoded bytes
+ * WHY: Entity+detail architecture splits data across two sources:
+ * - EntityCache/HAL: id, model, parent, pathname/name
+ * - Detail table: timestamps, owner, size, mimetype
  */
-function encodeEntity(entity: unknown): Uint8Array {
-    return new TextEncoder().encode(JSON.stringify(entity));
+function mergeToStat(
+    entity: CachedEntity | ModelStat,
+    detail: BlobRecord
+): ModelStat {
+    // Handle both CachedEntity (has pathname) and ModelStat (has name)
+    const name = 'pathname' in entity
+        ? (entity as CachedEntity).pathname ?? ''
+        : (entity as ModelStat).name;
+    return {
+        id: entity.id,
+        model: entity.model,
+        name,
+        parent: entity.parent,
+        owner: detail.owner,
+        size: detail.size ?? 0,
+        mtime: timestampToMs(detail.updated_at),
+        ctime: timestampToMs(detail.created_at),
+        mimetype: detail.mimetype ?? undefined,
+    };
 }
 
 // =============================================================================
@@ -163,10 +153,22 @@ function encodeEntity(entity: unknown): Uint8Array {
 // =============================================================================
 
 /**
- * FileModel - Standard file storage model.
+ * FileModel - Generic blob-backed file storage model.
  *
- * Implements POSIX-style file operations backed by StorageEngine.
- * Files consist of an entity record (metadata) and a data blob (content).
+ * ARCHITECTURE OVERVIEW
+ * =====================
+ * FileModel is the universal handler for all blob-backed entities:
+ * - file (standard files)
+ * - temp (temporary files)
+ * - audio, video, image, document (future media types)
+ *
+ * The model is determined by entity.model from EntityCache, NOT hardcoded.
+ * This enables one model class to handle any blob-backed entity type.
+ *
+ * Data flow:
+ * - Entity identity (id, model, parent, pathname) → EntityCache
+ * - Detail data (timestamps, owner, size, mimetype) → SQL via DatabaseOps
+ * - Blob content → HAL storage at key `blob:{model}:{id}`
  */
 export class FileModel extends PosixModel {
     // =========================================================================
@@ -176,19 +178,55 @@ export class FileModel extends PosixModel {
     /**
      * Model identifier.
      *
-     * WHY: Used by VFS to dispatch operations to the correct model.
-     * INVARIANT: Always 'file' for this model.
+     * WHY: Used by VFS for registration. Actual model is determined per-entity
+     * from EntityCache (entity.model field).
      */
     readonly name = 'file';
+
+    // =========================================================================
+    // DEPENDENCIES
+    // =========================================================================
+
+    /**
+     * Database operations interface.
+     *
+     * WHY: All SQL operations go through DatabaseOps for observer pipeline.
+     */
+    private readonly db: DatabaseOps;
+
+    /**
+     * Entity cache for path resolution and entity metadata.
+     *
+     * WHY: Entity+detail architecture stores id, model, parent, pathname
+     * in the entities table. EntityCache provides O(1) access.
+     */
+    private readonly entityCache: EntityCache;
+
+    // =========================================================================
+    // CONSTRUCTOR
+    // =========================================================================
+
+    /**
+     * Create a new FileModel instance.
+     *
+     * @param db - DatabaseOps instance for SQL operations
+     * @param entityCache - EntityCache for entity metadata
+     */
+    constructor(db: DatabaseOps, entityCache: EntityCache) {
+        super();
+        this.db = db;
+        this.entityCache = entityCache;
+    }
 
     // =========================================================================
     // SCHEMA
     // =========================================================================
 
     /**
-     * Return field definitions for file entities.
+     * Return field definitions for blob-backed entities.
      *
      * WHY: Enables schema validation and introspection.
+     * Note: These are common fields. Model-specific fields are in DB schema.
      *
      * @returns Array of field definitions
      */
@@ -204,19 +242,15 @@ export class FileModel extends PosixModel {
      * Open a file for I/O operations.
      *
      * ALGORITHM:
-     * 1. Load entity metadata from storage
-     * 2. Load content from data blob (or empty if none)
+     * 1. Get entity from EntityCache (id, model, parent, pathname)
+     * 2. Load blob content from HAL storage
      * 3. Apply truncate flag if requested
      * 4. Create and return FileHandleImpl
-     *
-     * RACE CONDITION:
-     * Content is loaded once at open time. Concurrent opens get independent
-     * snapshots. Last writer wins on close.
      *
      * @param ctx - Model context with HAL and caller info
      * @param id - Entity UUID to open
      * @param flags - Open flags (read/write/truncate/append)
-     * @param opts - Optional open options (version selection)
+     * @param _opts - Optional open options (currently unused)
      * @returns FileHandle for I/O operations
      * @throws ENOENT - If file does not exist
      */
@@ -224,36 +258,36 @@ export class FileModel extends PosixModel {
         ctx: ModelContext,
         id: string,
         flags: OpenFlags,
-        opts?: OpenOptions
+        _opts?: OpenOptions
     ): Promise<FileHandle> {
-        // Load entity metadata
-        const data = await ctx.hal.storage.get(`${ENTITY_PREFIX}${id}`);
-        if (!data) {
+        // Get entity from HAL storage (dual-write target)
+        // Use ctx.getEntity() instead of entityCache.getEntity() because
+        // newly created entities are in HAL but not yet in the cache
+        const entity = await ctx.getEntity(id);
+        if (!entity) {
             throw new ENOENT(`File not found: ${id}`);
         }
 
-        const entity = decodeEntity<ModelStat>(data);
-
-        // Load current content from data blob
-        let content: Uint8Array;
-        if (entity.data) {
-            const blobData = await ctx.hal.storage.get(`${DATA_PREFIX}${entity.data}`);
-            // Data blob may not exist if file was just created
-            content = blobData ?? new Uint8Array(0);
-        } else {
-            content = new Uint8Array(0);
-        }
+        // Load blob content from HAL storage
+        const blobKey = `blob:${entity.model}:${id}`;
+        let content = await ctx.hal.storage.get(blobKey);
+        content = content ?? new Uint8Array(0);
 
         // Truncate if requested (requires write permission)
         if (flags.truncate && flags.write) {
             content = new Uint8Array(0);
         }
 
-        return new FileHandleImpl(ctx, id, entity, content, flags, opts);
+        return new FileHandleImpl(ctx, this.db, entity.model, id, content, flags);
     }
 
     /**
      * Get metadata for a file.
+     *
+     * ALGORITHM:
+     * 1. Get entity data from HAL storage (dual-write target)
+     * 2. Get detail data from SQL (timestamps, owner, size, mimetype)
+     * 3. Merge into ModelStat
      *
      * @param ctx - Model context
      * @param id - Entity UUID
@@ -261,22 +295,33 @@ export class FileModel extends PosixModel {
      * @throws ENOENT - If file does not exist
      */
     async stat(ctx: ModelContext, id: string): Promise<ModelStat> {
-        const data = await ctx.hal.storage.get(`${ENTITY_PREFIX}${id}`);
-        if (!data) {
+        // Get entity from HAL storage (dual-write target)
+        // Use ctx.getEntity() instead of entityCache because newly created
+        // entities are in HAL but not yet in the cache
+        const entity = await ctx.getEntity(id);
+        if (!entity) {
             throw new ENOENT(`File not found: ${id}`);
         }
 
-        return decodeEntity<ModelStat>(data);
+        // Get detail from SQL (query the model's detail table)
+        let detail: BlobRecord | null = null;
+        for await (const r of this.db.selectAny<BlobRecord>(entity.model, {
+            where: { id },
+            limit: 1,
+        })) {
+            detail = r;
+            break;
+        }
+
+        if (!detail) {
+            throw new ENOENT(`File detail not found: ${id}`);
+        }
+
+        return mergeToStat(entity, detail);
     }
 
     /**
      * Update metadata fields on a file.
-     *
-     * ALGORITHM:
-     * 1. Load existing entity
-     * 2. Merge allowed fields
-     * 3. Update mtime
-     * 4. Write back to storage
      *
      * @param ctx - Model context
      * @param id - Entity UUID
@@ -284,116 +329,159 @@ export class FileModel extends PosixModel {
      * @throws ENOENT - If file does not exist
      */
     async setstat(ctx: ModelContext, id: string, fields: Partial<ModelStat>): Promise<void> {
-        const data = await ctx.hal.storage.get(`${ENTITY_PREFIX}${id}`);
-        if (!data) {
+        // Get entity from HAL storage (dual-write target)
+        const entity = await ctx.getEntity(id);
+        if (!entity) {
             throw new ENOENT(`File not found: ${id}`);
         }
 
-        const entity = decodeEntity<ModelStat>(data);
+        // Build changes object
+        // name→pathname and parent go to entities table (handled by Ring 5)
+        // mimetype goes to detail table
+        const changes: Record<string, unknown> = {};
+        if (fields.name !== undefined) changes.pathname = fields.name;
+        if (fields.parent !== undefined) changes.parent = fields.parent;
+        if (fields.mimetype !== undefined) changes.mimetype = fields.mimetype ?? null;
 
-        // Update allowed fields only (name, parent, mimetype, versioned)
-        // WHY: Prevents modification of internal fields like id, model, ctime
-        if (fields.name !== undefined) entity.name = fields.name;
-        if (fields.parent !== undefined) entity.parent = fields.parent;
-        if (fields.mimetype !== undefined) entity.mimetype = fields.mimetype;
-        if (fields.versioned !== undefined) entity.versioned = fields.versioned;
+        // Update via DatabaseOps (triggers observer pipeline)
+        for await (const _ of this.db.updateAll<BlobRecord>(entity.model, [
+            { id, changes },
+        ])) {
+            // Record updated
+        }
 
-        // Always update mtime on metadata change
-        entity.mtime = ctx.hal.clock.now();
+        // DUAL-WRITE: Update HAL storage (for VFS.getEntity())
+        const updatedEntity: ModelStat = {
+            ...entity,
+            name: fields.name ?? entity.name,
+            parent: fields.parent ?? entity.parent,
+            mtime: ctx.hal.clock.now(),
+        };
+        await ctx.hal.storage.put(
+            `entity:${id}`,
+            new TextEncoder().encode(JSON.stringify(updatedEntity))
+        );
 
-        await ctx.hal.storage.put(`${ENTITY_PREFIX}${id}`, encodeEntity(entity));
+        // Update EntityCache (for listChildren/getChild)
+        if (fields.name !== undefined || fields.parent !== undefined) {
+            this.entityCache.updateEntity(id, {
+                pathname: fields.name,
+                parent: fields.parent,
+            });
+        }
     }
 
     /**
      * Create a new file.
      *
-     * ALGORITHM:
-     * 1. Generate UUIDs for entity and data blob
-     * 2. Create empty data blob
-     * 3. Create entity with metadata
-     * 4. Return entity UUID
-     *
-     * WHY data blob is created first:
-     * If we crash after creating entity but before data blob, the entity
-     * would reference a non-existent blob. Creating blob first means an
-     * orphaned blob (worst case) rather than a broken entity reference.
+     * DUAL-WRITE: Creates entity in both SQL (via DatabaseOps) and HAL storage.
+     * HAL storage write is needed because VFS.getEntity() looks there for
+     * entity metadata during path resolution.
      *
      * @param ctx - Model context
      * @param parent - Parent folder UUID
-     * @param name - Filename
+     * @param pathname - Filename (becomes entities.pathname)
      * @param fields - Optional initial field values
+     * @param modelName - Model name (default: 'file')
      * @returns Created entity UUID
      */
     async create(
         ctx: ModelContext,
         parent: string,
-        name: string,
-        fields?: Partial<ModelStat>
+        pathname: string,
+        fields?: Partial<ModelStat>,
+        modelName: string = 'file'
     ): Promise<string> {
-        const id = ctx.hal.entropy.uuid();
-        const dataId = ctx.hal.entropy.uuid();
-        const now = ctx.hal.clock.now();
+        // Create entity via DatabaseOps
+        // Ring 5 SqlCreate splits this into entities + detail tables
+        let createdId: string | null = null;
+        let createdAt: string | null = null;
 
-        const entity: ModelStat = {
-            id,
-            model: 'file',
-            name,
-            parent,
-            data: dataId,
+        for await (const created of this.db.createAll<BlobRecord>(modelName, [
+            {
+                // Entity fields (go to entities table)
+                pathname,
+                parent: parent || null,
+                // Detail fields (go to model's detail table)
+                owner: fields?.owner ?? ctx.caller,
+                size: 0,
+                mimetype: (fields?.mimetype as string) ?? null,
+            } as BlobRecord & { pathname: string; parent: string | null },
+        ])) {
+            createdId = created.id;
+            createdAt = created.created_at;
+            break;
+        }
+
+        if (!createdId) {
+            throw new Error(`Failed to create ${modelName} entity`);
+        }
+
+        // Create empty blob in HAL storage
+        const blobKey = `blob:${modelName}:${createdId}`;
+        await ctx.hal.storage.put(blobKey, new Uint8Array(0));
+
+        // DUAL-WRITE: Also store entity in HAL for VFS path resolution
+        const now = createdAt ? timestampToMs(createdAt) : ctx.hal.clock.now();
+        const stat: ModelStat = {
+            id: createdId,
+            model: modelName,
+            name: pathname,
+            parent: parent || null,
             owner: fields?.owner ?? ctx.caller,
             size: 0,
             mtime: now,
             ctime: now,
-            mimetype: fields?.mimetype,
-            versioned: fields?.versioned,
-            version: fields?.versioned ? 1 : undefined,
         };
+        await ctx.hal.storage.put(
+            `entity:${createdId}`,
+            new TextEncoder().encode(JSON.stringify(stat))
+        );
 
-        // Create empty data blob first (see WHY above)
-        await ctx.hal.storage.put(`${DATA_PREFIX}${dataId}`, new Uint8Array(0));
+        // Update EntityCache so listChildren() works
+        this.entityCache.addEntity({
+            id: createdId,
+            model: modelName,
+            parent: parent || null,
+            pathname,
+        });
 
-        // Create entity metadata
-        await ctx.hal.storage.put(`${ENTITY_PREFIX}${id}`, encodeEntity(entity));
-
-        return id;
+        return createdId;
     }
 
     /**
      * Delete a file.
-     *
-     * ALGORITHM:
-     * 1. Load entity to get data blob reference
-     * 2. Delete data blob
-     * 3. Delete entity
-     * 4. Delete ACL (if exists)
-     *
-     * WHY this order:
-     * Deleting data blob first prevents orphaned data. If crash occurs
-     * after blob deletion, entity still exists but points to nothing -
-     * subsequent access will fail cleanly with ENOENT on the blob.
      *
      * @param ctx - Model context
      * @param id - Entity UUID to delete
      * @throws ENOENT - If file does not exist
      */
     async unlink(ctx: ModelContext, id: string): Promise<void> {
-        const data = await ctx.hal.storage.get(`${ENTITY_PREFIX}${id}`);
-        if (!data) {
+        // Get entity from HAL storage (dual-write target)
+        const entity = await ctx.getEntity(id);
+        if (!entity) {
             throw new ENOENT(`File not found: ${id}`);
         }
 
-        const entity = decodeEntity<ModelStat>(data);
-
-        // Delete data blob first (see WHY above)
-        if (entity.data) {
-            await ctx.hal.storage.delete(`${DATA_PREFIX}${entity.data}`);
+        // Delete entity via DatabaseOps (soft delete through observer pipeline)
+        for await (const _ of this.db.deleteAll<BlobRecord>(entity.model, [{ id }])) {
+            // Entity deleted (soft delete sets trashed_at)
         }
 
-        // Delete entity metadata
-        await ctx.hal.storage.delete(`${ENTITY_PREFIX}${id}`);
+        // Delete blob from HAL storage
+        const blobKey = `blob:${entity.model}:${id}`;
+        try {
+            await ctx.hal.storage.delete(blobKey);
+        } catch {
+            // Blob may not exist - that's fine
+        }
 
-        // Delete ACL (cleanup, may not exist)
-        await ctx.hal.storage.delete(`${ACCESS_PREFIX}${id}`);
+        // Delete entity from HAL storage (dual-write cleanup)
+        try {
+            await ctx.hal.storage.delete(`entity:${id}`);
+        } catch {
+            // Entity may not exist in HAL - that's fine
+        }
     }
 
     /**
@@ -415,9 +503,6 @@ export class FileModel extends PosixModel {
     /**
      * Watch for changes to a file.
      *
-     * Subscribes to storage events for this file's entity key and
-     * translates them to WatchEvents.
-     *
      * @param ctx - Model context
      * @param id - Entity UUID to watch
      * @param _pattern - Unused (files have no children to pattern-match)
@@ -428,8 +513,12 @@ export class FileModel extends PosixModel {
         id: string,
         _pattern?: string
     ): AsyncIterable<WatchEvent> {
-        // Watch for changes to this specific file's entity
-        for await (const event of ctx.hal.storage.watch(`${ENTITY_PREFIX}${id}`)) {
+        const entity = this.entityCache.getEntity(id);
+        if (!entity) return;
+
+        // Watch for changes to this file's blob
+        const blobKey = `blob:${entity.model}:${id}`;
+        for await (const event of ctx.hal.storage.watch(blobKey)) {
             yield {
                 entity: id,
                 op: event.op === 'put' ? 'update' : 'delete',
@@ -450,6 +539,10 @@ export class FileModel extends PosixModel {
  * Provides buffered read/write access to file content. Content is loaded
  * into memory on construction and written back on close() or sync().
  *
+ * ARCHITECTURE:
+ * - Blob data → HAL storage at key `blob:{model}:{id}`
+ * - Size updates → SQL via DatabaseOps (triggers observer pipeline)
+ *
  * INVARIANTS:
  * - Once _closed is true, all I/O methods throw EBADF
  * - dirty is true IFF content differs from storage
@@ -461,89 +554,27 @@ class FileHandleImpl implements FileHandle {
     // IDENTITY
     // =========================================================================
 
-    /**
-     * Unique handle identifier.
-     *
-     * WHY: Enables handle tracking and revocation by kernel.
-     */
     readonly id: string;
-
-    /**
-     * Path this handle was opened with.
-     *
-     * WHY: Required by FileHandle interface. Empty here because we open by ID.
-     * INVARIANT: Always empty string for FileModel handles.
-     */
     readonly path: string = '';
-
-    /**
-     * Open flags.
-     *
-     * WHY: Determines what operations are permitted on this handle.
-     * INVARIANT: Immutable after construction.
-     */
     readonly flags: OpenFlags;
 
     // =========================================================================
     // STATE
     // =========================================================================
 
-    /**
-     * Whether handle has been closed.
-     *
-     * WHY: Prevents I/O on closed handles.
-     * INVARIANT: Once true, never becomes false again.
-     */
     private _closed = false;
-
-    /**
-     * Current read/write position in bytes.
-     *
-     * WHY: POSIX semantics require tracking position for sequential I/O.
-     * INVARIANT: Always >= 0.
-     */
     private position = 0;
-
-    /**
-     * In-memory content buffer.
-     *
-     * WHY: Enables random access without repeated storage calls.
-     * Memory is traded for I/O efficiency.
-     */
     private content: Uint8Array;
-
-    /**
-     * Whether content has been modified since last flush.
-     *
-     * WHY: Avoids unnecessary storage writes on close().
-     * INVARIANT: True IFF content differs from what's in storage.
-     */
     private dirty = false;
 
     // =========================================================================
     // DEPENDENCIES
     // =========================================================================
 
-    /**
-     * Model context for HAL access.
-     *
-     * WHY: Needed for storage operations and clock access.
-     */
     private readonly ctx: ModelContext;
-
-    /**
-     * Entity UUID.
-     *
-     * WHY: Identifies the entity in storage for metadata updates.
-     */
+    private readonly db: DatabaseOps;
+    private readonly modelName: string;
     private readonly entityId: string;
-
-    /**
-     * Entity metadata (mutable copy).
-     *
-     * WHY: Updated on flush to reflect new size/mtime.
-     */
-    private entity: ModelStat;
 
     // =========================================================================
     // CONSTRUCTOR
@@ -553,29 +584,29 @@ class FileHandleImpl implements FileHandle {
      * Create a new FileHandleImpl.
      *
      * @param ctx - Model context for HAL access
+     * @param db - DatabaseOps for SQL operations
+     * @param modelName - Model name (for blob key and detail table)
      * @param entityId - Entity UUID
-     * @param entity - Entity metadata
      * @param content - Initial content buffer
      * @param flags - Open flags
-     * @param _opts - Open options (currently unused)
      */
     constructor(
         ctx: ModelContext,
+        db: DatabaseOps,
+        modelName: string,
         entityId: string,
-        entity: ModelStat,
         content: Uint8Array,
-        flags: OpenFlags,
-        _opts?: OpenOptions
+        flags: OpenFlags
     ) {
         this.id = ctx.hal.entropy.uuid();
         this.ctx = ctx;
+        this.db = db;
+        this.modelName = modelName;
         this.entityId = entityId;
-        this.entity = entity;
         this.content = content;
         this.flags = flags;
 
         // Append mode: start position at end of content
-        // WHY: POSIX append semantics require writes to always go at EOF
         if (flags.append) {
             this.position = content.length;
         }
@@ -802,31 +833,31 @@ class FileHandleImpl implements FileHandle {
      * Write content and metadata to storage.
      *
      * ALGORITHM:
-     * 1. Write data blob to storage
-     * 2. Update entity metadata (size, mtime)
-     * 3. Write entity to storage
-     * 4. Clear dirty flag
-     *
-     * WHY data is written before entity:
-     * If crash occurs between writes, entity will reference old data
-     * (safe but stale) rather than new entity referencing non-existent
-     * data (broken).
+     * 1. Write blob to HAL storage
+     * 2. Update size in detail table via DatabaseOps
+     * 3. Clear dirty flag
      */
     private async flush(): Promise<void> {
-        const now = this.ctx.hal.clock.now();
+        // Write blob to HAL storage
+        const blobKey = `blob:${this.modelName}:${this.entityId}`;
+        await this.ctx.hal.storage.put(blobKey, this.content);
 
-        // Write data blob first (see WHY above)
-        await this.ctx.hal.storage.put(`${DATA_PREFIX}${this.entity.data}`, this.content);
+        // Check state after await (handle may have been closed concurrently)
+        if (this._closed) {
+            return;
+        }
 
-        // Update entity metadata
-        this.entity.size = this.content.length;
-        this.entity.mtime = now;
+        // Update size in detail table via DatabaseOps
+        for await (const _ of this.db.updateAll<BlobRecord>(this.modelName, [
+            { id: this.entityId, changes: { size: this.content.length } },
+        ])) {
+            // Size updated
+        }
 
-        // Write entity metadata
-        await this.ctx.hal.storage.put(
-            `${ENTITY_PREFIX}${this.entityId}`,
-            encodeEntity(this.entity)
-        );
+        // Check state after await
+        if (this._closed) {
+            return;
+        }
 
         this.dirty = false;
     }

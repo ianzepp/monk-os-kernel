@@ -908,15 +908,40 @@ export async function createProcessProc(
     procFolderId: string,
     processState: ProcessState
 ): Promise<string> {
-    // Temporary model instances for creation
-    // WHY: Need to create folder and proc entities
+    // ProcModel for creating proc files
     const procModel = new ProcModel(new ProcessRegistry());
-    const folderModel = await import('@src/vfs/models/folder.js').then((m) => new m.FolderModel());
+
+    // Helper to create virtual folders via HAL storage (no SQL needed for /proc)
+    const createVirtualFolder = async (
+        parent: string,
+        name: string,
+        owner: string
+    ): Promise<string> => {
+        const id = ctx.hal.entropy.uuid();
+        const now = ctx.hal.clock.now();
+        const stat: ModelStat = {
+            id,
+            model: 'folder',
+            name,
+            parent,
+            owner,
+            size: 0,
+            mtime: now,
+            ctime: now,
+        };
+        await ctx.hal.storage.put(
+            `entity:${id}`,
+            new TextEncoder().encode(JSON.stringify(stat))
+        );
+        return id;
+    };
 
     // Create process folder: /proc/{uuid}
-    const processFolderId = await folderModel.create(ctx, procFolderId, processState.id, {
-        owner: processState.id,
-    });
+    const processFolderId = await createVirtualFolder(
+        procFolderId,
+        processState.id,
+        processState.id
+    );
 
     // Define the standard proc files to create
     const procFiles: Array<{ name: string; procType: ProcType }> = [
@@ -935,9 +960,7 @@ export async function createProcessProc(
     }
 
     // Create fd subdirectory for file descriptors
-    await folderModel.create(ctx, processFolderId, 'fd', {
-        owner: processState.id,
-    });
+    await createVirtualFolder(processFolderId, 'fd', processState.id);
 
     return processFolderId;
 }

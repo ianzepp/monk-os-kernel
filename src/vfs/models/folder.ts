@@ -61,46 +61,39 @@
 import { PosixModel } from '@src/vfs/model.js';
 import type { ModelStat, ModelContext, FieldDef, WatchEvent } from '@src/vfs/model.js';
 import type { FileHandle, OpenFlags, OpenOptions } from '@src/vfs/handle.js';
+import type { DatabaseOps, DbRecord } from '@src/model/database-ops.js';
+import type { EntityCache, CachedEntity } from '@src/model/entity-cache.js';
 import { EISDIR, ENOENT, ENOTEMPTY } from '@src/hal/index.js';
 
 // =============================================================================
 // CONSTANTS
 // =============================================================================
 
-/**
- * Storage key prefix for entity metadata.
- * WHY: Consistent with other models; enables namespace partitioning.
- */
-const ENTITY_PREFIX = 'entity:';
+const MODEL_NAME = 'folder';
 
 // =============================================================================
 // TYPES
 // =============================================================================
 
 /**
+ * Database record type for folder detail table.
+ *
+ * Note: parent and pathname are in the entities table, not here.
+ */
+interface FolderRecord extends DbRecord {
+    /** Owner process or user ID */
+    owner: string;
+}
+
+/**
  * Schema definition for folder entities.
  *
- * TESTABILITY: Exported constant allows tests to verify schema structure.
- *
- * Note: 'parent' is not required because root folder has parent = null.
- *
- * Fields:
- * - id: UUID of the folder entity
- * - model: Always 'folder' for this model
- * - name: Folder name (not full path)
- * - parent: UUID of parent folder (null for root)
- * - owner: UUID of creating process/user
- * - mtime: Last modification timestamp
- * - ctime: Creation timestamp
+ * Note: id, parent, pathname are in the entities table (handled by Ring 5).
+ * These are the detail table fields only.
  */
 const FOLDER_FIELDS: FieldDef[] = [
     { name: 'id', type: 'string', required: true },
-    { name: 'model', type: 'string', required: true },
-    { name: 'name', type: 'string', required: true },
-    { name: 'parent', type: 'string' }, // Not required - root has null parent
     { name: 'owner', type: 'string', required: true },
-    { name: 'mtime', type: 'number', required: true },
-    { name: 'ctime', type: 'number', required: true },
 ];
 
 // =============================================================================
@@ -108,27 +101,34 @@ const FOLDER_FIELDS: FieldDef[] = [
 // =============================================================================
 
 /**
- * Decode a Uint8Array to a JSON object.
- *
- * WHY: Centralizes JSON deserialization with proper typing.
- *
- * @param data - Raw bytes to decode
- * @returns Parsed JSON object
+ * Convert SQL timestamp string to milliseconds since epoch.
  */
-function decodeEntity<T>(data: Uint8Array): T {
-    return JSON.parse(new TextDecoder().decode(data)) as T;
+function timestampToMs(isoString: string): number {
+    return new Date(isoString).getTime();
 }
 
 /**
- * Encode a JSON object to a Uint8Array.
- *
- * WHY: Centralizes JSON serialization for storage.
- *
- * @param entity - Object to encode
- * @returns Encoded bytes
+ * Merge entity and detail (from SQL) into ModelStat.
+ * Accepts either CachedEntity (from cache) or ModelStat (from HAL storage).
  */
-function encodeEntity(entity: unknown): Uint8Array {
-    return new TextEncoder().encode(JSON.stringify(entity));
+function mergeToStat(
+    entity: CachedEntity | ModelStat,
+    detail: FolderRecord
+): ModelStat {
+    // Handle both CachedEntity (has pathname) and ModelStat (has name)
+    const name = 'pathname' in entity
+        ? (entity as CachedEntity).pathname ?? ''
+        : (entity as ModelStat).name;
+    return {
+        id: entity.id,
+        model: entity.model,
+        name,
+        parent: entity.parent,
+        owner: detail.owner,
+        size: 0, // Folders have no size
+        mtime: timestampToMs(detail.updated_at),
+        ctime: timestampToMs(detail.created_at),
+    };
 }
 
 // =============================================================================
@@ -136,35 +136,43 @@ function encodeEntity(entity: unknown): Uint8Array {
 // =============================================================================
 
 /**
- * FolderModel - Directory container model.
+ * FolderModel - Directory container model (entity-backed).
  *
  * Implements organizational hierarchy for the VFS. Folders contain
  * other entities (files, folders, devices) via parent-pointer relationship.
+ *
+ * Data flow:
+ * - Entity identity (id, model, parent, pathname) → EntityCache
+ * - Detail data (timestamps, owner) → SQL via DatabaseOps
  */
 export class FolderModel extends PosixModel {
     // =========================================================================
     // MODEL IDENTITY
     // =========================================================================
 
-    /**
-     * Model identifier.
-     *
-     * WHY: Used by VFS to dispatch operations to the correct model.
-     * INVARIANT: Always 'folder' for this model.
-     */
-    readonly name = 'folder';
+    readonly name = MODEL_NAME;
+
+    // =========================================================================
+    // DEPENDENCIES
+    // =========================================================================
+
+    private readonly db: DatabaseOps;
+    private readonly entityCache: EntityCache;
+
+    // =========================================================================
+    // CONSTRUCTOR
+    // =========================================================================
+
+    constructor(db: DatabaseOps, entityCache: EntityCache) {
+        super();
+        this.db = db;
+        this.entityCache = entityCache;
+    }
 
     // =========================================================================
     // SCHEMA
     // =========================================================================
 
-    /**
-     * Return field definitions for folder entities.
-     *
-     * WHY: Enables schema validation and introspection.
-     *
-     * @returns Array of field definitions
-     */
     fields(): FieldDef[] {
         return FOLDER_FIELDS;
     }
@@ -175,9 +183,6 @@ export class FolderModel extends PosixModel {
 
     /**
      * Open a folder for I/O operations.
-     *
-     * WHY this throws: Folders are not file-like. In POSIX, directories
-     * are enumerated via readdir() not read(). Use list() instead.
      *
      * @throws EISDIR - Always (folders cannot be opened for I/O)
      */
@@ -193,174 +198,177 @@ export class FolderModel extends PosixModel {
     /**
      * Get metadata for a folder.
      *
-     * WHY size is always 0:
-     * Folders have no intrinsic size. Some systems report block size
-     * or child count, but we report 0 for simplicity.
-     *
-     * @param ctx - Model context
-     * @param id - Entity UUID
-     * @returns Entity metadata with size=0
-     * @throws ENOENT - If folder does not exist
+     * Handles two cases:
+     * 1. Entity-backed folders: HAL entity + SQL detail
+     * 2. Bootstrap folders (root, /dev): HAL entity only (no SQL detail)
      */
     async stat(ctx: ModelContext, id: string): Promise<ModelStat> {
-        const data = await ctx.hal.storage.get(`${ENTITY_PREFIX}${id}`);
-        if (!data) {
+        // Get entity from HAL storage (dual-write target)
+        const entity = await ctx.getEntity(id);
+        if (!entity) {
             throw new ENOENT(`Folder not found: ${id}`);
         }
 
-        const entity = decodeEntity<ModelStat>(data);
-        return {
-            ...entity,
-            size: 0, // Folders have no size
-        };
+        // Try to get detail from SQL
+        let detail: FolderRecord | null = null;
+        for await (const r of this.db.selectAny<FolderRecord>(MODEL_NAME, {
+            where: { id },
+            limit: 1,
+        })) {
+            detail = r;
+            break;
+        }
+
+        // If no SQL detail (bootstrap folders like root, /dev), use HAL entity data
+        if (!detail) {
+            return entity;
+        }
+
+        return mergeToStat(entity, detail);
     }
 
     /**
      * Update metadata fields on a folder.
-     *
-     * ALGORITHM:
-     * 1. Load existing entity
-     * 2. Merge allowed fields (name, parent only)
-     * 3. Update mtime
-     * 4. Write back to storage
-     *
-     * WHY only name and parent are updatable:
-     * - id, model, ctime are immutable by design
-     * - owner changes would require permission escalation checks
-     *
-     * @param ctx - Model context
-     * @param id - Entity UUID
-     * @param fields - Fields to update
-     * @throws ENOENT - If folder does not exist
      */
     async setstat(ctx: ModelContext, id: string, fields: Partial<ModelStat>): Promise<void> {
-        const data = await ctx.hal.storage.get(`${ENTITY_PREFIX}${id}`);
-        if (!data) {
+        // Get entity from HAL storage (dual-write target)
+        const entity = await ctx.getEntity(id);
+        if (!entity) {
             throw new ENOENT(`Folder not found: ${id}`);
         }
 
-        const entity = decodeEntity<ModelStat>(data);
+        // Build changes object
+        const changes: Record<string, unknown> = {};
+        if (fields.name !== undefined) changes.pathname = fields.name;
+        if (fields.parent !== undefined) changes.parent = fields.parent;
 
-        // Update allowed fields only
-        if (fields.name !== undefined) entity.name = fields.name;
-        if (fields.parent !== undefined) entity.parent = fields.parent;
+        // Update via DatabaseOps
+        for await (const _ of this.db.updateAll<FolderRecord>(MODEL_NAME, [
+            { id, changes },
+        ])) {
+            // Record updated
+        }
 
-        // Always update mtime on metadata change
-        entity.mtime = ctx.hal.clock.now();
+        // DUAL-WRITE: Update HAL storage (for VFS.getEntity())
+        const updatedEntity: ModelStat = {
+            ...entity,
+            name: fields.name ?? entity.name,
+            parent: fields.parent ?? entity.parent,
+            mtime: ctx.hal.clock.now(),
+        };
+        await ctx.hal.storage.put(
+            `entity:${id}`,
+            new TextEncoder().encode(JSON.stringify(updatedEntity))
+        );
 
-        await ctx.hal.storage.put(`${ENTITY_PREFIX}${id}`, encodeEntity(entity));
+        // Update EntityCache (for listChildren/getChild)
+        if (fields.name !== undefined || fields.parent !== undefined) {
+            this.entityCache.updateEntity(id, {
+                pathname: fields.name,
+                parent: fields.parent,
+            });
+        }
     }
 
     /**
      * Create a new folder.
      *
-     * ALGORITHM:
-     * 1. Generate UUID for entity
-     * 2. Create entity with metadata
-     * 3. Return entity UUID
-     *
-     * WHY no data blob: Folders have no content. Children are found
-     * by querying for entities with parent = this folder's ID.
-     *
-     * @param ctx - Model context
-     * @param parent - Parent folder UUID
-     * @param name - Folder name
-     * @param fields - Optional initial field values
-     * @returns Created entity UUID
+     * DUAL-WRITE: Creates entity in both SQL (via DatabaseOps) and HAL storage.
+     * HAL storage write is needed because VFS.getEntity() looks there for
+     * entity metadata during path resolution and mkdir recursive checks.
      */
     async create(
         ctx: ModelContext,
         parent: string,
-        name: string,
+        pathname: string,
         fields?: Partial<ModelStat>
     ): Promise<string> {
-        const id = ctx.hal.entropy.uuid();
-        const now = ctx.hal.clock.now();
+        let createdId: string | null = null;
+        let createdAt: string | null = null;
 
-        const entity: ModelStat = {
-            id,
-            model: 'folder',
-            name,
-            parent,
+        for await (const created of this.db.createAll<FolderRecord>(MODEL_NAME, [
+            {
+                pathname,
+                parent: parent || null,
+                owner: fields?.owner ?? ctx.caller,
+            } as FolderRecord & { pathname: string; parent: string | null },
+        ])) {
+            createdId = created.id;
+            createdAt = created.created_at;
+            break;
+        }
+
+        if (!createdId) {
+            throw new Error('Failed to create folder entity');
+        }
+
+        // DUAL-WRITE: Also store entity in HAL for VFS path resolution
+        const now = createdAt ? timestampToMs(createdAt) : ctx.hal.clock.now();
+        const stat: ModelStat = {
+            id: createdId,
+            model: MODEL_NAME,
+            name: pathname,
+            parent: parent || null,
             owner: fields?.owner ?? ctx.caller,
-            size: 0, // Folders have no size
+            size: 0,
             mtime: now,
             ctime: now,
         };
+        await ctx.hal.storage.put(
+            `entity:${createdId}`,
+            new TextEncoder().encode(JSON.stringify(stat))
+        );
 
-        await ctx.hal.storage.put(`${ENTITY_PREFIX}${id}`, encodeEntity(entity));
+        // Update EntityCache so listChildren() works
+        this.entityCache.addEntity({
+            id: createdId,
+            model: MODEL_NAME,
+            parent: parent || null,
+            pathname,
+        });
 
-        return id;
+        return createdId;
     }
 
     /**
      * Delete a folder.
-     *
-     * ALGORITHM:
-     * 1. Check if folder has any children
-     * 2. If not empty, throw ENOTEMPTY
-     * 3. Delete entity from storage
-     *
-     * RACE CONDITION (TOCTOU):
-     * A concurrent create() could add a child between our empty check
-     * and the actual delete. This would orphan the child entity. The
-     * child would still exist but its parent pointer would reference
-     * a non-existent folder.
-     *
-     * Mitigation options (not implemented):
-     * - Advisory locking on folder deletion
-     * - Transactional storage with foreign key constraints
-     * - Garbage collection of orphaned entities
-     *
-     * @param ctx - Model context
-     * @param id - Entity UUID to delete
-     * @throws ENOTEMPTY - If folder contains children
      */
     async unlink(ctx: ModelContext, id: string): Promise<void> {
-        // Check if folder is empty by scanning for any child
-        let hasChildren = false;
-        for await (const _child of this.list(ctx, id)) {
-            hasChildren = true;
-            break; // Only need to find one child to know it's not empty
+        // Get entity from HAL storage (dual-write target)
+        const entity = await ctx.getEntity(id);
+        if (!entity) {
+            throw new ENOENT(`Folder not found: ${id}`);
         }
 
-        if (hasChildren) {
+        // Check if folder is empty using EntityCache
+        // Note: EntityCache may not be fully populated for newly created entities,
+        // but that's okay - we're checking for existing children
+        const children = this.entityCache.listChildren(id);
+        if (children.length > 0) {
             throw new ENOTEMPTY(`Folder not empty: ${id}`);
         }
 
-        // Delete entity metadata
-        await ctx.hal.storage.delete(`${ENTITY_PREFIX}${id}`);
+        // Delete via DatabaseOps (soft delete)
+        for await (const _ of this.db.deleteAll<FolderRecord>(MODEL_NAME, [{ id }])) {
+            // Folder deleted
+        }
+
+        // Delete entity from HAL storage (dual-write cleanup)
+        try {
+            await ctx.hal.storage.delete(`entity:${id}`);
+        } catch {
+            // Entity may not exist in HAL - that's fine
+        }
     }
 
     /**
      * List children of a folder.
-     *
-     * ALGORITHM:
-     * 1. Iterate all entities in storage
-     * 2. Yield those whose parent matches this folder's ID
-     *
-     * PERFORMANCE:
-     * This is O(n) where n is total entities. For production systems
-     * with many entities, an index on parent field is essential.
-     *
-     * WHY async iterator:
-     * Streaming results avoids loading all children into memory.
-     * Caller can process/filter lazily.
-     *
-     * @param ctx - Model context
-     * @param id - Parent folder UUID
-     * @yields Child entity UUIDs
      */
-    async *list(ctx: ModelContext, id: string): AsyncIterable<string> {
-        // Scan all entities looking for those with parent = id
-        for await (const key of ctx.hal.storage.list(ENTITY_PREFIX)) {
-            const data = await ctx.hal.storage.get(key);
-            if (!data) continue;
-
-            const entity = decodeEntity<{ parent: string | null; id: string }>(data);
-            if (entity.parent === id) {
-                yield entity.id;
-            }
+    async *list(_ctx: ModelContext, id: string): AsyncIterable<string> {
+        // Use EntityCache for efficient child lookup
+        const children = this.entityCache.listChildren(id);
+        for (const childId of children) {
+            yield childId;
         }
     }
 
@@ -371,61 +379,31 @@ export class FolderModel extends PosixModel {
     /**
      * Watch for changes to children of a folder.
      *
-     * ALGORITHM:
-     * 1. Subscribe to all entity changes
-     * 2. Filter for those whose parent matches this folder
-     * 3. Translate storage events to WatchEvents
-     *
-     * WHY we watch all entities:
-     * We can't know in advance which entities will be children.
-     * The storage layer doesn't support compound queries.
-     *
-     * WHY delete events have empty path:
-     * When an entity is deleted, we can't check its parent field
-     * (it's gone). We emit the event anyway for consistency.
-     *
-     * @param ctx - Model context
-     * @param id - Folder UUID to watch
-     * @param pattern - Optional glob pattern (not implemented)
-     * @yields Watch events for child changes
+     * Note: Currently watches HAL storage events for blob changes.
+     * SQL metadata changes are not directly observable via this mechanism.
      */
     override async *watch(
         ctx: ModelContext,
         id: string,
-        pattern?: string
+        _pattern?: string
     ): AsyncIterable<WatchEvent> {
-        // Watch all entity changes, filter for children of this folder
-        const watchPattern = pattern ?? `${ENTITY_PREFIX}*`;
+        // Watch for blob changes (limited - doesn't catch SQL metadata changes)
+        const blobPattern = `blob:*:*`;
 
-        for await (const event of ctx.hal.storage.watch(watchPattern)) {
-            // Handle deletion specially - can't check parent of deleted entity
-            if (event.op === 'delete') {
-                yield {
-                    entity: event.key.replace(ENTITY_PREFIX, ''),
-                    op: 'delete',
-                    path: '', // Path unknown for deleted entity
-                    timestamp: event.timestamp,
-                };
-                continue;
-            }
+        for await (const event of ctx.hal.storage.watch(blobPattern)) {
+            // Extract entity ID from blob key (format: blob:model:id)
+            const parts = event.key.split(':');
+            if (parts.length !== 3) continue;
 
-            // Skip events without value (shouldn't happen for 'put')
-            if (!event.value) continue;
-
-            const entity = decodeEntity<{ parent: string | null; id: string; ctime: number; mtime: number }>(
-                event.value
-            );
+            const entityId = parts[2]!;
+            const entity = this.entityCache.getEntity(entityId);
 
             // Only emit events for direct children of this folder
-            if (entity.parent === id) {
-                // Determine operation type based on timestamps
-                // WHY: ctime === mtime means entity was just created
-                const op = entity.ctime === entity.mtime ? 'create' : 'update';
-
+            if (entity && entity.parent === id) {
                 yield {
-                    entity: entity.id,
-                    op: event.op === 'put' ? op : 'delete',
-                    path: await ctx.computePath(entity.id),
+                    entity: entityId,
+                    op: event.op === 'put' ? 'update' : 'delete',
+                    path: await ctx.computePath(entityId),
                     timestamp: event.timestamp,
                 };
             }

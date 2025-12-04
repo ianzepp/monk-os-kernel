@@ -16,6 +16,7 @@ import {
     VFSLoader,
 } from '@src/kernel/loader.js';
 import type { HAL } from '@src/hal/index.js';
+import { createTestVfs } from '../helpers/test-mocks.js';
 
 describe('ModuleCache', () => {
     test('should cache and retrieve modules', () => {
@@ -321,8 +322,7 @@ describe('VFSLoader', () => {
     beforeEach(async () => {
         hal = new BunHAL({ storage: { type: 'memory' } });
         await hal.init();
-        vfs = new VFS(hal);
-        await vfs.init();
+        vfs = await createTestVfs(hal);
 
         // Create /lib directory
         await vfs.mkdir('/lib', 'kernel');

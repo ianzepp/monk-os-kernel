@@ -229,20 +229,19 @@ export class OS {
         // 8. Emit 'kernel' event - register services
         await this.emit('kernel', this);
 
-        // 9. If main is provided, boot with init process
-        if (opts?.main) {
-            const initPath = this.resolvePath(opts.main);
-            await this.kernel.boot({
-                initPath,
-                initArgs: [initPath],
-                env: this.config.env ?? {
-                    HOME: '/',
-                    USER: 'root',
-                    SHELL: '/bin/shell',
-                },
-                debug: opts.debug,
-            });
-        }
+        // 9. Boot kernel (always - models get registered)
+        // If main is provided, init process will be created
+        const initPath = opts?.main ? this.resolvePath(opts.main) : undefined;
+        await this.kernel.boot({
+            initPath,
+            initArgs: initPath ? [initPath] : undefined,
+            env: this.config.env ?? {
+                HOME: '/',
+                USER: 'root',
+                SHELL: '/bin/shell',
+            },
+            debug: opts?.debug,
+        });
 
         this.booted = true;
 

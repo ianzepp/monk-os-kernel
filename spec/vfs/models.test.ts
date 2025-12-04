@@ -19,6 +19,8 @@ import {
     EISDIR,
     ENOTEMPTY,
 } from '@src/hal/index.js';
+import { createMockDatabaseOps, createMockEntityCache } from '../helpers/test-mocks.js';
+import type { EntityCache } from '@src/model/entity-cache.js';
 
 function createMockHAL(): HAL {
     const storage = new MemoryStorageEngine();
@@ -69,12 +71,15 @@ describe('FileModel', () => {
     let hal: HAL;
     let ctx: ModelContext;
     let model: FileModel;
+    let entityCache: EntityCache & { addEntity: (entity: any) => void };
     const ROOT_ID = '00000000-0000-0000-0000-000000000000';
 
     beforeEach(async () => {
         hal = createMockHAL();
         ctx = createContext(hal);
-        model = new FileModel();
+        const mockDbOps = createMockDatabaseOps();
+        entityCache = createMockEntityCache() as EntityCache & { addEntity: (entity: any) => void };
+        model = new FileModel(mockDbOps, entityCache);
     });
 
     describe('name', () => {
@@ -88,12 +93,11 @@ describe('FileModel', () => {
             const fields = model.fields();
             expect(fields.length).toBeGreaterThan(0);
 
+            // With entity+detail architecture, fields() returns detail table fields
+            // Entity fields (id, model, parent, pathname) are in entities table
             const names = fields.map((f) => f.name);
             expect(names).toContain('id');
-            expect(names).toContain('name');
-            expect(names).toContain('model');
-            expect(names).toContain('size');
-            expect(names).toContain('data');
+            expect(names).toContain('owner');
         });
     });
 
@@ -101,7 +105,8 @@ describe('FileModel', () => {
         it('should create file entity', async () => {
             const id = await model.create(ctx, ROOT_ID, 'test.txt');
             expect(id).toBeDefined();
-            expect(id.length).toBe(36); // UUID
+            expect(typeof id).toBe('string');
+            expect(id.length).toBeGreaterThan(0);
         });
 
         it('should store entity in storage', async () => {
@@ -118,9 +123,10 @@ describe('FileModel', () => {
         it('should create empty data blob', async () => {
             const id = await model.create(ctx, ROOT_ID, 'test.txt');
             const entity = await ctx.getEntity(id);
-            expect(entity!.data).toBeDefined();
+            expect(entity).toBeDefined();
 
-            const data = await hal.storage.get(`data:${entity!.data}`);
+            // With entity+detail architecture, blob is stored at blob:model:id
+            const data = await hal.storage.get(`blob:file:${id}`);
             expect(data).toEqual(new Uint8Array(0));
         });
 
@@ -196,13 +202,12 @@ describe('FileModel', () => {
     describe('unlink', () => {
         it('should delete entity and data blob', async () => {
             const id = await model.create(ctx, ROOT_ID, 'test.txt');
-            const entity = await ctx.getEntity(id);
-            const dataId = entity!.data;
 
             await model.unlink(ctx, id);
 
+            // With entity+detail architecture, blob is stored at blob:model:id
             expect(await hal.storage.get(`entity:${id}`)).toBeNull();
-            expect(await hal.storage.get(`data:${dataId}`)).toBeNull();
+            expect(await hal.storage.get(`blob:file:${id}`)).toBeNull();
         });
 
         it('should throw for non-existent file', async () => {
@@ -228,12 +233,17 @@ describe('FolderModel', () => {
     let hal: HAL;
     let ctx: ModelContext;
     let model: FolderModel;
+    let fileModel: FileModel;
+    let entityCache: EntityCache & { addEntity: (entity: any) => void };
     const ROOT_ID = '00000000-0000-0000-0000-000000000000';
 
     beforeEach(async () => {
         hal = createMockHAL();
         ctx = createContext(hal);
-        model = new FolderModel();
+        const mockDbOps = createMockDatabaseOps();
+        entityCache = createMockEntityCache() as EntityCache & { addEntity: (entity: any) => void };
+        model = new FolderModel(mockDbOps, entityCache);
+        fileModel = new FileModel(mockDbOps, entityCache);
     });
 
     describe('name', () => {
@@ -247,10 +257,11 @@ describe('FolderModel', () => {
             const fields = model.fields();
             expect(fields.length).toBeGreaterThan(0);
 
+            // With entity+detail architecture, fields() returns detail table fields
+            // Entity fields (id, model, parent, pathname) are in entities table
             const names = fields.map((f) => f.name);
             expect(names).toContain('id');
-            expect(names).toContain('name');
-            expect(names).toContain('model');
+            expect(names).toContain('owner');
         });
     });
 
@@ -296,8 +307,7 @@ describe('FolderModel', () => {
         it('should list children', async () => {
             const folderId = await model.create(ctx, ROOT_ID, 'folder');
 
-            // Create children
-            const fileModel = new FileModel();
+            // Create children using shared fileModel
             const file1 = await fileModel.create(ctx, folderId, 'file1.txt');
             const file2 = await fileModel.create(ctx, folderId, 'file2.txt');
 
@@ -333,8 +343,7 @@ describe('FolderModel', () => {
         it('should throw for non-empty folder', async () => {
             const folderId = await model.create(ctx, ROOT_ID, 'folder');
 
-            // Create child
-            const fileModel = new FileModel();
+            // Create child using shared fileModel
             await fileModel.create(ctx, folderId, 'file.txt');
 
             await expect(model.unlink(ctx, folderId)).rejects.toBeInstanceOf(ENOTEMPTY);

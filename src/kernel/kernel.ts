@@ -88,6 +88,13 @@ import { copyRomToVfs } from '@src/kernel/boot.js';
 import { VFSLoader } from '@src/kernel/loader.js';
 import { PoolManager, type LeasedWorker } from '@src/kernel/pool.js';
 import {
+    createDatabase,
+    ModelCache,
+    EntityCache,
+    DatabaseOps,
+    createObserverRunner,
+} from '@src/model/index.js';
+import {
     assertString,
     assertNonNegativeInt,
     assertPositiveInt,
@@ -896,6 +903,25 @@ export class Kernel {
         await this.vfs.init();
 
         // ---------------------------------------------------------------------
+        // PHASE 1.2: DATABASE & ENTITY LAYER
+        // Create database, model cache, observer pipeline, and entity cache.
+        // Register FileModel and FolderModel with VFS so file/folder operations work.
+        // ---------------------------------------------------------------------
+
+        this.printk('boot', 'Initializing database and entity layer');
+        const dbConn = await createDatabase(this.hal.channel, this.hal.file);
+        const modelCache = new ModelCache(dbConn);
+        const observerRunner = createObserverRunner();
+        const dbOps = new DatabaseOps(dbConn, modelCache, observerRunner);
+        const entityCache = new EntityCache();
+        await entityCache.loadFromDatabase(dbConn);
+
+        // Register entity-backed models with VFS (needed for file/folder operations)
+        this.vfs.registerFileModel(dbOps, entityCache);
+        this.vfs.registerFolderModel(dbOps, entityCache);
+        this.printk('boot', `Entity cache loaded: ${entityCache.size} entities`);
+
+        // ---------------------------------------------------------------------
         // PHASE 1.5: STANDARD DIRECTORY STRUCTURE
         // Create all core directories defensively before anything else runs.
         // This ensures a consistent filesystem layout regardless of ROM contents.
@@ -924,37 +950,34 @@ export class Kernel {
         await this.poolManager.loadConfig(this.vfs);
 
         // ---------------------------------------------------------------------
-        // PHASE 4: INIT PROCESS CREATION
-        // Init must be created first to be PID 1
+        // PHASE 4-6: INIT PROCESS (only if initPath provided)
+        // Headless mode skips init process creation for tests/debugging
         // ---------------------------------------------------------------------
 
-        this.printk('boot', `Creating init process: ${env.initPath}`);
-        const init = this.createProcess({
-            cmd: env.initPath,
-            env: env.env,
-            args: env.initArgs,
-        });
-        this.processes.register(init);
+        if (env.initPath) {
+            // PHASE 4: Init process creation
+            this.printk('boot', `Creating init process: ${env.initPath}`);
+            const init = this.createProcess({
+                cmd: env.initPath,
+                env: env.env,
+                args: env.initArgs,
+            });
+            this.processes.register(init);
 
-        // ---------------------------------------------------------------------
-        // PHASE 5: SERVICE ACTIVATION
-        // Services are loaded after init exists but before it starts
-        // This allows boot-activated services to run alongside init
-        // ---------------------------------------------------------------------
+            // PHASE 5: Service activation
+            this.printk('boot', 'Loading services');
+            await this.loadServices();
 
-        this.printk('boot', 'Loading services');
-        await this.loadServices();
+            // PHASE 6: Init startup
+            this.printk('boot', 'Setting up init stdio');
+            await this.setupInitStdio(init);
 
-        // ---------------------------------------------------------------------
-        // PHASE 6: INIT STARTUP
-        // ---------------------------------------------------------------------
-
-        this.printk('boot', 'Setting up init stdio');
-        await this.setupInitStdio(init);
-
-        this.printk('boot', 'Starting init worker');
-        init.worker = await this.spawnWorker(init, env.initPath);
-        init.state = 'running';
+            this.printk('boot', 'Starting init worker');
+            init.worker = await this.spawnWorker(init, env.initPath);
+            init.state = 'running';
+        } else {
+            this.printk('boot', 'Headless mode - skipping init process');
+        }
 
         // Boot complete
         this.booted = true;
