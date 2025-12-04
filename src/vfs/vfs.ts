@@ -335,41 +335,21 @@ export class VFS {
     }
 
     /**
-     * Ensure root folder exists in storage.
+     * Ensure root folder exists.
      *
-     * IDEMPOTENT: Checks before creating.
+     * Root is seeded in EMS via schema.sql. This method verifies it's in EntityCache.
+     * No HAL storage is used for root - EMS is the source of truth.
      */
     private async ensureRootExists(): Promise<void> {
-        const rootData = await this.hal.storage.get(entityKey(ROOT_ID));
-        if (rootData) {
-            return; // Already exists
+        // Root is seeded in schema.sql and loaded into EntityCache.
+        // Just verify it exists in cache.
+        if (this.cache) {
+            const root = this.cache.getEntity(ROOT_ID);
+            if (!root) {
+                throw new EINVAL('Root entity not found in EntityCache. Database may not be initialized.');
+            }
         }
-
-        // Create root entity
-        const now = this.hal.clock.now();
-        const root: ModelStat = {
-            id: ROOT_ID,
-            model: 'folder',
-            name: ROOT_NAME,
-            parent: null,
-            owner: ROOT_ID, // Root owns itself
-            size: 0,
-            mtime: now,
-            ctime: now,
-        };
-
-        await this.hal.storage.put(
-            entityKey(ROOT_ID),
-            new TextEncoder().encode(JSON.stringify(root))
-        );
-
-        // Root ACL: everyone can read/list/create at root level
-        // WHY PERMISSIVE: Root is the namespace entry point
-        const rootACL: ACL = {
-            grants: [{ to: '*', ops: ['read', 'list', 'stat', 'create'] }],
-            deny: [],
-        };
-        await this.hal.storage.put(accessKey(ROOT_ID), encodeACL(rootACL));
+        // No HAL storage needed - EMS is source of truth for File/Folder entities
     }
 
     /**
@@ -405,7 +385,12 @@ export class VFS {
         await this.hal.storage.put(accessKey(devId), encodeACL(devACL));
 
         // Create standard devices (/dev/console, /dev/null, etc.)
-        await initStandardDevices(ctx, devId);
+        const devices = await initStandardDevices(ctx, devId);
+
+        // Add child indexes for each device (HAL-backed entities need explicit indexing)
+        for (const { name, id } of devices) {
+            await this.addChildIndex(devId, name, id);
+        }
     }
 
     // =========================================================================
@@ -1054,34 +1039,28 @@ export class VFS {
     /**
      * Find a child entity by name.
      *
-     * Uses index for O(1) lookup. Falls back to storage scan
-     * for backwards compatibility with unindexed data.
+     * For EMS entities (file, folder): uses EntityCache for O(1) lookup
+     * For HAL entities (device, proc, link): falls back to HAL child index
      *
      * @param parentId - Parent entity UUID
      * @param name - Child name
      * @returns Child UUID or null
      */
     private async findChild(parentId: string, name: string): Promise<string | null> {
-        // Try index first (O(1))
+        // Try EntityCache first (EMS entities: file, folder)
+        if (this.cache) {
+            const childId = this.cache.getChild(parentId, name);
+            if (childId) {
+                return childId;
+            }
+        }
+
+        // Fall back to HAL child index (HAL entities: device, proc, link)
+        // TODO: Migrate device/proc/link to EMS, then remove HAL fallback
         const indexKey = childKey(parentId, name);
         const indexData = await this.hal.storage.get(indexKey);
         if (indexData) {
             return new TextDecoder().decode(indexData);
-        }
-
-        // Fallback: scan all entities (O(n))
-        // WHY: Migration path for data created before indexing
-        for await (const key of this.hal.storage.list(STORAGE_PREFIX.ENTITY)) {
-            const data = await this.hal.storage.get(key);
-            if (!data) continue;
-
-            const entity = JSON.parse(new TextDecoder().decode(data)) as ModelStat;
-            if (entity.parent === parentId && entity.name === name) {
-                // Backfill index for future lookups
-                // NOTE: Idempotent - safe even if another caller races
-                await this.hal.storage.put(indexKey, new TextEncoder().encode(entity.id));
-                return entity.id;
-            }
         }
 
         return null;
@@ -1090,11 +1069,18 @@ export class VFS {
     /**
      * Add a child index entry.
      *
+     * NOTE: With EMS-backed entities, EntityCache is updated via Ring 8 observer.
+     * This method is kept for non-EMS entities (devices, procs, links) that still
+     * use HAL storage directly.
+     *
      * @param parentId - Parent entity UUID
      * @param name - Child name
      * @param entityId - Child entity UUID
      */
     private async addChildIndex(parentId: string, name: string, entityId: string): Promise<void> {
+        // For EMS-backed entities (file, folder), EntityCache is updated via Ring 8 observer.
+        // For HAL-backed entities (device, proc, link), we still need HAL index.
+        // TODO: Migrate device/proc/link to EMS, then remove HAL indexing entirely.
         const key = childKey(parentId, name);
         await this.hal.storage.put(key, new TextEncoder().encode(entityId));
     }
@@ -1102,10 +1088,14 @@ export class VFS {
     /**
      * Remove a child index entry.
      *
+     * NOTE: With EMS-backed entities, EntityCache is updated via Ring 8 observer.
+     *
      * @param parentId - Parent entity UUID
      * @param name - Child name
      */
     private async removeChildIndex(parentId: string, name: string): Promise<void> {
+        // For EMS-backed entities (file, folder), EntityCache is updated via Ring 8 observer.
+        // For HAL-backed entities (device, proc, link), we still need HAL index.
         const key = childKey(parentId, name);
         await this.hal.storage.delete(key);
     }
@@ -1248,10 +1238,12 @@ export class VFS {
 
             /**
              * Get entity by UUID.
-             * Uses EntityCache → EntityOps lookup for EMS-backed entities.
+             *
+             * For EMS-backed entities (file, folder): EntityCache → EntityOps
+             * For HAL-backed entities (device, proc, link): HAL storage
              */
             async getEntity(id: string): Promise<ModelStat | null> {
-                // Try EMS lookup first (EntityCache → EntityOps)
+                // EMS entities: EntityCache → EntityOps
                 if (self.cache && self.entityOps) {
                     const cached = self.cache.getEntity(id);
                     if (cached) {
@@ -1280,7 +1272,8 @@ export class VFS {
                     }
                 }
 
-                // Fall back to HAL storage (old path)
+                // HAL entities (device, proc, link): still use HAL storage
+                // TODO: Migrate these to EMS, then remove HAL fallback
                 const data = await self.hal.storage.get(entityKey(id));
                 if (!data) return null;
                 return JSON.parse(new TextDecoder().decode(data));
@@ -1289,14 +1282,15 @@ export class VFS {
             /**
              * Compute full path for an entity.
              *
-             * Walks up the parent chain to build the path.
+             * For EMS entities: uses EntityCache (O(1) per hop)
+             * For HAL entities: falls back to HAL storage
              */
             async computePath(id: string): Promise<string> {
                 const parts: string[] = [];
                 let currentId: string | null = id;
 
                 while (currentId && currentId !== ROOT_ID) {
-                    // Try EntityCache first
+                    // EMS entities: use EntityCache
                     if (self.cache) {
                         const cached = self.cache.getEntity(currentId);
                         if (cached) {
@@ -1306,7 +1300,8 @@ export class VFS {
                         }
                     }
 
-                    // Fall back to HAL storage
+                    // HAL entities (device, proc, link): use HAL storage
+                    // TODO: Migrate these to EMS, then remove HAL fallback
                     const data = await self.hal.storage.get(entityKey(currentId));
                     if (!data) break;
 

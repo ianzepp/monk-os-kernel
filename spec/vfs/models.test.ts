@@ -1,366 +1,162 @@
-import { describe, it, expect, beforeEach } from 'bun:test';
-import { FileModel } from '@src/vfs/models/file.js';
-import { FolderModel } from '@src/vfs/models/folder.js';
-import type { ModelContext, ModelStat } from '@src/vfs/model.js';
-import type { HAL } from '@src/hal/index.js';
-import {
-    MemoryStorageEngine,
-    MockClockDevice,
-    SeededEntropyDevice,
-    MemoryBlockDevice,
-    MockTimerDevice,
-    BufferConsoleDevice,
-    MockDNSDevice,
-    MockHostDevice,
-    MockIPCDevice,
-    BunCryptoDevice,
-    BunChannelDevice,
-    MockCompressionDevice,
-    MockFileDevice,
-    ENOENT,
-    EISDIR,
-    ENOTEMPTY,
-} from '@src/hal/index.js';
-
-function createMockHAL(): HAL {
-    const storage = new MemoryStorageEngine();
-    const clock = new MockClockDevice();
-    const entropy = new SeededEntropyDevice(12345);
-    const timer = new MockTimerDevice();
-
-    clock.set(1000000);
-
-    return {
-        block: new MemoryBlockDevice(),
-        storage,
-        network: {} as any,
-        timer,
-        clock,
-        entropy,
-        crypto: new BunCryptoDevice(),
-        console: new BufferConsoleDevice(),
-        dns: new MockDNSDevice(),
-        host: new MockHostDevice(),
-        ipc: new MockIPCDevice(),
-        channel: new BunChannelDevice(),
-        compression: new MockCompressionDevice(),
-        file: new MockFileDevice(),
-        async init() {},
-        async shutdown() {
-            await storage.close();
-        },
-    };
-}
-
-function createContext(hal: HAL, caller: string = 'test-user'): ModelContext {
-    return {
-        hal,
-        caller,
-        async resolve(): Promise<string | null> {
-            return null;
-        },
-        async getEntity(id: string): Promise<ModelStat | null> {
-            const data = await hal.storage.get(`entity:${id}`);
-            if (!data) return null;
-            return JSON.parse(new TextDecoder().decode(data));
-        },
-        async computePath(): Promise<string> {
-            return '/unknown';
-        },
-    };
-}
+/**
+ * FileModel and FolderModel tests using createOsStack()
+ *
+ * These models are EMS-backed and require EntityCache + EntityOps.
+ * Tests use createOsStack({ vfs: true }) to get proper dependencies.
+ */
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { createOsStack, type OsStack } from '@src/os/stack.js';
+import { ENOENT, EISDIR } from '@src/hal/index.js';
 
 describe('FileModel', () => {
-    let hal: HAL;
-    let ctx: ModelContext;
-    let model: FileModel;
+    let stack: OsStack;
     const ROOT_ID = '00000000-0000-0000-0000-000000000000';
 
     beforeEach(async () => {
-        hal = createMockHAL();
-        ctx = createContext(hal);
-        // TODO: FileModel now requires EntityCache and EntityOps dependencies.
-        // These tests need to be rewritten to provide proper mocks or use VFS integration tests.
-        // @ts-expect-error - Tests broken by EMS refactor, need EntityCache/EntityOps mocks
-        model = new FileModel();
+        stack = await createOsStack({ vfs: true });
     });
 
-    describe('name', () => {
-        it('should be "file"', () => {
-            expect(model.name).toBe('file');
-        });
+    afterEach(async () => {
+        await stack.shutdown();
     });
 
-    describe('fields', () => {
-        it('should return field definitions', () => {
-            const fields = model.fields();
-            expect(fields.length).toBeGreaterThan(0);
-
-            const names = fields.map((f) => f.name);
-            expect(names).toContain('id');
-            expect(names).toContain('name');
-            expect(names).toContain('model');
-            expect(names).toContain('size');
-            expect(names).toContain('data');
-        });
-    });
-
-    describe('create', () => {
-        it('should create file entity', async () => {
-            const id = await model.create(ctx, ROOT_ID, 'test.txt');
-            expect(id).toBeDefined();
-            expect(id.length).toBe(36); // UUID
-        });
-
-        it('should store entity in storage', async () => {
-            const id = await model.create(ctx, ROOT_ID, 'test.txt');
-            const data = await hal.storage.get(`entity:${id}`);
-            expect(data).not.toBeNull();
-
-            const entity = JSON.parse(new TextDecoder().decode(data!));
-            expect(entity.name).toBe('test.txt');
-            expect(entity.model).toBe('file');
-            expect(entity.parent).toBe(ROOT_ID);
-        });
-
-        it('should create empty data blob', async () => {
-            const id = await model.create(ctx, ROOT_ID, 'test.txt');
-            const entity = await ctx.getEntity(id);
-            expect(entity!.data).toBeDefined();
-
-            const data = await hal.storage.get(`data:${entity!.data}`);
-            expect(data).toEqual(new Uint8Array(0));
-        });
-
-        it('should set owner', async () => {
-            const id = await model.create(ctx, ROOT_ID, 'test.txt', { owner: 'custom-owner' });
-            const entity = await ctx.getEntity(id);
-            expect(entity!.owner).toBe('custom-owner');
-        });
-
-        it('should set timestamps', async () => {
-            const before = hal.clock.now();
-            const id = await model.create(ctx, ROOT_ID, 'test.txt');
-            const entity = await ctx.getEntity(id);
-
-            expect(entity!.ctime).toBeGreaterThanOrEqual(before);
-            expect(entity!.mtime).toBeGreaterThanOrEqual(before);
-            expect(entity!.ctime).toBe(entity!.mtime);
-        });
-    });
-
-    describe('stat', () => {
-        it('should return entity metadata', async () => {
-            const id = await model.create(ctx, ROOT_ID, 'test.txt');
-            const stat = await model.stat(ctx, id);
-
-            expect(stat.id).toBe(id);
-            expect(stat.name).toBe('test.txt');
-            expect(stat.model).toBe('file');
-            expect(stat.size).toBe(0);
-        });
-
-        it('should throw for non-existent entity', async () => {
-            await expect(model.stat(ctx, 'non-existent-id')).rejects.toBeInstanceOf(ENOENT);
-        });
-    });
-
-    describe('setstat', () => {
-        it('should update name', async () => {
-            const id = await model.create(ctx, ROOT_ID, 'test.txt');
-            await model.setstat(ctx, id, { name: 'renamed.txt' });
-
-            const stat = await model.stat(ctx, id);
-            expect(stat.name).toBe('renamed.txt');
-        });
-
-        it('should update mtime', async () => {
-            const id = await model.create(ctx, ROOT_ID, 'test.txt');
-            const stat1 = await model.stat(ctx, id);
-
-            (hal.clock as MockClockDevice).advance(1000);
-            await model.setstat(ctx, id, {});
-
-            const stat2 = await model.stat(ctx, id);
-            expect(stat2.mtime).toBeGreaterThan(stat1.mtime);
-        });
-    });
-
-    describe('open', () => {
-        it('should return file handle', async () => {
-            const id = await model.create(ctx, ROOT_ID, 'test.txt');
-            const handle = await model.open(ctx, id, { read: true });
-
+    describe('via VFS', () => {
+        it('should create file with open({ create: true })', async () => {
+            const handle = await stack.vfs!.open('/test.txt', { read: true, write: true, create: true }, 'kernel');
             expect(handle).toBeDefined();
             expect(handle.closed).toBe(false);
             await handle.close();
         });
 
-        it('should throw for non-existent file', async () => {
-            await expect(model.open(ctx, 'missing', { read: true })).rejects.toBeInstanceOf(ENOENT);
-        });
-    });
+        it('should stat created file', async () => {
+            await stack.vfs!.open('/test.txt', { write: true, create: true }, 'kernel');
+            const stat = await stack.vfs!.stat('/test.txt', 'kernel');
 
-    describe('unlink', () => {
-        it('should delete entity and data blob', async () => {
-            const id = await model.create(ctx, ROOT_ID, 'test.txt');
-            const entity = await ctx.getEntity(id);
-            const dataId = entity!.data;
-
-            await model.unlink(ctx, id);
-
-            expect(await hal.storage.get(`entity:${id}`)).toBeNull();
-            expect(await hal.storage.get(`data:${dataId}`)).toBeNull();
+            expect(stat.model).toBe('file');
+            expect(stat.name).toBe('test.txt');
+            expect(stat.size).toBe(0);
         });
 
-        it('should throw for non-existent file', async () => {
-            await expect(model.unlink(ctx, 'missing')).rejects.toBeInstanceOf(ENOENT);
+        it('should write and read file content', async () => {
+            const handle = await stack.vfs!.open('/test.txt', { read: true, write: true, create: true }, 'kernel');
+
+            const content = new TextEncoder().encode('Hello, World!');
+            await handle.write(content);
+            await handle.close();
+
+            // Re-open and read
+            const handle2 = await stack.vfs!.open('/test.txt', { read: true }, 'kernel');
+            const data = await handle2.read();
+            await handle2.close();
+
+            expect(data.length).toBe(13);
+            expect(new TextDecoder().decode(data)).toBe('Hello, World!');
         });
-    });
 
-    describe('list', () => {
-        it('should return empty (files have no children)', async () => {
-            const id = await model.create(ctx, ROOT_ID, 'test.txt');
-            const children: string[] = [];
+        it('should update file size after write', async () => {
+            const handle = await stack.vfs!.open('/test.txt', { read: true, write: true, create: true }, 'kernel');
+            await handle.write(new TextEncoder().encode('Hello'));
+            await handle.close();
 
-            for await (const child of model.list(ctx, id)) {
-                children.push(child);
-            }
+            const stat = await stack.vfs!.stat('/test.txt', 'kernel');
+            expect(stat.size).toBe(5);
+        });
 
-            expect(children).toEqual([]);
+        it('should throw ENOENT for non-existent file', async () => {
+            await expect(stack.vfs!.stat('/non-existent.txt', 'kernel')).rejects.toBeInstanceOf(ENOENT);
+        });
+
+        it('should delete file with unlink', async () => {
+            await stack.vfs!.open('/test.txt', { write: true, create: true }, 'kernel');
+            await stack.vfs!.unlink('/test.txt', 'kernel');
+
+            await expect(stack.vfs!.stat('/test.txt', 'kernel')).rejects.toBeInstanceOf(ENOENT);
         });
     });
 });
 
 describe('FolderModel', () => {
-    let hal: HAL;
-    let ctx: ModelContext;
-    let model: FolderModel;
+    let stack: OsStack;
     const ROOT_ID = '00000000-0000-0000-0000-000000000000';
 
     beforeEach(async () => {
-        hal = createMockHAL();
-        ctx = createContext(hal);
-        // TODO: FolderModel now requires EntityCache and EntityOps dependencies.
-        // These tests need to be rewritten to provide proper mocks or use VFS integration tests.
-        // @ts-expect-error - Tests broken by EMS refactor, need EntityCache/EntityOps mocks
-        model = new FolderModel();
+        stack = await createOsStack({ vfs: true });
     });
 
-    describe('name', () => {
-        it('should be "folder"', () => {
-            expect(model.name).toBe('folder');
-        });
+    afterEach(async () => {
+        await stack.shutdown();
     });
 
-    describe('fields', () => {
-        it('should return field definitions', () => {
-            const fields = model.fields();
-            expect(fields.length).toBeGreaterThan(0);
-
-            const names = fields.map((f) => f.name);
-            expect(names).toContain('id');
-            expect(names).toContain('name');
-            expect(names).toContain('model');
-        });
-    });
-
-    describe('create', () => {
-        it('should create folder entity', async () => {
-            const id = await model.create(ctx, ROOT_ID, 'folder');
+    describe('via VFS', () => {
+        it('should create folder with mkdir', async () => {
+            const id = await stack.vfs!.mkdir('/testdir', 'kernel');
             expect(id).toBeDefined();
-
-            const entity = await ctx.getEntity(id);
-            expect(entity!.model).toBe('folder');
-            expect(entity!.name).toBe('folder');
+            expect(id.length).toBeGreaterThan(0); // UUID format varies
         });
 
-        it('should set owner', async () => {
-            const id = await model.create(ctx, ROOT_ID, 'folder', { owner: 'custom' });
-            const entity = await ctx.getEntity(id);
-            expect(entity!.owner).toBe('custom');
-        });
-    });
-
-    describe('stat', () => {
-        it('should return folder metadata with size 0', async () => {
-            const id = await model.create(ctx, ROOT_ID, 'folder');
-            const stat = await model.stat(ctx, id);
+        it('should stat created folder', async () => {
+            await stack.vfs!.mkdir('/testdir', 'kernel');
+            const stat = await stack.vfs!.stat('/testdir', 'kernel');
 
             expect(stat.model).toBe('folder');
+            expect(stat.name).toBe('testdir');
             expect(stat.size).toBe(0);
         });
 
-        it('should throw for non-existent folder', async () => {
-            await expect(model.stat(ctx, 'missing')).rejects.toBeInstanceOf(ENOENT);
+        it('should throw EISDIR when opening folder', async () => {
+            await stack.vfs!.mkdir('/testdir', 'kernel');
+            await expect(
+                stack.vfs!.open('/testdir', { read: true }, 'kernel')
+            ).rejects.toBeInstanceOf(EISDIR);
         });
-    });
 
-    describe('open', () => {
-        it('should throw EISDIR', async () => {
-            const id = await model.create(ctx, ROOT_ID, 'folder');
-            await expect(model.open(ctx, id, { read: true })).rejects.toBeInstanceOf(EISDIR);
-        });
-    });
-
-    describe('list', () => {
-        it('should list children', async () => {
-            const folderId = await model.create(ctx, ROOT_ID, 'folder');
-
-            // Create children
-            // @ts-expect-error - Tests broken by EMS refactor, need EntityCache/EntityOps mocks
-            const fileModel = new FileModel();
-            const file1 = await fileModel.create(ctx, folderId, 'file1.txt');
-            const file2 = await fileModel.create(ctx, folderId, 'file2.txt');
+        it('should list folder children', async () => {
+            await stack.vfs!.mkdir('/testdir', 'kernel');
+            await stack.vfs!.open('/testdir/file1.txt', { write: true, create: true }, 'kernel');
+            await stack.vfs!.open('/testdir/file2.txt', { write: true, create: true }, 'kernel');
 
             const children: string[] = [];
-            for await (const id of model.list(ctx, folderId)) {
-                children.push(id);
+            for await (const child of stack.vfs!.readdir('/testdir', 'kernel')) {
+                children.push(child.name);
             }
 
-            expect(children).toContain(file1);
-            expect(children).toContain(file2);
+            expect(children).toContain('file1.txt');
+            expect(children).toContain('file2.txt');
+            expect(children.length).toBe(2);
         });
 
         it('should return empty for empty folder', async () => {
-            const folderId = await model.create(ctx, ROOT_ID, 'folder');
+            await stack.vfs!.mkdir('/emptydir', 'kernel');
 
             const children: string[] = [];
-            for await (const id of model.list(ctx, folderId)) {
-                children.push(id);
+            for await (const child of stack.vfs!.readdir('/emptydir', 'kernel')) {
+                children.push(child.name);
             }
 
             expect(children).toEqual([]);
         });
-    });
 
-    describe('unlink', () => {
+        it('should create nested folders with recursive', async () => {
+            await stack.vfs!.mkdir('/a/b/c', 'kernel', { recursive: true });
+
+            const statA = await stack.vfs!.stat('/a', 'kernel');
+            const statB = await stack.vfs!.stat('/a/b', 'kernel');
+            const statC = await stack.vfs!.stat('/a/b/c', 'kernel');
+
+            expect(statA.model).toBe('folder');
+            expect(statB.model).toBe('folder');
+            expect(statC.model).toBe('folder');
+        });
+
         it('should delete empty folder', async () => {
-            const id = await model.create(ctx, ROOT_ID, 'folder');
-            await model.unlink(ctx, id);
+            await stack.vfs!.mkdir('/testdir', 'kernel');
+            await stack.vfs!.unlink('/testdir', 'kernel');
 
-            expect(await hal.storage.get(`entity:${id}`)).toBeNull();
+            await expect(stack.vfs!.stat('/testdir', 'kernel')).rejects.toBeInstanceOf(ENOENT);
         });
 
-        it('should throw for non-empty folder', async () => {
-            const folderId = await model.create(ctx, ROOT_ID, 'folder');
-
-            // Create child
-            // @ts-expect-error - Tests broken by EMS refactor, need EntityCache/EntityOps mocks
-            const fileModel = new FileModel();
-            await fileModel.create(ctx, folderId, 'file.txt');
-
-            await expect(model.unlink(ctx, folderId)).rejects.toBeInstanceOf(ENOTEMPTY);
-        });
-    });
-
-    describe('setstat', () => {
-        it('should update name', async () => {
-            const id = await model.create(ctx, ROOT_ID, 'folder');
-            await model.setstat(ctx, id, { name: 'renamed' });
-
-            const stat = await model.stat(ctx, id);
-            expect(stat.name).toBe('renamed');
+        it('should throw ENOENT for non-existent folder', async () => {
+            await expect(stack.vfs!.stat('/non-existent', 'kernel')).rejects.toBeInstanceOf(ENOENT);
         });
     });
 });

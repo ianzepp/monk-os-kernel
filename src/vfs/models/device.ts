@@ -891,7 +891,18 @@ class ByteDeviceHandle implements FileHandle {
  * @param ctx - Model context
  * @param devFolderId - UUID of /dev folder
  */
-export async function initStandardDevices(ctx: ModelContext, devFolderId: string): Promise<void> {
+/**
+ * Created device info returned by initStandardDevices.
+ */
+export interface CreatedDevice {
+    name: string;
+    id: string;
+}
+
+export async function initStandardDevices(
+    ctx: ModelContext,
+    devFolderId: string
+): Promise<CreatedDevice[]> {
     const deviceModel = new DeviceModel();
 
     /**
@@ -918,10 +929,15 @@ export async function initStandardDevices(ctx: ModelContext, devFolderId: string
         { name: 'inflate', device: 'inflate' },
     ];
 
+    const created: CreatedDevice[] = [];
+
     for (const { name, device } of devices) {
-        await deviceModel.create(ctx, devFolderId, name, {
+        const id = await deviceModel.create(ctx, devFolderId, name, {
             owner: ctx.caller,
             device,
         } as ModelStat & { device: DeviceType });
+        created.push({ name, id });
     }
+
+    return created;
 }

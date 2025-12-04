@@ -1,13 +1,12 @@
 /**
  * Shell Integration Tests
  *
- * Tests the shell command execution through the kernel.
+ * Tests the shell command execution through the kernel using createOsStack().
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { Kernel } from '@src/kernel/kernel.js';
 import { poll } from '@src/kernel/poll.js';
-import { VFS } from '@src/vfs/vfs.js';
+import { createOsStack, type OsStack } from '@src/os/stack.js';
 import type { HAL } from '@src/hal/index.js';
 import {
     MemoryStorageEngine,
@@ -22,12 +21,14 @@ import {
     BunHostDevice,
     MockIPCDevice,
     BunChannelDevice,
-    MockCompressionDevice,
-    MockFileDevice,
+    BunCompressionDevice,
+    BunFileDevice,
 } from '@src/hal/index.js';
+import type { Kernel } from '@src/kernel/kernel.js';
 
 /**
- * Create a test HAL with memory backends and buffer console
+ * Create a test HAL with memory backends and buffer console.
+ * This HAL is compatible with createOsStack() when passed as hal option.
  */
 function createTestHAL(): HAL & { console: BufferConsoleDevice } {
     const timer = new BunTimerDevice();
@@ -47,8 +48,8 @@ function createTestHAL(): HAL & { console: BufferConsoleDevice } {
         host: new BunHostDevice(),
         ipc: new MockIPCDevice(),
         channel: new BunChannelDevice(),
-        compression: new MockCompressionDevice(),
-        file: new MockFileDevice(),
+        compression: new BunCompressionDevice(),
+        file: new BunFileDevice(),
 
         async init(): Promise<void> {
             // No-op for test HAL
@@ -75,30 +76,28 @@ async function waitForInitExit(kernel: Kernel, timeout = 5000): Promise<void> {
 
 describe('Shell', () => {
     let hal: HAL & { console: BufferConsoleDevice };
-    let vfs: VFS;
-    let kernel: Kernel;
+    let stack: OsStack;
 
     beforeEach(async () => {
+        // Create HAL with BufferConsoleDevice first
         hal = createTestHAL();
-        vfs = new VFS(hal);
-        kernel = new Kernel(hal, vfs);
+        await hal.init();
 
-        // Initialize VFS
-        await vfs.init();
+        // Pass HAL to createOsStack - it will create EMS, VFS, Kernel using this HAL
+        stack = await createOsStack({ hal, kernel: true });
     });
 
     afterEach(async () => {
-        if (kernel.isBooted()) {
-            await kernel.shutdown();
-        }
+        await stack.shutdown();
+        // Note: stack.shutdown() doesn't shutdown HAL we passed in (ownsHal=false)
         await hal.shutdown();
     });
 
     it('should execute shell -c "echo hello"', async () => {
-        const shellPath = '/bin/shell.ts';
+        const kernel = stack.kernel!;
 
         await kernel.boot({
-            initPath: shellPath,
+            initPath: '/bin/shell.ts',
             initArgs: ['shell', '-c', 'echo hello world'],
             env: {},
         });
@@ -110,10 +109,10 @@ describe('Shell', () => {
     });
 
     it('should execute shell --version', async () => {
-        const shellPath = '/bin/shell.ts';
+        const kernel = stack.kernel!;
 
         await kernel.boot({
-            initPath: shellPath,
+            initPath: '/bin/shell.ts',
             initArgs: ['shell', '--version'],
             env: {},
         });
@@ -126,10 +125,10 @@ describe('Shell', () => {
     });
 
     it('should execute pwd command', async () => {
-        const shellPath = '/bin/shell.ts';
+        const kernel = stack.kernel!;
 
         await kernel.boot({
-            initPath: shellPath,
+            initPath: '/bin/shell.ts',
             initArgs: ['shell', '-c', 'pwd'],
             env: {},
         });
@@ -137,17 +136,14 @@ describe('Shell', () => {
         await waitForInitExit(kernel);
 
         const output = hal.console.getOutput();
-        console.log('Output:', output);
-
-        // pwd should output /
         expect(output).toContain('/');
     });
 
     it('should handle command chaining with &&', async () => {
-        const shellPath = '/bin/shell.ts';
+        const kernel = stack.kernel!;
 
         await kernel.boot({
-            initPath: shellPath,
+            initPath: '/bin/shell.ts',
             initArgs: ['shell', '-c', 'echo first && echo second'],
             env: {},
         });
@@ -155,17 +151,15 @@ describe('Shell', () => {
         await waitForInitExit(kernel);
 
         const output = hal.console.getOutput();
-        console.log('Output:', output);
-
         expect(output).toContain('first');
         expect(output).toContain('second');
     });
 
     it('should expand variables', async () => {
-        const shellPath = '/bin/shell.ts';
+        const kernel = stack.kernel!;
 
         await kernel.boot({
-            initPath: shellPath,
+            initPath: '/bin/shell.ts',
             initArgs: ['shell', '-c', 'echo $HOME'],
             env: { HOME: '/home/test' },
         });
@@ -173,16 +167,15 @@ describe('Shell', () => {
         await waitForInitExit(kernel);
 
         const output = hal.console.getOutput();
-        console.log('Output:', output);
-
         expect(output).toContain('/home/test');
     });
 
     it('should handle output redirect (>)', async () => {
-        const shellPath = '/bin/shell.ts';
+        const kernel = stack.kernel!;
+        const vfs = stack.vfs!;
 
         await kernel.boot({
-            initPath: shellPath,
+            initPath: '/bin/shell.ts',
             initArgs: ['shell', '-c', 'echo hello > /test.txt'],
             env: {},
         });
@@ -195,17 +188,15 @@ describe('Shell', () => {
         await handle.close();
 
         const text = new TextDecoder().decode(content);
-        console.log('File content:', text);
-
         expect(text.trim()).toBe('hello');
     });
 
     it('should handle append redirect (>>)', async () => {
-        const shellPath = '/bin/shell.ts';
+        const kernel = stack.kernel!;
+        const vfs = stack.vfs!;
 
-        // Create file and append in same shell process (same owner, same ACL)
         await kernel.boot({
-            initPath: shellPath,
+            initPath: '/bin/shell.ts',
             initArgs: ['shell', '-c', 'echo first > /append.txt && echo second >> /append.txt'],
             env: {},
         });
@@ -218,96 +209,69 @@ describe('Shell', () => {
         await handle.close();
 
         const text = new TextDecoder().decode(content);
-        console.log('File content:', text);
-
         expect(text).toContain('first');
         expect(text).toContain('second');
     });
 
-    // Note: Input redirect (<) is implemented but not tested here because
-    // it requires an external command that reads from stdin (e.g., cat).
-    // The redirect() syscall correctly redirects fd 0, but no builtin reads stdin.
-
-    // Note: cat tests are grouped below to isolate the pipe bug
-
     it('should spawn child that writes to stdout', async () => {
-        // Simple test: shell spawns cat which should write to inherited stdout
-        // Use a path that exists - create file first in same command
+        const kernel = stack.kernel!;
+
         await kernel.boot({
             initPath: '/bin/shell.ts',
             initArgs: ['shell', '-c', 'echo test123 > /test.txt && cat /test.txt'],
             env: {},
-            debug: true,  // Enable kernel debug output
         });
 
         await waitForInitExit(kernel);
 
         const output = hal.console.getOutput();
-        const errors = hal.console.getErrors();
-        console.log('Cat via shell output:', JSON.stringify(output));
-        console.log('Cat via shell errors:', JSON.stringify(errors));
-
-        // The echo to file should work, but does cat output?
         expect(output).toContain('test123');
     });
 
     it('should handle simple pipe (echo | cat)', async () => {
-        const shellPath = '/bin/shell.ts';
+        const kernel = stack.kernel!;
 
         await kernel.boot({
-            initPath: shellPath,
+            initPath: '/bin/shell.ts',
             initArgs: ['shell', '-c', 'echo hello | cat'],
             env: {},
-            debug: true,
         });
 
         await waitForInitExit(kernel, 10000);
 
         const output = hal.console.getOutput();
-        const errors = hal.console.getErrors();
-        console.log('Pipe stdout:', JSON.stringify(output));
-        console.log('Pipe stderr:', JSON.stringify(errors));
-
         expect(output).toContain('hello');
     });
 
     it('should pipe true output to cat', async () => {
-        // Simpler test: true | cat should just exit quickly (no input to cat)
-        const shellPath = '/bin/shell.ts';
+        const kernel = stack.kernel!;
 
         await kernel.boot({
-            initPath: shellPath,
+            initPath: '/bin/shell.ts',
             initArgs: ['shell', '-c', 'true | cat'],
             env: {},
-            debug: true,
         });
 
         await waitForInitExit(kernel, 10000);
 
         // true outputs nothing, so cat should get EOF immediately and exit
-        const errors = hal.console.getErrors();
-        console.log('true|cat errors:', JSON.stringify(errors));
-
         // If cat exited cleanly, shell should exit with 0
         const init = kernel.getProcessTable().getInit();
-        console.log('Exit code:', init?.exitCode);
+        expect(init?.state).toBe('zombie');
     });
 
     it('should pipe cat from file through more cats', async () => {
+        const kernel = stack.kernel!;
+
         await kernel.boot({
             initPath: '/bin/shell.ts',
             initArgs: ['shell', '-c', 'echo "file content" > /pipetest.txt && cat /pipetest.txt | cat'],
             env: {},
-            debug: true,
         });
 
         await waitForInitExit(kernel, 10000);
 
         const output = hal.console.getOutput();
-        const errors = hal.console.getErrors();
-        console.log('Cat file pipe stdout:', JSON.stringify(output));
-        console.log('Cat file pipe stderr:', JSON.stringify(errors));
-
         expect(output).toContain('file content');
     });
 });
