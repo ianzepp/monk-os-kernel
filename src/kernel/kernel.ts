@@ -494,6 +494,10 @@ export class Kernel {
         printk(this, 'boot', 'Initializing VFS');
         await this.vfs.init();
 
+        // Mount /proc (synthetic filesystem backed by ProcessTable)
+        printk(this, 'boot', 'Mounting /proc');
+        this.vfs.mountProc(this.processes);
+
         // ---------------------------------------------------------------------
         // PHASE 1.5: STANDARD DIRECTORY STRUCTURE
         // Create all core directories defensively before anything else runs.
