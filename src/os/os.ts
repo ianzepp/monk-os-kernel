@@ -17,6 +17,11 @@ import { FilesystemAPI } from './fs.js';
 import { ProcessAPI } from './process.js';
 import { ServiceAPI } from './service.js';
 import { PackageAPI } from './pkg.js';
+import { DatabaseAPI } from './database.js';
+import { createDatabase, type DatabaseConnection } from '@src/model/connection.js';
+import { DatabaseOps } from '@src/model/database-ops.js';
+import { ModelCache } from '@src/model/model-cache.js';
+import { createObserverRunner } from '@src/model/observers/registry.js';
 
 /**
  * Type for storing event listeners
@@ -33,6 +38,8 @@ export class OS {
     private hal: HAL | null = null;
     private vfs: VFS | null = null;
     private kernel: Kernel | null = null;
+    private db: DatabaseConnection | null = null;
+    private dbOps: DatabaseOps | null = null;
     private booted = false;
 
     // Path aliases
@@ -67,11 +74,17 @@ export class OS {
      */
     readonly pkg: PackageAPI;
 
+    /**
+     * Database API for model operations.
+     */
+    readonly database: DatabaseAPI;
+
     constructor(config?: OSConfig) {
         this.fs = new FilesystemAPI(this);
         this.process = new ProcessAPI(this);
         this.service = new ServiceAPI(this);
         this.pkg = new PackageAPI(this);
+        this.database = new DatabaseAPI(this);
         this.config = config ?? {};
 
         // Initialize aliases from config
@@ -208,28 +221,34 @@ export class OS {
         this.hal = new BunHAL(this.buildHALConfig());
         await this.hal.init();
 
-        // 2. Emit 'hal' event
+        // 2. Create database connection and ops
+        this.db = await createDatabase(this.hal.channel, this.hal.file);
+        const modelCache = new ModelCache(this.db);
+        const runner = createObserverRunner();
+        this.dbOps = new DatabaseOps(this.db, modelCache, runner);
+
+        // 3. Emit 'hal' event
         await this.emit('hal', this);
 
-        // 3. Create VFS
+        // 4. Create VFS
         this.vfs = new VFS(this.hal);
 
-        // 4. Initialize VFS (creates /dev, etc.)
+        // 5. Initialize VFS (creates /dev, etc.)
         await this.vfs.init();
 
-        // 5. Emit 'vfs' event - configure mounts
+        // 6. Emit 'vfs' event - configure mounts
         await this.emit('vfs', this);
 
-        // 6. Install queued packages (from config or os.install() calls)
+        // 7. Install queued packages (from config or os.install() calls)
         await this.pkg.installQueued();
 
-        // 7. Create Kernel
+        // 8. Create Kernel
         this.kernel = new Kernel(this.hal, this.vfs);
 
-        // 8. Emit 'kernel' event - register services
+        // 9. Emit 'kernel' event - register services
         await this.emit('kernel', this);
 
-        // 9. If main is provided, boot with init process
+        // 10. If main is provided, boot with init process
         if (opts?.main) {
             const initPath = this.resolvePath(opts.main);
             await this.kernel.boot({
@@ -246,7 +265,7 @@ export class OS {
 
         this.booted = true;
 
-        // 10. Emit 'boot' event - OS fully booted
+        // 11. Emit 'boot' event - OS fully booted
         await this.emit('boot', this);
     }
 
@@ -296,6 +315,10 @@ export class OS {
             await this.kernel.shutdown();
         }
 
+        if (this.db) {
+            await this.db.close();
+        }
+
         if (this.hal) {
             await this.hal.shutdown();
         }
@@ -304,6 +327,8 @@ export class OS {
         this.hal = null;
         this.vfs = null;
         this.kernel = null;
+        this.db = null;
+        this.dbOps = null;
     }
 
     /**
@@ -341,6 +366,16 @@ export class OS {
             throw new EINVAL('OS not booted');
         }
         return this.kernel;
+    }
+
+    /**
+     * Get the DatabaseOps instance (for DatabaseAPI).
+     */
+    getDatabaseOps(): DatabaseOps {
+        if (!this.dbOps) {
+            throw new EINVAL('OS not booted');
+        }
+        return this.dbOps;
     }
 
     /**
