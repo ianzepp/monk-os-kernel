@@ -256,33 +256,33 @@ describe('EntityCache', () => {
             cache.addEntity({ id: 'file-id', model: 'file', parent: 'docs-id', pathname: 'file.txt' });
         });
 
-        it('should resolve root path "/"', () => {
-            expect(cache.resolvePath('/')).toBe(ROOT_ID);
+        it('should resolve root path "/"', async () => {
+            expect(await cache.resolvePath('/')).toBe(ROOT_ID);
         });
 
-        it('should resolve empty path as root', () => {
-            expect(cache.resolvePath('')).toBe(ROOT_ID);
+        it('should resolve empty path as root', async () => {
+            expect(await cache.resolvePath('')).toBe(ROOT_ID);
         });
 
-        it('should resolve single component path', () => {
-            expect(cache.resolvePath('/home')).toBe('home-id');
+        it('should resolve single component path', async () => {
+            expect(await cache.resolvePath('/home')).toBe('home-id');
         });
 
-        it('should resolve multi-component path', () => {
-            expect(cache.resolvePath('/home/user/docs/file.txt')).toBe('file-id');
+        it('should resolve multi-component path', async () => {
+            expect(await cache.resolvePath('/home/user/docs/file.txt')).toBe('file-id');
         });
 
-        it('should return null for non-existent path', () => {
-            expect(cache.resolvePath('/home/user/missing')).toBeNull();
+        it('should return null for non-existent path', async () => {
+            expect(await cache.resolvePath('/home/user/missing')).toBeNull();
         });
 
-        it('should return null for non-existent intermediate component', () => {
-            expect(cache.resolvePath('/home/missing/docs')).toBeNull();
+        it('should return null for non-existent intermediate component', async () => {
+            expect(await cache.resolvePath('/home/missing/docs')).toBeNull();
         });
 
-        it('should handle trailing slashes', () => {
+        it('should handle trailing slashes', async () => {
             // Trailing slashes produce empty components which are filtered
-            expect(cache.resolvePath('/home/')).toBe('home-id');
+            expect(await cache.resolvePath('/home/')).toBe('home-id');
         });
     });
 
@@ -323,22 +323,22 @@ describe('EntityCache', () => {
             cache.addEntity({ id: 'home-id', model: 'folder', parent: ROOT_ID, pathname: 'home' });
         });
 
-        it('should resolve parent and pathname', () => {
-            const result = cache.resolveParent('/home/newfile.txt');
+        it('should resolve parent and pathname', async () => {
+            const result = await cache.resolveParent('/home/newfile.txt');
             expect(result).toEqual({ parentId: 'home-id', pathname: 'newfile.txt' });
         });
 
-        it('should resolve root as parent for top-level files', () => {
-            const result = cache.resolveParent('/topfile.txt');
+        it('should resolve root as parent for top-level files', async () => {
+            const result = await cache.resolveParent('/topfile.txt');
             expect(result).toEqual({ parentId: ROOT_ID, pathname: 'topfile.txt' });
         });
 
-        it('should return null for root path', () => {
-            expect(cache.resolveParent('/')).toBeNull();
+        it('should return null for root path', async () => {
+            expect(await cache.resolveParent('/')).toBeNull();
         });
 
-        it('should return null if parent does not exist', () => {
-            expect(cache.resolveParent('/missing/file.txt')).toBeNull();
+        it('should return null if parent does not exist', async () => {
+            expect(await cache.resolveParent('/missing/file.txt')).toBeNull();
         });
     });
 
@@ -535,7 +535,7 @@ describe('EntityCache', () => {
     // =========================================================================
 
     describe('edge cases', () => {
-        it('should handle deeply nested paths', () => {
+        it('should handle deeply nested paths', async () => {
             const cache = new EntityCache();
             cache.addEntity({ id: ROOT_ID, model: 'folder', parent: null, pathname: '' });
 
@@ -550,14 +550,14 @@ describe('EntityCache', () => {
 
             // Should be able to resolve
             const path = '/dir0/' + Array.from({ length: 99 }, (_, i) => `dir${i + 1}`).join('/') + '/deep.txt';
-            expect(cache.resolvePath(path)).toBe('leaf');
+            expect(await cache.resolvePath(path)).toBe('leaf');
 
             // Should be able to compute path
             const computed = cache.computePath('leaf');
             expect(computed).toBe(path);
         });
 
-        it('should handle special characters in names', () => {
+        it('should handle special characters in names', async () => {
             const cache = new EntityCache();
             cache.addEntity({ id: ROOT_ID, model: 'folder', parent: null, pathname: '' });
             cache.addEntity({
@@ -567,15 +567,15 @@ describe('EntityCache', () => {
                 pathname: 'file with spaces & special!@#.txt',
             });
 
-            expect(cache.resolvePath('/file with spaces & special!@#.txt')).toBe('special');
+            expect(await cache.resolvePath('/file with spaces & special!@#.txt')).toBe('special');
         });
 
-        it('should handle unicode names', () => {
+        it('should handle unicode names', async () => {
             const cache = new EntityCache();
             cache.addEntity({ id: ROOT_ID, model: 'folder', parent: null, pathname: '' });
             cache.addEntity({ id: 'unicode', model: 'file', parent: ROOT_ID, pathname: '日本語ファイル.txt' });
 
-            expect(cache.resolvePath('/日本語ファイル.txt')).toBe('unicode');
+            expect(await cache.resolvePath('/日本語ファイル.txt')).toBe('unicode');
         });
 
         it('should handle empty name for root', () => {
@@ -592,7 +592,7 @@ describe('EntityCache', () => {
     // =========================================================================
 
     describe('consistency', () => {
-        it('should maintain byId and childIndex consistency after operations', () => {
+        it('should maintain byId and childIndex consistency after operations', async () => {
             const cache = new EntityCache();
             cache.addEntity({ id: ROOT_ID, model: 'folder', parent: null, pathname: '' });
             cache.addEntity({ id: 'file', model: 'file', parent: ROOT_ID, pathname: 'test.txt' });
@@ -600,7 +600,7 @@ describe('EntityCache', () => {
             // Verify consistency
             expect(cache.getEntity('file')).toBeDefined();
             expect(cache.getChild(ROOT_ID, 'test.txt')).toBe('file');
-            expect(cache.resolvePath('/test.txt')).toBe('file');
+            expect(await cache.resolvePath('/test.txt')).toBe('file');
             expect(cache.computePath('file')).toBe('/test.txt');
 
             // Rename
@@ -610,8 +610,8 @@ describe('EntityCache', () => {
             expect(cache.getEntity('file')!.pathname).toBe('renamed.txt');
             expect(cache.getChild(ROOT_ID, 'test.txt')).toBeUndefined();
             expect(cache.getChild(ROOT_ID, 'renamed.txt')).toBe('file');
-            expect(cache.resolvePath('/test.txt')).toBeNull();
-            expect(cache.resolvePath('/renamed.txt')).toBe('file');
+            expect(await cache.resolvePath('/test.txt')).toBeNull();
+            expect(await cache.resolvePath('/renamed.txt')).toBe('file');
             expect(cache.computePath('file')).toBe('/renamed.txt');
 
             // Remove
@@ -620,7 +620,7 @@ describe('EntityCache', () => {
             // Verify consistency after remove
             expect(cache.getEntity('file')).toBeUndefined();
             expect(cache.getChild(ROOT_ID, 'renamed.txt')).toBeUndefined();
-            expect(cache.resolvePath('/renamed.txt')).toBeNull();
+            expect(await cache.resolvePath('/renamed.txt')).toBeNull();
             expect(cache.computePath('file')).toBeNull();
         });
     });

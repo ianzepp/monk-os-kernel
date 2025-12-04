@@ -279,12 +279,20 @@ export class EntityCache {
      * 1. Split path into components
      * 2. Start at ROOT_ID
      * 3. For each component, lookup in childIndex
-     * 4. Return final UUID or null if not found
+     * 4. On cache miss, fallback to database (if db provided)
+     * 5. Return final UUID or null if not found
+     *
+     * WHY async: Allows database fallback on cache miss. When cache hits,
+     * the async overhead is negligible (single-digit microseconds).
+     *
+     * WHY optional db: Backward compatible. Without db, behaves like before
+     * (cache-only, returns null on miss).
      *
      * @param path - Absolute path (e.g., "/home/user/file.txt")
+     * @param db - Optional database connection for fallback queries
      * @returns Entity UUID or null if not found
      */
-    resolvePath(path: string): string | null {
+    async resolvePath(path: string, db?: DatabaseConnection): Promise<string | null> {
         // Handle root
         if (path === '/' || path === '') {
             return ROOT_ID;
@@ -294,9 +302,14 @@ export class EntityCache {
         const components = path.split('/').filter(Boolean);
         let currentId = ROOT_ID;
 
-        for (const name of components) {
-            const key = this.childKey(currentId, name);
-            const childId = this.childIndex.get(key);
+        for (const pathname of components) {
+            const key = this.childKey(currentId, pathname);
+            let childId = this.childIndex.get(key);
+
+            // Cache miss - try database fallback
+            if (!childId && db) {
+                childId = await this.resolveFromDatabase(db, currentId, pathname);
+            }
 
             if (!childId) {
                 return null; // Path component not found
@@ -306,6 +319,38 @@ export class EntityCache {
         }
 
         return currentId;
+    }
+
+    /**
+     * Fallback: resolve single path component from database.
+     *
+     * WHY private: Only used internally when cache misses.
+     * WHY populate cache: Future lookups for same path are O(1).
+     *
+     * @param db - Database connection
+     * @param parentId - Parent entity UUID
+     * @param pathname - Child pathname to find
+     * @returns Child entity UUID or undefined if not found
+     */
+    private async resolveFromDatabase(
+        db: DatabaseConnection,
+        parentId: string,
+        pathname: string
+    ): Promise<string | undefined> {
+        const rows = await db.query<CachedEntity>(
+            'SELECT id, model, parent, pathname FROM entities WHERE parent = ? AND pathname = ?',
+            [parentId, pathname]
+        );
+
+        const entity = rows[0];
+        if (!entity) {
+            return undefined;
+        }
+
+        // Populate cache for future lookups
+        this.addEntity(entity);
+
+        return entity.id;
     }
 
     /**
@@ -356,9 +401,13 @@ export class EntityCache {
      * Useful for create operations where you need the parent UUID.
      *
      * @param path - Full path (e.g., "/home/user/newfile.txt")
+     * @param db - Optional database connection for fallback queries
      * @returns { parentId, pathname } or null if parent not found
      */
-    resolveParent(path: string): { parentId: string; pathname: string } | null {
+    async resolveParent(
+        path: string,
+        db?: DatabaseConnection
+    ): Promise<{ parentId: string; pathname: string } | null> {
         const parts = path.split('/').filter(Boolean);
         if (parts.length === 0) {
             return null; // Can't get parent of root
@@ -366,7 +415,7 @@ export class EntityCache {
 
         const pathname = parts.pop()!;
         const parentPath = '/' + parts.join('/');
-        const parentId = this.resolvePath(parentPath);
+        const parentId = await this.resolvePath(parentPath, db);
 
         if (!parentId) {
             return null;
