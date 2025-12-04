@@ -9,11 +9,11 @@ import { call, iterate } from './syscall';
 const DEFAULT_MAX_READ = 10 * 1024 * 1024; // 10MB
 
 export function open(path: string, flags?: OpenFlags): Promise<number> {
-    return call<number>('open', path, flags ?? { read: true });
+    return call<number>('file:open', path, flags ?? { read: true });
 }
 
 export function close(fd: number): Promise<void> {
-    return call<void>('close', fd);
+    return call<void>('file:close', fd);
 }
 
 /**
@@ -23,7 +23,7 @@ export function close(fd: number): Promise<void> {
  * @param chunkSize - Optional hint for chunk size (kernel may ignore)
  */
 export function read(fd: number, chunkSize?: number): AsyncIterable<Uint8Array> {
-    return iterate<Uint8Array>('read', fd, chunkSize);
+    return iterate<Uint8Array>('file:read', fd, chunkSize);
 }
 
 /**
@@ -104,17 +104,17 @@ export async function readText(fd: number, maxSize: number = DEFAULT_MAX_READ): 
 }
 
 export function write(fd: number, data: Uint8Array): Promise<number> {
-    return call<number>('write', fd, data);
+    return call<number>('file:write', fd, data);
 }
 
 export function seek(fd: number, offset: number, whence?: SeekWhence): Promise<number> {
-    return call<number>('seek', fd, offset, whence ?? 'start');
+    return call<number>('file:seek', fd, offset, whence ?? 'start');
 }
 
 export function stat(path: string): Promise<Stat> {
-    return call<Stat>('stat', path);
+    return call<Stat>('file:stat', path);
 }
 
 export function fstat(fd: number): Promise<Stat> {
-    return call<Stat>('fstat', fd);
+    return call<Stat>('file:fstat', fd);
 }

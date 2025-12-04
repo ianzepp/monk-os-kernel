@@ -12,7 +12,7 @@ import { call } from './syscall';
  * @returns File descriptor for the socket
  */
 export function connect(host: string, port: number): Promise<number> {
-    return call<number>('connect', 'tcp', host, port);
+    return call<number>('net:connect', 'tcp', host, port);
 }
 
 /**
@@ -21,7 +21,7 @@ export function connect(host: string, port: number): Promise<number> {
  * @returns File descriptor for the socket
  */
 export function unix(path: string): Promise<number> {
-    return call<number>('connect', 'unix', path);
+    return call<number>('net:connect', 'unix', path);
 }
 
 /**
@@ -30,7 +30,7 @@ export function unix(path: string): Promise<number> {
  * @returns Port handle
  */
 export function listen(opts: TcpListenOpts): Promise<number> {
-    return call<number>('port', 'tcp:listen', opts);
+    return call<number>('port:create', 'tcp:listen', opts);
 }
 
 /**
@@ -42,7 +42,7 @@ export function watch(pattern: string): Promise<number>;
 export function watch(opts: WatchOpts): Promise<number>;
 export function watch(patternOrOpts: string | WatchOpts): Promise<number> {
     const opts = typeof patternOrOpts === 'string' ? { pattern: patternOrOpts } : patternOrOpts;
-    return call<number>('port', 'watch', opts);
+    return call<number>('port:create', 'fs:watch', opts);
 }
 
 /**
@@ -51,7 +51,7 @@ export function watch(patternOrOpts: string | WatchOpts): Promise<number> {
  * @returns Port handle
  */
 export function udp(opts: UdpOpts): Promise<number> {
-    return call<number>('port', 'udp', opts);
+    return call<number>('port:create', 'udp', opts);
 }
 
 /**
@@ -60,7 +60,7 @@ export function udp(opts: UdpOpts): Promise<number> {
  * @returns Port handle
  */
 export function pubsub(opts?: PubsubOpts): Promise<number> {
-    return call<number>('port', 'pubsub', opts);
+    return call<number>('port:create', 'pubsub:subscribe', opts);
 }
 
 /**

@@ -12,7 +12,7 @@ import { SyscallError } from './error';
  * Create a pipe pair [recvFd, sendFd].
  */
 export function pipe(): Promise<[number, number]> {
-    return call<[number, number]>('pipe');
+    return call<[number, number]>('ipc:pipe');
 }
 
 /**
@@ -31,7 +31,7 @@ export async function redirect(targetFd: number, sourceFd: number): Promise<() =
  * Yields Response objects until done/error.
  */
 export async function* recv(fd: number = 0): AsyncIterable<Response> {
-    for await (const response of syscall('recv', fd)) {
+    for await (const response of syscall('file:recv', fd)) {
         if (response.op === 'done') return;
         if (response.op === 'error') {
             const err = response.data as { code: string; message: string };
@@ -45,5 +45,5 @@ export async function* recv(fd: number = 0): AsyncIterable<Response> {
  * Send a message to fd (typically fd 1).
  */
 export async function send(fd: number, msg: Response): Promise<void> {
-    await call('send', fd, msg);
+    await call('file:send', fd, msg);
 }

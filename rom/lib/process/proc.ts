@@ -6,31 +6,31 @@ import type { SpawnOpts, ExitStatus, Message } from './types';
 import { call, SIGTERM } from './syscall';
 
 export function spawn(entry: string, opts?: SpawnOpts): Promise<number> {
-    return call<number>('spawn', entry, opts);
+    return call<number>('proc:spawn', entry, opts);
 }
 
 export function exit(code: number): Promise<never> {
-    return call<never>('exit', code);
+    return call<never>('proc:exit', code);
 }
 
 export function kill(pid: number, signal?: number): Promise<void> {
-    return call<void>('kill', pid, signal ?? SIGTERM);
+    return call<void>('proc:kill', pid, signal ?? SIGTERM);
 }
 
 export function wait(pid: number): Promise<ExitStatus> {
-    return call<ExitStatus>('wait', pid);
+    return call<ExitStatus>('proc:wait', pid);
 }
 
 export function getpid(): Promise<number> {
-    return call<number>('getpid');
+    return call<number>('proc:getpid');
 }
 
 export function getppid(): Promise<number> {
-    return call<number>('getppid');
+    return call<number>('proc:getppid');
 }
 
 export function getargs(): Promise<string[]> {
-    return call<string[]>('getargs');
+    return call<string[]>('proc:getargs');
 }
 
 /**

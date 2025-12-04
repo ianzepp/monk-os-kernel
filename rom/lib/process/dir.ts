@@ -9,22 +9,22 @@ import { call, iterate } from './syscall';
 const DEFAULT_MAX_ENTRIES = 10_000; // 10k directory entries
 
 export function mkdir(path: string, opts?: MkdirOpts): Promise<void> {
-    return call<void>('mkdir', path, opts);
+    return call<void>('file:mkdir', path, opts);
 }
 
 export function unlink(path: string): Promise<void> {
-    return call<void>('unlink', path);
+    return call<void>('file:unlink', path);
 }
 
 export function rmdir(path: string): Promise<void> {
-    return call<void>('rmdir', path);
+    return call<void>('file:rmdir', path);
 }
 
 /**
  * Stream directory entries.
  */
 export function readdir(path: string): AsyncIterable<string> {
-    return iterate<string>('readdir', path);
+    return iterate<string>('file:readdir', path);
 }
 
 /**
@@ -45,9 +45,9 @@ export async function readdirAll(path: string, maxEntries: number = DEFAULT_MAX_
 }
 
 export function rename(oldPath: string, newPath: string): Promise<void> {
-    return call<void>('rename', oldPath, newPath);
+    return call<void>('file:rename', oldPath, newPath);
 }
 
 export function symlink(target: string, linkPath: string): Promise<void> {
-    return call<void>('symlink', target, linkPath);
+    return call<void>('file:symlink', target, linkPath);
 }
