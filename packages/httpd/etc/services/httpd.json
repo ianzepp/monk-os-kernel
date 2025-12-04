@@ -1,8 +1,7 @@
 {
     "name": "httpd",
     "handler": "/usr/httpd/sbin/httpd.ts",
-    "description": "HTTP server",
-    "host": true,
+    "description": "HTTP server (kernel process)",
     "activate": {
         "type": "manual"
     },

@@ -8,7 +8,8 @@
 import type { VFS } from '@src/vfs/vfs.js';
 import type { Kernel } from '@src/kernel/kernel.js';
 import type { ServiceDef } from '@src/kernel/services.js';
-import type { ServiceInfo, ServiceStatus, HostServiceDef } from './types.js';
+import type { ServiceInfo, ServiceStatus, HostServiceDef, ProcessHandle } from './types.js';
+import type { ProcessAPI } from './process.js';
 import { ENOENT, EEXIST, EINVAL } from '@src/hal/errors.js';
 
 /**
@@ -17,6 +18,7 @@ import { ENOENT, EEXIST, EINVAL } from '@src/hal/errors.js';
 export interface ServiceAPIHost {
     getKernel(): Kernel;
     getVFS(): VFS;
+    getProcessAPI(): ProcessAPI;
     resolvePath(path: string): string;
     isBooted(): boolean;
     getEnv(): Record<string, string>;
@@ -31,10 +33,13 @@ interface RunningService {
     status: ServiceStatus;
     startedAt: number;
     config: Record<string, unknown>;
+    /** Host service instance (for host: true services) */
     instance?: {
         stop(): void;
         [key: string]: unknown;
     };
+    /** Process handle (for kernel services) */
+    processHandle?: ProcessHandle;
     error?: string;
 }
 
@@ -135,9 +140,13 @@ export class ServiceAPI {
 
         try {
             if (record.instance?.stop) {
+                // Host service
                 record.instance.stop();
+            } else if (record.processHandle) {
+                // Kernel service - send SIGTERM and wait
+                await record.processHandle.kill();
+                await record.processHandle.wait();
             }
-            // TODO: For kernel services, send SIGTERM to process
         } finally {
             this.running.delete(name);
         }
@@ -282,9 +291,29 @@ export class ServiceAPI {
     /**
      * Start a kernel service (runs as Worker process).
      */
-    private async startKernelService(_record: RunningService): Promise<void> {
-        // TODO: Implement kernel process spawning
-        throw new EINVAL('Kernel services not yet implemented. Use host: true in service definition.');
+    private async startKernelService(record: RunningService): Promise<void> {
+        // Build environment from OS env + config-to-env mappings
+        const env: Record<string, string> = { ...this.host.getEnv() };
+
+        // Map common config fields to environment variables
+        // Services read config from env (e.g., PORT, HTTPD_ROOT)
+        for (const [key, value] of Object.entries(record.config)) {
+            if (value === undefined || value === null) continue;
+
+            // Convert config key to env var format (e.g., 'root' -> 'HTTPD_ROOT')
+            // Use service-prefixed env vars for service-specific config
+            const envKey = `${record.name.toUpperCase()}_${key.toUpperCase()}`;
+            env[envKey] = String(value);
+
+            // Also set common unprefixed vars for well-known config
+            if (key === 'port') {
+                env['PORT'] = String(value);
+            }
+        }
+
+        // Spawn the service process via ProcessAPI
+        const handle = await this.host.getProcessAPI().spawn(record.def.handler, { env });
+        record.processHandle = handle;
     }
 
     /**
@@ -295,6 +324,7 @@ export class ServiceAPI {
             name: record.name,
             handler: record.def.handler,
             status: record.status,
+            pid: record.processHandle?.pid,
             activationType: record.def.activate.type,
             startedAt: record.startedAt,
             config: record.config,

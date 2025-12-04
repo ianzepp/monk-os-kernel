@@ -5,6 +5,7 @@
  */
 
 import type { Kernel } from '@src/kernel/kernel.js';
+import type { ExternalProcessHandle } from '@src/kernel/types.js';
 import type { SpawnOpts, RunOpts, ProcessHandle, RunResult } from './types.js';
 import { ENOSYS } from '@src/hal/errors.js';
 
@@ -23,9 +24,9 @@ export interface ProcessAPIHost {
  * Provides process spawning and execution with automatic alias resolution.
  */
 export class ProcessAPI {
-    // Host reference for when methods are implemented
-    // @ts-expect-error Unused until implementation
     private host: ProcessAPIHost;
+    private nextPid = 1;
+    private handles: Map<number, ExternalProcessHandle> = new Map();
 
     constructor(host: ProcessAPIHost) {
         this.host = host;
@@ -45,24 +46,50 @@ export class ProcessAPI {
      * ```typescript
      * const proc = await os.process.spawn('@app/worker.ts', {
      *   args: ['--port', '9000'],
-     *   stdout: 'pipe',
      * });
-     * // Read output
-     * const reader = proc.stdout?.getReader();
-     * // Later...
-     * await proc.kill();
+     * // Wait for completion
+     * const result = await proc.wait();
+     * console.log('Exit code:', result.exitCode);
      * ```
      */
-    async spawn(_cmd: string, _opts?: SpawnOpts): Promise<ProcessHandle> {
-        // TODO: Implement process spawning via kernel
-        // const resolvedCmd = this.host.resolvePath(cmd);
-        // const kernel = this.host.getKernel();
-        // - Resolve cmd path through VFS
-        // - Create Worker for the process
-        // - Set up stdin/stdout/stderr pipes if requested
-        // - Return ProcessHandle
+    async spawn(cmd: string, opts?: SpawnOpts): Promise<ProcessHandle> {
+        const resolvedCmd = this.host.resolvePath(cmd);
+        const kernel = this.host.getKernel();
 
-        throw new ENOSYS('os.process.spawn() not implemented');
+        // Spawn via kernel
+        const kernelHandle = await kernel.spawnExternal(resolvedCmd, {
+            args: opts?.args,
+            cwd: opts?.cwd,
+            env: opts?.env,
+        });
+
+        // Assign a PID for this process
+        const pid = this.nextPid++;
+        this.handles.set(pid, kernelHandle);
+
+        // Create OS-level handle
+        const handle: ProcessHandle = {
+            pid,
+            cmd: resolvedCmd,
+
+            kill: async (signal?: number) => {
+                await kernelHandle.kill(signal);
+            },
+
+            wait: async () => {
+                const result = await kernelHandle.wait();
+                // Clean up our tracking
+                this.handles.delete(pid);
+                return {
+                    exitCode: result.code,
+                };
+            },
+
+            // Note: stdin/stdout/stderr piping not yet implemented
+            // Would require kernel.spawnExternal to support pipe mode
+        };
+
+        return handle;
     }
 
     /**
@@ -89,15 +116,11 @@ export class ProcessAPI {
      * ```
      */
     async run(_cmd: string, _opts?: RunOpts): Promise<RunResult> {
-        // TODO: Implement run-to-completion
-        // const resolvedCmd = this.host.resolvePath(cmd);
-        // const kernel = this.host.getKernel();
-        // - Spawn process with stdout/stderr piped
-        // - Buffer output up to maxBuffer
-        // - Wait for completion or timeout
-        // - Return buffered result
+        // TODO: Implement run-to-completion with output buffering
+        // This requires stdio piping support in kernel.spawnExternal
+        // For now, throw ENOSYS
 
-        throw new ENOSYS('os.process.run() not implemented');
+        throw new ENOSYS('os.process.run() not implemented - requires stdio piping');
     }
 
     /**
@@ -116,13 +139,18 @@ export class ProcessAPI {
      * ```
      */
     async shell(_command: string, _opts?: RunOpts): Promise<RunResult> {
-        // Shell commands need alias expansion in the command string itself
-        // For now, just delegate to run() with /bin/sh
-
         // TODO: Implement shell execution
         // - Expand aliases in command string
-        // - Run through /bin/sh -c "command"
+        // - Run through /bin/shell -c "command"
 
         throw new ENOSYS('os.process.shell() not implemented');
+    }
+
+    /**
+     * Get a process handle by PID.
+     * Used internally by service management.
+     */
+    getHandle(pid: number): ExternalProcessHandle | undefined {
+        return this.handles.get(pid);
     }
 }

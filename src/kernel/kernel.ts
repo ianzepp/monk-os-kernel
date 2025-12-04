@@ -3078,6 +3078,104 @@ export class Kernel {
     }
 
     // =========================================================================
+    // PROCESS MANAGEMENT (PUBLIC)
+    // =========================================================================
+
+    /**
+     * Spawn a process from outside the kernel.
+     *
+     * This is the fundamental primitive for the host (OS layer) to create
+     * kernel processes. The process runs with stdio connected to the console.
+     *
+     * @param entry - VFS path to the script to run
+     * @param opts - Spawn options (args, env, cwd)
+     * @returns Handle to manage the spawned process
+     */
+    async spawnExternal(
+        entry: string,
+        opts?: import('@src/kernel/types.js').ExternalSpawnOpts
+    ): Promise<import('@src/kernel/types.js').ExternalProcessHandle> {
+        if (!this.booted) {
+            throw new Error('Kernel not booted');
+        }
+
+        // Normalize entry path
+        const entryPath = entry.endsWith('.ts') ? entry : entry + '.ts';
+
+        // Create process with no parent (like init)
+        const proc = this.createProcess({
+            cmd: entry,
+            cwd: opts?.cwd ?? '/',
+            env: opts?.env ?? {},
+            args: opts?.args ?? [entry],
+        });
+
+        // Setup stdio to console (like init)
+        await this.setupInitStdio(proc);
+
+        // Spawn worker
+        this.printk('spawn', `external: spawning ${entryPath}`);
+        proc.worker = await this.spawnWorker(proc, entryPath);
+        proc.state = 'running';
+
+        // Register in process table
+        this.processes.register(proc);
+        this.printk('spawn', `external: started ${entryPath} (${proc.id.slice(0, 8)})`);
+
+        // Create handle for caller
+        const processId = proc.id;
+        const kernel = this;
+
+        return {
+            id: processId,
+
+            async kill(signal = SIGTERM): Promise<void> {
+                const target = kernel.processes.get(processId);
+                if (!target || target.state === 'zombie') {
+                    return; // Already dead
+                }
+                kernel.deliverSignal(target, signal);
+            },
+
+            wait(): Promise<{ code: number }> {
+                return new Promise((resolve) => {
+                    const target = kernel.processes.get(processId);
+
+                    // Already dead?
+                    if (!target) {
+                        resolve({ code: -1 });
+                        return;
+                    }
+                    if (target.state === 'zombie') {
+                        resolve({ code: target.exitCode ?? 0 });
+                        return;
+                    }
+
+                    // Wait for exit
+                    const waiterEntry = {
+                        callback: (status: ExitStatus) => {
+                            resolve({ code: status.code });
+                        },
+                        cleanup: () => {
+                            const waiters = kernel.waiters.get(processId);
+                            if (waiters) {
+                                const idx = waiters.indexOf(waiterEntry);
+                                if (idx !== -1) {
+                                    waiters.splice(idx, 1);
+                                }
+                            }
+                        },
+                    };
+
+                    const waiters = kernel.waiters.get(processId) ?? [];
+                    waiters.push(waiterEntry);
+                    kernel.waiters.set(processId, waiters);
+                });
+            },
+        };
+    }
+
+    // =========================================================================
     // PUBLIC ACCESSORS (for testing)
     // =========================================================================
 

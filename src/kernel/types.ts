@@ -102,6 +102,37 @@ export interface ExitStatus {
 }
 
 /**
+ * Options for spawning a process from the host (external to kernel)
+ */
+export interface ExternalSpawnOpts {
+    /** Command-line arguments */
+    args?: string[];
+
+    /** Working directory */
+    cwd?: string;
+
+    /** Environment variables */
+    env?: Record<string, string>;
+}
+
+/**
+ * Handle to a process spawned from outside the kernel.
+ *
+ * Provides the minimal interface needed for the host (OS layer) to
+ * manage kernel processes.
+ */
+export interface ExternalProcessHandle {
+    /** Process UUID */
+    id: string;
+
+    /** Send a signal to the process */
+    kill(signal?: number): Promise<void>;
+
+    /** Wait for the process to exit */
+    wait(): Promise<{ code: number }>;
+}
+
+/**
  * Signal values
  */
 export const SIGTERM = 15;

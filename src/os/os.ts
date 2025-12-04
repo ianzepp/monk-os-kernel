@@ -260,20 +260,19 @@ export class OS {
         // 9. Emit 'kernel' event
         await this.emit('kernel', this);
 
-        // 10. If main is provided, boot with init process
-        if (opts?.main) {
-            const initPath = this.resolvePath(opts.main);
-            await this.kernel.boot({
-                initPath,
-                initArgs: [initPath],
-                env: this.config.env ?? {
-                    HOME: '/',
-                    USER: 'root',
-                    SHELL: '/bin/shell',
-                },
-                debug: opts.debug,
-            });
-        }
+        // 10. Boot kernel with init process
+        // Default to /bin/true.ts for headless mode (exits immediately)
+        const initPath = opts?.main ? this.resolvePath(opts.main) : '/bin/true.ts';
+        await this.kernel.boot({
+            initPath,
+            initArgs: [initPath],
+            env: this.config.env ?? {
+                HOME: '/',
+                USER: 'root',
+                SHELL: '/bin/shell',
+            },
+            debug: opts?.debug,
+        });
 
         this.booted = true;
 
@@ -378,6 +377,13 @@ export class OS {
             throw new EINVAL('OS not booted');
         }
         return this.kernel;
+    }
+
+    /**
+     * Get the ProcessAPI instance.
+     */
+    getProcessAPI(): ProcessAPI {
+        return this.process;
     }
 
     /**

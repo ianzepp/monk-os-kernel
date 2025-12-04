@@ -1,31 +1,36 @@
 /**
- * Monk OS HTTP Server
+ * Monk OS HTTP Server (Kernel Process)
  *
- * A simple HTTP server that serves files from VFS.
- * This is a "host" service that runs directly on Bun.
+ * A simple HTTP server that runs as a kernel process using syscalls.
+ * Serves static files from a configurable VFS root directory.
+ *
+ * Configuration via environment:
+ *   PORT        - Listen port (default: 8080)
+ *   HTTPD_ROOT  - VFS root directory to serve (default: /var/www)
+ *
+ * @module packages/httpd/sbin/httpd
  */
 
-import type { Server } from 'bun';
-import type { VFS } from '@src/vfs/vfs.js';
+import {
+    listen,
+    portRecv,
+    pclose,
+    open,
+    read,
+    write,
+    close,
+    stat,
+    getenv,
+    println,
+    exit,
+    onSignal,
+    SIGTERM,
+} from '@rom/lib/process';
 
-export interface HttpdConfig {
-    port?: number;
-    hostname?: string;
-    root?: string;
-    env?: Record<string, string>;
-    vfs?: VFS;
-    onRequest?: (req: Request) => Response | Promise<Response>;
-}
+// =============================================================================
+// CONSTANTS
+// =============================================================================
 
-export interface HttpdInstance {
-    readonly port: number;
-    readonly hostname: string;
-    stop(): void;
-}
-
-/**
- * Content-type mapping by extension.
- */
 const CONTENT_TYPES: Record<string, string> = {
     '.html': 'text/html; charset=utf-8',
     '.htm': 'text/html; charset=utf-8',
@@ -42,164 +47,259 @@ const CONTENT_TYPES: Record<string, string> = {
     '.gif': 'image/gif',
     '.svg': 'image/svg+xml',
     '.ico': 'image/x-icon',
-    '.webp': 'image/webp',
-    '.woff': 'font/woff',
-    '.woff2': 'font/woff2',
-    '.ttf': 'font/ttf',
-    '.otf': 'font/otf',
-    '.pdf': 'application/pdf',
-    '.zip': 'application/zip',
     '.ts': 'text/typescript; charset=utf-8',
-    '.tsx': 'text/typescript; charset=utf-8',
 };
 
-/**
- * Get content type for a file path.
- */
+// =============================================================================
+// HTTP HELPERS
+// =============================================================================
+
 function getContentType(path: string): string {
     const ext = path.substring(path.lastIndexOf('.')).toLowerCase();
     return CONTENT_TYPES[ext] ?? 'application/octet-stream';
 }
 
-/**
- * Create the default handler (when no root is configured).
- */
-function createDefaultHandler(): (req: Request) => Response {
-    return (req: Request) => {
-        const url = new URL(req.url);
+function formatResponse(status: number, statusText: string, headers: Record<string, string>, body?: Uint8Array): Uint8Array {
+    const headerLines = Object.entries(headers).map(([k, v]) => `${k}: ${v}`).join('\r\n');
+    const head = `HTTP/1.1 ${status} ${statusText}\r\n${headerLines}\r\n\r\n`;
+    const headBytes = new TextEncoder().encode(head);
 
-        if (url.pathname === '/health') {
-            return Response.json({ status: 'ok', timestamp: Date.now() });
-        }
+    if (!body) {
+        return headBytes;
+    }
 
-        if (url.pathname === '/') {
-            return new Response(
-                `Monk OS httpd\n\nEndpoints:\n  GET /health - Health check\n\nNo document root configured.\n`,
-                { headers: { 'Content-Type': 'text/plain; charset=utf-8' } }
-            );
-        }
-
-        return new Response('Not Found', { status: 404 });
-    };
+    const result = new Uint8Array(headBytes.length + body.length);
+    result.set(headBytes, 0);
+    result.set(body, headBytes.length);
+    return result;
 }
 
-/**
- * Create a VFS file-serving handler.
- */
-function createVfsHandler(vfs: VFS, root: string): (req: Request) => Promise<Response> {
-    return async (req: Request) => {
-        const url = new URL(req.url);
-        let pathname = url.pathname;
+function jsonResponse(status: number, statusText: string, data: unknown): Uint8Array {
+    const body = new TextEncoder().encode(JSON.stringify(data));
+    return formatResponse(status, statusText, {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Content-Length': String(body.length),
+        'Connection': 'close',
+    }, body);
+}
 
-        // Health check always available
-        if (pathname === '/health') {
-            return Response.json({ status: 'ok', timestamp: Date.now() });
+function textResponse(status: number, statusText: string, text: string): Uint8Array {
+    const body = new TextEncoder().encode(text);
+    return formatResponse(status, statusText, {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Content-Length': String(body.length),
+        'Connection': 'close',
+    }, body);
+}
+
+function fileResponse(contentType: string, body: Uint8Array): Uint8Array {
+    return formatResponse(200, 'OK', {
+        'Content-Type': contentType,
+        'Content-Length': String(body.length),
+        'Connection': 'close',
+    }, body);
+}
+
+// =============================================================================
+// REQUEST PARSING
+// =============================================================================
+
+interface HttpRequest {
+    method: string;
+    path: string;
+    headers: Record<string, string>;
+}
+
+function parseRequest(data: Uint8Array): HttpRequest | null {
+    const text = new TextDecoder().decode(data);
+    const lines = text.split('\r\n');
+    const requestLine = lines[0];
+
+    if (!requestLine) return null;
+
+    const [method, path] = requestLine.split(' ');
+    if (!method || !path) return null;
+
+    const headers: Record<string, string> = {};
+    for (let i = 1; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line || line === '') break;
+        const colonIdx = line.indexOf(':');
+        if (colonIdx > 0) {
+            const key = line.substring(0, colonIdx).trim().toLowerCase();
+            const value = line.substring(colonIdx + 1).trim();
+            headers[key] = value;
+        }
+    }
+
+    return { method, path, headers };
+}
+
+// =============================================================================
+// REQUEST HANDLER
+// =============================================================================
+
+async function handleRequest(fd: number, root: string): Promise<void> {
+    try {
+        // Read request (simple: just read first chunk)
+        const chunks: Uint8Array[] = [];
+        for await (const chunk of read(fd)) {
+            chunks.push(chunk);
+            // HTTP request ends with \r\n\r\n, check if we have it
+            const combined = concatUint8Arrays(chunks);
+            if (new TextDecoder().decode(combined).includes('\r\n\r\n')) {
+                break;
+            }
+            // Limit request size
+            if (combined.length > 8192) break;
         }
 
-        // Normalize path
-        if (pathname.endsWith('/')) {
-            pathname += 'index.html';
+        const requestData = concatUint8Arrays(chunks);
+        const req = parseRequest(requestData);
+
+        if (!req) {
+            await write(fd, textResponse(400, 'Bad Request', 'Invalid HTTP request'));
+            return;
+        }
+
+        // Only handle GET
+        if (req.method !== 'GET') {
+            await write(fd, textResponse(405, 'Method Not Allowed', 'Only GET is supported'));
+            return;
+        }
+
+        // Parse path (remove query string)
+        let pathname = req.path.split('?')[0] ?? '/';
+
+        // Health check endpoint
+        if (pathname === '/health') {
+            await write(fd, jsonResponse(200, 'OK', { status: 'ok', timestamp: Date.now() }));
+            return;
         }
 
         // Prevent path traversal
         if (pathname.includes('..')) {
-            return new Response('Forbidden', { status: 403 });
+            await write(fd, textResponse(403, 'Forbidden', 'Path traversal not allowed'));
+            return;
+        }
+
+        // Default to index.html for directories
+        if (pathname.endsWith('/')) {
+            pathname += 'index.html';
         }
 
         // Build VFS path
         const vfsPath = root + pathname;
 
+        // Try to serve file
         try {
-            // Try to stat the path
-            const stat = await vfs.stat(vfsPath, 'kernel');
+            const fileStat = await stat(vfsPath);
 
-            // If it's a directory, try index.html
-            if (stat.type === 'folder') {
+            // If directory, try index.html
+            if (fileStat.model === 'folder') {
                 const indexPath = vfsPath + '/index.html';
-                try {
-                    await vfs.stat(indexPath, 'kernel');
-                    return await serveFile(vfs, indexPath);
-                } catch {
-                    // No index.html - could list directory or 404
-                    return new Response('Forbidden', { status: 403 });
-                }
+                await serveFile(fd, indexPath);
+                return;
             }
 
-            // Serve the file
-            return await serveFile(vfs, vfsPath);
-        } catch (err) {
-            const error = err as Error & { code?: string };
-            if (error.code === 'ENOENT') {
-                return new Response('Not Found', { status: 404 });
-            }
-            console.error(`httpd: error serving ${vfsPath}:`, error.message);
-            return new Response('Internal Server Error', { status: 500 });
+            await serveFile(fd, vfsPath);
+        } catch {
+            await write(fd, textResponse(404, 'Not Found', `File not found: ${pathname}`));
         }
-    };
-}
-
-/**
- * Serve a file from VFS.
- */
-async function serveFile(vfs: VFS, path: string): Promise<Response> {
-    const handle = await vfs.open(path, { read: true }, 'kernel');
-    try {
-        const content = await handle.read();
-        const contentType = getContentType(path);
-
-        return new Response(content, {
-            headers: {
-                'Content-Type': contentType,
-                'Content-Length': String(content.length),
-            },
-        });
+    } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        try {
+            await write(fd, textResponse(500, 'Internal Server Error', msg));
+        } catch {
+            // Connection may be closed
+        }
     } finally {
-        await handle.close();
+        await close(fd);
     }
 }
 
-/**
- * Start the HTTP server.
- *
- * Port resolution order:
- * 1. config.port (explicit)
- * 2. config.env.PORT (OS environment)
- * 3. Default 8080
- */
-export function start(config: HttpdConfig = {}): HttpdInstance {
-    const env = config.env ?? {};
-    const port = config.port ?? parseInt(env.PORT ?? '8080', 10);
-    const hostname = config.hostname ?? env.HTTPD_HOSTNAME ?? 'localhost';
+async function serveFile(fd: number, path: string): Promise<void> {
+    const fileFd = await open(path, { read: true });
+    try {
+        const chunks: Uint8Array[] = [];
+        for await (const chunk of read(fileFd)) {
+            chunks.push(chunk);
+        }
+        const content = concatUint8Arrays(chunks);
+        const contentType = getContentType(path);
+        await write(fd, fileResponse(contentType, content));
+    } finally {
+        await close(fileFd);
+    }
+}
 
-    // Determine the request handler
-    let handler: (req: Request) => Response | Promise<Response>;
+function concatUint8Arrays(arrays: Uint8Array[]): Uint8Array {
+    const totalLength = arrays.reduce((sum, arr) => sum + arr.length, 0);
+    const result = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const arr of arrays) {
+        result.set(arr, offset);
+        offset += arr.length;
+    }
+    return result;
+}
 
-    if (config.onRequest) {
-        // Custom handler provided
-        handler = config.onRequest;
-    } else if (config.root && config.vfs) {
-        // Serve files from VFS
-        handler = createVfsHandler(config.vfs, config.root);
-    } else {
-        // Default handler
-        handler = createDefaultHandler();
+// =============================================================================
+// MAIN
+// =============================================================================
+
+let running = true;
+let portHandle: number | null = null;
+
+onSignal((signal) => {
+    if (signal === SIGTERM) {
+        running = false;
+        if (portHandle !== null) {
+            pclose(portHandle).catch(() => {});
+        }
+    }
+});
+
+async function main(): Promise<void> {
+    // Get configuration from environment
+    const portStr = await getenv('PORT') ?? '8080';
+    const port = parseInt(portStr, 10);
+    const root = await getenv('HTTPD_ROOT') ?? '/var/www';
+
+    // Create TCP listener
+    portHandle = await listen({ port });
+    await println(`httpd: listening on port ${port} (root: ${root})`);
+
+    // Accept loop
+    while (running) {
+        try {
+            const msg = await portRecv(portHandle);
+
+            if (msg.fd !== undefined) {
+                // Handle request (don't await - handle concurrently)
+                handleRequest(msg.fd, root).catch((err) => {
+                    const errMsg = err instanceof Error ? err.message : String(err);
+                    println(`httpd: request error: ${errMsg}`).catch(() => {});
+                });
+            }
+        } catch (err) {
+            if (!running) break;
+            const msg = err instanceof Error ? err.message : String(err);
+            await println(`httpd: accept error: ${msg}`);
+        }
     }
 
-    const server: Server = Bun.serve({
-        port,
-        hostname,
-        fetch: handler,
-    });
-
-    const rootInfo = config.root ? ` (root: ${config.root})` : '';
-    console.log(`httpd: listening on http://${hostname}:${port}${rootInfo}`);
-
-    return {
-        port: server.port,
-        hostname: server.hostname,
-        stop() {
-            server.stop();
-            console.log(`httpd: stopped`);
-        },
-    };
+    // Cleanup
+    if (portHandle !== null) {
+        await pclose(portHandle);
+    }
+    await println('httpd: stopped');
+    await exit(0);
 }
+
+// Run
+main().catch(async (err) => {
+    const msg = err instanceof Error ? err.message : String(err);
+    await println(`httpd: fatal: ${msg}`);
+    await exit(1);
+});
