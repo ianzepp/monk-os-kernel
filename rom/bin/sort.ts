@@ -38,7 +38,6 @@ import {
     close,
     recv,
     send,
-    println,
     eprintln,
     exit,
     respond,
@@ -130,10 +129,11 @@ async function main(): Promise<void> {
         for (const file of files) {
             const content = await readFileContent(cwd, file);
             if (content === null) {
-                await exit(1);
+                return await exit(1);
             }
             const lines = content.split('\n');
-            if (lines[lines.length - 1] === '') lines.pop();
+            const lastLine = lines[lines.length - 1];
+            if (lastLine !== undefined && lastLine === '') lines.pop();
             for (const text of lines) {
                 items.push({ msg: respond.item({ text: text + '\n' }), text });
             }
@@ -211,16 +211,16 @@ async function readFileContent(cwd: string, file: string): Promise<string | null
 
 function parseKeySpec(spec: string): { start: number; end: number | null } | null {
     const match = spec.match(/^(\d+)(?:,(\d+))?$/);
-    if (!match) return null;
+    if (!match || match[1] === undefined) return null;
     return {
         start: parseInt(match[1], 10),
-        end: match[2] ? parseInt(match[2], 10) : null,
+        end: match[2] !== undefined ? parseInt(match[2], 10) : null,
     };
 }
 
 function parseHumanSize(str: string): number {
     const match = str.match(/^([\d.]+)\s*([KMGTPE])?i?[Bb]?$/i);
-    if (!match) return parseFloat(str) || 0;
+    if (!match || match[1] === undefined) return parseFloat(str) || 0;
 
     const num = parseFloat(match[1]);
     const unit = (match[2] || '').toUpperCase();
@@ -289,7 +289,9 @@ function compareLines(a: string, b: string, options: SortOptions): number {
 
 function checkSorted(lines: string[], options: SortOptions): boolean {
     for (let i = 1; i < lines.length; i++) {
-        if (compareLines(lines[i - 1], lines[i], options) > 0) {
+        const prev = lines[i - 1];
+        const curr = lines[i];
+        if (prev !== undefined && curr !== undefined && compareLines(prev, curr, options) > 0) {
             return false;
         }
     }

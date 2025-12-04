@@ -35,8 +35,14 @@ async function main(): Promise<void> {
     // Parse arguments
     for (let i = 0; i < argv.length; i++) {
         const arg = argv[i];
+        if (!arg) continue;
+
         if (arg === '-s' && i + 1 < argv.length) {
-            separator = argv[++i];
+            const nextArg = argv[i + 1];
+            if (nextArg) {
+                separator = nextArg;
+            }
+            i++;
         } else if (arg === '-w') {
             equalWidth = true;
         } else if (arg.startsWith('-s')) {
@@ -48,7 +54,7 @@ async function main(): Promise<void> {
 
     if (positional.length === 0) {
         await eprintln('seq: missing operand');
-        await exit(1);
+        return exit(1);
     }
 
     let first = 1;
@@ -56,14 +62,32 @@ async function main(): Promise<void> {
     let last: number;
 
     if (positional.length === 1) {
-        last = parseFloat(positional[0]);
+        const arg0 = positional[0];
+        if (!arg0) {
+            await eprintln('seq: missing operand');
+            return exit(1);
+        }
+        last = parseFloat(arg0);
     } else if (positional.length === 2) {
-        first = parseFloat(positional[0]);
-        last = parseFloat(positional[1]);
+        const arg0 = positional[0];
+        const arg1 = positional[1];
+        if (!arg0 || !arg1) {
+            await eprintln('seq: missing operand');
+            return exit(1);
+        }
+        first = parseFloat(arg0);
+        last = parseFloat(arg1);
     } else {
-        first = parseFloat(positional[0]);
-        increment = parseFloat(positional[1]);
-        last = parseFloat(positional[2]);
+        const arg0 = positional[0];
+        const arg1 = positional[1];
+        const arg2 = positional[2];
+        if (!arg0 || !arg1 || !arg2) {
+            await eprintln('seq: missing operand');
+            return exit(1);
+        }
+        first = parseFloat(arg0);
+        increment = parseFloat(arg1);
+        last = parseFloat(arg2);
     }
 
     if (isNaN(first) || isNaN(increment) || isNaN(last)) {

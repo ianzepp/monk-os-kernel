@@ -90,13 +90,18 @@ export function toRegex(pattern: string, options: GlobOptions = {}): RegExp {
 
         // Inside bracket, mostly literal
         if (inBracket) {
-            if (char === '\\' && !noescape && pattern[i + 1]) {
-                regex += escapeRegex(pattern[i + 1]);
-                i += 2;
-            } else {
-                regex += char === '-' ? '-' : escapeRegex(char);
-                i++;
+            if (char === '\\' && !noescape) {
+                const nextChar = pattern[i + 1];
+                if (nextChar !== undefined) {
+                    regex += escapeRegex(nextChar);
+                    i += 2;
+                    continue;
+                }
             }
+            if (char !== undefined) {
+                regex += char === '-' ? '-' : escapeRegex(char);
+            }
+            i++;
             continue;
         }
 
@@ -160,7 +165,9 @@ export function toRegex(pattern: string, options: GlobOptions = {}): RegExp {
         }
 
         // Literal characters
-        regex += escapeRegex(char);
+        if (char !== undefined) {
+            regex += escapeRegex(char);
+        }
         i++;
     }
 

@@ -2,9 +2,8 @@
  * Process operations for VFS scripts.
  */
 
-import { SpawnOpts, ExitStatus, Message } from './types';
-import { call } from './syscall';
-import { SIGTERM } from './syscall';
+import type { SpawnOpts, ExitStatus, Message } from './types';
+import { call, SIGTERM } from './syscall';
 
 export function spawn(entry: string, opts?: SpawnOpts): Promise<number> {
     return call<number>('spawn', entry, opts);

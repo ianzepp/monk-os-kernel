@@ -10,10 +10,8 @@ import type {
     IfStmtNode, WhileStmtNode, DoWhileStmtNode, ForStmtNode,
     ForInStmtNode, PrintStmtNode, PrintfStmtNode, OutputRedirect,
     DeleteStmtNode, ExpressionStmtNode, LValueNode,
-    BinaryNode, UnaryNode, TernaryNode, AssignmentNode,
-    IncrementNode, FieldAccessNode, ArrayAccessNode,
-    FunctionCallNode, GetlineNode, IdentifierNode,
-    NumberLiteralNode, StringLiteralNode, RegexLiteralNode, InExprNode,
+    BinaryNode,
+    GetlineNode, IdentifierNode,
 } from './types.js';
 
 export class Parser {
@@ -984,11 +982,19 @@ export class Parser {
     }
 
     private peek(): Token {
-        return this.tokens[this.pos];
+        const token = this.tokens[this.pos];
+        if (token === undefined) {
+            return { type: 'EOF', value: '', line: 0, column: 0 };
+        }
+        return token;
     }
 
     private previous(): Token {
-        return this.tokens[this.pos - 1];
+        const token = this.tokens[this.pos - 1];
+        if (token === undefined) {
+            return { type: 'EOF', value: '', line: 0, column: 0 };
+        }
+        return token;
     }
 
     private isAtEnd(): boolean {

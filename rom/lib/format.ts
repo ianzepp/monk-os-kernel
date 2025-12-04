@@ -46,14 +46,14 @@ export function formatDate(date: Date | number, format: string): string {
     const tokens: Record<string, () => string> = {
         'yyyy': () => String(d.getFullYear()),
         'yy': () => String(d.getFullYear()).slice(-2),
-        'MMMM': () => MONTHS_FULL[d.getMonth()],
-        'MMM': () => MONTHS_SHORT[d.getMonth()],
+        'MMMM': () => MONTHS_FULL[d.getMonth()] ?? '',
+        'MMM': () => MONTHS_SHORT[d.getMonth()] ?? '',
         'MM': () => pad(d.getMonth() + 1),
         'M': () => String(d.getMonth() + 1),
         'dd': () => pad(d.getDate()),
         'd': () => String(d.getDate()),
-        'EEEE': () => DAYS_FULL[d.getDay()],
-        'EEE': () => DAYS_SHORT[d.getDay()],
+        'EEEE': () => DAYS_FULL[d.getDay()] ?? '',
+        'EEE': () => DAYS_SHORT[d.getDay()] ?? '',
         'HH': () => pad(d.getHours()),
         'H': () => String(d.getHours()),
         'hh': () => pad(d.getHours() % 12 || 12),
@@ -166,19 +166,22 @@ export function startOf(date: Date | number, unit: 'year' | 'month' | 'day' | 'h
 
     switch (unit) {
         case 'year':
-            d.setMonth(0);
-        // fallthrough
+            d.setMonth(0, 1);
+            d.setHours(0, 0, 0, 0);
+            break;
         case 'month':
             d.setDate(1);
-        // fallthrough
+            d.setHours(0, 0, 0, 0);
+            break;
         case 'day':
-            d.setHours(0);
-        // fallthrough
+            d.setHours(0, 0, 0, 0);
+            break;
         case 'hour':
-            d.setMinutes(0);
-        // fallthrough
+            d.setMinutes(0, 0, 0);
+            break;
         case 'minute':
             d.setSeconds(0, 0);
+            break;
     }
 
     return d;
@@ -204,7 +207,9 @@ export function ms(str: string): number {
 
     let match: RegExpExecArray | null;
     while ((match = regex.exec(str)) !== null) {
-        const value = parseFloat(match[1]);
+        const matchValue = match[1];
+        if (matchValue === undefined) continue;
+        const value = parseFloat(matchValue);
         const unit = (match[2] || 'ms').toLowerCase();
         total += value * (DURATION_UNITS[unit] ?? 1);
     }
@@ -349,7 +354,9 @@ function escapeRegex(str: string): string {
  */
 export function capitalize(str: string): string {
     if (str.length === 0) return str;
-    return str[0].toUpperCase() + str.slice(1).toLowerCase();
+    const firstChar = str[0];
+    if (firstChar === undefined) return str;
+    return firstChar.toUpperCase() + str.slice(1).toLowerCase();
 }
 
 /**

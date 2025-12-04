@@ -12,7 +12,7 @@
  *   await api.close();
  */
 
-import { channel, httpRequest, type Response } from './process';
+import { channel, httpRequest } from './process';
 
 /**
  * HTTP client options.
@@ -72,21 +72,17 @@ export class HttpError extends Error {
  */
 export class Http {
     private ch: number;
-    private baseUrl: string;
     private defaultHeaders: Record<string, string>;
     private basePath: string;
-    private defaultTimeout?: number;
 
     private constructor(
         ch: number,
-        baseUrl: string,
+        _baseUrl: string,
         opts?: HttpOptions
     ) {
         this.ch = ch;
-        this.baseUrl = baseUrl;
         this.defaultHeaders = opts?.headers ?? {};
         this.basePath = opts?.basePath ?? '';
-        this.defaultTimeout = opts?.timeout;
     }
 
     /**

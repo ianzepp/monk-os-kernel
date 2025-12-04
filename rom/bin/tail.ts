@@ -40,10 +40,14 @@ async function main(): Promise<void> {
 
     for (let i = 0; i < argv.length; i++) {
         const arg = argv[i];
+        if (arg === undefined) continue;
+
         if (arg === '-n' && argv[i + 1]) {
-            const n = parseInt(argv[++i], 10);
+            const val = argv[++i];
+            if (val === undefined) continue;
+            const n = parseInt(val, 10);
             if (isNaN(n) || n < 0) {
-                await eprintln(`tail: invalid number of lines: '${argv[i]}'`);
+                await eprintln(`tail: invalid number of lines: '${val}'`);
                 await exit(1);
             }
             maxLines = n;
@@ -69,6 +73,7 @@ async function main(): Promise<void> {
 
         for (let i = 0; i < files.length; i++) {
             const file = files[i];
+            if (file === undefined) continue;
 
             if (showHeaders) {
                 if (i > 0) await println('');
@@ -114,7 +119,8 @@ async function processFile(cwd: string, file: string, maxLines: number): Promise
         const allLines = content.split('\n');
 
         // Remove trailing empty line if content ends with newline
-        if (allLines[allLines.length - 1] === '') {
+        const lastLine = allLines[allLines.length - 1];
+        if (lastLine !== undefined && lastLine === '') {
             allLines.pop();
         }
 

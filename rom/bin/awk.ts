@@ -102,29 +102,41 @@ async function main(): Promise<void> {
     let i = 0;
     while (i < argv.length) {
         const arg = argv[i];
+        if (!arg) {
+            i++;
+            continue;
+        }
 
         if (arg === '-F' && i + 1 < argv.length) {
-            fieldSep = argv[i + 1];
+            const nextArg = argv[i + 1];
+            if (nextArg) {
+                fieldSep = nextArg;
+            }
             i += 2;
         } else if (arg.startsWith('-F')) {
             fieldSep = arg.slice(2);
             i++;
         } else if (arg === '-v' && i + 1 < argv.length) {
             const assignment = argv[i + 1];
-            const eqIdx = assignment.indexOf('=');
-            if (eqIdx > 0) {
-                variables.push({
-                    name: assignment.slice(0, eqIdx),
-                    value: assignment.slice(eqIdx + 1),
-                });
+            if (assignment) {
+                const eqIdx = assignment.indexOf('=');
+                if (eqIdx > 0) {
+                    variables.push({
+                        name: assignment.slice(0, eqIdx),
+                        value: assignment.slice(eqIdx + 1),
+                    });
+                }
             }
             i += 2;
         } else if (arg === '-f' && i + 1 < argv.length) {
-            progFile = argv[i + 1];
+            const nextArg = argv[i + 1];
+            if (nextArg) {
+                progFile = nextArg;
+            }
             i += 2;
         } else if (arg.startsWith('-') && arg !== '-') {
             await eprintln(`awk: unknown option: ${arg}`);
-            await exit(1);
+            return exit(1);
         } else {
             positional.push(arg);
             i++;
@@ -142,13 +154,18 @@ async function main(): Promise<void> {
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             await eprintln(`awk: ${progFile}: ${msg}`);
-            await exit(1);
+            return exit(1);
         }
     } else if (positional.length > 0) {
-        programSource = positional.shift()!;
+        const prog = positional.shift();
+        if (!prog) {
+            await eprintln('awk: no program given');
+            return exit(1);
+        }
+        programSource = prog;
     } else {
         await eprintln('awk: no program given');
-        await exit(1);
+        return exit(1);
     }
 
     // Parse program
@@ -161,10 +178,14 @@ async function main(): Promise<void> {
     } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         await eprintln(`awk: ${msg}`);
-        await exit(1);
+        return exit(1);
     }
 
     // Create interpreter
+    if (!program) {
+        await eprintln('awk: failed to parse program');
+        return exit(1);
+    }
     const interpreter = new Interpreter(
         program,
         (text: string) => { print(text); },

@@ -34,7 +34,7 @@ import {
     exit,
 } from '@rom/lib/process';
 import { resolvePath } from '@rom/lib/shell';
-import type { ACL, Grant } from '@rom/lib/process';
+import type { Grant } from '@rom/lib/process';
 
 async function main(): Promise<void> {
     const args = await getargs();
@@ -50,61 +50,86 @@ async function main(): Promise<void> {
     // Parse command
     const cmd = argv[0];
 
+    if (!cmd) {
+        await eprintln('grant: missing command');
+        await eprintln('Try "grant --help" for usage');
+        await exit(1);
+        return;
+    }
+
     if (cmd === '--list' || cmd === '-l') {
-        if (argv.length < 2) {
+        const pathArg = argv[1];
+        if (!pathArg) {
             await eprintln('grant: --list requires a path');
             await exit(1);
+            return;
         }
-        const path = resolvePath(cwd, argv[1]);
+        const path = resolvePath(cwd, pathArg);
         await listAcl(path);
     } else if (cmd === '--reset') {
-        if (argv.length < 2) {
+        const pathArg = argv[1];
+        if (!pathArg) {
             await eprintln('grant: --reset requires a path');
             await exit(1);
+            return;
         }
-        const path = resolvePath(cwd, argv[1]);
+        const path = resolvePath(cwd, pathArg);
         await resetAcl(path);
     } else if (cmd === '--deny') {
-        if (argv.length < 3) {
+        const userArg = argv[1];
+        const pathArg = argv[2];
+        if (!userArg || !pathArg) {
             await eprintln('grant: --deny requires USER and PATH');
             await exit(1);
+            return;
         }
-        const user = await resolveUser(argv[1]);
-        const path = resolvePath(cwd, argv[2]);
+        const user = await resolveUser(userArg);
+        const path = resolvePath(cwd, pathArg);
         await denyUser(path, user);
     } else if (cmd === '--allow') {
-        if (argv.length < 3) {
+        const userArg = argv[1];
+        const pathArg = argv[2];
+        if (!userArg || !pathArg) {
             await eprintln('grant: --allow requires USER and PATH');
             await exit(1);
+            return;
         }
-        const user = await resolveUser(argv[1]);
-        const path = resolvePath(cwd, argv[2]);
+        const user = await resolveUser(userArg);
+        const path = resolvePath(cwd, pathArg);
         await allowUser(path, user);
     } else if (cmd.startsWith('+')) {
         const op = cmd.slice(1);
         if (!op) {
             await eprintln('grant: missing operation after +');
             await exit(1);
+            return;
         }
-        if (argv.length < 3) {
+        const userArg = argv[1];
+        const pathArg = argv[2];
+        if (!userArg || !pathArg) {
             await eprintln('grant: +OP requires USER and PATH');
             await exit(1);
+            return;
         }
-        const user = await resolveUser(argv[1]);
-        const path = resolvePath(cwd, argv[2]);
+        const user = await resolveUser(userArg);
+        const path = resolvePath(cwd, pathArg);
         await addGrant(path, user, op);
     } else if (cmd.startsWith('-') && !cmd.startsWith('--')) {
         const op = cmd.slice(1);
         if (!op) {
             await eprintln('grant: missing operation after -');
             await exit(1);
+            return;
         }
-        if (argv.length < 3) {
+        const userArg = argv[1];
+        const pathArg = argv[2];
+        if (!userArg || !pathArg) {
             await eprintln('grant: -OP requires USER and PATH');
             await exit(1);
+            return;
         }
-        const user = await resolveUser(argv[1]);
-        const path = resolvePath(cwd, argv[2]);
+        const user = await resolveUser(userArg);
+        const path = resolvePath(cwd, pathArg);
         await removeGrant(path, user, op);
     } else {
         await eprintln(`grant: unknown command: ${cmd}`);

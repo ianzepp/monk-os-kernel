@@ -141,7 +141,10 @@ export function relative(from: string, to: string): string {
     }
 
     for (let i = commonLength; i < toParts.length; i++) {
-        result.push(toParts[i]);
+        const part = toParts[i];
+        if (part !== undefined) {
+            result.push(part);
+        }
     }
 
     return result.length > 0 ? result.join('/') : '.';

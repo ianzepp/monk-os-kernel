@@ -22,16 +22,17 @@ import { parseDuration } from '@rom/lib/args';
 async function main(): Promise<void> {
     const args = await getargs();
 
-    if (args.length < 2) {
+    const durationArg = args[1];
+    if (durationArg === undefined) {
         await eprintln('sleep: missing operand');
         await eprintln('Usage: sleep DURATION');
-        await exit(1);
+        return await exit(1);
     }
 
-    const duration = parseDuration(args[1]);
+    const duration = parseDuration(durationArg);
     if (duration === null) {
-        await eprintln(`sleep: invalid time interval '${args[1]}'`);
-        await exit(1);
+        await eprintln(`sleep: invalid time interval '${durationArg}'`);
+        return await exit(1);
     }
 
     // Cap at 1 hour for safety

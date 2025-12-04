@@ -92,14 +92,14 @@ function parseAddress(str: string, _extended: boolean): { addr: Address | null; 
 
     // Line number
     const lineMatch = str.match(/^(\d+)/);
-    if (lineMatch) {
+    if (lineMatch && lineMatch[1]) {
         const line = parseInt(lineMatch[1], 10);
         const rest = str.slice(lineMatch[0].length);
 
         // Check for step (n~step)
         if (rest.startsWith('~')) {
             const stepMatch = rest.match(/^~(\d+)/);
-            if (stepMatch) {
+            if (stepMatch && stepMatch[1]) {
                 return {
                     addr: { type: 'step', line, step: parseInt(stepMatch[1], 10) },
                     rest: rest.slice(stepMatch[0].length),
@@ -310,12 +310,18 @@ function applySubstitute(
     flags: string,
     _extended: boolean
 ): { result: string; changed: boolean } {
-    const [pattern, replacement] = arg.split('\x00');
+    const parts = arg.split('\x00');
+    const pattern = parts[0];
+    const replacement = parts[1];
+
+    if (!pattern || replacement === undefined) {
+        return { result: line, changed: false };
+    }
 
     const caseInsensitive = /[iI]/.test(flags);
     const global = flags.includes('g');
     const nthMatch = flags.match(/(\d+)/);
-    const nth = nthMatch ? parseInt(nthMatch[1], 10) : null;
+    const nth = nthMatch && nthMatch[1] ? parseInt(nthMatch[1], 10) : null;
 
     let regexFlags = caseInsensitive ? 'i' : '';
     if (global) regexFlags += 'g';
@@ -328,7 +334,7 @@ function applySubstitute(
     }
 
     // Handle replacement escapes
-    const repl = replacement
+    const repl = (replacement || '')
         .replace(/\\n/g, '\n')
         .replace(/\\t/g, '\t')
         .replace(/\\\\/g, '\\');
@@ -354,12 +360,19 @@ function applySubstitute(
 }
 
 function applyTransliterate(line: string, arg: string): string {
-    const [source, dest] = arg.split('\x00');
-    if (source.length !== dest.length) return line;
+    const parts = arg.split('\x00');
+    const source = parts[0];
+    const dest = parts[1];
+
+    if (!source || !dest || source.length !== dest.length) return line;
 
     const map = new Map<string, string>();
     for (let i = 0; i < source.length; i++) {
-        map.set(source[i], dest[i]);
+        const srcChar = source[i];
+        const dstChar = dest[i];
+        if (srcChar && dstChar) {
+            map.set(srcChar, dstChar);
+        }
     }
 
     return [...line].map(c => map.get(c) ?? c).join('');
@@ -376,6 +389,8 @@ function processLines(
 
     for (let i = 0; i < lines.length; i++) {
         let line = lines[i];
+        if (line === undefined) continue;
+
         const lineNum = i + 1;
         let print = !options.quiet;
         let deleted = false;
@@ -388,18 +403,22 @@ function processLines(
 
             switch (cmd.cmd) {
                 case 's': {
-                    const { result, changed } = applySubstitute(
-                        line, cmd.arg!, cmd.flags || '', options.extended
-                    );
-                    line = result;
-                    if (changed && cmd.flags?.includes('p')) {
-                        output.push(line);
+                    if (cmd.arg) {
+                        const { result, changed } = applySubstitute(
+                            line, cmd.arg, cmd.flags || '', options.extended
+                        );
+                        line = result;
+                        if (changed && cmd.flags?.includes('p')) {
+                            output.push(line);
+                        }
                     }
                     break;
                 }
 
                 case 'y':
-                    line = applyTransliterate(line, cmd.arg!);
+                    if (cmd.arg) {
+                        line = applyTransliterate(line, cmd.arg);
+                    }
                     break;
 
                 case 'd':
@@ -425,11 +444,15 @@ function processLines(
                     break;
 
                 case 'i':
-                    output.push(cmd.arg!);
+                    if (cmd.arg) {
+                        output.push(cmd.arg);
+                    }
                     break;
 
                 case 'c':
-                    output.push(cmd.arg!);
+                    if (cmd.arg) {
+                        output.push(cmd.arg);
+                    }
                     deleted = true;
                     print = false;
                     break;
@@ -444,8 +467,11 @@ function processLines(
 
         // Handle append commands
         for (const cmd of commands) {
-            if (cmd.cmd === 'a' && inRange(cmd, lineNum, lines[i], lastLine, rangeState)) {
-                output.push(cmd.arg!);
+            const currentLine = lines[i];
+            if (cmd.cmd === 'a' && currentLine && inRange(cmd, lineNum, currentLine, lastLine, rangeState)) {
+                if (cmd.arg) {
+                    output.push(cmd.arg);
+                }
             }
         }
 
@@ -488,6 +514,11 @@ async function main(): Promise<void> {
     while (i < argv.length) {
         const arg = argv[i];
 
+        if (!arg) {
+            i++;
+            continue;
+        }
+
         if (arg === '-n') {
             options.quiet = true;
             i++;
@@ -498,7 +529,10 @@ async function main(): Promise<void> {
             options.extended = true;
             i++;
         } else if (arg === '-e' && i + 1 < argv.length) {
-            scripts.push(argv[i + 1]);
+            const scriptArg = argv[i + 1];
+            if (scriptArg) {
+                scripts.push(scriptArg);
+            }
             i += 2;
         } else if (arg.startsWith('-') && arg !== '-') {
             await eprintln(`sed: unknown option: ${arg}`);

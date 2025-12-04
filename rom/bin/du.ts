@@ -63,6 +63,8 @@ async function main(): Promise<void> {
     let i = 0;
     while (i < argv.length) {
         const arg = argv[i];
+        if (arg === undefined) { i++; continue; }
+
         if (arg === '-a') { options.all = true; i++; }
         else if (arg === '-h') { options.human = true; i++; }
         else if (arg === '-s') { options.summary = true; options.maxDepth = 0; i++; }
@@ -71,7 +73,9 @@ async function main(): Promise<void> {
         else if (arg === '-k') { options.unit = 'kilobytes'; i++; }
         else if (arg === '-m') { options.unit = 'megabytes'; i++; }
         else if (arg === '-d' && i + 1 < argv.length) {
-            options.maxDepth = parseInt(argv[i + 1], 10);
+            const val = argv[i + 1];
+            if (val === undefined) { i += 2; continue; }
+            options.maxDepth = parseInt(val, 10);
             i += 2;
         } else if (!arg.startsWith('-')) {
             targets.push(arg);

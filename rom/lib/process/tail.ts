@@ -3,8 +3,7 @@
  * Read the end of files efficiently.
  */
 
-import { SyscallError } from './error';
-import { open, close, read, readAll, readLines, seek, fstat } from './file';
+import { open, close, readAll, readLines, seek, fstat } from './file';
 
 /**
  * Read the last N bytes from a seekable file descriptor.
@@ -69,7 +68,10 @@ export async function tailLines(fd: number, count: number): Promise<string[]> {
     // Reorder circular buffer to linear array
     const result: string[] = [];
     for (let i = 0; i < count; i++) {
-        result.push(buffer[(writeIndex + i) % count]);
+        const item = buffer[(writeIndex + i) % count];
+        if (item !== undefined) {
+            result.push(item);
+        }
     }
     return result;
 }

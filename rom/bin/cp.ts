@@ -57,6 +57,11 @@ async function main(): Promise<void> {
     const srcArg = positional[0];
     const destArg = positional[1];
 
+    if (srcArg === undefined || destArg === undefined) {
+        await eprintln('cp: missing source or destination');
+        return await exit(1);
+    }
+
     const src = resolvePath(cwd, srcArg);
     const dest = resolvePath(cwd, destArg);
 

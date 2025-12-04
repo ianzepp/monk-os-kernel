@@ -2,7 +2,7 @@
  * Directory operations for VFS scripts.
  */
 
-import { MkdirOpts } from './types';
+import type { MkdirOpts } from './types';
 import { SyscallError } from './error';
 import { call, iterate } from './syscall';
 

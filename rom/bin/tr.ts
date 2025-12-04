@@ -59,8 +59,14 @@ async function main(): Promise<void> {
         await exit(1);
     }
 
-    const set1 = expandSet(positional[0]);
-    const set2 = positional[1] ? expandSet(positional[1]) : '';
+    const set1Arg = positional[0];
+    if (set1Arg === undefined) {
+        await eprintln('tr: missing operand');
+        return await exit(1);
+    }
+
+    const set1 = expandSet(set1Arg);
+    const set2 = positional[1] !== undefined ? expandSet(positional[1]) : '';
 
     if (!deleteMode && !squeezeMode && !set2) {
         await eprintln('tr: missing SET2 for translation');

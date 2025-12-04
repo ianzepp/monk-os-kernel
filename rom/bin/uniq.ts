@@ -31,7 +31,6 @@ import {
     println,
     eprintln,
     exit,
-    respond,
 } from '@rom/lib/process';
 import { resolvePath } from '@rom/lib/shell';
 
@@ -70,11 +69,12 @@ async function main(): Promise<void> {
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             await eprintln(`uniq: ${file}: ${msg}`);
-            await exit(1);
+            return await exit(1);
         }
 
         const lines = content.split('\n');
-        if (lines[lines.length - 1] === '') lines.pop();
+        const lastLine = lines[lines.length - 1];
+        if (lastLine !== undefined && lastLine === '') lines.pop();
 
         await processLines(lines, { showCount, duplicatesOnly, uniqueOnly, ignoreCase });
     } else {
@@ -146,7 +146,10 @@ async function processLines(lines: string[], options: UniqOptions): Promise<void
         const key = ignoreCase ? line.toLowerCase() : line;
 
         if (key === prevKey && results.length > 0) {
-            results[results.length - 1].count++;
+            const lastResult = results[results.length - 1];
+            if (lastResult !== undefined) {
+                lastResult.count++;
+            }
         } else {
             results.push({ line, count: 1 });
             prevKey = key;

@@ -11,7 +11,7 @@
  * the routing based on the service's io configuration.
  */
 
-import { readLines, println } from '/lib/process';
+import { readLines, println } from '@rom/lib/process';
 
 // Format: [timestamp] [topic] message
 function formatLogLine(topic: string, payload: string): string {

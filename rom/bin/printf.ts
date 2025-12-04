@@ -48,7 +48,12 @@ async function main(): Promise<void> {
         await exit(1);
     }
 
-    const format = processEscapes(argv[0]);
+    const formatArg = argv[0];
+    if (!formatArg) {
+        await eprintln('printf: missing format string');
+        return exit(1);
+    }
+    const format = processEscapes(formatArg);
     const values = argv.slice(1);
     let valueIndex = 0;
 
@@ -129,7 +134,7 @@ function processEscapes(str: string): string {
                 case '0': {
                     const oct = str.slice(i + 2, i + 5);
                     const match = oct.match(/^([0-7]{1,3})/);
-                    if (match) {
+                    if (match && match[1]) {
                         result += String.fromCharCode(parseInt(match[1], 8));
                         i += 2 + match[1].length;
                     } else {
@@ -158,7 +163,7 @@ function formatValue(spec: string, value: string): string {
     const match = spec.match(/^%([-+ #0]*)(\d+)?(?:\.(\d+))?([sdiouxXfFeEgGc%])$/);
     if (!match) return spec;
 
-    const [, flags, widthStr, precisionStr, type] = match;
+    const [, flags = '', widthStr, precisionStr, type] = match;
     const width = widthStr ? parseInt(widthStr, 10) : 0;
     const precision = precisionStr !== undefined ? parseInt(precisionStr, 10) : undefined;
     const leftAlign = flags.includes('-');
@@ -181,7 +186,7 @@ function formatValue(spec: string, value: string): string {
             break;
 
         case 'c':
-            result = value ? value[0] : '';
+            result = value ? (value[0] ?? '') : '';
             break;
 
         case 'd':

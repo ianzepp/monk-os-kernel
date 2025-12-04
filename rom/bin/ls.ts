@@ -107,7 +107,10 @@ async function main(): Promise<void> {
     let exitCode = 0;
 
     for (let i = 0; i < targets.length; i++) {
-        const resolved = resolvePath(cwd, targets[i]);
+        const target = targets[i];
+        if (target === undefined) continue;
+
+        const resolved = resolvePath(cwd, target);
         const code = await listDirectory(resolved, options, showPaths);
         if (code !== 0) exitCode = code;
 

@@ -19,7 +19,8 @@ export function concat(a: Uint8Array, b: Uint8Array): Uint8Array {
  */
 export function concatAll(arrays: Uint8Array[]): Uint8Array {
     if (arrays.length === 0) return new Uint8Array(0);
-    if (arrays.length === 1) return arrays[0];
+    const firstArray = arrays[0];
+    if (arrays.length === 1 && firstArray !== undefined) return firstArray;
 
     const total = arrays.reduce((sum, arr) => sum + arr.length, 0);
     const result = new Uint8Array(total);

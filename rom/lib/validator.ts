@@ -56,7 +56,8 @@ export function isUUID(str: string, version?: 1 | 3 | 4 | 5 | 7): boolean {
         any: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
     };
 
-    return patterns[version ?? 'any'].test(str);
+    const pattern = patterns[version ?? 'any'];
+    return pattern !== undefined ? pattern.test(str) : false;
 }
 
 /**
@@ -305,7 +306,9 @@ export function isCreditCard(str: string): boolean {
     let isEven = false;
 
     for (let i = sanitized.length - 1; i >= 0; i--) {
-        let digit = parseInt(sanitized[i], 10);
+        const char = sanitized[i];
+        if (char === undefined) continue;
+        let digit = parseInt(char, 10);
 
         if (isEven) {
             digit *= 2;

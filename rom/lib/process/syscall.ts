@@ -7,7 +7,7 @@
 
 declare const self: DedicatedWorkerGlobalScope;
 
-import { Response, SignalHandler } from './types';
+import type { Response, SignalHandler } from './types';
 import { SyscallError } from './error';
 
 // ============================================================================

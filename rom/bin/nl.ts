@@ -54,9 +54,11 @@ async function main(): Promise<void> {
     // Parse arguments
     for (let i = 0; i < argv.length; i++) {
         const arg = argv[i];
+        if (arg === undefined) continue;
 
         if (arg === '-b' && argv[i + 1]) {
             const val = argv[++i];
+            if (val === undefined) continue;
             if (val === 'a' || val === 't' || val === 'n') {
                 bodyNumbering = val;
             } else {
@@ -65,6 +67,7 @@ async function main(): Promise<void> {
             }
         } else if (arg === '-n' && argv[i + 1]) {
             const val = argv[++i];
+            if (val === undefined) continue;
             if (val === 'ln' || val === 'rn' || val === 'rz') {
                 numberFormat = val;
             } else {
@@ -72,23 +75,31 @@ async function main(): Promise<void> {
                 await exit(1);
             }
         } else if (arg === '-w' && argv[i + 1]) {
-            width = parseInt(argv[++i], 10);
+            const val = argv[++i];
+            if (val === undefined) continue;
+            width = parseInt(val, 10);
             if (isNaN(width) || width < 1) {
-                await eprintln(`nl: invalid width: '${argv[i]}'`);
+                await eprintln(`nl: invalid width: '${val}'`);
                 await exit(1);
             }
         } else if (arg === '-s' && argv[i + 1]) {
-            separator = argv[++i];
+            const val = argv[++i];
+            if (val === undefined) continue;
+            separator = val;
         } else if (arg === '-v' && argv[i + 1]) {
-            startNum = parseInt(argv[++i], 10);
+            const val = argv[++i];
+            if (val === undefined) continue;
+            startNum = parseInt(val, 10);
             if (isNaN(startNum)) {
-                await eprintln(`nl: invalid starting number: '${argv[i]}'`);
+                await eprintln(`nl: invalid starting number: '${val}'`);
                 await exit(1);
             }
         } else if (arg === '-i' && argv[i + 1]) {
-            increment = parseInt(argv[++i], 10);
+            const val = argv[++i];
+            if (val === undefined) continue;
+            increment = parseInt(val, 10);
             if (isNaN(increment)) {
-                await eprintln(`nl: invalid increment: '${argv[i]}'`);
+                await eprintln(`nl: invalid increment: '${val}'`);
                 await exit(1);
             }
         } else if (!arg.startsWith('-')) {
@@ -107,7 +118,7 @@ async function main(): Promise<void> {
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
             await eprintln(`nl: ${file}: ${msg}`);
-            await exit(1);
+            return await exit(1);
         }
 
         const lines = content.split('\n');

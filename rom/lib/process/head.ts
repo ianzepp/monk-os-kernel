@@ -3,7 +3,6 @@
  * Read the beginning of files efficiently.
  */
 
-import { SyscallError } from './error';
 import { open, close, read, readLines } from './file';
 
 /**

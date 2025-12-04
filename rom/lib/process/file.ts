@@ -2,7 +2,7 @@
  * File operations for VFS scripts.
  */
 
-import { OpenFlags, SeekWhence, Stat } from './types';
+import type { OpenFlags, SeekWhence, Stat } from './types';
 import { SyscallError } from './error';
 import { call, iterate } from './syscall';
 
@@ -46,7 +46,10 @@ export async function readAll(fd: number, maxSize: number = DEFAULT_MAX_READ): P
 
     // Fast path: single chunk
     if (chunks.length === 1) {
-        return chunks[0];
+        const firstChunk = chunks[0];
+        if (firstChunk !== undefined) {
+            return firstChunk;
+        }
     }
 
     // Fast path: no data

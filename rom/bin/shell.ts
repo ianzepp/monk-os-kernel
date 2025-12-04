@@ -29,7 +29,6 @@ import {
     open,
     read,
     readText,
-    write,
     close,
     exit,
     print,
@@ -42,13 +41,11 @@ import {
 
 import {
     parseCommand,
-    expandVariables,
     expandCommandVariables,
     flattenPipeline,
     expandGlobs,
-    type ParsedCommand,
-    type GlobEntry,
 } from '@rom/lib/shell';
+import type { ParsedCommand, GlobEntry } from '@rom/lib/shell';
 
 import { parseArgs } from '@rom/lib/args';
 import { resolvePath } from '@rom/lib/path';
@@ -193,22 +190,27 @@ async function builtinCd(state: ShellState, args: string[]): Promise<number> {
 
     if (args.length === 0) {
         target = state.env['HOME'] ?? '/';
-    } else if (args[0] === '-') {
-        target = state.env['OLDPWD'] ?? state.cwd;
     } else {
-        target = resolvePath(state.cwd, args[0]);
+        const arg0 = args[0];
+        if (!arg0) {
+            target = state.env['HOME'] ?? '/';
+        } else if (arg0 === '-') {
+            target = state.env['OLDPWD'] ?? state.cwd;
+        } else {
+            target = resolvePath(state.cwd, arg0);
+        }
     }
 
     // Verify directory exists
     try {
         const info = await stat(target);
         if (info.model !== 'folder') {
-            await eprintln(`cd: ${args[0]}: Not a directory`);
+            await eprintln(`cd: ${args[0] ?? target}: Not a directory`);
             return 1;
         }
     } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        await eprintln(`cd: ${args[0]}: ${msg}`);
+        await eprintln(`cd: ${args[0] ?? target}: ${msg}`);
         return 1;
     }
 
@@ -249,7 +251,8 @@ async function builtinExport(state: ShellState, args: string[]): Promise<number>
 }
 
 async function builtinExit(state: ShellState, args: string[]): Promise<number> {
-    const code = args.length > 0 ? parseInt(args[0], 10) : state.lastExitCode;
+    const arg0 = args[0];
+    const code = arg0 ? parseInt(arg0, 10) : state.lastExitCode;
     state.shouldExit = true;
     state.exitCode = isNaN(code) ? 0 : code;
     return state.exitCode;
@@ -514,7 +517,9 @@ async function executePipeline(
 
     // Single command - no pipes needed
     if (pipeline.length === 1) {
-        return executeSingleCommand(state, pipeline[0]);
+        const cmd = pipeline[0];
+        if (!cmd) return 0;
+        return executeSingleCommand(state, cmd);
     }
 
     // =========================================================================
@@ -566,6 +571,8 @@ async function executePipeline(
 
         for (let i = 0; i < pipeline.length; i++) {
             const cmd = pipeline[i];
+            if (!cmd) continue;
+
             const isFirst = i === 0;
             const isLast = i === pipeline.length - 1;
 
@@ -573,8 +580,10 @@ async function executePipeline(
             //   - First command: stdin = shell's stdin (undefined means inherit)
             //   - Last command: stdout = shell's stdout (undefined means inherit)
             //   - Middle commands: both connected to pipes
-            const stdinFd = isFirst ? undefined : pipes[i - 1][0];
-            const stdoutFd = isLast ? undefined : pipes[i][1];
+            const prevPipe = pipes[i - 1];
+            const currPipe = pipes[i];
+            const stdinFd = isFirst ? undefined : (prevPipe ? prevPipe[0] : undefined);
+            const stdoutFd = isLast ? undefined : (currPipe ? currPipe[1] : undefined);
 
             if (BUILTIN_COMMANDS.includes(cmd.command)) {
                 // =============================================================
@@ -623,7 +632,7 @@ async function executePipeline(
 
         for (let i = 0; i < spawnedPids.length; i++) {
             const pid = spawnedPids[i];
-            if (pid > 0) {
+            if (pid !== undefined && pid > 0) {
                 // This is an external command that needs waiting
                 const idx = i; // Capture for closure
                 waitPromises.push(
@@ -645,7 +654,8 @@ async function executePipeline(
         // Pipeline exit code is the exit code of the LAST command.
         // This is standard shell behavior.
 
-        return exitCodes[exitCodes.length - 1];
+        const lastExitCode = exitCodes[exitCodes.length - 1];
+        return lastExitCode ?? 0;
 
     } finally {
         // Cleanup on error - close any remaining pipe fds
@@ -799,9 +809,12 @@ async function main(): Promise<void> {
 
     // Script file
     if (parsed.positional.length > 0) {
-        state.interactive = false;
-        const code = await executeScript(state, parsed.positional[0]);
-        await exit(code);
+        const scriptPath = parsed.positional[0];
+        if (scriptPath) {
+            state.interactive = false;
+            const code = await executeScript(state, scriptPath);
+            await exit(code);
+        }
     }
 
     // Interactive mode

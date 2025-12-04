@@ -119,7 +119,11 @@ async function main(): Promise<void> {
         totalAvail += info.available;
 
         for (let i = 0; i < row.length; i++) {
-            widths[i] = Math.max(widths[i], row[i].length);
+            const cell = row[i];
+            const currentWidth = widths[i];
+            if (cell && currentWidth !== undefined) {
+                widths[i] = Math.max(currentWidth, cell.length);
+            }
         }
     }
 
@@ -136,14 +140,24 @@ async function main(): Promise<void> {
         );
         rows.push(totalRow);
         for (let i = 0; i < totalRow.length; i++) {
-            widths[i] = Math.max(widths[i], totalRow[i].length);
+            const cell = totalRow[i];
+            const currentWidth = widths[i];
+            if (cell && currentWidth !== undefined) {
+                widths[i] = Math.max(currentWidth, cell.length);
+            }
         }
     }
 
     // Output
-    await println(headers.map((h, i) => h.padEnd(widths[i])).join('  '));
+    await println(headers.map((h, i) => {
+        const w = widths[i];
+        return w ? h.padEnd(w) : h;
+    }).join('  '));
     for (const row of rows) {
-        await println(row.map((c, i) => c.padEnd(widths[i])).join('  '));
+        await println(row.map((c, i) => {
+            const w = widths[i];
+            return w ? c.padEnd(w) : c;
+        }).join('  '));
     }
 
     await exit(0);
@@ -166,7 +180,22 @@ function getFilesystemInfo(path: string): FsInfo {
         }
     }
 
-    const info = fsMap[bestMatch] || fsMap['/'];
+    const info = fsMap[bestMatch];
+    if (!info) {
+        const defaultInfo = fsMap['/'];
+        const defaultSize = defaultInfo?.size || 10 * 1024 * 1024 * 1024;
+        const defaultUsed = defaultInfo?.used || 0;
+        return {
+            filesystem: defaultInfo?.filesystem || 'vfs',
+            type: defaultInfo?.type || 'vfs',
+            size: defaultSize,
+            used: defaultUsed,
+            available: defaultSize - defaultUsed,
+            usePercent: defaultSize > 0 ? Math.round((defaultUsed / defaultSize) * 100) : 0,
+            mountpoint: bestMatch,
+        };
+    }
+
     const size = info.size || 10 * 1024 * 1024 * 1024;
     const used = info.used || 0;
 

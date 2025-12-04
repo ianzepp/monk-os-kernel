@@ -81,7 +81,7 @@ function formatDate(date: Date, format: string, utc: boolean): string {
     const seconds = utc ? date.getUTCSeconds() : date.getSeconds();
     const dayOfWeek = utc ? date.getUTCDay() : date.getDay();
 
-    return format.replace(/%(.)/g, (_, code) => {
+    return format.replace(/%(.)/g, (_match, code: string) => {
         switch (code) {
             case 'Y': return String(year);
             case 'y': return String(year).slice(-2);
@@ -90,8 +90,14 @@ function formatDate(date: Date, format: string, utc: boolean): string {
             case 'H': return pad(hours);
             case 'M': return pad(minutes);
             case 'S': return pad(seconds);
-            case 'a': return WEEKDAYS[dayOfWeek];
-            case 'b': return MONTHS[month];
+            case 'a': {
+                const weekday = WEEKDAYS[dayOfWeek];
+                return weekday !== undefined ? weekday : '';
+            }
+            case 'b': {
+                const monthName = MONTHS[month];
+                return monthName !== undefined ? monthName : '';
+            }
             case 'j': return pad(getDayOfYear(date, utc), 3);
             case 'n': return '\n';
             case 't': return '\t';

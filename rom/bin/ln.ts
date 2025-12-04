@@ -24,12 +24,12 @@ async function main(): Promise<void> {
     const argv = args.slice(1);
 
     // Parse options
-    let symbolic = false;
     const positional: string[] = [];
 
     for (const arg of argv) {
         if (arg === '-s' || arg === '--symbolic') {
-            symbolic = true;
+            // Symbolic links are always used (hard links not supported)
+            continue;
         } else if (arg === '-h' || arg === '--help') {
             await eprintln('Usage: ln [-s] TARGET LINK_NAME');
             await eprintln('Create a link to TARGET with the name LINK_NAME.');
@@ -55,7 +55,14 @@ async function main(): Promise<void> {
 
     const cwd = await getcwd();
     const target = positional[0];
-    const linkName = resolvePath(cwd, positional[1]);
+    const linkNameArg = positional[1];
+
+    if (target === undefined || linkNameArg === undefined) {
+        await eprintln('ln: missing file operand');
+        return await exit(1);
+    }
+
+    const linkName = resolvePath(cwd, linkNameArg);
 
     try {
         // Always treat as symbolic link (hard links not supported)

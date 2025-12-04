@@ -45,13 +45,17 @@ export function set<T extends object>(obj: T, path: PropertyPath, value: unknown
 
     for (let i = 0; i < keys.length - 1; i++) {
         const key = keys[i];
+        if (key === undefined) continue;
         if (current[key] == null || typeof current[key] !== 'object') {
             current[key] = {};
         }
         current = current[key] as Record<string, unknown>;
     }
 
-    current[keys[keys.length - 1]] = value;
+    const lastKey = keys[keys.length - 1];
+    if (lastKey !== undefined) {
+        current[lastKey] = value;
+    }
     return obj;
 }
 
@@ -171,9 +175,17 @@ export function sortBy<T>(arr: T[], iteratee: Iteratee<T>): T[] {
         const aVal = fn(a);
         const bVal = fn(b);
 
-        if (aVal < bVal) return -1;
-        if (aVal > bVal) return 1;
-        return 0;
+        // Handle unknown types with basic comparison
+        if (typeof aVal === 'number' && typeof bVal === 'number') {
+            return aVal - bVal;
+        }
+        if (typeof aVal === 'string' && typeof bVal === 'string') {
+            return aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
+        }
+        // For other types, convert to string for comparison
+        const aStr = String(aVal);
+        const bStr = String(bVal);
+        return aStr < bStr ? -1 : aStr > bStr ? 1 : 0;
     });
 }
 
@@ -183,7 +195,7 @@ export function sortBy<T>(arr: T[], iteratee: Iteratee<T>): T[] {
  *     uniq([1, 2, 2, 3])  // [1, 2, 3]
  */
 export function uniq<T>(arr: T[]): T[] {
-    return [...new Set(arr)];
+    return Array.from(new Set(arr));
 }
 
 /**

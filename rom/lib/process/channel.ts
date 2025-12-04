@@ -3,7 +3,7 @@
  * Protocol-aware message passing API.
  */
 
-import { ChannelOpts, HttpRequest, Message, Response } from './types';
+import type { ChannelOpts, HttpRequest, Message, Response } from './types';
 import { SyscallError } from './error';
 import { call, syscall } from './syscall';
 

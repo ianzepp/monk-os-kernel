@@ -43,10 +43,16 @@ async function main(): Promise<void> {
 
     for (let i = 0; i < argv.length; i++) {
         const arg = argv[i];
+        if (!arg) continue;
 
         if (arg.startsWith('-d')) {
             // Delimiter: -d, or -d ,
-            delimiter = arg.length > 2 ? arg.slice(2) : (argv[++i] || '\t');
+            if (arg.length > 2) {
+                delimiter = arg.slice(2);
+            } else {
+                const nextArg = argv[++i];
+                delimiter = nextArg || '\t';
+            }
         } else if (arg.startsWith('-f')) {
             // Fields: -f1,2,3 or -f 1,2,3
             const fieldStr = arg.length > 2 ? arg.slice(2) : argv[++i];
@@ -83,6 +89,7 @@ async function main(): Promise<void> {
             const msg = err instanceof Error ? err.message : String(err);
             await eprintln(`cut: ${file}: ${msg}`);
             await exit(1);
+            return;
         }
 
         const lines = content.split('\n');
@@ -119,9 +126,13 @@ function parseRanges(str: string): number[] {
 
     for (const part of str.split(',')) {
         if (part.includes('-')) {
-            const [start, end] = part.split('-').map(n => parseInt(n, 10));
-            for (let i = start; i <= end; i++) {
-                result.push(i);
+            const parts = part.split('-');
+            const start = parts[0] ? parseInt(parts[0], 10) : NaN;
+            const end = parts[1] ? parseInt(parts[1], 10) : NaN;
+            if (!isNaN(start) && !isNaN(end)) {
+                for (let i = start; i <= end; i++) {
+                    result.push(i);
+                }
             }
         } else {
             result.push(parseInt(part, 10));
@@ -139,11 +150,17 @@ function parseCharRanges(str: string): { start: number; end: number }[] {
 
     for (const part of str.split(',')) {
         if (part.includes('-')) {
-            const [start, end] = part.split('-').map(n => parseInt(n, 10));
-            result.push({ start: start - 1, end: end }); // Convert to 0-indexed
+            const parts = part.split('-');
+            const start = parts[0] ? parseInt(parts[0], 10) : NaN;
+            const end = parts[1] ? parseInt(parts[1], 10) : NaN;
+            if (!isNaN(start) && !isNaN(end)) {
+                result.push({ start: start - 1, end: end }); // Convert to 0-indexed
+            }
         } else {
             const n = parseInt(part, 10);
-            result.push({ start: n - 1, end: n });
+            if (!isNaN(n)) {
+                result.push({ start: n - 1, end: n });
+            }
         }
     }
 
@@ -169,8 +186,9 @@ function extractFields(line: string, delimiter: string, fields: number[]): strin
     const selected: string[] = [];
 
     for (const f of fields) {
-        if (parts[f - 1] !== undefined) {
-            selected.push(parts[f - 1]);
+        const part = parts[f - 1];
+        if (part !== undefined) {
+            selected.push(part);
         }
     }
 

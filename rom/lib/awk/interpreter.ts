@@ -218,7 +218,7 @@ export class Interpreter {
             const regex = pattern as RegexLiteralNode;
             try {
                 const re = new RegExp(regex.pattern, regex.flags);
-                return re.test(this.state.fields[0]);
+                return re.test(this.state.fields[0] ?? '');
             } catch {
                 return false;
             }
@@ -360,7 +360,7 @@ export class Interpreter {
         const array = this.state.globals.arrays.get(stmt.array);
         if (!array) return;
 
-        for (const key of array.keys()) {
+        for (const key of Array.from(array.keys())) {
             if (this.signal?.aborted) throw new ExitException(130);
             this.state.globals.variables.set(stmt.variable, key);
             try {
@@ -393,7 +393,7 @@ export class Interpreter {
         let output: string;
 
         if (stmt.args.length === 0) {
-            output = this.state.fields[0];
+            output = this.state.fields[0] ?? '';
         } else {
             const values = await Promise.all(stmt.args.map((a) => this.evaluate(a)));
             output = values.map((v) => toString(v)).join(this.state.builtins.OFS);
@@ -410,7 +410,7 @@ export class Interpreter {
         this.writeOutput(output, stmt.output);
     }
 
-    private writeOutput(text: string, redirect: PrintStmtNode['output']): void {
+    private writeOutput(text: string, _redirect: PrintStmtNode['output']): void {
         // For now, all output goes to stdout
         // File/pipe redirects not implemented in virtual environment
         this.stdout(text);
@@ -429,7 +429,7 @@ export class Interpreter {
                 const regex = expr as RegexLiteralNode;
                 try {
                     const re = new RegExp(regex.pattern, regex.flags);
-                    return re.test(this.state.fields[0]) ? 1 : 0;
+                    return re.test(this.state.fields[0] ?? '') ? 1 : 0;
                 } catch {
                     return 0;
                 }
@@ -506,7 +506,7 @@ export class Interpreter {
         if (index < 0) return '';
         if (index >= this.state.fields.length) return '';
 
-        return this.state.fields[index];
+        return this.state.fields[index] ?? '';
     }
 
     private async setField(index: number, value: AwkValue): Promise<void> {
@@ -771,7 +771,7 @@ export class Interpreter {
 
         // User-defined function
         const fn = this.state.functions.get(expr.name);
-        if (!fn) {
+        if (fn === undefined) {
             this.stderr(`awk: unknown function ${expr.name}\n`);
             return '';
         }
@@ -786,8 +786,10 @@ export class Interpreter {
 
         // Bind parameters
         for (let i = 0; i < fn.params.length; i++) {
-            const value = i < args.length ? args[i] : '';
-            this.state.globals.variables.set(fn.params[i], value);
+            const param = fn.params[i];
+            if (param === undefined) continue;
+            const value = i < args.length ? (args[i] ?? '') : '';
+            this.state.globals.variables.set(param, value);
         }
 
         try {

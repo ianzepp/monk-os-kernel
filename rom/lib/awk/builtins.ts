@@ -5,7 +5,7 @@
  * math operations, and I/O.
  */
 
-import type { AwkValue, AwkArray, RuntimeState } from './types.js';
+import type { AwkValue, RuntimeState } from './types.js';
 
 export type BuiltinFn = (
     args: AwkValue[],
@@ -47,27 +47,40 @@ const length: BuiltinFn = (args, state) => {
         // length() returns length of $0
         return state.fields[0]?.length ?? 0;
     }
-    return toString(args[0]).length;
+    const arg = args[0];
+    if (arg === undefined) return 0;
+    return toString(arg).length;
 };
 
 const substr: BuiltinFn = (args) => {
-    const str = toString(args[0]);
-    const start = Math.max(1, toNumber(args[1])) - 1; // AWK is 1-indexed
-    const len = args.length > 2 ? toNumber(args[2]) : str.length - start;
+    const arg0 = args[0];
+    const arg1 = args[1];
+    const arg2 = args[2];
+    if (arg0 === undefined || arg1 === undefined) return '';
+    const str = toString(arg0);
+    const start = Math.max(1, toNumber(arg1)) - 1; // AWK is 1-indexed
+    const len = arg2 !== undefined ? toNumber(arg2) : str.length - start;
     return str.substring(start, start + len);
 };
 
 const index: BuiltinFn = (args) => {
-    const str = toString(args[0]);
-    const needle = toString(args[1]);
+    const arg0 = args[0];
+    const arg1 = args[1];
+    if (arg0 === undefined || arg1 === undefined) return 0;
+    const str = toString(arg0);
+    const needle = toString(arg1);
     const pos = str.indexOf(needle);
     return pos === -1 ? 0 : pos + 1; // AWK is 1-indexed, 0 means not found
 };
 
-const split: BuiltinFn = (args, state, setVar, setArray) => {
-    const str = toString(args[0]);
-    const arrayName = toString(args[1]);
-    const fs = args.length > 2 ? toString(args[2]) : state.builtins.FS;
+const split: BuiltinFn = (args, state, _setVar, setArray) => {
+    const arg0 = args[0];
+    const arg1 = args[1];
+    const arg2 = args[2];
+    if (arg0 === undefined || arg1 === undefined) return 0;
+    const str = toString(arg0);
+    const arrayName = toString(arg1);
+    const fs = arg2 !== undefined ? toString(arg2) : state.builtins.FS;
 
     // Clear existing array
     if (setArray) {
@@ -93,17 +106,24 @@ const split: BuiltinFn = (args, state, setVar, setArray) => {
     // Populate array (1-indexed)
     if (setArray) {
         for (let i = 0; i < parts.length; i++) {
-            setArray(arrayName, String(i + 1), parts[i]);
+            const part = parts[i];
+            if (part !== undefined) {
+                setArray(arrayName, String(i + 1), part);
+            }
         }
     }
 
     return parts.length;
 };
 
-const sub: BuiltinFn = (args, state, setVar) => {
-    const pattern = toString(args[0]);
-    const replacement = toString(args[1]);
-    const target = args.length > 2 ? toString(args[2]) : state.fields[0];
+const sub: BuiltinFn = (args, state, _setVar) => {
+    const arg0 = args[0];
+    const arg1 = args[1];
+    const arg2 = args[2];
+    if (arg0 === undefined || arg1 === undefined) return 0;
+    const pattern = toString(arg0);
+    const replacement = toString(arg1);
+    const target = arg2 !== undefined ? toString(arg2) : (state.fields[0] ?? '');
 
     let regex: RegExp;
     try {
@@ -117,20 +137,21 @@ const sub: BuiltinFn = (args, state, setVar) => {
     const result = target.replace(regex, replacement.replace(/&/g, '$&'));
 
     // Update target (default is $0)
-    if (args.length > 2 && setVar) {
-        // This is tricky - args[2] should be an lvalue
-        // For now, we assume it's updating $0 if not specified
-    } else {
+    if (args.length <= 2) {
         state.fields[0] = result;
     }
 
     return 1;
 };
 
-const gsub: BuiltinFn = (args, state, setVar) => {
-    const pattern = toString(args[0]);
-    const replacement = toString(args[1]);
-    const target = args.length > 2 ? toString(args[2]) : state.fields[0];
+const gsub: BuiltinFn = (args, state, _setVar) => {
+    const arg0 = args[0];
+    const arg1 = args[1];
+    const arg2 = args[2];
+    if (arg0 === undefined || arg1 === undefined) return 0;
+    const pattern = toString(arg0);
+    const replacement = toString(arg1);
+    const target = arg2 !== undefined ? toString(arg2) : (state.fields[0] ?? '');
 
     let regex: RegExp;
     try {
@@ -153,8 +174,15 @@ const gsub: BuiltinFn = (args, state, setVar) => {
 };
 
 const match: BuiltinFn = (args, state) => {
-    const str = toString(args[0]);
-    const pattern = toString(args[1]);
+    const arg0 = args[0];
+    const arg1 = args[1];
+    if (arg0 === undefined || arg1 === undefined) {
+        state.builtins.RSTART = 0;
+        state.builtins.RLENGTH = -1;
+        return 0;
+    }
+    const str = toString(arg0);
+    const pattern = toString(arg1);
 
     let regex: RegExp;
     try {
@@ -178,32 +206,61 @@ const match: BuiltinFn = (args, state) => {
 };
 
 const tolower: BuiltinFn = (args) => {
-    return toString(args[0]).toLowerCase();
+    const arg0 = args[0];
+    if (arg0 === undefined) return '';
+    return toString(arg0).toLowerCase();
 };
 
 const toupper: BuiltinFn = (args) => {
-    return toString(args[0]).toUpperCase();
+    const arg0 = args[0];
+    if (arg0 === undefined) return '';
+    return toString(arg0).toUpperCase();
 };
 
 const sprintf: BuiltinFn = (args) => {
     if (args.length === 0) return '';
-    return formatPrintf(toString(args[0]), args.slice(1));
+    const arg0 = args[0];
+    if (arg0 === undefined) return '';
+    return formatPrintf(toString(arg0), args.slice(1));
 };
 
 // Math functions
-const sin: BuiltinFn = (args) => Math.sin(toNumber(args[0]));
-const cos: BuiltinFn = (args) => Math.cos(toNumber(args[0]));
-const atan2: BuiltinFn = (args) => Math.atan2(toNumber(args[0]), toNumber(args[1]));
-const exp: BuiltinFn = (args) => Math.exp(toNumber(args[0]));
-const log: BuiltinFn = (args) => Math.log(toNumber(args[0]));
-const sqrt: BuiltinFn = (args) => Math.sqrt(toNumber(args[0]));
-const int: BuiltinFn = (args) => Math.trunc(toNumber(args[0]));
+const sin: BuiltinFn = (args) => {
+    const arg0 = args[0];
+    return Math.sin(toNumber(arg0 ?? 0));
+};
+const cos: BuiltinFn = (args) => {
+    const arg0 = args[0];
+    return Math.cos(toNumber(arg0 ?? 0));
+};
+const atan2: BuiltinFn = (args) => {
+    const arg0 = args[0];
+    const arg1 = args[1];
+    return Math.atan2(toNumber(arg0 ?? 0), toNumber(arg1 ?? 0));
+};
+const exp: BuiltinFn = (args) => {
+    const arg0 = args[0];
+    return Math.exp(toNumber(arg0 ?? 0));
+};
+const log: BuiltinFn = (args) => {
+    const arg0 = args[0];
+    return Math.log(toNumber(arg0 ?? 0));
+};
+const sqrt: BuiltinFn = (args) => {
+    const arg0 = args[0];
+    return Math.sqrt(toNumber(arg0 ?? 0));
+};
+const int: BuiltinFn = (args) => {
+    const arg0 = args[0];
+    return Math.trunc(toNumber(arg0 ?? 0));
+};
 
 const rand: BuiltinFn = () => lcg();
 
 const srand: BuiltinFn = (args) => {
     const oldSeed = randSeed;
-    randSeed = args.length > 0 ? toNumber(args[0]) : Date.now();
+    const arg0 = args[0];
+    randSeed = arg0 !== undefined ? toNumber(arg0) : Date.now();
     return oldSeed;
 };
 
@@ -249,26 +306,35 @@ export function formatPrintf(format: string, args: AwkValue[]): string {
         let precision = '';
 
         // Flags: -, +, space, #, 0
-        while ('-+ #0'.includes(format[i])) {
-            flags += format[i++];
+        while (i < format.length && '-+ #0'.includes(format[i] ?? '')) {
+            const char = format[i];
+            if (char === undefined) break;
+            flags += char;
+            i++;
         }
 
         // Width
-        while (format[i] >= '0' && format[i] <= '9') {
-            width += format[i++];
+        while (i < format.length) {
+            const char = format[i];
+            if (char === undefined || char < '0' || char > '9') break;
+            width += char;
+            i++;
         }
 
         // Precision
         if (format[i] === '.') {
             i++;
-            while (format[i] >= '0' && format[i] <= '9') {
-                precision += format[i++];
+            while (i < format.length) {
+                const char = format[i];
+                if (char === undefined || char < '0' || char > '9') break;
+                precision += char;
+                i++;
             }
         }
 
         // Specifier
-        const spec = format[i++];
-        const arg = argIdx < args.length ? args[argIdx++] : '';
+        const spec = format[i++] ?? '';
+        const arg = argIdx < args.length ? (args[argIdx++] ?? '') : '';
 
         result += formatValue(arg, spec, flags, width, precision);
     }
@@ -371,7 +437,7 @@ function formatValue(
 
         case 'c': {
             const s = toString(arg);
-            result = s.length > 0 ? s[0] : '';
+            result = s.length > 0 ? (s[0] ?? '') : '';
             break;
         }
 

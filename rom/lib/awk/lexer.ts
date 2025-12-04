@@ -454,6 +454,9 @@ export class Lexer {
 
     private advance(): string {
         const c = this.source[this.pos++];
+        if (c === undefined) {
+            return '\0';
+        }
         if (c === '\n') {
             this.line++;
             this.column = 1;
@@ -473,12 +476,12 @@ export class Lexer {
 
     private peek(): string {
         if (this.isAtEnd()) return '\0';
-        return this.source[this.pos];
+        return this.source[this.pos] ?? '\0';
     }
 
     private peekNext(): string {
         if (this.pos + 1 >= this.source.length) return '\0';
-        return this.source[this.pos + 1];
+        return this.source[this.pos + 1] ?? '\0';
     }
 
     private isAtEnd(): boolean {

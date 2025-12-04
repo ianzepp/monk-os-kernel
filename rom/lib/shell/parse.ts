@@ -294,8 +294,11 @@ export function parseCommand(input: string): ParsedCommand | null {
     const tokens = tokenize(trimmed);
     if (tokens === null || tokens.length === 0) return null;
 
+    const firstToken = tokens[0];
+    if (firstToken === undefined) return null;
+
     const result: ParsedCommand = {
-        command: tokens[0],
+        command: firstToken,
         args: [],
         background,
     };
@@ -303,13 +306,29 @@ export function parseCommand(input: string): ParsedCommand | null {
     let i = 1;
     while (i < tokens.length) {
         const token = tokens[i];
+        if (token === undefined) {
+            i++;
+            continue;
+        }
 
-        if (token === '<' && tokens[i + 1]) {
-            result.inputRedirect = tokens[++i];
-        } else if (token === '>' && tokens[i + 1]) {
-            result.outputRedirect = tokens[++i];
-        } else if (token === '>>' && tokens[i + 1]) {
-            result.appendRedirect = tokens[++i];
+        if (token === '<') {
+            const nextToken = tokens[i + 1];
+            if (nextToken !== undefined) {
+                result.inputRedirect = nextToken;
+                i++;
+            }
+        } else if (token === '>') {
+            const nextToken = tokens[i + 1];
+            if (nextToken !== undefined) {
+                result.outputRedirect = nextToken;
+                i++;
+            }
+        } else if (token === '>>') {
+            const nextToken = tokens[i + 1];
+            if (nextToken !== undefined) {
+                result.appendRedirect = nextToken;
+                i++;
+            }
         } else if (token.startsWith('<')) {
             result.inputRedirect = token.slice(1);
         } else if (token.startsWith('>>')) {

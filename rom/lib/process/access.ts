@@ -2,7 +2,7 @@
  * Access control operations for VFS scripts.
  */
 
-import { ACL } from './types';
+import type { ACL } from './types';
 import { call } from './syscall';
 
 export function access(path: string): Promise<ACL>;

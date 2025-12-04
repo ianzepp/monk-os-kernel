@@ -58,8 +58,15 @@ async function main(): Promise<void> {
     let i = 0;
     while (i < argv.length) {
         const arg = argv[i];
+        if (!arg) {
+            i++;
+            continue;
+        }
         if (arg === '-c' && i + 1 < argv.length) {
-            format = argv[i + 1];
+            const nextArg = argv[i + 1];
+            if (nextArg) {
+                format = nextArg;
+            }
             i += 2;
         } else if (arg === '-t') {
             terse = true;
@@ -125,7 +132,7 @@ function getFileType(model: string): string {
     }
 }
 
-function applyFormat(format: string, entry: Stat, path: string): string {
+function applyFormat(format: string, entry: Stat, _path: string): string {
     const mtime = formatTime(entry.mtime);
     const ctime = formatTime(entry.ctime);
 
@@ -146,7 +153,7 @@ function applyFormat(format: string, entry: Stat, path: string): string {
     return result;
 }
 
-function formatDefault(entry: Stat, path: string): string[] {
+function formatDefault(entry: Stat, _path: string): string[] {
     const lines: string[] = [];
     const mtime = formatTime(entry.mtime);
     const ctime = formatTime(entry.ctime);
