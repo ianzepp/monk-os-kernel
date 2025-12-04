@@ -771,3 +771,12 @@ if (!isValidOption(parsed)) {
 - [ ] Type-only imports use `import type`
 - [ ] No unused variables or parameters
 - [ ] Exhaustive switch statements for unions
+
+### Verification (required)
+- [ ] Run typecheck on your specific file(s) and fix any errors:
+  ```bash
+  bun x tsc --noEmit rom/bin/yourfile.ts
+  # or for libraries:
+  bun x tsc --noEmit rom/lib/yourfile.ts
+  ```
+- [ ] Report typecheck results (pass/fail, errors fixed)

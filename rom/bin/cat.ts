@@ -1,80 +1,377 @@
 /**
  * cat - Concatenate and display files
  *
- * Usage: cat [file...]
+ * SYNOPSIS
+ * ========
+ * cat [OPTIONS] [FILE]...
  *
- * If no files specified, reads from stdin (fd 0).
- * Writes file contents to stdout (fd 1).
+ * DESCRIPTION
+ * ===========
+ * The cat utility reads files sequentially, writing their contents to standard output.
+ * If no files are specified, cat reads from standard input. The name derives from its
+ * function to concatenate files.
+ *
+ * This implementation follows traditional Unix cat behavior: it reads files in order,
+ * outputs their contents line-by-line, and continues processing even if individual
+ * files fail to open. When reading from stdin, cat passes through messages unchanged,
+ * making it suitable for pipeline composition.
+ *
+ * Unlike some modern implementations, this version focuses on the core concatenation
+ * functionality without flags like -n (number lines) or -v (show non-printing chars).
+ *
+ * POSIX/GNU COMPATIBILITY
+ * =======================
+ * Base: POSIX.1-2017 cat
+ * Supported flags: (none - basic mode only)
+ * Unsupported flags: -n, -b, -v, -e, -t, -s (simplicity by design)
+ * Extensions: Message-based stdin (Monk OS specific)
+ *
+ * EXIT CODES
+ * ==========
+ * 0 - Success (all files read successfully)
+ * 1 - General error (one or more files failed to read)
+ * 2 - Usage error (invalid arguments)
+ *
+ * MESSAGE BEHAVIOR
+ * ================
+ * stdin:  consumed - when no files specified, passes through all messages unchanged
+ * stdout: sends item({ text }) messages - one per line from files
+ *         OR forwards stdin messages unchanged in passthrough mode
+ * stderr: item({ text }) - error messages in "cat: filename: message" format
+ *
+ * EDGE CASES
+ * ==========
+ * - Empty input: Produces no output (matches GNU behavior)
+ * - Missing files: Prints error to stderr, continues with remaining files
+ * - Binary data: Decoded as UTF-8, may produce replacement characters
+ * - No trailing newline: Output preserves exact file contents
+ * - Stdin passthrough: Forwards messages without modification
+ *
+ * @module rom/bin/cat
  */
 
+// =============================================================================
+// IMPORTS
+// =============================================================================
+
+// Monk OS syscalls and types
 import {
-    getargs,
-    getcwd,
+    recv,
+    send,
     open,
     read,
     close,
-    recv,
-    send,
+    getcwd,
     println,
     eprintln,
     exit,
 } from '@rom/lib/process';
+
+// Local utilities
 import { resolvePath } from '@rom/lib/shell';
 
-async function main(): Promise<void> {
-    const args = await getargs();
-    const files = args.slice(1); // Skip argv[0]
+// =============================================================================
+// CONSTANTS
+// =============================================================================
 
-    // No files: pass through stdin messages
-    if (files.length === 0) {
-        for await (const msg of recv(0)) {
-            await send(1, msg);
-        }
-        await exit(0);
-    }
+/**
+ * Exit code for successful execution.
+ * POSIX: Standard success code.
+ */
+const EXIT_SUCCESS = 0;
 
-    const cwd = await getcwd();
-    let exitCode = 0;
+/**
+ * Exit code for general errors.
+ * POSIX: Catchall for general errors.
+ */
+const EXIT_FAILURE = 1;
 
-    for (const file of files) {
-        const path = resolvePath(cwd, file);
+/**
+ * Exit code for usage/syntax errors.
+ * GNU: Standard for invalid arguments.
+ */
+const EXIT_USAGE = 2;
 
-        try {
-            const fd = await open(path, { read: true });
-            try {
-                // Files are byte-based, convert to lines for output
-                const decoder = new TextDecoder();
-                let buffer = '';
+// =============================================================================
+// HELP TEXT
+// =============================================================================
 
-                for await (const chunk of read(fd)) {
-                    buffer += decoder.decode(chunk, { stream: true });
-                    const lines = buffer.split('\n');
-                    buffer = lines.pop()!;
+/**
+ * Usage text displayed with --help or on usage error.
+ *
+ * FORMAT: Follows GNU conventions:
+ * - First line: Usage: command [OPTIONS] ARGS
+ * - Blank line
+ * - Description paragraph
+ * - Blank line
+ * - Options list (aligned)
+ */
+const HELP_TEXT = `
+Usage: cat [OPTIONS] [FILE]...
 
-                    for (const line of lines) {
-                        await println(line);
-                    }
-                }
+Concatenate FILE(s) to standard output.
+With no FILE, or when FILE is -, read standard input.
 
-                // Flush remaining buffer
-                buffer += decoder.decode();
-                if (buffer) {
-                    await println(buffer);
-                }
-            } finally {
-                await close(fd);
-            }
-        } catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            await eprintln(`cat: ${file}: ${msg}`);
-            exitCode = 1;
-        }
-    }
+Options:
+  -h, --help     Display this help and exit
 
-    await exit(exitCode);
+Examples:
+  cat file.txt              Display contents of file.txt
+  cat file1.txt file2.txt   Display both files in order
+  echo "hello" | cat        Pass through stdin
+  cat                       Read from stdin until EOF
+`.trim();
+
+// =============================================================================
+// TYPES
+// =============================================================================
+
+/**
+ * Parsed command-line options.
+ *
+ * DESIGN: Each flag maps to a clear, typed field.
+ * Boolean flags use true/false, not presence/absence.
+ */
+interface Options {
+    /** Show help and exit */
+    help: boolean;
+    /** Input files (positional arguments) */
+    files: string[];
 }
 
-main().catch(async (err) => {
-    await eprintln(`cat: ${err.message}`);
-    await exit(1);
-});
+/**
+ * Default options when no flags provided.
+ */
+const DEFAULT_OPTIONS: Options = {
+    help: false,
+    files: [],
+};
+
+// =============================================================================
+// ARGUMENT PARSING
+// =============================================================================
+
+/**
+ * Parse command-line arguments.
+ *
+ * GNU CONVENTIONS:
+ * - Single dash + letter: -h
+ * - Double dash + word: --help
+ * - "--" ends flag parsing (remaining args are positional)
+ * - "-" as argument means stdin (not a flag)
+ *
+ * @param args - Command-line arguments (excluding argv[0])
+ * @returns Parsed options
+ */
+function parseOptions(args: string[]): Options {
+    const opts: Options = { ...DEFAULT_OPTIONS };
+    let i = 0;
+
+    while (i < args.length) {
+        const arg = args[i];
+
+        if (arg === undefined) {
+            break;
+        }
+
+        // "--" ends option parsing
+        if (arg === '--') {
+            opts.files.push(...args.slice(i + 1));
+            break;
+        }
+
+        // "-" is stdin, not a flag
+        if (arg === '-') {
+            opts.files.push('-');
+            i++;
+            continue;
+        }
+
+        // Long options
+        if (arg === '--help') {
+            opts.help = true;
+            i++;
+            continue;
+        }
+
+        // Short options
+        if (arg.startsWith('-') && arg.length > 1) {
+            // Handle combined short flags: -h
+            for (let j = 1; j < arg.length; j++) {
+                const flag = arg[j];
+                if (flag === 'h') {
+                    opts.help = true;
+                } else {
+                    throw new Error(`unknown option: -${flag}`);
+                }
+            }
+            i++;
+            continue;
+        }
+
+        // Positional argument (file path)
+        opts.files.push(arg);
+        i++;
+    }
+
+    return opts;
+}
+
+// =============================================================================
+// FILE PROCESSING
+// =============================================================================
+
+/**
+ * Read a file and output its contents line-by-line.
+ *
+ * ALGORITHM:
+ * 1. Open file descriptor for reading
+ * 2. Read chunks of bytes using async iterator
+ * 3. Decode bytes to text, buffering incomplete characters
+ * 4. Split on newlines and output complete lines
+ * 5. Flush any remaining buffer at end
+ *
+ * GNU COMPATIBILITY: Preserves exact file contents including final newline
+ * (or lack thereof). Does not add or remove line endings.
+ *
+ * @param path - Absolute path to file
+ * @throws Error if file cannot be opened or read
+ */
+async function catFile(path: string): Promise<void> {
+    const fd = await open(path, { read: true });
+
+    try {
+        // POSIX: Decode bytes as UTF-8
+        const decoder = new TextDecoder('utf-8', { fatal: false });
+        let buffer = '';
+
+        for await (const chunk of read(fd)) {
+            // Stream decode: preserve incomplete multi-byte chars
+            buffer += decoder.decode(chunk, { stream: true });
+
+            // Split on newlines and output complete lines
+            const lines = buffer.split('\n');
+
+            // EDGE: Keep last element (possibly empty) as buffer
+            const remaining = lines.pop();
+            buffer = remaining !== undefined ? remaining : '';
+
+            for (const line of lines) {
+                await println(line);
+            }
+        }
+
+        // Flush decoder and remaining buffer
+        buffer += decoder.decode();
+        if (buffer.length > 0) {
+            await println(buffer);
+        }
+    } finally {
+        // POSIX: Always close file descriptor
+        await close(fd);
+    }
+}
+
+/**
+ * Pass through stdin messages unchanged.
+ *
+ * MONK OS BEHAVIOR: When no files specified, cat acts as a message passthrough.
+ * This makes it useful in pipelines for debugging or explicit pass-through.
+ *
+ * MESSAGE PROTOCOL:
+ * - Read Response messages from stdin (fd 0) via recv()
+ * - Forward each message to stdout (fd 1) via send()
+ * - Loop terminates when 'done' message received
+ */
+async function passthroughStdin(): Promise<void> {
+    for await (const msg of recv(0)) {
+        await send(1, msg);
+    }
+}
+
+// =============================================================================
+// MAIN
+// =============================================================================
+
+/**
+ * Entry point for the cat command.
+ *
+ * ALGORITHM:
+ * 1. Parse command-line arguments
+ * 2. Display help if requested
+ * 3. If no files: passthrough stdin messages
+ * 4. Otherwise: process each file in order
+ * 5. Exit with appropriate code
+ *
+ * ERROR HANDLING:
+ * - Usage errors: Print to stderr, exit 2
+ * - File errors: Print to stderr, continue with remaining files, exit 1
+ * - Success: Exit 0
+ *
+ * GNU BEHAVIOR: Process all files even if some fail. Exit code reflects
+ * whether ANY file failed, not just the last one.
+ *
+ * @param args - Command-line arguments (excluding argv[0])
+ */
+export default async function main(args: string[]): Promise<void> {
+    // -------------------------------------------------------------------------
+    // Argument Parsing
+    // -------------------------------------------------------------------------
+    let opts: Options;
+    try {
+        opts = parseOptions(args);
+    } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        await eprintln(`cat: ${msg}`);
+        await eprintln(`Try 'cat --help' for more information.`);
+        return exit(EXIT_USAGE);
+    }
+
+    // -------------------------------------------------------------------------
+    // Help Display
+    // -------------------------------------------------------------------------
+    if (opts.help) {
+        await println(HELP_TEXT);
+        return exit(EXIT_SUCCESS);
+    }
+
+    // -------------------------------------------------------------------------
+    // Stdin Passthrough Mode
+    // -------------------------------------------------------------------------
+    // POSIX: No files means read from stdin
+    if (opts.files.length === 0) {
+        await passthroughStdin();
+        return exit(EXIT_SUCCESS);
+    }
+
+    // -------------------------------------------------------------------------
+    // File Processing Mode
+    // -------------------------------------------------------------------------
+    const cwd = await getcwd();
+    let hadError = false;
+
+    for (const file of opts.files) {
+        // POSIX: "-" means read from stdin
+        if (file === '-') {
+            await passthroughStdin();
+            continue;
+        }
+
+        try {
+            // Resolve relative paths against cwd
+            const path = resolvePath(cwd, file);
+            await catFile(path);
+        } catch (err) {
+            // GNU: Format errors as "cat: filename: message"
+            const msg = err instanceof Error ? err.message : String(err);
+            await eprintln(`cat: ${file}: ${msg}`);
+            hadError = true;
+            // GNU: Continue processing remaining files
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Exit
+    // -------------------------------------------------------------------------
+    return exit(hadError ? EXIT_FAILURE : EXIT_SUCCESS);
+}
