@@ -19,7 +19,7 @@ export interface PollOptions {
  * @example
  * // Wait for process to exit
  * const exited = await poll(() => proc.state === 'zombie');
- * if (!exited) throw new Error('Timeout');
+ * if (!exited) throw new ETIMEDOUT('Process did not exit');
  *
  * @example
  * // Custom interval and timeout

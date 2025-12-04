@@ -18,13 +18,13 @@
  * const model = await cache.get('file');
  *
  * if (model.isFrozen) {
- *     throw new Error('Cannot modify frozen model');
+ *     throw new EROFS('Cannot modify frozen model');
  * }
  *
  * const requiredFields = model.getRequiredFields();
  * for (const fieldName of requiredFields) {
  *     if (!data[fieldName]) {
- *         throw new Error(`Missing required field: ${fieldName}`);
+ *         throw new EINVAL(`Missing required field: ${fieldName}`);
  *     }
  * }
  * ```
