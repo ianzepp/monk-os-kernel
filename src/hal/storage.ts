@@ -57,3 +57,4 @@ export type { StorageStat, WatchEvent, Transaction, StorageEngine } from './stor
 
 export { BunStorageEngine } from './storage/sqlite.js';
 export { MemoryStorageEngine } from './storage/memory.js';
+export { PostgresStorageEngine } from './storage/postgres.js';

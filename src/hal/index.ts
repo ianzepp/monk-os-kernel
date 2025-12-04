@@ -105,7 +105,7 @@
 // WHY: Import all Bun device implementations for BunHAL construction.
 // These are the production implementations that wrap Bun primitives.
 import { BunBlockDevice, MemoryBlockDevice } from './block.js';
-import { BunStorageEngine, MemoryStorageEngine } from './storage.js';
+import { BunStorageEngine, MemoryStorageEngine, PostgresStorageEngine } from './storage.js';
 import { BunNetworkDevice } from './network.js';
 import { BunTimerDevice } from './timer.js';
 import { BunClockDevice } from './clock.js';
@@ -118,7 +118,7 @@ import { BunIPCDevice } from './ipc.js';
 import { BunChannelDevice } from './channel.js';
 import { BunCompressionDevice } from './compression.js';
 import { BunFileDevice } from './file.js';
-import { ENOSYS, EIO } from './errors.js';
+import { EIO } from './errors.js';
 
 // =============================================================================
 // ERROR TYPES (RE-EXPORTS)
@@ -216,7 +216,7 @@ export type { FileDevice, FileStat } from './file.js';
 // WHY: Export all device implementations (Bun and test variants) for direct use.
 // Allows constructing devices individually or swapping implementations.
 export { BunBlockDevice, MemoryBlockDevice } from './block.js';
-export { BunStorageEngine, MemoryStorageEngine } from './storage.js';
+export { BunStorageEngine, MemoryStorageEngine, PostgresStorageEngine } from './storage.js';
 export { BunNetworkDevice } from './network.js';
 export { BunTimerDevice, MockTimerDevice } from './timer.js';
 export { BunClockDevice, MockClockDevice } from './clock.js';
@@ -475,9 +475,10 @@ export class BunHAL implements HAL {
                 this.storage = new BunStorageEngine(storageConfig.path);
                 break;
             case 'postgres':
-                // TODO: PostgresStorageEngine not yet implemented
-                // WHY: PostgreSQL would enable distributed VFS with multiple Monk nodes
-                throw new ENOSYS('PostgreSQL storage not yet implemented');
+                // WHY: PostgreSQL enables distributed VFS with multiple Monk nodes
+                // NOTE: pg.init() is called in init() method to handle async schema setup
+                this.storage = new PostgresStorageEngine(storageConfig.url);
+                break;
             default:
                 this.storage = new MemoryStorageEngine();
         }
@@ -518,8 +519,11 @@ export class BunHAL implements HAL {
     async init(): Promise<void> {
         if (this.initialized) return;
         this.initialized = true;
-        // WHY: Reserved for future async initialization (e.g., database connections)
-        // Currently all devices initialize synchronously in constructor
+        // WHY: PostgresStorageEngine requires async schema initialization
+        // SQLite and Memory engines initialize synchronously in constructor
+        if (this.storage instanceof PostgresStorageEngine) {
+            await this.storage.init();
+        }
     }
 
     /**
