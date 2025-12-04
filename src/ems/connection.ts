@@ -314,6 +314,57 @@ export class DatabaseConnection {
     }
 
     // =========================================================================
+    // TRANSACTION OPERATIONS
+    // =========================================================================
+
+    /**
+     * Execute multiple statements in a single atomic transaction.
+     *
+     * WHY: Enables atomic multi-statement operations. All statements succeed
+     * or all are rolled back. Solves parallel write conflicts by making the
+     * entire transaction a single message to the channel.
+     *
+     * ALGORITHM:
+     * 1. Send transaction message to channel with all statements
+     * 2. Channel executes within BEGIN/COMMIT (or equivalent)
+     * 3. Wait for 'ok' response with per-statement results
+     * 4. Throw on 'error' response (transaction already rolled back)
+     *
+     * CONCURRENCY:
+     * Each transaction() call sends a single message. The channel handles
+     * atomicity using Bun's sql.begin() (PostgreSQL) or db.transaction()
+     * (SQLite). Parallel calls are safe - they serialize at the channel level.
+     *
+     * @param statements - Array of SQL statements with optional params
+     * @returns Promise resolving to array of affected row counts (one per statement)
+     * @throws EIO on transaction failure (already rolled back by channel)
+     */
+    async transaction(
+        statements: Array<{ sql: string; params?: unknown[] }>
+    ): Promise<number[]> {
+        for await (const response of this.channel.handle({
+            op: 'transaction',
+            data: { statements },
+        })) {
+            switch (response.op) {
+                case 'ok': {
+                    const data = response.data as { results: number[] };
+                    return data.results;
+                }
+                case 'error': {
+                    const err = response.data as { code: string; message: string };
+                    throw new EIO(`Transaction failed [${err.code}]: ${err.message}`);
+                }
+                default:
+                    // SAFETY: Ignore unexpected response types
+                    break;
+            }
+        }
+
+        throw new EIO('Transaction returned no response');
+    }
+
+    // =========================================================================
     // LIFECYCLE
     // =========================================================================
 

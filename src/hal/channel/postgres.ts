@@ -56,7 +56,7 @@
 import { randomUUID } from 'crypto';
 import type { Message, Response } from '@src/message.js';
 import { respond } from '@src/message.js';
-import type { Channel, ChannelOpts, QueryData } from './types.js';
+import type { Channel, ChannelOpts, QueryData, TransactionData } from './types.js';
 
 // =============================================================================
 // MAIN CLASS
@@ -232,6 +232,32 @@ export class BunPostgresChannel implements Channel {
                     // WHY: result.count is Bun.SQL's property for affected rows.
                     // Equivalent to PG's cmdStatus rows count.
                     yield respond.ok({ affectedRows: result.count });
+                    break;
+                }
+
+                case 'transaction': {
+                    // WHY: Transaction operation for atomic multi-statement execution.
+                    // All statements succeed or all are rolled back. Uses Bun.SQL's
+                    // sql.begin() API which provides a scoped transaction connection.
+                    //
+                    // CONCURRENCY: sql.begin() reserves a connection for the transaction.
+                    // The callback receives a scoped `tx` object. BEGIN is sent automatically,
+                    // COMMIT on success, ROLLBACK on any error. Multiple parallel transaction
+                    // messages each get their own connection from the pool.
+                    const { statements } = msg.data as TransactionData;
+                    const results: number[] = [];
+
+                    // WHY: sql.begin() takes an async callback with a scoped transaction.
+                    // All queries within the callback use the same connection and transaction.
+                    // Any exception triggers automatic ROLLBACK.
+                    await this.sql.begin(async (tx) => {
+                        for (const stmt of statements) {
+                            const result = await tx.unsafe(stmt.sql, stmt.params ?? []);
+                            results.push(result.count);
+                        }
+                    });
+
+                    yield respond.ok({ results });
                     break;
                 }
 

@@ -56,7 +56,7 @@
 import { randomUUID } from 'crypto';
 import type { Message, Response } from '@src/message.js';
 import { respond } from '@src/message.js';
-import type { Channel, ChannelOpts, QueryData } from './types.js';
+import type { Channel, ChannelOpts, QueryData, TransactionData } from './types.js';
 
 // =============================================================================
 // MAIN CLASS
@@ -279,6 +279,34 @@ export class BunSqliteChannel implements Channel {
                     this.db.exec(sql);
 
                     yield respond.ok({});
+                    break;
+                }
+
+                case 'transaction': {
+                    // WHY: Transaction operation for atomic multi-statement execution.
+                    // All statements succeed or all are rolled back. Uses bun:sqlite's
+                    // db.transaction() API which wraps callback in BEGIN/COMMIT.
+                    //
+                    // CONCURRENCY: db.transaction() is synchronous and atomic - no event
+                    // loop yields between BEGIN and COMMIT. Parallel transaction messages
+                    // serialize naturally because JavaScript is single-threaded and there
+                    // are no await points within the transaction callback.
+                    const { statements } = msg.data as TransactionData;
+                    const results: number[] = [];
+
+                    // WHY: db.transaction() returns a function that must be called.
+                    // The callback executes within BEGIN/COMMIT automatically.
+                    // Any exception triggers ROLLBACK before propagating.
+                    this.db.transaction(() => {
+                        for (const stmt of statements) {
+                            const prepared = this.db.prepare(stmt.sql);
+                            const bindings = (stmt.params ?? []) as import('bun:sqlite').SQLQueryBindings[];
+                            const result = prepared.run(...bindings);
+                            results.push(result.changes);
+                        }
+                    })();
+
+                    yield respond.ok({ results });
                     break;
                 }
 

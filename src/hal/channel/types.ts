@@ -503,3 +503,61 @@ export interface QueryData {
      */
     params?: unknown[];
 }
+
+/**
+ * Single statement within a transaction.
+ *
+ * WHY: Transactions contain multiple statements that must execute atomically.
+ * Each statement has its own SQL and parameters.
+ */
+export interface TransactionStatement {
+    /**
+     * SQL statement string.
+     *
+     * WHY: Same format as QueryData.sql - uses ? placeholders.
+     */
+    sql: string;
+
+    /**
+     * Statement parameters (positional).
+     *
+     * WHY: Same format as QueryData.params - positional for portability.
+     */
+    params?: unknown[];
+}
+
+/**
+ * Transaction data for atomic multi-statement execution.
+ *
+ * WHY: Enables atomic execution of multiple SQL statements. All statements
+ * succeed or all are rolled back. Solves parallel write conflicts by making
+ * the transaction a single message to the channel.
+ *
+ * DESIGN: Array of statements executed in order within BEGIN/COMMIT.
+ * Channel handles transaction semantics using Bun's sql.begin() API.
+ */
+export interface TransactionData {
+    /**
+     * Statements to execute atomically.
+     *
+     * WHY: Order matters - statements execute sequentially within transaction.
+     * All must succeed for commit; any failure triggers rollback.
+     */
+    statements: TransactionStatement[];
+}
+
+/**
+ * Transaction result with per-statement affected row counts.
+ *
+ * WHY: Callers may need to know how many rows each statement affected.
+ * Returns array parallel to input statements array.
+ */
+export interface TransactionResult {
+    /**
+     * Affected row counts per statement.
+     *
+     * WHY: One count per statement in same order as input.
+     * SELECT statements return 0 (use query op for SELECTs).
+     */
+    results: number[];
+}

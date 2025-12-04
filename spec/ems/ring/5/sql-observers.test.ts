@@ -49,6 +49,19 @@ function createMockDatabase(): DatabaseAdapter & { calls: SqlCall[]; shouldFail:
         async exec(_sql: string): Promise<void> {
             // no-op
         },
+        async transaction(
+            statements: Array<{ sql: string; params?: unknown[] }>
+        ): Promise<number[]> {
+            if (this.shouldFail) {
+                throw new Error('Database error: SQLITE_CONSTRAINT');
+            }
+            const results: number[] = [];
+            for (const stmt of statements) {
+                calls.push({ sql: stmt.sql, params: stmt.params });
+                results.push(1);
+            }
+            return results;
+        },
     };
 }
 
@@ -226,7 +239,7 @@ describe('SqlCreate', () => {
     });
 
     describe('execution (entity models)', () => {
-        // Entity models use transaction: BEGIN, INSERT entities, INSERT detail, COMMIT
+        // Entity models use transaction() with two statements: entities INSERT, detail INSERT
 
         it('should execute transaction for entity models', async () => {
             const record = createMockRecord({}, {
@@ -239,12 +252,11 @@ describe('SqlCreate', () => {
 
             await observer.execute(ctx);
 
-            // Should have 4 calls: BEGIN, INSERT entities, INSERT detail, COMMIT
-            expect(mockDb.calls.length).toBe(4);
-            expect(mockDb.calls[0]!.sql).toBe('BEGIN IMMEDIATE');
-            expect(mockDb.calls[1]!.sql).toContain('INSERT INTO entities');
-            expect(mockDb.calls[2]!.sql).toContain('INSERT INTO file');
-            expect(mockDb.calls[3]!.sql).toBe('COMMIT');
+            // Should have 2 statements: INSERT entities, INSERT detail
+            // (transaction handles BEGIN/COMMIT internally)
+            expect(mockDb.calls.length).toBe(2);
+            expect(mockDb.calls[0]!.sql).toContain('INSERT INTO entities');
+            expect(mockDb.calls[1]!.sql).toContain('INSERT INTO file');
         });
 
         it('should insert entity with model, parent, pathname', async () => {
@@ -258,8 +270,8 @@ describe('SqlCreate', () => {
 
             await observer.execute(ctx);
 
-            // Check entities INSERT (second call)
-            const entityCall = mockDb.calls[1]!;
+            // Check entities INSERT (first call)
+            const entityCall = mockDb.calls[0]!;
             expect(entityCall.sql).toContain('INSERT INTO entities');
             expect(entityCall.params).toContain('abc123');      // id
             expect(entityCall.params).toContain('file');        // model
@@ -279,8 +291,8 @@ describe('SqlCreate', () => {
 
             await observer.execute(ctx);
 
-            // Check detail INSERT (third call)
-            const detailCall = mockDb.calls[2]!;
+            // Check detail INSERT (second call)
+            const detailCall = mockDb.calls[1]!;
             expect(detailCall.sql).toContain('INSERT INTO file');
             expect(detailCall.params).toContain('abc123');  // id
             expect(detailCall.params).toContain('user1');   // owner
@@ -594,7 +606,7 @@ describe('Ring 5 is required for persistence', () => {
         const entityOps = new EntityOps(db, cache, emptyRunner);
 
         // Attempt to create a record - pipeline runs but no SQL executes
-        // Since no INSERT happened, the re-read finds nothing
+        // createAll yields the record (no re-read), but database is empty
         const results = await collect(
             entityOps.createAll('file', [
                 {
@@ -604,10 +616,10 @@ describe('Ring 5 is required for persistence', () => {
             ])
         );
 
-        // The result array should be empty since no SQL was executed
-        expect(results.length).toBe(0);
+        // Record is yielded (createAll doesn't know INSERT failed)
+        expect(results.length).toBe(1);
 
-        // Double-check: verify ghost file is NOT in database (check entities table)
+        // But verify ghost file is NOT in database (check entities table)
         const rows = await db.query('SELECT * FROM entities WHERE pathname = ?', ['ghost-file.txt']);
         expect(rows.length).toBe(0);
 

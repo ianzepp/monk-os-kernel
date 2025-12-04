@@ -450,15 +450,15 @@ describe('EntityOps', () => {
             const emptyRunner = new ObserverRunner();
             const emptyOps = new EntityOps(db, cache, emptyRunner);
 
-            // Create should run but not persist (no SQL executed)
+            // Create yields record but doesn't persist (no SQL executed)
             const results = await collect(
                 emptyOps.createAll('file', [{ pathname: 'ghost.txt', owner: 'ghost' }])
             );
 
-            // No records returned because re-read finds nothing
-            expect(results).toHaveLength(0);
+            // Record is yielded (createAll doesn't know INSERT was skipped)
+            expect(results).toHaveLength(1);
 
-            // Verify not in database
+            // But verify not in database
             const rows = await db.query(
                 'SELECT id FROM entities WHERE pathname = ?',
                 ['ghost.txt']

@@ -195,15 +195,11 @@ export class EntityOps {
                 await this.system.runner.run(context);
             }
 
-            // Yield created record (re-read to get final state)
-            const id = record.get('id') as string;
-            for await (const created of this.selectAny<T>(
-                modelName,
-                { where: { id }, limit: 1 },
-                { trashed: 'include' }
-            )) {
-                yield created;
-            }
+            // Add model field (stored in entities table, needed in output)
+            record.set('model', modelName);
+
+            // Yield created record directly (no re-read needed)
+            yield record.toRecord() as T;
         }
     }
 

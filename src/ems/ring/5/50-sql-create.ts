@@ -32,9 +32,12 @@
  *
  * CONCURRENCY MODEL
  * =================
- * Each record is inserted independently. SQLite serializes writes internally
- * (WAL mode allows concurrent reads). No cross-record transaction boundaries
- * are enforced at this level - each INSERT is atomic unto itself.
+ * Entity creates use db.transaction() which sends a single atomic message to
+ * the HAL channel. The channel executes all statements within BEGIN/COMMIT
+ * using Bun's sql.begin() (PostgreSQL) or db.transaction() (SQLite).
+ *
+ * Parallel creates are safe - each transaction is a single message, and the
+ * channel serializes them internally. No "nested transaction" errors.
  *
  * RACE CONDITION MITIGATIONS
  * ==========================
@@ -106,19 +109,17 @@ export class SqlCreate extends BaseObserver {
      *
      * ALGORITHM:
      * For entity models (file, folder, device, proc, link, temp):
-     * 1. Begin transaction
-     * 2. INSERT into entities table (id, model, parent, pathname)
-     * 3. INSERT into detail table (id, model-specific fields)
-     * 4. Commit transaction
+     * 1. Build INSERT statement for entities table
+     * 2. Build INSERT statement for detail table
+     * 3. Execute both in single atomic transaction via db.transaction()
      *
      * For meta-models (models, fields, tracked):
-     * 1. INSERT directly into that table (no entities row)
+     * 1. INSERT directly into that table (no entities row, no transaction needed)
      *
-     * RACE CONDITION NOTE:
-     * If two concurrent creates race with the same id (unlikely with UUID
-     * generation but possible with user-provided ids), the database's unique
-     * constraint will reject one. We wrap this as EOBSSYS and let the
-     * stream-level error handling decide what to do.
+     * CONCURRENCY:
+     * The transaction is sent as a single message to the HAL channel. The channel
+     * handles atomicity using Bun's transaction APIs. Parallel creates don't
+     * conflict because each is a self-contained message.
      *
      * @param context - Observer context with model, record, and system services
      * @throws EOBSSYS on database execution failure
@@ -130,28 +131,19 @@ export class SqlCreate extends BaseObserver {
         const data = record.toRecord();
         const recordId = data.id ?? 'unknown';
 
-        // Meta-models don't use entities table
+        // Meta-models don't use entities table - single INSERT, no transaction needed
         if (META_MODELS.has(model.modelName)) {
             await this.insertDirect(system.db, model.modelName, data);
             return;
         }
 
-        // Entity models: insert into entities + detail table in transaction
+        // Entity models: atomic transaction for entities + detail table
+        // Uses single transaction message to avoid parallel write conflicts
         try {
-            await system.db.execute('BEGIN IMMEDIATE');
-
-            try {
-                // 1. Insert into entities table
-                await this.insertEntity(system.db, model.modelName, data);
-
-                // 2. Insert into detail table
-                await this.insertDetail(system.db, model.modelName, data);
-
-                await system.db.execute('COMMIT');
-            } catch (err) {
-                await system.db.execute('ROLLBACK');
-                throw err;
-            }
+            await system.db.transaction([
+                this.buildEntityInsert(model.modelName, data),
+                this.buildDetailInsert(model.modelName, data),
+            ]);
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             throw new EOBSSYS(
@@ -186,30 +178,34 @@ export class SqlCreate extends BaseObserver {
     }
 
     /**
-     * Insert into entities table (id, model, parent, pathname only).
+     * Build INSERT statement for entities table.
+     *
+     * @returns Statement object with sql and params for transaction
      */
-    private async insertEntity(
-        db: ObserverContext['system']['db'],
+    private buildEntityInsert(
         modelName: string,
         data: Record<string, unknown>
-    ): Promise<void> {
-        const sql = `INSERT INTO entities (id, model, parent, pathname) VALUES (?, ?, ?, ?)`;
-        await db.execute(sql, [
-            data.id,
-            modelName,
-            data.parent ?? null,
-            data.pathname ?? '',
-        ]);
+    ): { sql: string; params: unknown[] } {
+        return {
+            sql: 'INSERT INTO entities (id, model, parent, pathname) VALUES (?, ?, ?, ?)',
+            params: [
+                data.id,
+                modelName,
+                data.parent ?? null,
+                data.pathname ?? '',
+            ],
+        };
     }
 
     /**
-     * Insert into detail table (model-specific fields only).
+     * Build INSERT statement for detail table (model-specific fields only).
+     *
+     * @returns Statement object with sql and params for transaction
      */
-    private async insertDetail(
-        db: ObserverContext['system']['db'],
+    private buildDetailInsert(
         tableName: string,
         data: Record<string, unknown>
-    ): Promise<void> {
+    ): { sql: string; params: unknown[] } {
         // Filter out hierarchy fields (those go in entities table)
         const detailData: Record<string, unknown> = { id: data.id };
 
@@ -223,8 +219,10 @@ export class SqlCreate extends BaseObserver {
         const placeholders = columns.map(() => '?').join(', ');
         const values = columns.map((col) => detailData[col]);
 
-        const sql = `INSERT INTO ${tableName} (${columns.join(', ')}) VALUES (${placeholders})`;
-        await db.execute(sql, values);
+        return {
+            sql: `INSERT INTO ${tableName} (${columns.join(', ')}) VALUES (${placeholders})`,
+            params: values,
+        };
     }
 }
 
