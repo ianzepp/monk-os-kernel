@@ -280,22 +280,22 @@ export type SeekWhence = 'start' | 'current' | 'end';
  */
 export type PortType =
     | 'tcp:listen'
-    | 'udp'
-    | 'watch'
-    | 'pubsub'
-    | 'signal'
-    | 'process';
+    | 'udp:bind'
+    | 'fs:watch'
+    | 'pubsub:subscribe'
+    | 'signal:catch'
+    | 'proc:watch';
 
 /**
  * Port options by type
  */
 export interface PortOpts {
     'tcp:listen': { port: number; host?: string; backlog?: number };
-    'udp': { bind: number };
-    'watch': { pattern: string };
-    'pubsub': { subscribe: string[] };
-    'signal': { catch: ('TERM')[] };
-    'process': { watch: 'children' | 'all' };
+    'udp:bind': { port: number; host?: string };
+    'fs:watch': { pattern: string };
+    'pubsub:subscribe': { topics: string[] };
+    'signal:catch': { signals: ('TERM')[] };
+    'proc:watch': { scope: 'children' | 'all' };
 }
 
 /**

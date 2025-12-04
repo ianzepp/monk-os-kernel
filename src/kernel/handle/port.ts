@@ -357,9 +357,9 @@ export class PortHandleAdapter implements Handle {
      * Get port type.
      *
      * WHY: Type-based dispatch for kernel operations that handle different
-     * port types (tcp:listen vs fs:watch vs pubsub).
+     * port types (tcp:listen vs fs:watch vs pubsub:subscribe).
      *
-     * @returns Port type identifier (e.g., 'tcp:listen', 'fs:watch', 'pubsub')
+     * @returns Port type identifier (e.g., 'tcp:listen', 'fs:watch', 'pubsub:subscribe')
      */
     getPortType(): string {
         return this.port.type;

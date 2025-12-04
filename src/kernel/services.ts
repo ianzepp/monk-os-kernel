@@ -8,7 +8,7 @@
 /**
  * Service activation types
  */
-export type ActivationType = 'tcp:listen' | 'udp' | 'pubsub' | 'watch' | 'boot';
+export type ActivationType = 'tcp:listen' | 'udp:bind' | 'pubsub:subscribe' | 'fs:watch' | 'boot';
 
 /**
  * TCP listener activation
@@ -23,7 +23,7 @@ export interface TcpActivation {
  * UDP activation
  */
 export interface UdpActivation {
-    type: 'udp';
+    type: 'udp:bind';
     port: number;
     host?: string;
 }
@@ -32,7 +32,7 @@ export interface UdpActivation {
  * Pubsub activation
  */
 export interface PubsubActivation {
-    type: 'pubsub';
+    type: 'pubsub:subscribe';
     topic: string;
 }
 
@@ -40,7 +40,7 @@ export interface PubsubActivation {
  * Watch activation
  */
 export interface WatchActivation {
-    type: 'watch';
+    type: 'fs:watch';
     pattern: string;
 }
 
@@ -95,15 +95,15 @@ export interface NullIO {
  * Pubsub I/O source
  */
 export interface PubsubIO {
-    type: 'pubsub';
-    subscribe: string | string[];
+    type: 'pubsub:subscribe';
+    topics: string | string[];
 }
 
 /**
  * Watch I/O source
  */
 export interface WatchIO {
-    type: 'watch';
+    type: 'fs:watch';
     pattern: string;
 }
 
@@ -111,9 +111,9 @@ export interface WatchIO {
  * UDP I/O source
  */
 export interface UdpIO {
-    type: 'udp';
-    bind: number;
-    address?: string;
+    type: 'udp:bind';
+    port: number;
+    host?: string;
 }
 
 /**

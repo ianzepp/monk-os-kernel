@@ -35,7 +35,7 @@
  *
  * INVARIANTS (must always hold true)
  * ===================================
- * INV-1: type is always 'pubsub' for this port implementation
+ * INV-1: type is always 'pubsub:subscribe' for this port implementation
  * INV-2: Once _closed is true, it never becomes false again
  * INV-3: At most one of (messageQueue.length > 0) OR (waiters.length > 0) is true
  * INV-4: After close(), messageQueue and waiters are empty
@@ -102,9 +102,9 @@ export class PubsubPort implements Port {
      * Port type identifier.
      *
      * WHY: Distinguishes pubsub ports from other port types in kernel tables.
-     * INVARIANT: Always 'pubsub' for this implementation.
+     * INVARIANT: Always 'pubsub:subscribe' for this implementation.
      */
-    readonly type: PortType = 'pubsub';
+    readonly type: PortType = 'pubsub:subscribe';
 
     /**
      * Unique port identifier.

@@ -147,7 +147,7 @@ export function createMiscSyscalls(vfs: VFS): SyscallRegistry {
          * @param proc - Calling process
          * @returns Process arguments array
          */
-        async *getargs(proc: Process): AsyncIterable<Response> {
+        async *'proc:getargs'(proc: Process): AsyncIterable<Response> {
             yield respond.ok(proc.args);
         },
 
@@ -163,7 +163,7 @@ export function createMiscSyscalls(vfs: VFS): SyscallRegistry {
          * @param proc - Calling process
          * @returns Current working directory path
          */
-        async *getcwd(proc: Process): AsyncIterable<Response> {
+        async *'proc:getcwd'(proc: Process): AsyncIterable<Response> {
             yield respond.ok(proc.cwd);
         },
 
@@ -189,7 +189,7 @@ export function createMiscSyscalls(vfs: VFS): SyscallRegistry {
          * @param path - Target directory path (absolute or relative)
          * @returns Success response or error
          */
-        async *chdir(proc: Process, path: unknown): AsyncIterable<Response> {
+        async *'proc:chdir'(proc: Process, path: unknown): AsyncIterable<Response> {
             // Validate argument type
             if (typeof path !== 'string') {
                 yield respond.error('EINVAL', 'path must be a string');
@@ -240,7 +240,7 @@ export function createMiscSyscalls(vfs: VFS): SyscallRegistry {
          * @param name - Variable name
          * @returns Variable value or undefined
          */
-        async *getenv(proc: Process, name: unknown): AsyncIterable<Response> {
+        async *'proc:getenv'(proc: Process, name: unknown): AsyncIterable<Response> {
             // Validate argument type
             if (typeof name !== 'string') {
                 yield respond.error('EINVAL', 'name must be a string');
@@ -264,7 +264,7 @@ export function createMiscSyscalls(vfs: VFS): SyscallRegistry {
          * @param value - Variable value
          * @returns Success response
          */
-        async *setenv(proc: Process, name: unknown, value: unknown): AsyncIterable<Response> {
+        async *'proc:setenv'(proc: Process, name: unknown, value: unknown): AsyncIterable<Response> {
             // Validate argument types
             if (typeof name !== 'string') {
                 yield respond.error('EINVAL', 'name must be a string');

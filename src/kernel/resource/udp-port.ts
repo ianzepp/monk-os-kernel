@@ -105,9 +105,9 @@ export class UdpPort implements Port {
      * Port type identifier.
      *
      * WHY: Used by kernel to dispatch port operations correctly.
-     * INVARIANT: Always 'udp' for this class.
+     * INVARIANT: Always 'udp:bind' for this class.
      */
-    readonly type: PortType = 'udp';
+    readonly type: PortType = 'udp:bind';
 
     /**
      * Unique port identifier.

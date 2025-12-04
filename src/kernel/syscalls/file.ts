@@ -134,7 +134,7 @@ export function createFileSyscalls(
          * @param flags - Open flags (read, write, append, truncate)
          * @yields Response with allocated fd or error
          */
-        async *open(proc: Process, path: unknown, flags: unknown): AsyncIterable<Response> {
+        async *'file:open'(proc: Process, path: unknown, flags: unknown): AsyncIterable<Response> {
             if (typeof path !== 'string') {
                 yield respond.error('EINVAL', 'path must be a string');
                 return;
@@ -159,7 +159,7 @@ export function createFileSyscalls(
          * @param fd - File descriptor to close
          * @yields Response (ok) or error
          */
-        async *close(proc: Process, fd: unknown): AsyncIterable<Response> {
+        async *'file:close'(proc: Process, fd: unknown): AsyncIterable<Response> {
             if (typeof fd !== 'number') {
                 yield respond.error('EINVAL', 'fd must be a number');
                 return;
@@ -189,7 +189,7 @@ export function createFileSyscalls(
          * @param chunkSize - Optional chunk size for partial reads
          * @yields Response stream from handle (data or error)
          */
-        async *read(proc: Process, fd: unknown, chunkSize?: unknown): AsyncIterable<Response> {
+        async *'file:read'(proc: Process, fd: unknown, chunkSize?: unknown): AsyncIterable<Response> {
             if (typeof fd !== 'number') {
                 yield respond.error('EINVAL', 'fd must be a number');
                 return;
@@ -218,7 +218,7 @@ export function createFileSyscalls(
          * @param data - Data to write (Uint8Array or message)
          * @yields Response stream from handle (bytes written or error)
          */
-        async *write(proc: Process, fd: unknown, data: unknown): AsyncIterable<Response> {
+        async *'file:write'(proc: Process, fd: unknown, data: unknown): AsyncIterable<Response> {
             if (typeof fd !== 'number') {
                 yield respond.error('EINVAL', 'fd must be a number');
                 return;
@@ -249,7 +249,7 @@ export function createFileSyscalls(
          * @param whence - Reference point (start, current, end)
          * @yields Response with new position or error
          */
-        async *seek(proc: Process, fd: unknown, offset: unknown, whence: unknown): AsyncIterable<Response> {
+        async *'file:seek'(proc: Process, fd: unknown, offset: unknown, whence: unknown): AsyncIterable<Response> {
             if (typeof fd !== 'number') {
                 yield respond.error('EINVAL', 'fd must be a number');
                 return;
@@ -283,7 +283,7 @@ export function createFileSyscalls(
          * @param path - File or directory path
          * @yields Response with stat object or error
          */
-        async *stat(proc: Process, path: unknown): AsyncIterable<Response> {
+        async *'file:stat'(proc: Process, path: unknown): AsyncIterable<Response> {
             if (typeof path !== 'string') {
                 yield respond.error('EINVAL', 'path must be a string');
                 return;
@@ -306,7 +306,7 @@ export function createFileSyscalls(
          * @param fd - File descriptor
          * @yields Response with stat object or error
          */
-        async *fstat(proc: Process, fd: unknown): AsyncIterable<Response> {
+        async *'file:fstat'(proc: Process, fd: unknown): AsyncIterable<Response> {
             if (typeof fd !== 'number') {
                 yield respond.error('EINVAL', 'fd must be a number');
                 return;
@@ -343,7 +343,7 @@ export function createFileSyscalls(
          * @param opts - Optional flags (recursive)
          * @yields Response (ok) or error
          */
-        async *mkdir(proc: Process, path: unknown, opts?: unknown): AsyncIterable<Response> {
+        async *'file:mkdir'(proc: Process, path: unknown, opts?: unknown): AsyncIterable<Response> {
             if (typeof path !== 'string') {
                 yield respond.error('EINVAL', 'path must be a string');
                 return;
@@ -363,7 +363,7 @@ export function createFileSyscalls(
          * @param path - Path to remove
          * @yields Response (ok) or error
          */
-        async *unlink(proc: Process, path: unknown): AsyncIterable<Response> {
+        async *'file:unlink'(proc: Process, path: unknown): AsyncIterable<Response> {
             if (typeof path !== 'string') {
                 yield respond.error('EINVAL', 'path must be a string');
                 return;
@@ -385,7 +385,7 @@ export function createFileSyscalls(
          * @param path - Directory path to remove
          * @yields Response (ok) or error
          */
-        async *rmdir(proc: Process, path: unknown): AsyncIterable<Response> {
+        async *'file:rmdir'(proc: Process, path: unknown): AsyncIterable<Response> {
             if (typeof path !== 'string') {
                 yield respond.error('EINVAL', 'path must be a string');
                 return;
@@ -411,7 +411,7 @@ export function createFileSyscalls(
          * @param path - Directory path to list
          * @yields Stream of Response.item (entries) followed by Response.done or error
          */
-        async *readdir(proc: Process, path: unknown): AsyncIterable<Response> {
+        async *'file:readdir'(proc: Process, path: unknown): AsyncIterable<Response> {
             if (typeof path !== 'string') {
                 yield respond.error('EINVAL', 'path must be a string');
                 return;
@@ -445,7 +445,7 @@ export function createFileSyscalls(
          * @param newPath - New path
          * @yields Response.error (ENOSYS)
          */
-        async *rename(_proc: Process, oldPath: unknown, newPath: unknown): AsyncIterable<Response> {
+        async *'file:rename'(_proc: Process, oldPath: unknown, newPath: unknown): AsyncIterable<Response> {
             if (typeof oldPath !== 'string' || typeof newPath !== 'string') {
                 yield respond.error('EINVAL', 'paths must be strings');
                 return;
@@ -469,7 +469,7 @@ export function createFileSyscalls(
          * @param linkPath - Path where symlink will be created
          * @yields Response (ok) or error
          */
-        async *symlink(proc: Process, target: unknown, linkPath: unknown): AsyncIterable<Response> {
+        async *'file:symlink'(proc: Process, target: unknown, linkPath: unknown): AsyncIterable<Response> {
             if (typeof target !== 'string') {
                 yield respond.error('EINVAL', 'target must be a string');
                 return;
@@ -499,7 +499,7 @@ export function createFileSyscalls(
          * @param acl - Optional ACL to set (null to clear, undefined to get)
          * @yields Response with ACL (get) or ok (set) or error
          */
-        async *access(proc: Process, path: unknown, acl?: unknown): AsyncIterable<Response> {
+        async *'file:access'(proc: Process, path: unknown, acl?: unknown): AsyncIterable<Response> {
             if (typeof path !== 'string') {
                 yield respond.error('EINVAL', 'path must be a string');
                 return;
@@ -533,7 +533,7 @@ export function createFileSyscalls(
          * @param fd - File descriptor
          * @yields Response stream from handle (messages or error)
          */
-        async *recv(proc: Process, fd: unknown): AsyncIterable<Response> {
+        async *'file:recv'(proc: Process, fd: unknown): AsyncIterable<Response> {
             if (typeof fd !== 'number') {
                 yield respond.error('EINVAL', 'fd must be a number');
                 return;
@@ -560,7 +560,7 @@ export function createFileSyscalls(
          * @param msg - Message to send (Response object)
          * @yields Response stream from handle (ok or error)
          */
-        async *send(proc: Process, fd: unknown, msg: unknown): AsyncIterable<Response> {
+        async *'file:send'(proc: Process, fd: unknown, msg: unknown): AsyncIterable<Response> {
             if (typeof fd !== 'number') {
                 yield respond.error('EINVAL', 'fd must be a number');
                 return;

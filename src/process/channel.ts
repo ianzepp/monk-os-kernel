@@ -180,7 +180,7 @@ export const channel = {
      * });
      */
     async open(proto: string, url: string, opts?: ChannelOpts): Promise<number> {
-        return withTypedErrors(syscall<number>('channel_open', proto, url, opts));
+        return withTypedErrors(syscall<number>('channel:open', proto, url, opts));
     },
 
     /**
@@ -210,7 +210,7 @@ export const channel = {
      * }
      */
     async call<T = unknown>(ch: number, msg: Message): Promise<Response & { data?: T }> {
-        return withTypedErrors(syscall<Response & { data?: T }>('channel_call', ch, msg));
+        return withTypedErrors(syscall<Response & { data?: T }>('channel:call', ch, msg));
     },
 
     /**
@@ -242,7 +242,7 @@ export const channel = {
      * }
      */
     stream(ch: number, msg: Message): AsyncIterable<Response> {
-        return syscallStream('channel_stream', ch, msg);
+        return syscallStream('channel:stream', ch, msg);
     },
 
     /**
@@ -264,7 +264,7 @@ export const channel = {
      * });
      */
     async push(ch: number, response: Response): Promise<void> {
-        return withTypedErrors(syscall<void>('channel_push', ch, response));
+        return withTypedErrors(syscall<void>('channel:push', ch, response));
     },
 
     /**
@@ -289,7 +289,7 @@ export const channel = {
      * }
      */
     async recv(ch: number): Promise<Message> {
-        return withTypedErrors(syscall<Message>('channel_recv', ch));
+        return withTypedErrors(syscall<Message>('channel:recv', ch));
     },
 
     /**
@@ -304,7 +304,7 @@ export const channel = {
      * await channel.close(ch);
      */
     async close(ch: number): Promise<void> {
-        return withTypedErrors(syscall<void>('channel_close', ch));
+        return withTypedErrors(syscall<void>('channel:close', ch));
     },
 };
 

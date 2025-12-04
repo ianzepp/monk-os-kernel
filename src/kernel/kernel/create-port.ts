@@ -50,14 +50,14 @@ export async function createPort(
             break;
         }
 
-        case 'watch': {
+        case 'fs:watch': {
             const watchOpts = opts as { pattern: string } | undefined;
             if (!watchOpts || typeof watchOpts.pattern !== 'string') {
-                throw new EINVAL('watch requires pattern option');
+                throw new EINVAL('fs:watch requires pattern option');
             }
 
             const portId = self.hal.entropy.uuid();
-            const description = `watch:${watchOpts.pattern}`;
+            const description = `fs:watch:${watchOpts.pattern}`;
 
             const vfsWatch = (pattern: string): AsyncIterable<WatchEvent> => {
                 return self.vfs.watch(pattern, proc.id);
@@ -67,30 +67,30 @@ export async function createPort(
             break;
         }
 
-        case 'udp': {
-            const udpOpts = opts as { bind: number; address?: string } | undefined;
-            if (!udpOpts || typeof udpOpts.bind !== 'number') {
-                throw new EINVAL('udp requires bind option');
+        case 'udp:bind': {
+            const udpOpts = opts as { port: number; host?: string } | undefined;
+            if (!udpOpts || typeof udpOpts.port !== 'number') {
+                throw new EINVAL('udp:bind requires port option');
             }
 
             const portId = self.hal.entropy.uuid();
-            const description = `udp:${udpOpts.address ?? '0.0.0.0'}:${udpOpts.bind}`;
-            port = new UdpPort(portId, udpOpts, description);
+            const description = `udp:bind:${udpOpts.host ?? '0.0.0.0'}:${udpOpts.port}`;
+            port = new UdpPort(portId, { bind: udpOpts.port, address: udpOpts.host }, description);
             break;
         }
 
-        case 'pubsub': {
-            const pubsubOpts = opts as { subscribe?: string | string[] } | undefined;
-            const patterns = pubsubOpts?.subscribe
-                ? Array.isArray(pubsubOpts.subscribe)
-                    ? pubsubOpts.subscribe
-                    : [pubsubOpts.subscribe]
+        case 'pubsub:subscribe': {
+            const pubsubOpts = opts as { topics?: string | string[] } | undefined;
+            const patterns = pubsubOpts?.topics
+                ? Array.isArray(pubsubOpts.topics)
+                    ? pubsubOpts.topics
+                    : [pubsubOpts.topics]
                 : [];
 
             const portId = self.hal.entropy.uuid();
             const description = patterns.length > 0
-                ? `pubsub:${patterns.join(',')}`
-                : 'pubsub:(send-only)';
+                ? `pubsub:subscribe:${patterns.join(',')}`
+                : 'pubsub:subscribe:(send-only)';
 
             const publishFn = (topic: string, data: Uint8Array | undefined, meta: Record<string, unknown> | undefined, sourcePortId: string) => {
                 publishPubsub(self, topic, data, meta, sourcePortId);

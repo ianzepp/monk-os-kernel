@@ -199,7 +199,7 @@ export function createNetworkSyscalls(
          * @param port - Port number for TCP (unknown type requires validation)
          * @yields ok(descriptor) on success, error on validation/connection failure
          */
-        async *connect(proc: Process, proto: unknown, host: unknown, port: unknown): AsyncIterable<Response> {
+        async *'net:connect'(proc: Process, proto: unknown, host: unknown, port: unknown): AsyncIterable<Response> {
             // Input validation: proto must be string
             // WHY: Protocol routing requires string identifier
             if (typeof proto !== 'string') {
@@ -260,7 +260,7 @@ export function createNetworkSyscalls(
          * @param opts - Port configuration options (type validation delegated)
          * @yields ok(descriptor) on success, error on validation failure
          */
-        async *port(proc: Process, type: unknown, opts: unknown): AsyncIterable<Response> {
+        async *'port:create'(proc: Process, type: unknown, opts: unknown): AsyncIterable<Response> {
             // Input validation: type must be string
             // WHY: Port type routing requires string identifier
             if (typeof type !== 'string') {

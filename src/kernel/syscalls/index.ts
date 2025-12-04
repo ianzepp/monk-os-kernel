@@ -220,64 +220,64 @@ export function registerSyscalls(kernel: Kernel): void {
 
     kernel.syscalls.registerAll({
         /**
-         * spawn(entry, opts?) -> pid
+         * proc:spawn(entry, opts?) -> pid
          *
          * Create a child process. Returns PID in parent's namespace.
          * Child inherits parent's environment and stdio (unless overridden).
          */
-        spawn: wrapSyscall((proc, entry, opts) => {
+        'proc:spawn': wrapSyscall((proc, entry, opts) => {
             assertString(entry, 'entry');
             return spawn(kernel, proc, entry, opts as SpawnOpts);
         }),
 
         /**
-         * exit(code) -> never
+         * proc:exit(code) -> never
          *
          * Terminate the calling process. Never returns.
          * All handles are closed, children reparented to init.
          */
-        exit: wrapSyscall((proc, code) => {
+        'proc:exit': wrapSyscall((proc, code) => {
             assertNonNegativeInt(code, 'code');
             return exit(kernel, proc, code);
         }),
 
         /**
-         * kill(pid, signal?) -> void
+         * proc:kill(pid, signal?) -> void
          *
          * Send a signal to a process. Default signal is SIGTERM.
          * SIGKILL forces immediate termination.
          */
-        kill: wrapSyscall((proc, pid, signal) => {
+        'proc:kill': wrapSyscall((proc, pid, signal) => {
             assertPositiveInt(pid, 'pid');
             const sig = optionalPositiveInt(signal, 'signal');
             return kill(kernel, proc, pid, sig);
         }),
 
         /**
-         * wait(pid, timeout?) -> ExitStatus
+         * proc:wait(pid, timeout?) -> ExitStatus
          *
          * Wait for a child process to exit.
          * Optional timeout in milliseconds; throws ETIMEDOUT if exceeded.
          */
-        wait: wrapSyscall((proc, pid, timeout) => {
+        'proc:wait': wrapSyscall((proc, pid, timeout) => {
             assertPositiveInt(pid, 'pid');
             const ms = optionalPositiveInt(timeout, 'timeout');
             return wait(kernel, proc, pid, ms);
         }),
 
         /**
-         * getpid() -> pid
+         * proc:getpid() -> pid
          *
          * Get the PID of the calling process (in parent's namespace).
          */
-        getpid: wrapSyscall((proc) => getpid(kernel, proc)),
+        'proc:getpid': wrapSyscall((proc) => getpid(kernel, proc)),
 
         /**
-         * getppid() -> pid
+         * proc:getppid() -> pid
          *
          * Get the PID of the parent process (in grandparent's namespace).
          */
-        getppid: wrapSyscall((proc) => getppid(kernel, proc)),
+        'proc:getppid': wrapSyscall((proc) => getppid(kernel, proc)),
     });
 
     // -------------------------------------------------------------------------
@@ -374,11 +374,11 @@ export function registerSyscalls(kernel: Kernel): void {
     );
 
     // -------------------------------------------------------------------------
-    // PIPE SYSCALL
-    // Create a unidirectional message pipe
+    // IPC SYSCALLS
+    // Inter-process communication primitives
     // -------------------------------------------------------------------------
 
-    kernel.syscalls.register('pipe', wrapSyscall((proc) => createPipe(kernel, proc)));
+    kernel.syscalls.register('ipc:pipe', wrapSyscall((proc) => createPipe(kernel, proc)));
 
     // -------------------------------------------------------------------------
     // HANDLE REDIRECTION SYSCALLS

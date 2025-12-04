@@ -106,9 +106,9 @@ export class WatchPort implements Port {
      * Port type identifier.
      *
      * WHY: Used by kernel to dispatch port operations correctly.
-     * INVARIANT: Always 'watch' for this class.
+     * INVARIANT: Always 'fs:watch' for this class.
      */
-    readonly type: PortType = 'watch';
+    readonly type: PortType = 'fs:watch';
 
     /**
      * Unique port identifier.

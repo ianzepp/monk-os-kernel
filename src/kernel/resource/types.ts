@@ -203,7 +203,7 @@ export interface Port {
 	 * Allows kernel to dispatch operations correctly and validate
 	 * compatibility (e.g., send() only works on UDP ports).
 	 *
-	 * INVARIANT: One of 'tcp:listen' | 'udp' | 'watch' | 'pubsub'.
+	 * INVARIANT: One of 'tcp:listen' | 'udp:bind' | 'fs:watch' | 'pubsub:subscribe'.
 	 */
 	readonly type: PortType;
 
@@ -212,10 +212,10 @@ export interface Port {
 	 *
 	 * WHY:
 	 * Debugging and diagnostics. Examples:
-	 * - "tcp:listen :8080"
-	 * - "watch /var/log/*.log"
-	 * - "pubsub log.*"
-	 * - "udp 0.0.0.0:9000"
+	 * - "tcp:listen:0.0.0.0:8080"
+	 * - "fs:watch:/var/log/*.log"
+	 * - "pubsub:subscribe:log.*"
+	 * - "udp:bind:0.0.0.0:9000"
 	 *
 	 * TESTABILITY: Useful for test assertions and error messages.
 	 */

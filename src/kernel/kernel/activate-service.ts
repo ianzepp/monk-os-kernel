@@ -68,10 +68,10 @@ export async function activateService(
             break;
         }
 
-        case 'pubsub': {
+        case 'pubsub:subscribe': {
             const portId = self.hal.entropy.uuid();
             const patterns = [activation.topic];
-            const description = `service:${name}:pubsub:${activation.topic}`;
+            const description = `service:${name}:pubsub:subscribe:${activation.topic}`;
 
             const publishFn = (topic: string, data: Uint8Array | undefined, meta: Record<string, unknown> | undefined, sourcePortId: string) => {
                 publishPubsub(self, topic, data, meta, sourcePortId);
@@ -89,16 +89,16 @@ export async function activateService(
 
             runActivationLoop(self, name, def, port, abort.signal, (msg) => ({
                 activation: {
-                    op: 'pubsub',
+                    op: 'pubsub:subscribe',
                     data: { topic: msg.from, payload: msg.data },
                 },
             }));
             break;
         }
 
-        case 'watch': {
+        case 'fs:watch': {
             const portId = self.hal.entropy.uuid();
-            const description = `service:${name}:watch:${activation.pattern}`;
+            const description = `service:${name}:fs:watch:${activation.pattern}`;
 
             const vfsWatch = (pattern: string): AsyncIterable<WatchEvent> => {
                 return self.vfs.watch(pattern, 'kernel');
@@ -112,16 +112,16 @@ export async function activateService(
 
             runActivationLoop(self, name, def, port, abort.signal, (msg) => ({
                 activation: {
-                    op: 'watch',
+                    op: 'fs:watch',
                     data: { path: msg.from, event: msg.meta?.op, content: msg.data },
                 },
             }));
             break;
         }
 
-        case 'udp': {
+        case 'udp:bind': {
             const portId = self.hal.entropy.uuid();
-            const description = `service:${name}:udp:${activation.host ?? '0.0.0.0'}:${activation.port}`;
+            const description = `service:${name}:udp:bind:${activation.host ?? '0.0.0.0'}:${activation.port}`;
 
             const port = new UdpPort(portId, { bind: activation.port, address: activation.host }, description);
             self.activationPorts.set(name, port);
@@ -131,7 +131,7 @@ export async function activateService(
 
             runActivationLoop(self, name, def, port, abort.signal, (msg) => ({
                 activation: {
-                    op: 'udp',
+                    op: 'udp:bind',
                     data: { from: msg.from, payload: msg.data },
                 },
             }));

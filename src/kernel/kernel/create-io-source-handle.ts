@@ -51,12 +51,12 @@ export async function createIOSourceHandle(
                 async close() {},
             };
         }
-        case 'pubsub': {
-            const patterns = Array.isArray(source.subscribe)
-                ? source.subscribe
-                : [source.subscribe];
+        case 'pubsub:subscribe': {
+            const patterns = Array.isArray(source.topics)
+                ? source.topics
+                : [source.topics];
             const portId = self.hal.entropy.uuid();
-            const description = `pubsub:${patterns.join(',')}`;
+            const description = `pubsub:subscribe:${patterns.join(',')}`;
 
             const publishFn = (topic: string, data: Uint8Array | undefined, meta: Record<string, unknown> | undefined, sourcePortId: string) => {
                 publishPubsub(self, topic, data, meta, sourcePortId);
@@ -70,9 +70,9 @@ export async function createIOSourceHandle(
 
             return new PortHandleAdapter(portId, port, description);
         }
-        case 'watch': {
+        case 'fs:watch': {
             const portId = self.hal.entropy.uuid();
-            const description = `watch:${source.pattern}`;
+            const description = `fs:watch:${source.pattern}`;
 
             const vfsWatch = (pattern: string): AsyncIterable<WatchEvent> => {
                 return self.vfs.watch(pattern, proc.id);
@@ -81,10 +81,10 @@ export async function createIOSourceHandle(
             const port = new WatchPort(portId, source.pattern, vfsWatch, description);
             return new PortHandleAdapter(portId, port, description);
         }
-        case 'udp': {
+        case 'udp:bind': {
             const portId = self.hal.entropy.uuid();
-            const description = `udp:${source.address ?? '0.0.0.0'}:${source.bind}`;
-            const port = new UdpPort(portId, { bind: source.bind, address: source.address }, description);
+            const description = `udp:bind:${source.host ?? '0.0.0.0'}:${source.port}`;
+            const port = new UdpPort(portId, { bind: source.port, address: source.host }, description);
             return new PortHandleAdapter(portId, port, description);
         }
     }

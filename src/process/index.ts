@@ -241,7 +241,7 @@ export const SIGKILL = 9;
  * await close(fd);
  */
 export function open(path: string, flags?: OpenFlags): Promise<number> {
-    return withTypedErrors(syscall<number>('open', path, flags ?? { read: true }));
+    return withTypedErrors(syscall<number>('file:open', path, flags ?? { read: true }));
 }
 
 /**
@@ -253,7 +253,7 @@ export function open(path: string, flags?: OpenFlags): Promise<number> {
  * @throws EBADF - If fd is invalid
  */
 export function close(fd: number): Promise<void> {
-    return withTypedErrors(syscall<void>('close', fd));
+    return withTypedErrors(syscall<void>('file:close', fd));
 }
 
 /**
@@ -268,7 +268,7 @@ export function close(fd: number): Promise<void> {
  * @throws EACCES - If not opened for reading
  */
 export function read(fd: number, size?: number): Promise<Uint8Array> {
-    return withTypedErrors(syscall<Uint8Array>('read', fd, size));
+    return withTypedErrors(syscall<Uint8Array>('file:read', fd, size));
 }
 
 /**
@@ -284,7 +284,7 @@ export function read(fd: number, size?: number): Promise<Uint8Array> {
  * @throws ENOSPC - If storage quota exceeded
  */
 export function write(fd: number, data: Uint8Array): Promise<number> {
-    return withTypedErrors(syscall<number>('write', fd, data));
+    return withTypedErrors(syscall<number>('file:write', fd, data));
 }
 
 /**
@@ -298,7 +298,7 @@ export function write(fd: number, data: Uint8Array): Promise<number> {
  * @throws EINVAL - If resulting position would be negative
  */
 export function seek(fd: number, offset: number, whence?: SeekWhence): Promise<number> {
-    return withTypedErrors(syscall<number>('seek', fd, offset, whence ?? 'start'));
+    return withTypedErrors(syscall<number>('file:seek', fd, offset, whence ?? 'start'));
 }
 
 /**
@@ -309,7 +309,7 @@ export function seek(fd: number, offset: number, whence?: SeekWhence): Promise<n
  * @throws ENOENT - If file doesn't exist
  */
 export function stat(path: string): Promise<Stat> {
-    return withTypedErrors(syscall<Stat>('stat', path));
+    return withTypedErrors(syscall<Stat>('file:stat', path));
 }
 
 /**
@@ -320,7 +320,7 @@ export function stat(path: string): Promise<Stat> {
  * @throws EBADF - If fd is invalid
  */
 export function fstat(fd: number): Promise<Stat> {
-    return withTypedErrors(syscall<Stat>('fstat', fd));
+    return withTypedErrors(syscall<Stat>('file:fstat', fd));
 }
 
 /**
@@ -337,7 +337,7 @@ export interface MkdirOpts {
 }
 
 export function mkdir(path: string, opts?: MkdirOpts): Promise<void> {
-    return withTypedErrors(syscall<void>('mkdir', path, opts));
+    return withTypedErrors(syscall<void>('file:mkdir', path, opts));
 }
 
 /**
@@ -348,7 +348,7 @@ export function mkdir(path: string, opts?: MkdirOpts): Promise<void> {
  * @throws EISDIR - If path is a directory
  */
 export function unlink(path: string): Promise<void> {
-    return withTypedErrors(syscall<void>('unlink', path));
+    return withTypedErrors(syscall<void>('file:unlink', path));
 }
 
 /**
@@ -359,7 +359,7 @@ export function unlink(path: string): Promise<void> {
  * @throws ENOTEMPTY - If directory not empty
  */
 export function rmdir(path: string): Promise<void> {
-    return withTypedErrors(syscall<void>('rmdir', path));
+    return withTypedErrors(syscall<void>('file:rmdir', path));
 }
 
 /**
@@ -371,7 +371,7 @@ export function rmdir(path: string): Promise<void> {
  * @throws ENOTDIR - If path is not a directory
  */
 export function readdir(path: string): Promise<string[]> {
-    return withTypedErrors(syscall<string[]>('readdir', path));
+    return withTypedErrors(syscall<string[]>('file:readdir', path));
 }
 
 /**
@@ -382,7 +382,7 @@ export function readdir(path: string): Promise<string[]> {
  * @throws ENOENT - If source doesn't exist
  */
 export function rename(oldPath: string, newPath: string): Promise<void> {
-    return withTypedErrors(syscall<void>('rename', oldPath, newPath));
+    return withTypedErrors(syscall<void>('file:rename', oldPath, newPath));
 }
 
 // =============================================================================
@@ -443,9 +443,9 @@ export function access(path: string): Promise<ACL>;
 export function access(path: string, acl: ACL | null): Promise<void>;
 export function access(path: string, acl?: ACL | null): Promise<ACL | void> {
     if (acl === undefined) {
-        return withTypedErrors(syscall<ACL>('access', path));
+        return withTypedErrors(syscall<ACL>('file:access', path));
     }
-    return withTypedErrors(syscall<void>('access', path, acl));
+    return withTypedErrors(syscall<void>('file:access', path, acl));
 }
 
 // =============================================================================
@@ -468,7 +468,7 @@ export function access(path: string, acl?: ACL | null): Promise<ACL | void> {
  * const data = await read(readFd);
  */
 export function pipe(): Promise<[number, number]> {
-    return withTypedErrors(syscall<[number, number]>('pipe'));
+    return withTypedErrors(syscall<[number, number]>('ipc:pipe'));
 }
 
 /**
@@ -512,7 +512,7 @@ export async function redirect(targetFd: number, sourceFd: number): Promise<() =
  * @throws ETIMEDOUT - If connection timed out
  */
 export function connect(host: string, port: number): Promise<number> {
-    return withTypedErrors(syscall<number>('connect', 'tcp', host, port));
+    return withTypedErrors(syscall<number>('net:connect', 'tcp', host, port));
 }
 
 // =============================================================================
@@ -530,7 +530,7 @@ export function connect(host: string, port: number): Promise<number> {
  * @throws EADDRINUSE - If port already in use
  */
 export function listen(opts: TcpListenOpts): Promise<number> {
-    return withTypedErrors(syscall<number>('port', 'tcp:listen', opts));
+    return withTypedErrors(syscall<number>('port:create', 'tcp:listen', opts));
 }
 
 /**
@@ -544,7 +544,7 @@ export function listen(opts: TcpListenOpts): Promise<number> {
  * @throws EBADF - If port is closed
  */
 export function recv(portId: number): Promise<PortMessage> {
-    return withTypedErrors(syscall<PortMessage>('recv', portId));
+    return withTypedErrors(syscall<PortMessage>('port:recv', portId));
 }
 
 /**
@@ -555,7 +555,7 @@ export function recv(portId: number): Promise<PortMessage> {
  * @param data - Data to send
  */
 export function send(portId: number, to: string, data: Uint8Array): Promise<void> {
-    return withTypedErrors(syscall<void>('send', portId, to, data));
+    return withTypedErrors(syscall<void>('port:send', portId, to, data));
 }
 
 /**
@@ -564,7 +564,7 @@ export function send(portId: number, to: string, data: Uint8Array): Promise<void
  * @param portId - Port ID
  */
 export function pclose(portId: number): Promise<void> {
-    return withTypedErrors(syscall<void>('pclose', portId));
+    return withTypedErrors(syscall<void>('port:close', portId));
 }
 
 // =============================================================================
@@ -586,7 +586,7 @@ export function pclose(portId: number): Promise<void> {
  * const status = await wait(pid);
  */
 export function spawn(entry: string, opts?: SpawnOpts): Promise<number> {
-    return withTypedErrors(syscall<number>('spawn', entry, opts));
+    return withTypedErrors(syscall<number>('proc:spawn', entry, opts));
 }
 
 /**
@@ -597,7 +597,7 @@ export function spawn(entry: string, opts?: SpawnOpts): Promise<number> {
  * @param code - Exit code (0 = success, non-zero = failure)
  */
 export function exit(code: number): Promise<never> {
-    return syscall<never>('exit', code);
+    return syscall<never>('proc:exit', code);
 }
 
 /**
@@ -609,7 +609,7 @@ export function exit(code: number): Promise<never> {
  * @throws EPERM - If not permitted to signal process
  */
 export function kill(pid: number, signal?: number): Promise<void> {
-    return withTypedErrors(syscall<void>('kill', pid, signal ?? SIGTERM));
+    return withTypedErrors(syscall<void>('proc:kill', pid, signal ?? SIGTERM));
 }
 
 /**
@@ -622,7 +622,7 @@ export function kill(pid: number, signal?: number): Promise<void> {
  * @throws ECHILD - If not a child of this process
  */
 export function wait(pid: number): Promise<ExitStatus> {
-    return withTypedErrors(syscall<ExitStatus>('wait', pid));
+    return withTypedErrors(syscall<ExitStatus>('proc:wait', pid));
 }
 
 /**
@@ -631,7 +631,7 @@ export function wait(pid: number): Promise<ExitStatus> {
  * @returns PID
  */
 export function getpid(): Promise<number> {
-    return withTypedErrors(syscall<number>('getpid'));
+    return withTypedErrors(syscall<number>('proc:getpid'));
 }
 
 /**
@@ -640,7 +640,7 @@ export function getpid(): Promise<number> {
  * @returns Parent PID
  */
 export function getppid(): Promise<number> {
-    return withTypedErrors(syscall<number>('getppid'));
+    return withTypedErrors(syscall<number>('proc:getppid'));
 }
 
 /**
@@ -649,7 +649,7 @@ export function getppid(): Promise<number> {
  * @returns Argument array (argv[0] is the command)
  */
 export function getargs(): Promise<string[]> {
-    return withTypedErrors(syscall<string[]>('getargs'));
+    return withTypedErrors(syscall<string[]>('proc:getargs'));
 }
 
 // =============================================================================
@@ -662,7 +662,7 @@ export function getargs(): Promise<string[]> {
  * @returns Directory path
  */
 export function getcwd(): Promise<string> {
-    return withTypedErrors(syscall<string>('getcwd'));
+    return withTypedErrors(syscall<string>('proc:getcwd'));
 }
 
 /**
@@ -673,7 +673,7 @@ export function getcwd(): Promise<string> {
  * @throws ENOTDIR - If path is not a directory
  */
 export function chdir(path: string): Promise<void> {
-    return withTypedErrors(syscall<void>('chdir', path));
+    return withTypedErrors(syscall<void>('proc:chdir', path));
 }
 
 /**
@@ -683,7 +683,7 @@ export function chdir(path: string): Promise<void> {
  * @returns Value or undefined if not set
  */
 export function getenv(name: string): Promise<string | undefined> {
-    return withTypedErrors(syscall<string | undefined>('getenv', name));
+    return withTypedErrors(syscall<string | undefined>('proc:getenv', name));
 }
 
 /**
@@ -693,7 +693,7 @@ export function getenv(name: string): Promise<string | undefined> {
  * @param value - Value to set
  */
 export function setenv(name: string, value: string): Promise<void> {
-    return withTypedErrors(syscall<void>('setenv', name, value));
+    return withTypedErrors(syscall<void>('proc:setenv', name, value));
 }
 
 // =============================================================================
