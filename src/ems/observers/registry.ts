@@ -41,6 +41,9 @@
 
 import { ObserverRunner } from './runner.js';
 
+// Re-export ObserverRunner for consumers that import from registry
+export { ObserverRunner } from './runner.js';
+
 // =============================================================================
 // OBSERVER IMPORTS
 // =============================================================================

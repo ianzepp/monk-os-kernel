@@ -166,6 +166,15 @@ export interface DatabaseAdapter {
      * @param sql - Raw SQL (may contain multiple statements)
      */
     exec(sql: string): Promise<void>;
+
+    /**
+     * Execute multiple statements in a single atomic transaction.
+     *
+     * @param statements - Array of SQL statements with optional params
+     * @returns Promise resolving to array of affected row counts (one per statement)
+     * @throws Error on transaction failure (already rolled back)
+     */
+    transaction(statements: Array<{ sql: string; params?: unknown[] }>): Promise<number[]>;
 }
 
 /**

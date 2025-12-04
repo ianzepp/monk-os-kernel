@@ -95,14 +95,6 @@ import {
 const ROOT_ID = '00000000-0000-0000-0000-000000000000';
 
 /**
- * Root folder name (empty string).
- *
- * WHY EMPTY: Root has no name - it's the namespace origin.
- * Path "/" resolves to ROOT_ID, not to an entity named "/".
- */
-const ROOT_NAME = '';
-
-/**
  * Storage key prefixes.
  *
  * WHY DOCUMENTED: Makes storage layout explicit for debugging and migration.
