@@ -39,6 +39,9 @@ function createMockDatabase(): DatabaseAdapter & { execCalls: string[]; shouldFa
                 throw new Error('SQLITE_ERROR: database is locked');
             }
         },
+        async transaction(_statements: Array<{ sql: string; params?: unknown[] }>): Promise<number[]> {
+            return [];
+        },
     };
 }
 

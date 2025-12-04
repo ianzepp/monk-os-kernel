@@ -47,6 +47,9 @@ function createMockDatabase(): DatabaseAdapter & {
         async exec(_sql: string): Promise<void> {
             // no-op
         },
+        async transaction(_statements: Array<{ sql: string; params?: unknown[] }>): Promise<number[]> {
+            return [];
+        },
     };
 }
 

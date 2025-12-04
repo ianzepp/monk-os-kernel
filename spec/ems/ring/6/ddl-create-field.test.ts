@@ -44,6 +44,9 @@ function createMockDatabase(): DatabaseAdapter & {
                 throw new Error(this.failMessage);
             }
         },
+        async transaction(_statements: Array<{ sql: string; params?: unknown[] }>): Promise<number[]> {
+            return [];
+        },
     };
 }
 

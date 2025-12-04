@@ -30,6 +30,9 @@ function createMockDatabase(): DatabaseAdapter {
             return [];
         },
         async exec(_sql: string): Promise<void> {},
+        async transaction(_statements: Array<{ sql: string; params?: unknown[] }>): Promise<number[]> {
+            return [];
+        },
     };
 }
 

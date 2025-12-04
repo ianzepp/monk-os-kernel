@@ -6,7 +6,6 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { createOsStack, type OsStack } from '@src/os/stack.js';
-import { BufferConsoleDevice } from '@src/hal/index.js';
 
 describe('Kernel Boot', () => {
     let stack: OsStack;

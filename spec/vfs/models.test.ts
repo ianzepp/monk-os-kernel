@@ -10,7 +10,6 @@ import { ENOENT, EISDIR } from '@src/hal/index.js';
 
 describe('FileModel', () => {
     let stack: OsStack;
-    const ROOT_ID = '00000000-0000-0000-0000-000000000000';
 
     beforeEach(async () => {
         stack = await createOsStack({ vfs: true });
@@ -77,7 +76,6 @@ describe('FileModel', () => {
 
 describe('FolderModel', () => {
     let stack: OsStack;
-    const ROOT_ID = '00000000-0000-0000-0000-000000000000';
 
     beforeEach(async () => {
         stack = await createOsStack({ vfs: true });
