@@ -96,6 +96,7 @@ import type {
     StreamCancelMessage,
 } from '@src/kernel/types.js';
 import type { Response } from '@src/message.js';
+import { fromCode } from '@src/hal/errors.js';
 
 // =============================================================================
 // CONSTANTS
@@ -294,10 +295,8 @@ function handleResponse(msg: SyscallResponse): void {
     pending.delete(msg.id);
 
     if (msg.error) {
-        // Create error with code property for error type reconstruction
-        const error = new Error(msg.error.message) as Error & { code: string };
-        error.code = msg.error.code;
-        req.reject(error);
+        // Create typed HAL error from response error code
+        req.reject(fromCode(msg.error.code, msg.error.message));
     } else {
         req.resolve(msg.result);
     }
@@ -318,9 +317,7 @@ function handleResponse(msg: SyscallResponse): void {
 function handleStreamResponse(stream: PendingStream, msg: SyscallResponse): void {
     if (msg.error) {
         // Kernel-level error (transport failure, not application error)
-        const error = new Error(msg.error.message) as Error & { code: string };
-        error.code = msg.error.code;
-        stream.error = error;
+        stream.error = fromCode(msg.error.code, msg.error.message);
         stream.ended = true;
     } else {
         // Queue the response for consumer

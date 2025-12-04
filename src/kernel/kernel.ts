@@ -50,6 +50,7 @@
  */
 
 import type { HAL } from '@src/hal/index.js';
+import { EINVAL } from '@src/hal/errors.js';
 import type { VFS } from '@src/vfs/index.js';
 import type { ExitStatus, BootEnv } from '@src/kernel/types.js';
 import { SIGTERM, SIGKILL, TERM_GRACE_MS } from '@src/kernel/types.js';
@@ -739,7 +740,7 @@ export class Kernel {
         opts?: import('@src/kernel/types.js').ExternalSpawnOpts
     ): Promise<import('@src/kernel/types.js').ExternalProcessHandle> {
         if (!this.booted) {
-            throw new Error('Kernel not booted');
+            throw new EINVAL('Kernel not booted');
         }
 
         // Normalize entry path

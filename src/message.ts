@@ -12,7 +12,7 @@
  * - Future: IPC, RPC, etc.
  */
 
-import { EINVAL, EIO } from '@src/hal/errors.js';
+import { EINVAL, EIO, fromCode } from '@src/hal/errors.js';
 
 /**
  * Message sent to a handler.
@@ -146,9 +146,7 @@ export function isResponseOp<T extends Response['op']>(
 export function unwrapResponse<T = unknown>(response: Response): T {
     if (response.op === 'error') {
         const err = response.data as { code: string; message: string };
-        const error = new Error(err.message) as Error & { code: string };
-        error.code = err.code;
-        throw error;
+        throw fromCode(err.code, err.message);
     }
     if (response.op === 'ok') {
         return response.data as T;
@@ -168,9 +166,7 @@ export async function collectItems<T = unknown>(
             items.push(response.data as T);
         } else if (response.op === 'error') {
             const err = response.data as { code: string; message: string };
-            const error = new Error(err.message) as Error & { code: string };
-            error.code = err.code;
-            throw error;
+            throw fromCode(err.code, err.message);
         } else if (response.op === 'done') {
             break;
         }
@@ -191,9 +187,7 @@ export async function unwrapStream<T = unknown>(
         }
         if (response.op === 'error') {
             const err = response.data as { code: string; message: string };
-            const error = new Error(err.message) as Error & { code: string };
-            error.code = err.code;
-            throw error;
+            throw fromCode(err.code, err.message);
         }
     }
     throw new EIO('No ok response received');

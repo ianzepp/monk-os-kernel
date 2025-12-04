@@ -7,6 +7,8 @@
  * - State reset between uses
  */
 
+import { EINVAL } from '@src/hal/errors.js';
+
 /** Currently loaded handler */
 let currentHandler: ((msg: unknown) => AsyncIterable<unknown> | Promise<unknown> | unknown) | null = null;
 
@@ -24,7 +26,7 @@ self.onmessage = async (e: MessageEvent) => {
                 currentHandler = module.default ?? module.handle ?? module.handler;
 
                 if (typeof currentHandler !== 'function') {
-                    throw new Error(`No handler function exported from ${msg.path}`);
+                    throw new EINVAL(`No handler function exported from ${msg.path}`);
                 }
 
                 self.postMessage({ type: 'loaded' });

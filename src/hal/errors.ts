@@ -814,3 +814,24 @@ export function fromSystemError(err: Error & { code?: string }): HALError {
             return new EIO(message || 'Unknown error');
     }
 }
+
+/**
+ * Create a HAL error from a code string and message
+ *
+ * WHY: Useful when reconstructing errors from serialized data (e.g., responses
+ * from kernel, IPC messages) where only the code string and message are available.
+ *
+ * ALGORITHM:
+ * 1. Delegate to fromSystemError with a synthetic error object
+ * 2. Return the matching HAL error instance
+ *
+ * INVARIANT: Never throws - always returns a HAL error instance. Unknown codes
+ * map to EIO (generic I/O error).
+ *
+ * @param code - Error code string (e.g., 'ENOENT', 'EINVAL')
+ * @param message - Human-readable error message
+ * @returns Corresponding HAL error instance
+ */
+export function fromCode(code: string, message: string): HALError {
+    return fromSystemError({ code, message, name: code } as Error & { code: string });
+}

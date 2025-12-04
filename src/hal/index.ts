@@ -174,6 +174,7 @@ export {
     isHALError,
     hasErrorCode,
     fromSystemError,
+    fromCode,
 } from './errors.js';
 
 // =============================================================================

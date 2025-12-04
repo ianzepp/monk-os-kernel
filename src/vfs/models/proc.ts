@@ -79,7 +79,7 @@
 import { PosixModel } from '@src/vfs/model.js';
 import type { ModelStat, ModelContext, FieldDef } from '@src/vfs/model.js';
 import type { FileHandle, OpenFlags, OpenOptions, SeekWhence } from '@src/vfs/handle.js';
-import { ENOENT, EBADF, EACCES, EROFS, ENOTSUP } from '@src/hal/index.js';
+import { ENOENT, EBADF, EACCES, EROFS, ENOTSUP, ENOSYS } from '@src/hal/index.js';
 
 // =============================================================================
 // CONSTANTS
@@ -911,5 +911,5 @@ export async function createProcessProc(
     // TODO: Re-implement when VFS integration is complete
     // FolderModel now requires EMS dependencies (EntityCache, DatabaseOps)
     // which must be passed through or obtained from context
-    throw new Error('createProcessProc not yet implemented for EMS-backed models');
+    throw new ENOSYS('createProcessProc not yet implemented for EMS-backed models');
 }
