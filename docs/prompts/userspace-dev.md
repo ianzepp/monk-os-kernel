@@ -120,6 +120,57 @@ import type { Stat, OpenFlags } from '@src/types';
 import { parseArgs, formatError } from '@rom/lib/utils';
 ```
 
+---
+
+## Standard Library Usage (Required)
+
+> **IMPORTANT**: Always use the userspace standard library (`rom/lib/*`) instead of
+> implementing common functionality inline. This ensures consistency across commands
+> and reduces code duplication.
+
+### Available Libraries
+
+| Library | Purpose | Key Exports |
+|---------|---------|-------------|
+| `@rom/lib/args` | Argument parsing | `parseArgs()`, `parseDuration()` |
+| `@rom/lib/process` | Syscalls, I/O | `recv`, `send`, `open`, `read`, `write`, `exit`, `println`, `eprintln` |
+| `@rom/lib/shell` | Shell utilities | `resolvePath()` |
+| `@rom/lib/path` | Path manipulation | `basename()`, `dirname()`, `join()` |
+| `@rom/lib/utils` | Common utilities | `formatError()`, `sortBy()` |
+| `@rom/lib/format` | Output formatting | Table formatting, alignment |
+| `@rom/lib/glob` | Pattern matching | `glob()`, `match()` |
+| `@rom/lib/io` | High-level I/O | `ByteReader`, `ByteWriter` |
+
+### Argument Parsing
+
+**Always use `parseArgs()` from `@rom/lib/args`** for command-line parsing:
+
+```typescript
+import { parseArgs } from '@rom/lib/args';
+
+const result = parseArgs(args.slice(1), {
+    help:    { short: 'h', long: 'help' },
+    verbose: { short: 'v', long: 'verbose' },
+    count:   { short: 'n', long: 'count', value: true },
+});
+
+if (result.flags.help) {
+    await println(HELP_TEXT);
+    return exit(EXIT_SUCCESS);
+}
+
+if (result.errors.length > 0) {
+    await eprintln(`command: ${result.errors[0]}`);
+    return exit(EXIT_USAGE);
+}
+
+// Use result.flags.verbose, result.flags.count, result.positional
+```
+
+**Do NOT** implement custom argument parsing loops unless `parseArgs()` cannot handle your use case.
+
+---
+
 ### 4. Constants Section
 
 ```typescript
@@ -757,7 +808,7 @@ if (!isValidOption(parsed)) {
 - [ ] Errors written to stderr with "command: message" format
 - [ ] "-" handled as stdin where appropriate
 - [ ] Multiple files processed with continue-on-error behavior
-- [ ] Flag parsing handles --, -, combined short flags
+- [ ] **Use `parseArgs()` from `@rom/lib/args`** for flag parsing (not custom loops)
 
 ### Libraries (`rom/lib/*`)
 - [ ] Header with PURPOSE, API DESIGN, ERROR HANDLING, USAGE EXAMPLES
