@@ -5,9 +5,6 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { BunHAL } from '@src/hal/index.js';
-import { VFS } from '@src/vfs/index.js';
-import { Kernel } from '@src/kernel/kernel.js';
 import {
     ModuleCache,
     extractImports,
@@ -15,7 +12,7 @@ import {
     rewriteImports,
     VFSLoader,
 } from '@src/kernel/loader.js';
-import type { HAL } from '@src/hal/index.js';
+import { createOsStack, type OsStack } from '@src/os/stack.js';
 
 describe('ModuleCache', () => {
     test('should cache and retrieve modules', () => {
@@ -314,23 +311,24 @@ export { helper };`;
 });
 
 describe('VFSLoader', () => {
-    let hal: HAL;
-    let vfs: VFS;
+    let stack: OsStack;
     let loader: VFSLoader;
 
     beforeEach(async () => {
-        hal = new BunHAL({ storage: { type: 'memory' } });
-        await hal.init();
-        vfs = new VFS(hal);
-        await vfs.init();
+        stack = await createOsStack({ vfs: true });
 
         // Create /lib directory
-        await vfs.mkdir('/lib', 'kernel');
+        await stack.vfs!.mkdir('/lib', 'kernel');
 
-        loader = new VFSLoader(vfs, hal);
+        loader = new VFSLoader(stack.vfs!, stack.hal);
+    });
+
+    afterEach(async () => {
+        await stack.shutdown();
     });
 
     test('should compile a simple module', async () => {
+        const vfs = stack.vfs!;
         // Write a test module to VFS
         const source = `export const message = 'hello';`;
         const handle = await vfs.open('/lib/test.ts', { write: true, create: true }, 'kernel');
@@ -345,6 +343,7 @@ describe('VFSLoader', () => {
     });
 
     test('should extract VFS imports', async () => {
+        const vfs = stack.vfs!;
         const source = `
             import { open, read } from '/lib/process';
             export function readAll() {}
@@ -359,6 +358,7 @@ describe('VFSLoader', () => {
     });
 
     test('should cache modules by hash', async () => {
+        const vfs = stack.vfs!;
         const source = `export const x = 1;`;
         const handle = await vfs.open('/lib/cached.ts', { write: true, create: true }, 'kernel');
         await handle.write(new TextEncoder().encode(source));
@@ -374,6 +374,7 @@ describe('VFSLoader', () => {
     });
 
     test('should resolve dependencies', async () => {
+        const vfs = stack.vfs!;
         // Create /lib/utils.ts
         const utilsSource = `export function format(x: number) { return x.toString(); }`;
         let h = await vfs.open('/lib/utils.ts', { write: true, create: true }, 'kernel');
@@ -397,6 +398,7 @@ describe('VFSLoader', () => {
     });
 
     test('should assemble a bundle', async () => {
+        const vfs = stack.vfs!;
         // Create /lib/helper.ts
         const helperSource = `export const greeting = 'Hello';`;
         let h = await vfs.open('/lib/helper.ts', { write: true, create: true }, 'kernel');
@@ -424,6 +426,7 @@ describe('VFSLoader', () => {
     });
 
     test('should create and revoke blob URLs', async () => {
+        const vfs = stack.vfs!;
         const source = `export const x = 1;`;
         const h = await vfs.open('/lib/blob-test.ts', { write: true, create: true }, 'kernel');
         await h.write(new TextEncoder().encode(source));
@@ -440,22 +443,20 @@ describe('VFSLoader', () => {
 });
 
 describe('VFS Script Execution', () => {
-    let hal: HAL;
-    let vfs: VFS;
-    let kernel: Kernel;
+    let stack: OsStack;
 
     beforeEach(async () => {
-        hal = new BunHAL({ storage: { type: 'memory' } });
-        await hal.init();
-        vfs = new VFS(hal);
-        kernel = new Kernel(hal, vfs);
+        stack = await createOsStack({ kernel: true });
     });
 
     afterEach(async () => {
-        await kernel.shutdown();
+        await stack.shutdown();
     });
 
     test('should have /lib/process.ts after boot', async () => {
+        const kernel = stack.kernel!;
+        const vfs = stack.vfs!;
+
         await kernel.boot({ initPath: '/bin/init.ts' });
 
         // Verify /lib/process.ts exists
@@ -466,6 +467,9 @@ describe('VFS Script Execution', () => {
     });
 
     test('should be able to read /lib/process.ts content', async () => {
+        const kernel = stack.kernel!;
+        const vfs = stack.vfs!;
+
         await kernel.boot({ initPath: '/bin/init.ts' });
 
         const handle = await vfs.open('/lib/process.ts', { read: true }, 'kernel');
