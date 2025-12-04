@@ -1,6 +1,17 @@
 # Bug: EMS Parallel Writes Fail Due to Single Connection
 
-## Summary
+## Status: RESOLVED
+
+**Fix:** Implemented atomic transaction-as-message pattern in HAL layer. See `docs/planning/OS_TRANSACTIONS.md`.
+
+**Results after fix:**
+- Parallel CREATE: ~25k ops/sec at 100 concurrency (both backends)
+- Parallel UPDATE: ~24k ops/sec at 100 concurrency
+- High concurrency burst (200 simultaneous): ~24k ops/sec
+
+---
+
+## Summary (Original Issue)
 The EMS (Entity Model System) uses a single database connection per stack. When multiple parallel operations attempt to create entities simultaneously, they fail with "cannot start a transaction within a transaction" because each CREATE operation wraps in a transaction.
 
 This affects **both SQLite and PostgreSQL** backends identically.
