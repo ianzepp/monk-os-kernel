@@ -5,8 +5,8 @@
   },
   "io": {
     "stdin": {
-      "type": "pubsub",
-      "subscribe": ["log.*"]
+      "type": "pubsub:subscribe",
+      "topics": ["log.*"]
     },
     "stdout": {
       "type": "file",
