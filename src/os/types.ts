@@ -265,6 +265,26 @@ export interface ServiceInfo {
     error?: string;
     /** Start time (ms since epoch) */
     startedAt?: number;
+    /** Runtime configuration */
+    config?: Record<string, unknown>;
+}
+
+/**
+ * Extended service definition with host service support
+ */
+export interface HostServiceDef {
+    /** Service name */
+    name: string;
+    /** Handler path in VFS */
+    handler: string;
+    /** Description */
+    description?: string;
+    /** Whether this is a host service (runs on Bun, not as kernel process) */
+    host?: boolean;
+    /** Activation configuration */
+    activate: { type: string; [key: string]: unknown };
+    /** Default configuration values */
+    defaults?: Record<string, unknown>;
 }
 
 // ============================================================================

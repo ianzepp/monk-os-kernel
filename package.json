@@ -4,13 +4,16 @@
     "description": "A Plan 9/BeOS-inspired operating system where Bun is the hardware",
     "type": "module",
     "main": "src/index.ts",
+    "workspaces": [
+        "packages/*"
+    ],
     "exports": {
         ".": "./src/index.ts",
         "./*": "./src/*"
     },
     "scripts": {
-        "start": "bun src/boot.ts",
-        "start:sqlite": "bun src/boot.ts --sqlite",
+        "start": "bun scripts/startup.ts",
+        "start:sqlite": "bun scripts/startup.ts --sqlite",
         "build": "scripts/build.sh",
         "build:warn": "scripts/build-warn.sh",
         "build:standalone": "scripts/build-standalone.sh",

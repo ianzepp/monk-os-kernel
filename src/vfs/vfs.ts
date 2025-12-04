@@ -76,6 +76,7 @@ import type { HostMount, HostMountOptions } from '@src/vfs/mounts/host.js';
 import {
     createHostMount,
     isUnderHostMount,
+    resolveHostPath,
     hostStat,
     hostReaddir,
     hostOpen,
@@ -479,6 +480,24 @@ export class VFS {
     unmountHost(vfsPath: string): void {
         const normalPath = this.normalizePath(vfsPath);
         this.hostMounts = this.hostMounts.filter(m => m.vfsPath !== normalPath);
+    }
+
+    /**
+     * Resolve a VFS path to a host filesystem path.
+     *
+     * Returns the absolute host path if the VFS path is under a host mount,
+     * or null if not under any host mount.
+     *
+     * @param vfsPath - VFS path to resolve
+     * @returns Absolute host path or null
+     */
+    resolveToHostPath(vfsPath: string): string | null {
+        const normalPath = this.normalizePath(vfsPath);
+        const mount = this.findHostMount(normalPath);
+        if (!mount) {
+            return null;
+        }
+        return resolveHostPath(mount, normalPath);
     }
 
     /**

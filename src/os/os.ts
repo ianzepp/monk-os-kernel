@@ -248,7 +248,10 @@ export class OS {
         // 6. Emit 'vfs' event - os.fs.* available
         await this.emit('vfs', this);
 
-        // 7. Install queued packages
+        // 7. Create standard directories (needed before package install)
+        await this.createStandardDirectories();
+
+        // 8. Install queued packages
         await this.pkg.installQueued();
 
         // 8. Create Kernel
@@ -399,6 +402,13 @@ export class OS {
     }
 
     /**
+     * Get the OS environment variables.
+     */
+    getEnv(): Record<string, string> {
+        return this.config.env ?? {};
+    }
+
+    /**
      * Build HAL configuration from OS config.
      */
     private buildHALConfig(): HALConfig {
@@ -430,6 +440,40 @@ export class OS {
         }
 
         return { storage: { type: 'memory' } };
+    }
+
+    /**
+     * Create standard OS directories.
+     *
+     * Creates the base directory structure needed for package installation
+     * and general OS operation.
+     */
+    private async createStandardDirectories(): Promise<void> {
+        if (!this.vfs) return;
+
+        const standardDirs = [
+            '/app',      // Application data and state
+            '/bin',      // User commands
+            '/etc',      // System configuration
+            '/home',     // User home directories
+            '/tmp',      // Temporary files
+            '/usr',      // Installed packages
+            '/var',      // Variable data
+            '/var/log',  // Log files
+            '/vol',      // Mounted volumes
+        ];
+
+        for (const dir of standardDirs) {
+            try {
+                await this.vfs.mkdir(dir, 'kernel', { recursive: true });
+            } catch (err) {
+                // EEXIST is fine - directory already exists
+                const error = err as Error & { code?: string };
+                if (error.code !== 'EEXIST') {
+                    // Log but don't fail - some dirs may not be creatable
+                }
+            }
+        }
     }
 
     /**
