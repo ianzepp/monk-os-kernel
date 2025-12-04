@@ -11,3 +11,4 @@
 export { SqlCreate } from './50-sql-create.js';
 export { SqlUpdate } from './50-sql-update.js';
 export { SqlDelete } from './50-sql-delete.js';
+export { PathnameSync } from './60-pathname-sync.js';

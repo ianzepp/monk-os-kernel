@@ -107,7 +107,7 @@ export class SqlCreate extends BaseObserver {
      * ALGORITHM:
      * For entity models (file, folder, device, proc, link, temp):
      * 1. Begin transaction
-     * 2. INSERT into entities table (id, model, parent, name, timestamps)
+     * 2. INSERT into entities table (id, model, parent, pathname)
      * 3. INSERT into detail table (id, model-specific fields)
      * 4. Commit transaction
      *
@@ -186,19 +186,19 @@ export class SqlCreate extends BaseObserver {
     }
 
     /**
-     * Insert into entities table (id, model, parent, name only).
+     * Insert into entities table (id, model, parent, pathname only).
      */
     private async insertEntity(
         db: ObserverContext['system']['db'],
         modelName: string,
         data: Record<string, unknown>
     ): Promise<void> {
-        const sql = `INSERT INTO entities (id, model, parent, name) VALUES (?, ?, ?, ?)`;
+        const sql = `INSERT INTO entities (id, model, parent, pathname) VALUES (?, ?, ?, ?)`;
         await db.execute(sql, [
             data.id,
             modelName,
             data.parent ?? null,
-            data.name ?? '',
+            data.pathname ?? '',
         ]);
     }
 
@@ -245,7 +245,7 @@ const META_MODELS = new Set(['models', 'fields', 'tracked']);
 const ENTITY_FIELDS = new Set([
     'model',
     'parent',
-    'name',
+    'pathname',
 ]);
 
 // =============================================================================

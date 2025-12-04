@@ -14,7 +14,7 @@
  * EXECUTION FLOW
  * ==============
  * ```
- * DatabaseOps.createAll('file', { name: 'doc.txt', parent: ROOT_ID })
+ * DatabaseOps.createAll('file', { pathname: 'doc.txt', parent: ROOT_ID })
  *     │
  * Ring 5: INSERT INTO file (...) ◄── entity persisted
  *     │
@@ -28,7 +28,7 @@
  * INVARIANTS
  * ==========
  * INV-1: Runs for all tables EXCEPT meta-tables (models, fields, tracked)
- * INV-2: Requires id, name, parent fields on the record
+ * INV-2: Requires id, pathname, parent fields on the record
  * INV-3: Runs after database persistence (Ring 5)
  * INV-4: EntityCache is eventually consistent with database
  *
@@ -151,10 +151,10 @@ export class EntityCacheSync extends BaseObserver {
     private handleCreate(cache: EntityCacheAdapter, modelName: string, record: ModelRecord): void {
         const id = record.get('id') as string;
         const parent = record.get('parent') as string | null;
-        const name = record.get('name') as string;
+        const pathname = record.get('pathname') as string;
 
-        // Defensive: all entities need name (except root)
-        if (!name && parent !== null) {
+        // Defensive: all entities need pathname (except root)
+        if (!pathname && parent !== null) {
             return;
         }
 
@@ -162,24 +162,24 @@ export class EntityCacheSync extends BaseObserver {
             id,
             model: modelName,
             parent: parent ?? null,
-            name: name ?? '',
+            pathname: pathname ?? '',
         });
     }
 
     /**
      * Handle entity update.
      *
-     * Checks for name and parent changes, applies to cache.
+     * Checks for pathname and parent changes, applies to cache.
      */
     private handleUpdate(cache: EntityCacheAdapter, id: string, record: ModelRecord): void {
-        const changes: { name?: string; parent?: string | null } = {};
+        const changes: { pathname?: string; parent?: string | null } = {};
 
         // Check for rename (has() returns true if field was changed)
-        if (record.has('name')) {
-            const newName = record.get('name') as string;
-            const oldName = record.old('name') as string;
-            if (newName !== oldName) {
-                changes.name = newName;
+        if (record.has('pathname')) {
+            const newPathname = record.get('pathname') as string;
+            const oldPathname = record.old('pathname') as string;
+            if (newPathname !== oldPathname) {
+                changes.pathname = newPathname;
             }
         }
 
@@ -221,8 +221,8 @@ export class EntityCacheSync extends BaseObserver {
  * implements these methods.
  */
 interface EntityCacheAdapter {
-    addEntity(input: { id: string; model: string; parent: string | null; name: string }): void;
-    updateEntity(id: string, changes: { name?: string; parent?: string | null }): void;
+    addEntity(input: { id: string; model: string; parent: string | null; pathname: string }): void;
+    updateEntity(id: string, changes: { pathname?: string; parent?: string | null }): void;
     removeEntity(id: string): void;
 }
 

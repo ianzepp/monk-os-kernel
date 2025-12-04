@@ -167,59 +167,118 @@ describe('SqlCreate', () => {
         });
     });
 
-    describe('execution', () => {
-        it('should execute INSERT statement', async () => {
+    describe('execution (meta-models)', () => {
+        // Meta-models (models, fields, tracked) use direct INSERT without transaction
+
+        it('should execute direct INSERT for meta-models', async () => {
             const record = createMockRecord({}, {
                 id: 'abc123',
-                name: 'Test',
-                value: 42,
+                model_name: 'test',
+                status: 'active',
             });
-            const ctx = createContext('create', record, mockDb);
+            // Use 'models' which is a meta-model
+            const ctx = createContext('create', record, mockDb, 'models');
 
             await observer.execute(ctx);
 
             expect(mockDb.calls.length).toBe(1);
             const call = mockDb.calls[0];
-            expect(call.sql).toContain('INSERT INTO test_model');
+            expect(call.sql).toContain('INSERT INTO models');
             expect(call.sql).toContain('id');
-            expect(call.sql).toContain('name');
-            expect(call.sql).toContain('value');
+            expect(call.sql).toContain('model_name');
         });
 
-        it('should use parameterized values', async () => {
+        it('should use parameterized values for meta-models', async () => {
             const record = createMockRecord({}, {
                 id: 'abc123',
-                name: 'Test',
+                model_name: 'test',
             });
-            const ctx = createContext('create', record, mockDb);
+            const ctx = createContext('create', record, mockDb, 'models');
 
             await observer.execute(ctx);
 
             const call = mockDb.calls[0];
             expect(call.params).toContain('abc123');
-            expect(call.params).toContain('Test');
+            expect(call.params).toContain('test');
         });
 
-        it('should handle null values', async () => {
+        it('should handle null values for meta-models', async () => {
             const record = createMockRecord({}, {
                 id: 'abc123',
-                name: null,
+                description: null,
             });
-            const ctx = createContext('create', record, mockDb);
+            const ctx = createContext('create', record, mockDb, 'models');
 
             await observer.execute(ctx);
 
             const call = mockDb.calls[0];
             expect(call.params).toContain(null);
         });
+    });
 
-        it('should use correct table name from model', async () => {
-            const record = createMockRecord({}, { id: 'abc123' });
-            const ctx = createContext('create', record, mockDb, 'invoices');
+    describe('execution (entity models)', () => {
+        // Entity models use transaction: BEGIN, INSERT entities, INSERT detail, COMMIT
+
+        it('should execute transaction for entity models', async () => {
+            const record = createMockRecord({}, {
+                id: 'abc123',
+                pathname: 'test.txt',
+                owner: 'user1',
+            });
+            // Use 'file' which is an entity model
+            const ctx = createContext('create', record, mockDb, 'file');
 
             await observer.execute(ctx);
 
-            expect(mockDb.calls[0].sql).toContain('INSERT INTO invoices');
+            // Should have 4 calls: BEGIN, INSERT entities, INSERT detail, COMMIT
+            expect(mockDb.calls.length).toBe(4);
+            expect(mockDb.calls[0].sql).toBe('BEGIN IMMEDIATE');
+            expect(mockDb.calls[1].sql).toContain('INSERT INTO entities');
+            expect(mockDb.calls[2].sql).toContain('INSERT INTO file');
+            expect(mockDb.calls[3].sql).toBe('COMMIT');
+        });
+
+        it('should insert entity with model, parent, pathname', async () => {
+            const record = createMockRecord({}, {
+                id: 'abc123',
+                pathname: 'test.txt',
+                parent: 'parent-id',
+                owner: 'user1',
+            });
+            const ctx = createContext('create', record, mockDb, 'file');
+
+            await observer.execute(ctx);
+
+            // Check entities INSERT (second call)
+            const entityCall = mockDb.calls[1];
+            expect(entityCall.sql).toContain('INSERT INTO entities');
+            expect(entityCall.params).toContain('abc123');      // id
+            expect(entityCall.params).toContain('file');        // model
+            expect(entityCall.params).toContain('parent-id');   // parent
+            expect(entityCall.params).toContain('test.txt');    // pathname
+        });
+
+        it('should insert detail with model-specific fields only', async () => {
+            const record = createMockRecord({}, {
+                id: 'abc123',
+                pathname: 'test.txt',
+                parent: 'parent-id',
+                owner: 'user1',
+                size: 1024,
+            });
+            const ctx = createContext('create', record, mockDb, 'file');
+
+            await observer.execute(ctx);
+
+            // Check detail INSERT (third call)
+            const detailCall = mockDb.calls[2];
+            expect(detailCall.sql).toContain('INSERT INTO file');
+            expect(detailCall.params).toContain('abc123');  // id
+            expect(detailCall.params).toContain('user1');   // owner
+            expect(detailCall.params).toContain(1024);      // size
+            // pathname and parent should NOT be in detail table
+            expect(detailCall.params).not.toContain('test.txt');
+            expect(detailCall.params).not.toContain('parent-id');
         });
     });
 
@@ -530,7 +589,7 @@ describe('Ring 5 is required for persistence', () => {
         // Since no INSERT happened, the re-read finds nothing, and createOne throws EIO
         try {
             await service.createOne('file', {
-                name: 'ghost-file.txt',
+                pathname: 'ghost-file.txt',
                 owner: 'ghost',
             });
             // Should not reach here
@@ -541,8 +600,8 @@ describe('Ring 5 is required for persistence', () => {
             expect((err as Error).message).toBe('Create failed');
         }
 
-        // Double-check: verify ghost file is NOT in database
-        const rows = await db.query('SELECT * FROM file WHERE name = ?', ['ghost-file.txt']);
+        // Double-check: verify ghost file is NOT in database (check entities table)
+        const rows = await db.query('SELECT * FROM entities WHERE pathname = ?', ['ghost-file.txt']);
         expect(rows.length).toBe(0);
 
         // Cleanup
@@ -569,19 +628,31 @@ describe('Ring 5 is required for persistence', () => {
 
         // Create a record - Ring 5 observers execute SQL
         const created = await service.createOne('file', {
-            name: 'real-file.txt',
+            pathname: 'real-file.txt',
             owner: 'real-owner',
         });
 
-        // The record should exist and have all fields
+        // The record should exist and have an id
         expect(created).toBeDefined();
         expect(created.id).toBeTruthy();
-        expect(created.name).toBe('real-file.txt');
+        // Note: pathname is stored in entities table, owner in detail table
         expect(created.owner).toBe('real-owner');
 
-        // Verify it's actually in the database via direct query
-        const rows = await db.query('SELECT * FROM file WHERE name = ?', ['real-file.txt']);
-        expect(rows.length).toBe(1);
+        // Verify entities table has the pathname
+        const entityRows = await db.query<{ pathname: string }>(
+            'SELECT pathname FROM entities WHERE id = ?',
+            [created.id]
+        );
+        expect(entityRows.length).toBe(1);
+        expect(entityRows[0].pathname).toBe('real-file.txt');
+
+        // Verify detail table has the owner
+        const detailRows = await db.query<{ owner: string }>(
+            'SELECT owner FROM file WHERE id = ?',
+            [created.id]
+        );
+        expect(detailRows.length).toBe(1);
+        expect(detailRows[0].owner).toBe('real-owner');
 
         // Cleanup
         await db.close();

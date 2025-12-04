@@ -94,7 +94,7 @@ export class SqlUpdate extends BaseObserver {
      *
      * ALGORITHM:
      * For entity models (file, folder, device, proc, link, temp):
-     * 1. Split changes into entity fields (parent, name) and detail fields
+     * 1. Split changes into entity fields (parent, pathname) and detail fields
      * 2. Begin transaction if both need updating
      * 3. UPDATE entities table for hierarchy changes
      * 4. UPDATE detail table for model-specific changes
@@ -215,7 +215,7 @@ const META_MODELS = new Set(['models', 'fields', 'tracked']);
  */
 const ENTITY_FIELDS = new Set([
     'parent',
-    'name',
+    'pathname',
 ]);
 
 // =============================================================================

@@ -11,7 +11,7 @@
  * - id: Entity UUID (primary key)
  * - model: Model name (determines which table has full metadata)
  * - parent: Parent entity UUID (for path traversal)
- * - name: Entity name (filename)
+ * - pathname: VFS path component (derived from model's pathname field)
  *
  * This is approximately 200-250 bytes per entity. For 1 million entities,
  * the cache uses ~250-300 MB of memory - acceptable for modern systems.
@@ -34,18 +34,18 @@
  * ```
  * computePath("uuid-D")
  *     │
- *     ├─ byId.get("uuid-D").parent → uuid-C, name="report.pdf"
- *     ├─ byId.get("uuid-C").parent → uuid-B, name="docs"
- *     ├─ byId.get("uuid-B").parent → uuid-A, name="user"
- *     └─ byId.get("uuid-A").parent → root,   name="home"
+ *     ├─ byId.get("uuid-D").parent → uuid-C, pathname="report.pdf"
+ *     ├─ byId.get("uuid-C").parent → uuid-B, pathname="docs"
+ *     ├─ byId.get("uuid-B").parent → uuid-A, pathname="user"
+ *     └─ byId.get("uuid-A").parent → root,   pathname="home"
  *
- * Walk parent chain, collect names, reverse → "/home/user/docs/report.pdf"
+ * Walk parent chain, collect pathnames, reverse → "/home/user/docs/report.pdf"
  * ```
  *
  * INVARIANTS (must always hold true)
  * ===================================
  * INV-1: Every entity in byId has a corresponding entry in childIndex (if has parent)
- * INV-2: childIndex key format is always "parentId:name"
+ * INV-2: childIndex key format is always "parentId:pathname"
  * INV-3: Root entity has parent = null
  * INV-4: Cache is eventually consistent with database (sync via Ring 8 observer)
  * INV-5: Entity model field is immutable (never changes after creation)
@@ -116,8 +116,8 @@ export interface CachedEntity {
     /** Parent entity UUID (null for root) */
     readonly parent: string | null;
 
-    /** Entity name (filename) */
-    readonly name: string;
+    /** VFS path component (derived from models.pathname field) */
+    readonly pathname: string;
 }
 
 /**
@@ -129,7 +129,7 @@ export interface EntityInput {
     id: string;
     model: string;
     parent?: string | null;
-    name: string;
+    pathname: string;
 }
 
 /**
@@ -139,7 +139,7 @@ export interface EntityInput {
  */
 export interface EntityUpdate {
     parent?: string | null;
-    name?: string;
+    pathname?: string;
 }
 
 /**
@@ -191,8 +191,8 @@ export class EntityCache {
     /**
      * Child index for path resolution.
      *
-     * WHY: O(1) lookup of child by parent + name.
-     * Key: "parentId:childName"
+     * WHY: O(1) lookup of child by parent + pathname.
+     * Key: "parentId:childPathname"
      * Value: child entity UUID
      *
      * INVARIANT: Every entity with a parent has an entry here.
@@ -259,7 +259,7 @@ export class EntityCache {
         // Note: entities table has no trashed_at - cache contains ALL entities.
         // Soft-delete status is determined by the detail table's trashed_at.
         const entities = await db.query<CachedEntity>(
-            'SELECT id, model, parent, name FROM entities'
+            'SELECT id, model, parent, pathname FROM entities'
         );
 
         // Add each entity to cache
@@ -338,7 +338,7 @@ export class EntityCache {
                 break; // Reached root
             }
 
-            parts.unshift(current.name);
+            parts.unshift(current.pathname);
 
             if (!current.parent) {
                 break; // Orphaned entity (shouldn't happen)
@@ -351,20 +351,20 @@ export class EntityCache {
     }
 
     /**
-     * Resolve parent path and return parent UUID + child name.
+     * Resolve parent path and return parent UUID + child pathname.
      *
      * Useful for create operations where you need the parent UUID.
      *
      * @param path - Full path (e.g., "/home/user/newfile.txt")
-     * @returns { parentId, name } or null if parent not found
+     * @returns { parentId, pathname } or null if parent not found
      */
-    resolveParent(path: string): { parentId: string; name: string } | null {
+    resolveParent(path: string): { parentId: string; pathname: string } | null {
         const parts = path.split('/').filter(Boolean);
         if (parts.length === 0) {
             return null; // Can't get parent of root
         }
 
-        const name = parts.pop()!;
+        const pathname = parts.pop()!;
         const parentPath = '/' + parts.join('/');
         const parentId = this.resolvePath(parentPath);
 
@@ -372,7 +372,7 @@ export class EntityCache {
             return null;
         }
 
-        return { parentId, name };
+        return { parentId, pathname };
     }
 
     // =========================================================================
@@ -410,14 +410,14 @@ export class EntityCache {
     }
 
     /**
-     * Get child entity by parent + name.
+     * Get child entity by parent + pathname.
      *
      * @param parentId - Parent entity UUID
-     * @param name - Child name
+     * @param pathname - Child pathname
      * @returns Child entity UUID or undefined
      */
-    getChild(parentId: string, name: string): string | undefined {
-        return this.childIndex.get(this.childKey(parentId, name));
+    getChild(parentId: string, pathname: string): string | undefined {
+        return this.childIndex.get(this.childKey(parentId, pathname));
     }
 
     /**
@@ -459,7 +459,7 @@ export class EntityCache {
             id: input.id,
             model: input.model,
             parent: input.parent ?? null,
-            name: input.name,
+            pathname: input.pathname,
         };
 
         // Add to primary index
@@ -467,7 +467,7 @@ export class EntityCache {
 
         // Add to child index (if has parent)
         if (entity.parent) {
-            this.childIndex.set(this.childKey(entity.parent, entity.name), entity.id);
+            this.childIndex.set(this.childKey(entity.parent, entity.pathname), entity.id);
 
             // Add to childrenOf index (if enabled)
             if (this.maintainChildrenOf) {
@@ -497,32 +497,32 @@ export class EntityCache {
         }
 
         // Handle rename
-        if (changes.name !== undefined && changes.name !== existing.name) {
+        if (changes.pathname !== undefined && changes.pathname !== existing.pathname) {
             // Remove old child index entry
             if (existing.parent) {
-                this.childIndex.delete(this.childKey(existing.parent, existing.name));
+                this.childIndex.delete(this.childKey(existing.parent, existing.pathname));
             }
 
             // Create updated entity (immutable update)
             const updated: CachedEntity = {
                 ...existing,
-                name: changes.name,
+                pathname: changes.pathname,
             };
             this.byId.set(id, updated);
 
             // Add new child index entry
             if (updated.parent) {
-                this.childIndex.set(this.childKey(updated.parent, updated.name), id);
+                this.childIndex.set(this.childKey(updated.parent, updated.pathname), id);
             }
 
-            return; // Name changed, skip parent change handling
+            return; // Pathname changed, skip parent change handling
         }
 
         // Handle move (parent change)
         if (changes.parent !== undefined && changes.parent !== existing.parent) {
             // Remove from old parent's indexes
             if (existing.parent) {
-                this.childIndex.delete(this.childKey(existing.parent, existing.name));
+                this.childIndex.delete(this.childKey(existing.parent, existing.pathname));
 
                 if (this.maintainChildrenOf) {
                     this.childrenOf.get(existing.parent)?.delete(id);
@@ -538,7 +538,7 @@ export class EntityCache {
 
             // Add to new parent's indexes
             if (updated.parent) {
-                this.childIndex.set(this.childKey(updated.parent, updated.name), id);
+                this.childIndex.set(this.childKey(updated.parent, updated.pathname), id);
 
                 if (this.maintainChildrenOf) {
                     let siblings = this.childrenOf.get(updated.parent);
@@ -570,7 +570,7 @@ export class EntityCache {
 
         // Remove from child index
         if (existing.parent) {
-            this.childIndex.delete(this.childKey(existing.parent, existing.name));
+            this.childIndex.delete(this.childKey(existing.parent, existing.pathname));
 
             // Remove from childrenOf index
             if (this.maintainChildrenOf) {
@@ -654,10 +654,10 @@ export class EntityCache {
      * Build child index key.
      *
      * @param parentId - Parent entity UUID
-     * @param name - Child name
-     * @returns Index key "parentId:name"
+     * @param pathname - Child pathname
+     * @returns Index key "parentId:pathname"
      */
-    private childKey(parentId: string, name: string): string {
-        return `${parentId}:${name}`;
+    private childKey(parentId: string, pathname: string): string {
+        return `${parentId}:${pathname}`;
     }
 }

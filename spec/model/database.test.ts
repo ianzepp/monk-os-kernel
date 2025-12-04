@@ -1227,12 +1227,11 @@ describe('DatabaseService', () => {
     describe('createOne', () => {
         it('should create a file record', async () => {
             const file = await service.createOne<DbRecord>('file', {
-                name: 'test.txt',
+                pathname: 'test.txt',
                 owner: 'test-owner',
             });
 
             expect(file.id).toBeTruthy();
-            expect(file.name).toBe('test.txt');
             expect(file.owner).toBe('test-owner');
             expect(file.created_at).toBeTruthy();
             expect(file.updated_at).toBeTruthy();
@@ -1240,7 +1239,7 @@ describe('DatabaseService', () => {
 
         it('should generate ID if not provided', async () => {
             const file = await service.createOne<DbRecord>('file', {
-                name: 'test.txt',
+                pathname: 'test.txt',
                 owner: 'test-owner',
             });
             expect(file.id).toMatch(/^[0-9a-f]{32}$/);
@@ -1250,7 +1249,7 @@ describe('DatabaseService', () => {
             const customId = 'custom123456789012345678901234';
             const file = await service.createOne<DbRecord>('file', {
                 id: customId,
-                name: 'test.txt',
+                pathname: 'test.txt',
                 owner: 'test-owner',
             });
             expect(file.id).toBe(customId);
@@ -1260,20 +1259,20 @@ describe('DatabaseService', () => {
     describe('createAll', () => {
         it('should create multiple records', async () => {
             const files = await service.createAll<DbRecord>('file', [
-                { name: 'a.txt', owner: 'owner-1' },
-                { name: 'b.txt', owner: 'owner-2' },
+                { pathname: 'a.txt', owner: 'owner-1' },
+                { pathname: 'b.txt', owner: 'owner-2' },
             ]);
 
             expect(files.length).toBe(2);
-            expect(files[0].name).toBe('a.txt');
-            expect(files[1].name).toBe('b.txt');
+            expect(files[0].owner).toBe('owner-1');
+            expect(files[1].owner).toBe('owner-2');
         });
     });
 
     describe('updateOne', () => {
         it('should update a record', async () => {
             const created = await service.createOne<DbRecord>('file', {
-                name: 'original.txt',
+                pathname: 'original.txt',
                 owner: 'test-owner',
             });
 
@@ -1281,17 +1280,17 @@ describe('DatabaseService', () => {
             await new Promise((resolve) => setTimeout(resolve, 10));
 
             const updated = await service.updateOne<DbRecord>('file', created.id, {
-                name: 'renamed.txt',
+                mimetype: 'text/plain',
             });
 
-            expect(updated.name).toBe('renamed.txt');
+            expect(updated.mimetype).toBe('text/plain');
             expect(new Date(updated.updated_at).getTime()).toBeGreaterThanOrEqual(
                 new Date(created.created_at).getTime()
             );
         });
 
         it('should throw for nonexistent record', async () => {
-            await expect(service.updateOne('file', 'nonexistent', { name: 'test' })).rejects.toThrow(
+            await expect(service.updateOne('file', 'nonexistent', { mimetype: 'test' })).rejects.toThrow(
                 /not found/
             );
         });
@@ -1299,8 +1298,8 @@ describe('DatabaseService', () => {
 
     describe('updateAny', () => {
         it('should update records matching filter', async () => {
-            await service.createOne<DbRecord>('file', { name: 'update-test.txt', owner: 'owner-x' });
-            await service.createOne<DbRecord>('file', { name: 'update-test2.txt', owner: 'owner-x' });
+            await service.createOne<DbRecord>('file', { pathname: 'update-test.txt', owner: 'owner-x' });
+            await service.createOne<DbRecord>('file', { pathname: 'update-test2.txt', owner: 'owner-x' });
 
             const updated = await service.updateAny<DbRecord>(
                 'file',
@@ -1318,7 +1317,7 @@ describe('DatabaseService', () => {
     describe('deleteOne', () => {
         it('should soft delete a record', async () => {
             const created = await service.createOne<DbRecord>('file', {
-                name: 'delete-me.txt',
+                pathname: 'delete-me.txt',
                 owner: 'test-owner',
             });
 
@@ -1332,7 +1331,7 @@ describe('DatabaseService', () => {
 
         it('should still find with trashed option', async () => {
             const created = await service.createOne<DbRecord>('file', {
-                name: 'delete-me.txt',
+                pathname: 'delete-me.txt',
                 owner: 'test-owner',
             });
 
@@ -1350,8 +1349,8 @@ describe('DatabaseService', () => {
 
     describe('deleteAny', () => {
         it('should delete records matching filter', async () => {
-            await service.createOne<DbRecord>('file', { name: 'del-a.txt', owner: 'del-owner' });
-            await service.createOne<DbRecord>('file', { name: 'del-b.txt', owner: 'del-owner' });
+            await service.createOne<DbRecord>('file', { pathname: 'del-a.txt', owner: 'del-owner' });
+            await service.createOne<DbRecord>('file', { pathname: 'del-b.txt', owner: 'del-owner' });
 
             const deleted = await service.deleteAny<DbRecord>('file', {
                 where: { owner: 'del-owner' },
@@ -1368,7 +1367,7 @@ describe('DatabaseService', () => {
     describe('revertOne', () => {
         it('should revert a soft-deleted record', async () => {
             const created = await service.createOne<DbRecord>('file', {
-                name: 'revert-me.txt',
+                pathname: 'revert-me.txt',
                 owner: 'test-owner',
             });
 
@@ -1391,7 +1390,7 @@ describe('DatabaseService', () => {
     describe('expireOne', () => {
         it('should hard delete a record', async () => {
             const created = await service.createOne<DbRecord>('file', {
-                name: 'expire-me.txt',
+                pathname: 'expire-me.txt',
                 owner: 'test-owner',
             });
 
@@ -1411,28 +1410,28 @@ describe('DatabaseService', () => {
     describe('upsertOne', () => {
         it('should create when record does not exist', async () => {
             const file = await service.upsertOne<DbRecord>('file', {
-                name: 'upsert-new.txt',
+                pathname: 'upsert-new.txt',
                 owner: 'test-owner',
             });
 
             expect(file.id).toBeTruthy();
-            expect(file.name).toBe('upsert-new.txt');
+            expect(file.owner).toBe('test-owner');
         });
 
         it('should update when record exists', async () => {
             const created = await service.createOne<DbRecord>('file', {
-                name: 'upsert-existing.txt',
+                pathname: 'upsert-existing.txt',
                 owner: 'test-owner',
             });
 
             const updated = await service.upsertOne<DbRecord>('file', {
                 id: created.id,
-                name: 'upsert-updated.txt',
-                owner: 'test-owner',
+                pathname: 'upsert-existing.txt',
+                owner: 'updated-owner',
             });
 
             expect(updated.id).toBe(created.id);
-            expect(updated.name).toBe('upsert-updated.txt');
+            expect(updated.owner).toBe('updated-owner');
         });
     });
 
@@ -1447,8 +1446,8 @@ describe('DatabaseService', () => {
 
         it('should stream created records', async () => {
             const inputs = [
-                { name: 'stream-1.txt', owner: 'user-1' },
-                { name: 'stream-2.txt', owner: 'user-2' },
+                { pathname: 'stream-1.txt', owner: 'user-1' },
+                { pathname: 'stream-2.txt', owner: 'user-2' },
             ];
 
             const created: DbRecord[] = [];
@@ -1457,8 +1456,8 @@ describe('DatabaseService', () => {
             }
 
             expect(created.length).toBe(2);
-            expect(created[0]?.name).toBe('stream-1.txt');
-            expect(created[1]?.name).toBe('stream-2.txt');
+            expect(created[0]?.owner).toBe('user-1');
+            expect(created[1]?.owner).toBe('user-2');
         });
     });
 });

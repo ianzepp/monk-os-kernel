@@ -103,17 +103,16 @@ CREATE TABLE IF NOT EXISTS entities (
     -- WHY FK to entities: Cross-model parent relationships (file in folder).
     parent      TEXT REFERENCES entities(id),
 
-    -- WHY name NOT NULL: Every entity needs a name for path resolution.
-    -- Root is special case (name = '').
-    name        TEXT NOT NULL
+    -- WHY pathname: Derived from the field specified by models.pathname.
+    -- Example: users.email → pathname = 'ian@example.com'
+    -- Root is special case (pathname = '').
+    pathname    TEXT NOT NULL
 );
 
--- Index for path resolution: find child by parent + name
+-- Index for path resolution: find child by parent + pathname
 -- This is the critical index for O(1) path component lookup
--- Note: No partial index - entities table has no trashed_at column.
--- Uniqueness is enforced across all entities (trashed or not).
-CREATE UNIQUE INDEX IF NOT EXISTS idx_entities_parent_name
-    ON entities(parent, name);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_entities_parent_pathname
+    ON entities(parent, pathname);
 
 -- Index for listing children of a parent (readdir)
 CREATE INDEX IF NOT EXISTS idx_entities_parent
@@ -179,7 +178,16 @@ CREATE TABLE IF NOT EXISTS models (
     external    INTEGER DEFAULT 0,
 
     -- passthrough: Skip observer pipeline entirely (DANGEROUS - use sparingly)
-    passthrough INTEGER DEFAULT 0
+    passthrough INTEGER DEFAULT 0,
+
+    -- -------------------------------------------------------------------------
+    -- VFS Integration
+    -- -------------------------------------------------------------------------
+    -- WHY pathname: Specifies which field becomes the VFS path component.
+    -- NULL = model is not VFS-addressable (data-only, accessed via API/SQL)
+    -- 'fieldname' = that field's value becomes entities.pathname
+    -- Example: pathname = 'email' means users.email becomes the VFS path
+    pathname    TEXT
 );
 
 -- Index active models by status for listing queries
@@ -501,7 +509,7 @@ CREATE TABLE IF NOT EXISTS temp (
 -- The root entity is the namespace origin. All paths start here.
 -- WHY well-known UUID: Simplifies bootstrap, no discovery needed.
 
-INSERT OR IGNORE INTO entities (id, model, parent, name) VALUES
+INSERT OR IGNORE INTO entities (id, model, parent, pathname) VALUES
     ('00000000-0000-0000-0000-000000000000', 'folder', NULL, '');
 
 INSERT OR IGNORE INTO folder (id, owner) VALUES
@@ -526,13 +534,13 @@ INSERT OR IGNORE INTO models (model_name, status, sudo, description) VALUES
 -- Core VFS entity types. Their detail is in per-model tables, blob data
 -- (if any) is stored separately in HAL block storage.
 
-INSERT OR IGNORE INTO models (model_name, status, description) VALUES
-    ('file', 'system', 'Regular file entity - has associated blob data'),
-    ('folder', 'system', 'Directory entity - contains child entries'),
-    ('device', 'system', 'Device node entity - kernel device interface'),
-    ('proc', 'system', 'Process/virtual file entity - dynamic content'),
-    ('link', 'system', 'Symbolic link entity - path redirection'),
-    ('temp', 'system', 'Temporary file entity - SQL metadata + HAL blob');
+INSERT OR IGNORE INTO models (model_name, status, description, pathname) VALUES
+    ('file', 'system', 'Regular file entity - has associated blob data', 'name'),
+    ('folder', 'system', 'Directory entity - contains child entries', 'name'),
+    ('device', 'system', 'Device node entity - kernel device interface', 'name'),
+    ('proc', 'system', 'Process/virtual file entity - dynamic content', 'name'),
+    ('link', 'system', 'Symbolic link entity - path redirection', 'name'),
+    ('temp', 'system', 'Temporary file entity - SQL metadata + HAL blob', 'name');
 
 -- =============================================================================
 -- SEED DATA: MODELS TABLE FIELDS (Meta-model)
@@ -546,7 +554,8 @@ INSERT OR IGNORE INTO fields (model_name, field_name, type, required, descriptio
     ('models', 'frozen', 'boolean', 0, 'All entity changes prevented'),
     ('models', 'immutable', 'boolean', 0, 'Entities are write-once (no updates)'),
     ('models', 'external', 'boolean', 0, 'Managed by external system'),
-    ('models', 'passthrough', 'boolean', 0, 'Skip observer pipeline (dangerous)');
+    ('models', 'passthrough', 'boolean', 0, 'Skip observer pipeline (dangerous)'),
+    ('models', 'pathname', 'text', 0, 'Field that becomes VFS pathname (null = not VFS)');
 
 -- =============================================================================
 -- SEED DATA: FIELDS TABLE FIELDS (Meta-model)

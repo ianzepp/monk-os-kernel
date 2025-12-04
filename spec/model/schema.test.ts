@@ -310,25 +310,6 @@ describe('Model Schema', () => {
     });
 
     describe('file model fields seed data', () => {
-        it('should have name field', async () => {
-            const field = await db.queryOne<{ field_name: string; type: string; required: number }>(
-                "SELECT field_name, type, required FROM fields WHERE model_name = 'file' AND field_name = 'name'"
-            );
-
-            expect(field).not.toBeNull();
-            expect(field!.type).toBe('text');
-            expect(field!.required).toBe(1);
-        });
-
-        it('should have parent field', async () => {
-            const field = await db.queryOne<{ field_name: string; type: string }>(
-                "SELECT field_name, type FROM fields WHERE model_name = 'file' AND field_name = 'parent'"
-            );
-
-            expect(field).not.toBeNull();
-            expect(field!.type).toBe('uuid');
-        });
-
         it('should have owner field', async () => {
             const field = await db.queryOne<{ field_name: string; type: string; required: number }>(
                 "SELECT field_name, type, required FROM fields WHERE model_name = 'file' AND field_name = 'owner'"
@@ -368,61 +349,53 @@ describe('Model Schema', () => {
     });
 
     describe('folder model fields seed data', () => {
-        it('should have name, parent, owner fields', async () => {
+        it('should have owner field (pathname/parent in entities table)', async () => {
             const fields = await db.query<{ field_name: string }>(
                 "SELECT field_name FROM fields WHERE model_name = 'folder'"
             );
             const names = fields.map((f) => f.field_name);
 
-            expect(names).toContain('name');
-            expect(names).toContain('parent');
             expect(names).toContain('owner');
-            expect(names.length).toBe(3);
+            expect(names.length).toBe(1); // Only model-specific fields
         });
     });
 
     describe('device model fields seed data', () => {
-        it('should have name, parent, owner, driver fields', async () => {
+        it('should have owner, driver fields (pathname/parent in entities table)', async () => {
             const fields = await db.query<{ field_name: string }>(
                 "SELECT field_name FROM fields WHERE model_name = 'device'"
             );
             const names = fields.map((f) => f.field_name);
 
-            expect(names).toContain('name');
-            expect(names).toContain('parent');
             expect(names).toContain('owner');
             expect(names).toContain('driver');
-            expect(names.length).toBe(4);
+            expect(names.length).toBe(2);
         });
     });
 
     describe('proc model fields seed data', () => {
-        it('should have name, parent, owner, handler fields', async () => {
+        it('should have owner, handler fields (pathname/parent in entities table)', async () => {
             const fields = await db.query<{ field_name: string }>(
                 "SELECT field_name FROM fields WHERE model_name = 'proc'"
             );
             const names = fields.map((f) => f.field_name);
 
-            expect(names).toContain('name');
-            expect(names).toContain('parent');
             expect(names).toContain('owner');
             expect(names).toContain('handler');
-            expect(names.length).toBe(4);
+            expect(names.length).toBe(2);
         });
     });
 
     describe('link model fields seed data', () => {
-        it('should have name, parent, owner, target fields', async () => {
+        it('should have owner, target fields (pathname/parent in entities table)', async () => {
             const fields = await db.query<{ field_name: string }>(
                 "SELECT field_name FROM fields WHERE model_name = 'link'"
             );
             const names = fields.map((f) => f.field_name);
 
-            expect(names).toContain('name');
-            expect(names).toContain('parent');
             expect(names).toContain('owner');
             expect(names).toContain('target');
-            expect(names.length).toBe(4);
+            expect(names.length).toBe(2);
         });
     });
 
@@ -625,7 +598,46 @@ describe('Model Schema', () => {
     // SYSTEM ENTITY TABLES
     // =========================================================================
 
-    describe('file entity table', () => {
+    // =========================================================================
+    // ENTITIES TABLE (Core Identity + Hierarchy)
+    // =========================================================================
+
+    describe('entities table', () => {
+        it('should create entities table', async () => {
+            const tables = await db.query<{ name: string }>(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='entities'"
+            );
+            expect(tables.length).toBe(1);
+        });
+
+        it('should have id, model, parent, pathname columns', async () => {
+            const columns = await db.query<{ name: string }>('PRAGMA table_info(entities)');
+            const names = columns.map((c) => c.name);
+
+            expect(names).toContain('id');
+            expect(names).toContain('model');
+            expect(names).toContain('parent');
+            expect(names).toContain('pathname');
+            expect(names.length).toBe(4); // No timestamps in entities table
+        });
+
+        it('should create indexes', async () => {
+            const indexes = await db.query<{ name: string }>(
+                "SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_entities_%'"
+            );
+            const names = indexes.map((i) => i.name);
+
+            expect(names).toContain('idx_entities_parent_pathname');
+            expect(names).toContain('idx_entities_parent');
+            expect(names).toContain('idx_entities_model');
+        });
+    });
+
+    // =========================================================================
+    // DETAIL TABLES (Model-specific fields only)
+    // =========================================================================
+
+    describe('file detail table', () => {
         it('should create file table', async () => {
             const tables = await db.query<{ name: string }>(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='file'"
@@ -633,66 +645,61 @@ describe('Model Schema', () => {
             expect(tables.length).toBe(1);
         });
 
-        it('should have all required columns', async () => {
+        it('should have detail columns (no pathname/parent - those are in entities)', async () => {
             const columns = await db.query<{ name: string }>('PRAGMA table_info(file)');
             const names = columns.map((c) => c.name);
 
-            // System fields
+            // System fields (timestamps in detail table)
             expect(names).toContain('id');
             expect(names).toContain('created_at');
             expect(names).toContain('updated_at');
             expect(names).toContain('trashed_at');
             expect(names).toContain('expired_at');
 
-            // File-specific fields
-            expect(names).toContain('name');
-            expect(names).toContain('parent');
+            // File-specific fields only
             expect(names).toContain('owner');
             expect(names).toContain('size');
             expect(names).toContain('mimetype');
             expect(names).toContain('checksum');
+
+            // pathname and parent are NOT in detail table
+            expect(names).not.toContain('name');
+            expect(names).not.toContain('pathname');
+            expect(names).not.toContain('parent');
         });
 
-        it('should create indexes', async () => {
-            const indexes = await db.query<{ name: string }>(
-                "SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_file_%'"
-            );
-            const names = indexes.map((i) => i.name);
-
-            expect(names).toContain('idx_file_parent');
-            expect(names).toContain('idx_file_parent_name');
-            expect(names).toContain('idx_file_owner');
-        });
-
-        it('should allow inserting file entities', async () => {
+        it('should allow inserting file entities via entities + file', async () => {
+            // First insert into entities table
             await db.execute(`
-                INSERT INTO file (name, owner) VALUES ('test.txt', 'owner-123')
+                INSERT INTO entities (id, model, parent, pathname)
+                VALUES ('test-file-id', 'file', NULL, 'test.txt')
+            `);
+            // Then insert into detail table
+            await db.execute(`
+                INSERT INTO file (id, owner) VALUES ('test-file-id', 'owner-123')
             `);
 
-            const file = await db.queryOne<{ name: string; owner: string; size: number }>(
-                "SELECT name, owner, size FROM file WHERE name = 'test.txt'"
+            const file = await db.queryOne<{ owner: string; size: number }>(
+                "SELECT owner, size FROM file WHERE id = 'test-file-id'"
             );
 
             expect(file).not.toBeNull();
-            expect(file!.name).toBe('test.txt');
             expect(file!.owner).toBe('owner-123');
             expect(file!.size).toBe(0); // default
         });
 
-        it('should enforce name NOT NULL', async () => {
-            await expect(
-                db.execute("INSERT INTO file (owner) VALUES ('owner-123')")
-            ).rejects.toThrow();
-        });
-
         it('should enforce owner NOT NULL', async () => {
+            await db.execute(`
+                INSERT INTO entities (id, model, parent, pathname)
+                VALUES ('test-file-2', 'file', NULL, 'test2.txt')
+            `);
             await expect(
-                db.execute("INSERT INTO file (name) VALUES ('test.txt')")
+                db.execute("INSERT INTO file (id) VALUES ('test-file-2')")
             ).rejects.toThrow();
         });
     });
 
-    describe('folder entity table', () => {
+    describe('folder detail table', () => {
         it('should create folder table', async () => {
             const tables = await db.query<{ name: string }>(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='folder'"
@@ -700,40 +707,20 @@ describe('Model Schema', () => {
             expect(tables.length).toBe(1);
         });
 
-        it('should have all required columns', async () => {
+        it('should have detail columns only', async () => {
             const columns = await db.query<{ name: string }>('PRAGMA table_info(folder)');
             const names = columns.map((c) => c.name);
 
             expect(names).toContain('id');
-            expect(names).toContain('name');
-            expect(names).toContain('parent');
             expect(names).toContain('owner');
-        });
-
-        it('should create indexes', async () => {
-            const indexes = await db.query<{ name: string }>(
-                "SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_folder_%'"
-            );
-            const names = indexes.map((i) => i.name);
-
-            expect(names).toContain('idx_folder_parent');
-            expect(names).toContain('idx_folder_parent_name');
-            expect(names).toContain('idx_folder_owner');
-        });
-
-        it('should allow inserting folder entities', async () => {
-            await db.execute(`
-                INSERT INTO folder (name, owner) VALUES ('docs', 'owner-123')
-            `);
-
-            const folder = await db.queryOne<{ name: string }>(
-                "SELECT name FROM folder WHERE name = 'docs'"
-            );
-            expect(folder).not.toBeNull();
+            // pathname and parent are NOT in detail table
+            expect(names).not.toContain('name');
+            expect(names).not.toContain('pathname');
+            expect(names).not.toContain('parent');
         });
     });
 
-    describe('device entity table', () => {
+    describe('device detail table', () => {
         it('should create device table', async () => {
             const tables = await db.query<{ name: string }>(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='device'"
@@ -741,37 +728,31 @@ describe('Model Schema', () => {
             expect(tables.length).toBe(1);
         });
 
-        it('should have all required columns', async () => {
+        it('should have detail columns only', async () => {
             const columns = await db.query<{ name: string }>('PRAGMA table_info(device)');
             const names = columns.map((c) => c.name);
 
             expect(names).toContain('id');
-            expect(names).toContain('name');
-            expect(names).toContain('parent');
             expect(names).toContain('owner');
             expect(names).toContain('driver');
+            // pathname and parent are NOT in detail table
+            expect(names).not.toContain('name');
+            expect(names).not.toContain('pathname');
+            expect(names).not.toContain('parent');
         });
 
         it('should enforce driver NOT NULL', async () => {
-            await expect(
-                db.execute("INSERT INTO device (name, owner) VALUES ('console', 'kernel')")
-            ).rejects.toThrow();
-        });
-
-        it('should allow inserting device entities', async () => {
             await db.execute(`
-                INSERT INTO device (name, owner, driver) VALUES ('console', 'kernel', 'hal:console')
+                INSERT INTO entities (id, model, parent, pathname)
+                VALUES ('test-device', 'device', NULL, 'console')
             `);
-
-            const device = await db.queryOne<{ driver: string }>(
-                "SELECT driver FROM device WHERE name = 'console'"
-            );
-            expect(device).not.toBeNull();
-            expect(device!.driver).toBe('hal:console');
+            await expect(
+                db.execute("INSERT INTO device (id, owner) VALUES ('test-device', 'kernel')")
+            ).rejects.toThrow();
         });
     });
 
-    describe('proc entity table', () => {
+    describe('proc detail table', () => {
         it('should create proc table', async () => {
             const tables = await db.query<{ name: string }>(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='proc'"
@@ -779,37 +760,31 @@ describe('Model Schema', () => {
             expect(tables.length).toBe(1);
         });
 
-        it('should have all required columns', async () => {
+        it('should have detail columns only', async () => {
             const columns = await db.query<{ name: string }>('PRAGMA table_info(proc)');
             const names = columns.map((c) => c.name);
 
             expect(names).toContain('id');
-            expect(names).toContain('name');
-            expect(names).toContain('parent');
             expect(names).toContain('owner');
             expect(names).toContain('handler');
+            // pathname and parent are NOT in detail table
+            expect(names).not.toContain('name');
+            expect(names).not.toContain('pathname');
+            expect(names).not.toContain('parent');
         });
 
         it('should enforce handler NOT NULL', async () => {
-            await expect(
-                db.execute("INSERT INTO proc (name, owner) VALUES ('stat', 'kernel')")
-            ).rejects.toThrow();
-        });
-
-        it('should allow inserting proc entities', async () => {
             await db.execute(`
-                INSERT INTO proc (name, owner, handler) VALUES ('stat', 'kernel', 'kernel:proc_stat')
+                INSERT INTO entities (id, model, parent, pathname)
+                VALUES ('test-proc', 'proc', NULL, 'stat')
             `);
-
-            const proc = await db.queryOne<{ handler: string }>(
-                "SELECT handler FROM proc WHERE name = 'stat'"
-            );
-            expect(proc).not.toBeNull();
-            expect(proc!.handler).toBe('kernel:proc_stat');
+            await expect(
+                db.execute("INSERT INTO proc (id, owner) VALUES ('test-proc', 'kernel')")
+            ).rejects.toThrow();
         });
     });
 
-    describe('link entity table', () => {
+    describe('link detail table', () => {
         it('should create link table', async () => {
             const tables = await db.query<{ name: string }>(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='link'"
@@ -817,43 +792,37 @@ describe('Model Schema', () => {
             expect(tables.length).toBe(1);
         });
 
-        it('should have all required columns', async () => {
+        it('should have detail columns only', async () => {
             const columns = await db.query<{ name: string }>('PRAGMA table_info(link)');
             const names = columns.map((c) => c.name);
 
             expect(names).toContain('id');
-            expect(names).toContain('name');
-            expect(names).toContain('parent');
             expect(names).toContain('owner');
             expect(names).toContain('target');
+            // pathname and parent are NOT in detail table
+            expect(names).not.toContain('name');
+            expect(names).not.toContain('pathname');
+            expect(names).not.toContain('parent');
         });
 
         it('should enforce target NOT NULL', async () => {
-            await expect(
-                db.execute("INSERT INTO link (name, owner) VALUES ('mylink', 'user-123')")
-            ).rejects.toThrow();
-        });
-
-        it('should allow inserting link entities', async () => {
             await db.execute(`
-                INSERT INTO link (name, owner, target) VALUES ('mylink', 'user-123', '/vol/data/file')
+                INSERT INTO entities (id, model, parent, pathname)
+                VALUES ('test-link', 'link', NULL, 'mylink')
             `);
-
-            const link = await db.queryOne<{ target: string }>(
-                "SELECT target FROM link WHERE name = 'mylink'"
-            );
-            expect(link).not.toBeNull();
-            expect(link!.target).toBe('/vol/data/file');
+            await expect(
+                db.execute("INSERT INTO link (id, owner) VALUES ('test-link', 'user-123')")
+            ).rejects.toThrow();
         });
     });
 
-    describe('entity table count', () => {
-        it('should have 9 total tables (3 meta + 6 entity)', async () => {
+    describe('table count', () => {
+        it('should have 10 total tables (3 meta + 1 entities + 6 detail)', async () => {
             const tables = await db.query<{ name: string }>(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
             );
-            // models, fields, tracked + file, folder, device, proc, link, temp = 9
-            expect(tables.length).toBe(9);
+            // models, fields, tracked, entities + file, folder, device, proc, link, temp = 10
+            expect(tables.length).toBe(10);
         });
     });
 });
