@@ -6,14 +6,14 @@
  * - stream_ping: Progress report for backpressure
  * - stream_cancel: Request to cancel a streaming syscall
  *
- * @module kernel/kernel/handle-message
+ * @module kernel/kernel/process-message
  */
 
 import type { Kernel } from '../kernel.js';
 import type { Process, KernelMessage, SyscallRequest } from '../types.js';
-import { handleSyscall } from './handle-syscall.js';
-import { handleStreamPing } from './handle-stream-ping.js';
-import { handleStreamCancel } from './handle-stream-cancel.js';
+import { handleSyscall } from './dispatch-syscall.js';
+import { handleStreamPing } from './on-stream-ping.js';
+import { handleStreamCancel } from './on-stream-cancel.js';
 
 /**
  * Handle message from process.

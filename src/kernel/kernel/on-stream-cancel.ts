@@ -1,7 +1,7 @@
 /**
  * Handle stream cancel (consumer wants to stop).
  *
- * @module kernel/kernel/handle-stream-cancel
+ * @module kernel/kernel/on-stream-cancel
  */
 
 import type { Kernel } from '../kernel.js';

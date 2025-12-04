@@ -1,7 +1,7 @@
 /**
  * Get parent process ID (in grandparent's namespace).
  *
- * @module kernel/kernel/getppid
+ * @module kernel/kernel/get-ppid
  */
 
 import type { Kernel } from '../kernel.js';

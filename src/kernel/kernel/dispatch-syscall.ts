@@ -12,7 +12,7 @@
  * TERMINAL OPS: ok, error, done, redirect
  * These signal end of stream.
  *
- * @module kernel/kernel/handle-syscall
+ * @module kernel/kernel/dispatch-syscall
  */
 
 import type { Kernel } from '../kernel.js';

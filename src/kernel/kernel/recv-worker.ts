@@ -1,7 +1,7 @@
 /**
- * Load a script into a leased worker.
+ * Receive message from a leased worker.
  *
- * @module kernel/kernel/worker-load
+ * @module kernel/kernel/recv-worker
  */
 
 import type { Kernel } from '../kernel.js';
@@ -9,19 +9,18 @@ import type { Process } from '../types.js';
 import { getLeasedWorker } from './get-leased-worker.js';
 
 /**
- * Load a script into a leased worker.
+ * Receive message from a leased worker.
  *
  * @param self - Kernel instance
  * @param proc - Process
  * @param workerId - Worker ID
- * @param path - Script path
+ * @returns Message from worker
  */
-export async function workerLoad(
+export async function workerRecv(
     self: Kernel,
     proc: Process,
-    workerId: string,
-    path: string
-): Promise<void> {
+    workerId: string
+): Promise<unknown> {
     const worker = getLeasedWorker(self, proc, workerId);
-    await worker.load(path);
+    return worker.recv();
 }

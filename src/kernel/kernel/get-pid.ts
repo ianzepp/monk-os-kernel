@@ -4,7 +4,7 @@
  * WHY -1 ON ERROR: Unlike 0 (which could be confused with a valid PID
  * in some contexts), -1 clearly indicates an error condition.
  *
- * @module kernel/kernel/getpid
+ * @module kernel/kernel/get-pid
  */
 
 import type { Kernel } from '../kernel.js';

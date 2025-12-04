@@ -1,7 +1,7 @@
 /**
- * Receive message from a leased worker.
+ * Send message to a leased worker.
  *
- * @module kernel/kernel/worker-recv
+ * @module kernel/kernel/send-worker
  */
 
 import type { Kernel } from '../kernel.js';
@@ -9,18 +9,19 @@ import type { Process } from '../types.js';
 import { getLeasedWorker } from './get-leased-worker.js';
 
 /**
- * Receive message from a leased worker.
+ * Send message to a leased worker.
  *
  * @param self - Kernel instance
  * @param proc - Process
  * @param workerId - Worker ID
- * @returns Message from worker
+ * @param msg - Message to send
  */
-export async function workerRecv(
+export async function workerSend(
     self: Kernel,
     proc: Process,
-    workerId: string
-): Promise<unknown> {
+    workerId: string,
+    msg: unknown
+): Promise<void> {
     const worker = getLeasedWorker(self, proc, workerId);
-    return worker.recv();
+    await worker.send(msg);
 }

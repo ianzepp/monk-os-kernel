@@ -1,7 +1,7 @@
 /**
  * Release a leased worker.
  *
- * @module kernel/kernel/worker-release
+ * @module kernel/kernel/release-worker
  */
 
 import type { Kernel } from '../kernel.js';

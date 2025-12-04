@@ -14,7 +14,7 @@
 
 import type { Kernel } from '../kernel.js';
 import type { Process, KernelMessage } from '../types.js';
-import { handleMessage } from './handle-message.js';
+import { handleMessage } from './process-message.js';
 import { forceExit } from './force-exit.js';
 
 /**

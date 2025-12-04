@@ -1,7 +1,7 @@
 /**
  * Handle stream ping (progress report from consumer).
  *
- * @module kernel/kernel/handle-stream-ping
+ * @module kernel/kernel/on-stream-ping
  */
 
 import type { Kernel } from '../kernel.js';
