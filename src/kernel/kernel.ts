@@ -327,7 +327,7 @@ export class Kernel {
      * - network (TCP/UDP)
      * - channel (HTTP, WebSocket, PostgreSQL)
      */
-    private readonly hal: HAL;
+    readonly hal: HAL;
 
     /**
      * Virtual File System - provides:
@@ -336,13 +336,13 @@ export class Kernel {
      * - Device files (/dev/*)
      * - Process info (/proc/*)
      */
-    private readonly vfs: VFS;
+    readonly vfs: VFS;
 
     /**
      * Injectable dependencies for testability.
      * Production uses real implementations; tests can mock.
      */
-    private readonly deps: KernelDeps;
+    readonly deps: KernelDeps;
 
     // =========================================================================
     // PROCESS MANAGEMENT
@@ -353,7 +353,7 @@ export class Kernel {
      * INVARIANT: All running/starting processes are in this table.
      * Zombies remain until reaped by parent's wait().
      */
-    private readonly processes: ProcessTable;
+    readonly processes: ProcessTable;
 
     /**
      * Wait queue - processes blocked on wait() syscall.
@@ -364,7 +364,7 @@ export class Kernel {
      * RACE FIX: Each waiter has a cleanup function that removes it from
      * the list. This is called on timeout to prevent memory leaks.
      */
-    private readonly waiters: Map<string, WaiterEntry[]> = new Map();
+    readonly waiters: Map<string, WaiterEntry[]> = new Map();
 
     // =========================================================================
     // HANDLE MANAGEMENT
@@ -378,7 +378,7 @@ export class Kernel {
      *
      * INVARIANT: If handles.has(id), then handleRefs.get(id) >= 1
      */
-    private readonly handles: Map<string, Handle> = new Map();
+    readonly handles: Map<string, Handle> = new Map();
 
     /**
      * Handle reference counts.
@@ -390,7 +390,7 @@ export class Kernel {
      * INVARIANT: handleRefs.get(id) === number of proc.handles entries
      *            pointing to this handle ID across all processes
      */
-    private readonly handleRefs: Map<string, number> = new Map();
+    readonly handleRefs: Map<string, number> = new Map();
 
     // =========================================================================
     // SYSCALL DISPATCH
@@ -403,7 +403,7 @@ export class Kernel {
      * Each handler is an async generator yielding Response objects.
      * This enables streaming results with backpressure.
      */
-    private readonly syscalls: SyscallDispatcher;
+    readonly syscalls: SyscallDispatcher;
 
     // =========================================================================
     // PUBSUB ROUTING
@@ -417,7 +417,7 @@ export class Kernel {
      *
      * CLEANUP: Ports are removed when closed via unsubscribeFn callback.
      */
-    private readonly pubsubPorts: Set<PubsubPort> = new Set();
+    readonly pubsubPorts: Set<PubsubPort> = new Set();
 
     // =========================================================================
     // SERVICE MANAGEMENT
@@ -427,19 +427,19 @@ export class Kernel {
      * Loaded service definitions by name.
      * Services are loaded from /etc/services/*.json at boot.
      */
-    private readonly services: Map<string, ServiceDef> = new Map();
+    readonly services: Map<string, ServiceDef> = new Map();
 
     /**
      * Activation ports by service name.
      * For tcp:listen, udp, watch, pubsub activation types.
      */
-    private readonly activationPorts: Map<string, Port> = new Map();
+    readonly activationPorts: Map<string, Port> = new Map();
 
     /**
      * Abort controllers for service activation loops.
      * Used to cleanly stop activation loops during shutdown.
      */
-    private readonly activationAborts: Map<string, AbortController> = new Map();
+    readonly activationAborts: Map<string, AbortController> = new Map();
 
     // =========================================================================
     // WORKER POOLS
@@ -448,12 +448,12 @@ export class Kernel {
     /**
      * VFS module loader - bundles TypeScript for Worker execution.
      */
-    private readonly loader: VFSLoader;
+    readonly loader: VFSLoader;
 
     /**
      * Worker pool manager - provides pooled workers for compute tasks.
      */
-    private readonly poolManager: PoolManager;
+    readonly poolManager: PoolManager;
 
     /**
      * Leased workers by process.
@@ -463,7 +463,7 @@ export class Kernel {
      * WHY NESTED: A process can lease multiple workers. On process exit,
      * we release all workers leased by that process.
      */
-    private readonly leasedWorkers: Map<string, Map<string, LeasedWorker>> = new Map();
+    readonly leasedWorkers: Map<string, Map<string, LeasedWorker>> = new Map();
 
     // =========================================================================
     // MOUNT POLICY
@@ -475,7 +475,7 @@ export class Kernel {
      * Determines who can mount what sources to which targets.
      * Rules are evaluated in order; first match wins.
      */
-    private readonly mountPolicy: MountPolicy = DEFAULT_MOUNT_POLICY;
+    readonly mountPolicy: MountPolicy = DEFAULT_MOUNT_POLICY;
 
     // =========================================================================
     // KERNEL STATE
@@ -490,14 +490,14 @@ export class Kernel {
      *
      * INVARIANT: If booted=true, init process exists in process table
      */
-    private booted = false;
+    booted = false;
 
     /**
      * Debug logging flag.
      * When true, printk() outputs to console.
      * Set via boot environment debug flag.
      */
-    private debugEnabled = false;
+    debugEnabled = false;
 
     // =========================================================================
     // CONSTRUCTOR
