@@ -1,22 +1,37 @@
 # Monk OS AI Layer
 
-**Status: Needs Discussion**
+> **Status**: Feasible - Infrastructure Exists
+> **Depends on**: None (all prerequisites implemented)
 
-This document captures early thinking on AI integration. Not finalized.
+This document captures thinking on AI integration with Monk OS.
 
 ---
 
-## Vision
+## Feasibility Assessment
 
-The AI is the primary user interface. Users interact with an AI agent that can:
+### Infrastructure Already Implemented
 
-1. Execute shell commands (high-level)
-2. Write and execute TypeScript (mid-level, direct syscalls)
-3. Subscribe to system events and react (autonomous)
+| Capability | Status | Implementation |
+|------------|--------|----------------|
+| Process spawning | ✅ | `spawn()`, `wait()`, `kill()` in `rom/lib/process/proc.ts` |
+| Shell commands | ✅ | Shell library with parsing, glob expansion |
+| File operations | ✅ | Full VFS syscalls (open, read, write, stat, readdir, etc.) |
+| Event subscriptions | ✅ | `WatchPort` for file events, `PubsubPort` for topic-based pub/sub |
+| Module loader | ✅ | VFSLoader transpiles and executes TypeScript from VFS |
+| Console I/O | ✅ | ConsoleHandle for stdin/stdout |
+| Channel IPC | ✅ | Channel syscalls for inter-process communication |
 
-The AI lives in **userspace** but has deeper access than typical shell scripts.
+### What's Missing
 
-## Architecture
+| Capability | Status | Notes |
+|------------|--------|-------|
+| Timer port | ❌ | No `timer` port type for scheduled execution |
+| Dynamic code eval | ⚠️ | VFSLoader requires file in VFS, no `exec(code)` syscall |
+| AI provider integration | ❌ | No HAL device for LLM API calls |
+
+---
+
+## Architecture (Updated for Current OS)
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -24,216 +39,329 @@ The AI lives in **userspace** but has deeper access than typical shell scripts.
 │       │                                                     │
 │       ▼                                                     │
 │  ┌─────────────────────────────────────────────────────────┐│
-│  │  AI Process                                             ││
+│  │  AI Process (/bin/ai or similar)                        ││
 │  │                                                         ││
-│  │  - Receives user input (console)                        ││
-│  │  - Generates responses                                  ││
-│  │  - Executes shell commands (via spawn)                  ││
-│  │  - Executes TypeScript (via ???)                        ││
-│  │  - Subscribes to events (via port)                      ││
+│  │  - Receives user input (stdin via ConsoleHandle)        ││
+│  │  - Calls LLM (via HAL channel or HTTP syscall)          ││
+│  │  - Executes shell commands (spawn /bin/shell -c ...)    ││
+│  │  - Executes TypeScript (write to /tmp, spawn)           ││
+│  │  - Subscribes to events (WatchPort, PubsubPort)         ││
 │  │                                                         ││
 │  └─────────────────────────────────────────────────────────┘│
 │       │                                                     │
 │       │ syscalls                                            │
 │       ▼                                                     │
 ├─────────────────────────────────────────────────────────────┤
-│  Kernel                                                     │
+│  Kernel (syscalls, handles, ports)                          │
 ├─────────────────────────────────────────────────────────────┤
-│  HAL                                                        │
+│  HAL (console, file, channel, network)                      │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-## Capabilities
+---
+
+## Capabilities (How They Work Today)
 
 ### 1. Shell Commands
 
-Standard process spawning:
+Already works via `spawn()`:
 
 ```typescript
+import { spawn, wait } from '/lib/process';
+
 const pid = await spawn('/bin/shell', { args: ['-c', 'ls -la /home'] });
 const result = await wait(pid);
 ```
 
 ### 2. TypeScript Execution
 
-AI generates TypeScript that makes syscalls directly:
+VFSLoader can load and execute TypeScript from VFS. AI-generated code can be:
 
+**Option A: Write to temp file, spawn**
 ```typescript
-// AI generates this code
-const files = await readdir('/data');
-for (const name of files) {
-  const info = await stat(`/data/${name}`);
-  if (info.size > 1_000_000) {
-    await unlink(`/data/${name}`);
-  }
-}
+import { open, write, close, spawn, wait, unlink } from '/lib/process';
+
+// AI generates code
+const code = `
+import { readdir, stat, unlink } from '/lib/process';
+// ... AI-generated logic
+`;
+
+// Write to temp file
+const fd = await open('/tmp/ai_script.ts', { write: true, create: true });
+await write(fd, new TextEncoder().encode(code));
+await close(fd);
+
+// Execute
+const pid = await spawn('/tmp/ai_script.ts');
+await wait(pid);
+
+// Cleanup
+await unlink('/tmp/ai_script.ts');
 ```
 
-**Open question:** How does this execute?
-- Eval in AI process (AI has kernel reference somehow?)
-- New syscall: `exec(code: string)` runs TypeScript
-- Spawn ephemeral worker with code
+**Option B: Add `exec(code)` syscall** (not implemented)
+```typescript
+// Would require new syscall that writes to temp, spawns, and cleans up
+await exec(`
+  const files = await readdir('/data');
+  for (const name of files) {
+    // ...
+  }
+`);
+```
 
 ### 3. Event Subscriptions
 
-AI subscribes to ports and reacts:
+Already implemented via ports:
 
+**File watching (WatchPort)**
 ```typescript
+import { port } from '/lib/process';
+
 // Watch for file changes
 const watcher = await port('watch', { pattern: '/inbox/*' });
 
-for await (const event of watcher) {
-  // AI decides what to do with new file
-  const content = await read(event.from);
+for await (const event of recv(watcher)) {
+  // event.meta has: path, event (created/modified/deleted)
+  const content = await read(event.meta.path);
   await processInboxItem(content);
 }
 ```
 
+**Pub/sub (PubsubPort)**
 ```typescript
-// React to pub/sub events
-const bus = await port('pubsub', { subscribe: 'alerts.*' });
+import { port, recv } from '/lib/process';
 
-for await (const msg of bus) {
-  // AI handles alert
+// Subscribe to topic pattern
+const bus = await port('pubsub', { subscribe: ['alerts.*'] });
+
+for await (const msg of recv(bus)) {
+  // Handle alert
   await respondToAlert(msg);
 }
 ```
 
-This enables autonomous behavior - AI isn't just reactive to user input.
+### 4. Periodic Tasks
 
-## User Interaction
+**Current: Sleep loop (userland)**
+```typescript
+import { sleep } from '/lib/process';
 
-### Console Session
+while (true) {
+  await cleanupTempFiles();
+  await sleep(3600_000); // 1 hour
+}
+```
+
+**Future: Timer port (not implemented)**
+```typescript
+// Would be cleaner with a timer port
+const timer = await port('timer', { interval: 3600_000 });
+for await (const tick of recv(timer)) {
+  await cleanupTempFiles();
+}
+```
+
+---
+
+## Implementation Plan
+
+### Phase 1: AI Process (Minimal)
+
+Create `/bin/ai` that:
+1. Reads user input from stdin
+2. Calls external LLM API (via HTTP channel)
+3. Parses LLM response for shell commands
+4. Executes via `spawn('/bin/shell', { args: ['-c', command] })`
+
+```typescript
+// /bin/ai (simplified)
+import { read, write, spawn, wait } from '/lib/process';
+import { channel } from '/lib/process';
+
+const llm = await channel.open('https', 'api.anthropic.com');
+
+while (true) {
+  // Read user input
+  const input = await readLine(stdin);
+
+  // Call LLM
+  const response = await llm.call('POST', '/v1/messages', {
+    model: 'claude-3-sonnet',
+    messages: [{ role: 'user', content: input }]
+  });
+
+  // Parse and execute
+  for (const command of parseCommands(response)) {
+    const pid = await spawn('/bin/shell', { args: ['-c', command] });
+    await wait(pid);
+  }
+}
+```
+
+### Phase 2: TypeScript Execution
+
+Add convenience wrapper for AI-generated code:
+
+```typescript
+// /lib/ai.ts
+export async function execCode(code: string): Promise<void> {
+  const tempPath = `/tmp/ai_${Date.now()}.ts`;
+  const fd = await open(tempPath, { write: true, create: true });
+  await write(fd, new TextEncoder().encode(code));
+  await close(fd);
+
+  try {
+    const pid = await spawn(tempPath);
+    await wait(pid);
+  } finally {
+    await unlink(tempPath);
+  }
+}
+```
+
+### Phase 3: Event Integration
+
+AI subscribes to system events:
+
+```typescript
+// AI with autonomous capabilities
+const watcher = await port('watch', { pattern: '/inbox/*' });
+const alerts = await port('pubsub', { subscribe: ['system.alerts.*'] });
+
+// Handle events concurrently
+await Promise.all([
+  handleFileEvents(watcher),
+  handleAlerts(alerts),
+  handleUserInput(stdin),
+]);
+```
+
+### Phase 4: Timer Port (Optional)
+
+Add `timer` port type for cleaner scheduled execution:
+
+```typescript
+// src/kernel/resource/timer-port.ts
+class TimerPort implements Port {
+  private interval: number;
+  private handle: Timer | null = null;
+
+  constructor(opts: { interval: number }) {
+    this.interval = opts.interval;
+  }
+
+  async *recv(): AsyncGenerator<PortMessage> {
+    while (!this._closed) {
+      await sleep(this.interval);
+      yield { op: 'tick', data: { timestamp: Date.now() } };
+    }
+  }
+}
+```
+
+---
+
+## Open Questions (Updated)
+
+### 1. TypeScript Execution Model
+
+| Option | Feasibility | Notes |
+|--------|-------------|-------|
+| Write to temp, spawn | ✅ Works today | Slightly awkward but functional |
+| `exec(code)` syscall | Easy to add | Syntactic sugar over option 1 |
+| Eval in AI process | ❌ Complex | Would need kernel reference injection |
+
+**Recommendation**: Start with temp file approach, add `exec()` syscall later.
+
+### 2. Permission Model
+
+| Option | Feasibility | Notes |
+|--------|-------------|-------|
+| User-scoped | ✅ Works today | AI inherits caller's permissions |
+| Root equivalent | ⚠️ Risk | Run AI as privileged user |
+| Escalation | Not implemented | Would need sudo syscall |
+
+**Recommendation**: User-scoped for now. Add sudo later if needed.
+
+### 3. Code Review / Approval
+
+| Mode | Implementation |
+|------|----------------|
+| Auto | Just execute (current) |
+| Review | AI prints code, waits for 'y' before executing |
+| Hybrid | Categorize commands (safe vs destructive) |
+
+**Recommendation**: Review mode for destructive operations (unlink, write).
+
+### 4. LLM Integration
+
+| Option | Implementation |
+|--------|----------------|
+| HTTP channel | ✅ Use existing channel.open('https', ...) |
+| Dedicated HAL device | Could add `hal.llm` device |
+| External process | Spawn separate LLM client process |
+
+**Recommendation**: HTTP channel for MVP, consider HAL device later.
+
+### 5. Persistence
+
+| Feature | Implementation |
+|---------|----------------|
+| Conversation history | Write to `/home/user/.ai_history` |
+| Preferences | Config file `/home/user/.airc` |
+| Learned patterns | SQLite via EMS |
+
+---
+
+## Example Session
 
 ```
 > find all log files larger than 10MB and summarize them
 
-AI: Looking for large log files...
+AI: I'll search for large log files and analyze them.
 
-(executes)
-  const logs = [];
-  for (const f of await readdir('/var/log')) {
-    const s = await stat(`/var/log/${f}`);
-    if (s.size > 10_000_000) logs.push({ name: f, size: s.size });
-  }
+[Executing: ls -la /var/log]
+[Executing: stat /var/log/system.log]
+...
 
-Found 3 files:
+Found 3 files over 10MB:
   - system.log (45 MB)
   - access.log (12 MB)
   - error.log (11 MB)
 
-Summarizing...
-
-(reads and analyzes each file)
+[Reading and analyzing each file...]
 
 Summary:
-  - system.log: Mostly routine startup messages, 3 warnings about disk space
-  - access.log: 50,000 requests, top endpoints: /api/users, /api/data
-  - error.log: 127 errors, mostly timeout-related, spike at 3am
+  - system.log: Routine startup messages, 3 disk space warnings
+  - access.log: 50,000 requests, top: /api/users, /api/data
+  - error.log: 127 errors, mostly timeouts, spike at 3am
 
-> delete the access log
+> delete access.log
 
-AI: (executes)
-  await unlink('/var/log/access.log');
+AI: This will permanently delete /var/log/access.log (12 MB).
+Proceed? [y/N] y
 
-Done.
+[Executing: rm /var/log/access.log]
+
+Done. File deleted.
 
 > !shell
 
-$ _
-(user in direct shell)
-
+$ ls /var/log
+system.log  error.log
 $ exit
 
 > (back to AI)
 ```
 
-### Escape to Shell
-
-User can drop to direct shell with `!shell` or similar escape.
-
-## Autonomous Mode
-
-AI can run background tasks:
-
-```typescript
-// Scheduled via port or timer
-const timer = await port('timer', { interval: 3600_000 }); // hourly
-
-for await (const tick of timer) {
-  // Hourly maintenance
-  await cleanupTempFiles();
-  await rotateLogsIfNeeded();
-}
-```
-
-```typescript
-// React to system events
-const proc = await port('process', { watch: 'all' });
-
-for await (const event of proc) {
-  if (event.data.event === 'exit' && event.data.code !== 0) {
-    // Process crashed - AI decides response
-    await notifyAdmin(event);
-    await maybeRestart(event);
-  }
-}
-```
-
-## Open Questions
-
-### 1. TypeScript Execution Model
-
-How does AI-generated code run?
-
-| Option | Pros | Cons |
-|--------|------|------|
-| Eval in AI process | Simple, direct | AI process needs kernel ref |
-| `exec(code)` syscall | Clean separation | New syscall, security? |
-| Spawn worker | Isolated | Overhead, needs code bundling |
-
-### 2. Permission Model
-
-Does AI have special capabilities? Or same as user that logged in?
-
-| Option | Description |
-|--------|-------------|
-| Root equivalent | AI can do anything |
-| User-scoped | AI has permissions of logged-in user |
-| Escalation | AI can request elevation (sudo-style) |
-
-### 3. Code Review / Approval
-
-Should user approve AI-generated code before execution?
-
-| Mode | Description |
-|------|-------------|
-| Auto | AI executes immediately (trust) |
-| Review | AI shows code, user approves |
-| Hybrid | Auto for safe ops, review for destructive |
-
-### 4. Persistence
-
-Does AI have memory across sessions?
-
-- Conversation history?
-- Learned preferences?
-- Stored in VFS?
-
-### 5. Multiple AI Instances
-
-One AI per user session? Shared system AI? Both?
-
-### 6. Timer Port
-
-Do we need a `timer` port type for scheduled/periodic execution? Or is that userland (sleep loop)?
-
 ---
 
-## Relationship to Existing Docs
+## References
 
-- **OS_KERNEL.md**: AI is a userspace process, uses standard syscalls
-- **OS_NETWORK.md**: AI uses ports for event subscription
-- **OS_STORAGE.md**: AI uses VFS for file operations
-
-The AI doesn't change the kernel design - it's a privileged consumer of it.
+- `src/kernel/resource/watch-port.ts` - File system event watching
+- `src/kernel/resource/pubsub-port.ts` - Topic-based pub/sub
+- `src/kernel/loader/vfs-loader.ts` - TypeScript module loading
+- `rom/lib/process/proc.ts` - Process syscalls (spawn, wait, kill)
+- `rom/lib/shell/` - Shell parsing and execution

@@ -1,6 +1,364 @@
 # Auth Daemon (authd)
 
+> **Status**: Planning
+> **Complexity**: High (multiple phases)
+> **Package**: `@anthropic/monk-authd`
+> **Dependencies**: `@anthropic/monk-smtpd` (for magic links)
+
 Identity and authentication service for Monk OS.
+
+**Note**: This is a userspace service installed via `os.install()`, not built into the core OS. See `OS_SERVICES.md` for the service architecture.
+
+---
+
+## Feasibility Assessment
+
+### Infrastructure Already Implemented
+
+| Requirement | Status | Implementation |
+|-------------|--------|----------------|
+| Service infrastructure | ✅ | `services.ts` with boot activation |
+| Pubsub messaging | ✅ | `PubsubPort` for `auth.*` topics |
+| VFS for user/token storage | ✅ | EMS with entities table |
+| HTTP client channel | ✅ | `BunHttpChannel` for OAuth callbacks |
+| TCP listener | ✅ | `ListenerPort` (for future httpd) |
+
+### What's Missing
+
+| Requirement | Status | Complexity | Notes |
+|-------------|--------|------------|-------|
+| JWT sign/verify | ❌ | Low | Use `jose` library or Bun crypto |
+| SMTP channel | ❌ | Medium | New `BunSmtpChannel` for magic links |
+| `user` model in EMS | ❌ | Low | Add table + fields to schema.sql |
+| httpd (HTTP server) | ❌ | High | Full HTTP server daemon |
+| Per-request identity | ❌ | High | Kernel process context changes |
+| ACL enforcement | ❌ | High | Syscall-level grant checking |
+| Tenant VFS isolation | ❌ | High | Dynamic per-request mounts |
+
+### Risk Assessment
+
+| Component | Risk | Mitigation |
+|-----------|------|------------|
+| authd core | Low | Follows existing service patterns |
+| JWT handling | Low | Well-understood, libraries exist |
+| SMTP | Medium | External dependency, deliverability issues |
+| httpd | Medium | Significant new code, but clear scope |
+| Kernel ACL | High | Touches every syscall, perf impact |
+| Tenant isolation | High | Requires kernel architecture changes |
+
+---
+
+## Implementation Phases
+
+### Phase 1: Foundation (No Breaking Changes)
+
+Add infrastructure without changing existing code.
+
+**1.1 JWT Utilities**
+
+```typescript
+// src/hal/crypto/jwt.ts
+export interface JwtConfig {
+    secret?: string;          // HS256
+    publicKey?: string;       // RS256/ES256
+    privateKey?: string;
+    issuer: string;
+    audience: string;
+    ttl: number;              // seconds
+}
+
+export interface JwtPayload {
+    sub: string;              // user ID
+    tenant?: string;
+    email?: string;
+    roles?: string[];
+    iat: number;
+    exp: number;
+}
+
+export function signJwt(payload: Omit<JwtPayload, 'iat' | 'exp'>, config: JwtConfig): Promise<string>;
+export function verifyJwt(token: string, config: JwtConfig): Promise<JwtPayload>;
+export function decodeJwt(token: string): JwtPayload;  // no verification
+```
+
+**1.2 User Model in EMS**
+
+Add to `src/ems/schema.sql`:
+
+```sql
+-- User entity table
+CREATE TABLE IF NOT EXISTS user (
+    id          TEXT PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+    created_at  TEXT DEFAULT (datetime('now')),
+    updated_at  TEXT DEFAULT (datetime('now')),
+    trashed_at  TEXT,
+    expired_at  TEXT,
+
+    -- User fields
+    owner       TEXT NOT NULL,
+    email       TEXT NOT NULL UNIQUE,
+    tenant      TEXT,
+    status      TEXT DEFAULT 'active' CHECK (status IN ('active', 'suspended', 'pending')),
+    last_login  TEXT,
+    display_name TEXT,
+    avatar      TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_email ON user(email);
+CREATE INDEX IF NOT EXISTS idx_user_tenant ON user(tenant);
+
+-- Seed user model
+INSERT OR IGNORE INTO models (model_name, status, description, pathname) VALUES
+    ('user', 'system', 'User account entity', 'email');
+
+INSERT OR IGNORE INTO fields (model_name, field_name, type, required, description) VALUES
+    ('user', 'email', 'text', 1, 'User email address (unique)'),
+    ('user', 'tenant', 'text', 0, 'Tenant ID'),
+    ('user', 'status', 'text', 0, 'Account status'),
+    ('user', 'last_login', 'timestamp', 0, 'Last login timestamp'),
+    ('user', 'display_name', 'text', 0, 'Display name'),
+    ('user', 'avatar', 'text', 0, 'Avatar URL');
+```
+
+**1.3 Auth Token Model**
+
+```sql
+-- Auth tokens (magic links, password resets, etc.)
+CREATE TABLE IF NOT EXISTS auth_token (
+    id          TEXT PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+    created_at  TEXT DEFAULT (datetime('now')),
+    updated_at  TEXT DEFAULT (datetime('now')),
+    trashed_at  TEXT,
+    expired_at  TEXT,
+
+    owner       TEXT NOT NULL,              -- user ID
+    token       TEXT NOT NULL UNIQUE,       -- the token value
+    token_type  TEXT NOT NULL,              -- 'magic-link', 'password-reset', etc.
+    expires_at  TEXT NOT NULL               -- expiration timestamp
+);
+
+CREATE INDEX IF NOT EXISTS idx_auth_token_token ON auth_token(token);
+```
+
+### Phase 2: authd Core
+
+Implement authd as a standalone service using pubsub.
+
+**2.1 Service Definition**
+
+```json
+// /etc/services/authd.json
+{
+  "handler": "/sbin/authd.ts",
+  "activate": { "type": "boot" },
+  "io": {
+    "stdin": { "type": "pubsub", "subscribe": ["auth.*"] },
+    "stdout": { "type": "console" },
+    "stderr": { "type": "console" }
+  }
+}
+```
+
+**2.2 authd Implementation**
+
+```typescript
+// rom/sbin/authd.ts
+import { recv, send } from '/lib/process';
+import { signJwt, verifyJwt } from '/lib/crypto/jwt';
+
+// Read config from /etc/auth/config.json
+const config = JSON.parse(await readFile('/etc/auth/config.json'));
+
+// Main loop - handle auth.* messages
+for await (const msg of recv(stdin)) {
+    const topic = msg.from;  // e.g., 'auth.validate'
+    const data = msg.meta;
+
+    try {
+        switch (topic) {
+            case 'auth.validate':
+                await handleValidate(data, msg.replyTo);
+                break;
+            case 'auth.begin':
+                await handleBegin(data, msg.replyTo);
+                break;
+            case 'auth.callback':
+                await handleCallback(data, msg.replyTo);
+                break;
+            // ...
+        }
+    } catch (err) {
+        await send(msg.replyTo, { error: err.message });
+    }
+}
+```
+
+**2.3 Calling authd from Application**
+
+```typescript
+// Any process can call authd via pubsub
+import { port, send, recv } from '/lib/process';
+
+const authPort = await port('pubsub', { subscribe: ['auth.response.*'] });
+const requestId = crypto.randomUUID();
+
+// Send request
+await send('auth.validate', { jwt: token, replyTo: `auth.response.${requestId}` });
+
+// Wait for response
+const response = await recv(authPort);
+if (response.meta.error) {
+    throw new Error(response.meta.error);
+}
+const { user, grants } = response.meta;
+```
+
+### Phase 3: SMTP Channel (for Magic Links)
+
+**3.1 SMTP Channel**
+
+```typescript
+// src/hal/channel/smtp.ts
+export class BunSmtpChannel implements Channel {
+    readonly proto = 'smtp';
+
+    constructor(url: string, opts?: ChannelOpts) {
+        // Parse smtp://user:pass@host:port
+    }
+
+    async *handle(msg: Message): AsyncIterable<Response> {
+        // msg.op = 'send'
+        // msg.data = { to, subject, text, html }
+
+        // Use nodemailer or direct SMTP
+        // Bun doesn't have built-in SMTP, need library
+    }
+}
+```
+
+**3.2 Magic Link Flow**
+
+```typescript
+// In authd
+async function handleBegin(data: { email: string }, replyTo: string) {
+    // 1. Find or create user
+    let user = await findUserByEmail(data.email);
+    if (!user) {
+        user = await createUser({ email: data.email, status: 'pending' });
+    }
+
+    // 2. Generate token
+    const token = crypto.randomUUID();
+    await createAuthToken({
+        owner: user.id,
+        token,
+        token_type: 'magic-link',
+        expires_at: new Date(Date.now() + config.magicLink.tokenTtl * 1000).toISOString(),
+    });
+
+    // 3. Send email
+    const smtp = await channel.open('smtp', config.magicLink.smtp);
+    await channel.call(smtp, {
+        op: 'send',
+        data: {
+            to: data.email,
+            subject: config.magicLink.subject,
+            text: `Click here to sign in: ${config.magicLink.baseUrl}/auth/callback?token=${token}`,
+        },
+    });
+    await channel.close(smtp);
+
+    // 4. Reply
+    await send(replyTo, { ok: true });
+}
+```
+
+### Phase 4: httpd (HTTP Server)
+
+Create HTTP server daemon that exposes auth endpoints.
+
+**4.1 httpd Service**
+
+```json
+// /etc/services/httpd.json
+{
+  "handler": "/sbin/httpd.ts",
+  "activate": { "type": "tcp:listen", "port": 8080 }
+}
+```
+
+**4.2 Auth Routes**
+
+```typescript
+// In httpd
+const routes = {
+    'POST /auth/login': async (req) => {
+        const { email } = await req.json();
+        await sendToPubsub('auth.begin', { email, provider: 'magic-link' });
+        return { ok: true };
+    },
+
+    'GET /auth/callback': async (req) => {
+        const token = req.url.searchParams.get('token');
+        const result = await callAuthd('auth.callback', { token, provider: 'magic-link' });
+
+        // Set cookie and redirect
+        return new Response(null, {
+            status: 302,
+            headers: {
+                'Location': '/',
+                'Set-Cookie': `token=${result.jwt}; HttpOnly; Secure; SameSite=Strict`,
+            },
+        });
+    },
+
+    // ... other routes
+};
+```
+
+### Phase 5: Kernel Integration (Future)
+
+These require significant kernel changes and should be separate planning docs.
+
+**5.1 Per-Request Identity Context**
+
+```typescript
+// Kernel would need to track identity per-process
+interface ProcessContext {
+    pid: number;
+    identity?: {
+        userId: string;
+        tenant?: string;
+        grants: Grant[];
+    };
+}
+
+// Syscall handlers would check grants
+async function handleOpen(proc: Process, path: string, flags: OpenFlags) {
+    const grants = proc.context.identity?.grants ?? [];
+    if (!checkGrant(grants, path, 'read')) {
+        throw new EACCES('Permission denied');
+    }
+    // ... proceed with open
+}
+```
+
+**5.2 Tenant VFS Isolation**
+
+```typescript
+// Dynamic mount per request
+kernel.mount(`/vol/${tenant}`, tenantStorageEngine);
+
+// Or path rewriting
+function resolvePath(proc: Process, path: string): string {
+    if (path.startsWith('/data/')) {
+        return `/tenants/${proc.context.identity.tenant}${path}`;
+    }
+    return path;
+}
+```
+
+---
 
 ## Philosophy
 
@@ -32,17 +390,17 @@ The OS is a library that someone boots. Whoever boots it configures auth strateg
 │  - Reads /etc/auth/config.json                                  │
 │  - Implements configured provider(s)                            │
 │  - Issues and validates JWTs                                    │
-│  - Writes user records via setstat()                            │
+│  - Writes user records via EMS                                  │
 └──────────────────────────┬──────────────────────────────────────┘
                            │
 ┌──────────────────────────▼──────────────────────────────────────┐
-│  httpd / jsond                                                   │
-│  - Auth endpoints delegate to authd                             │
-│  - Validated identity passed to OS kernel per-request           │
+│  httpd (Phase 4)                                                 │
+│  - Auth endpoints delegate to authd via pubsub                  │
+│  - Validated identity passed to request handlers                │
 └──────────────────────────┬──────────────────────────────────────┘
                            │
 ┌──────────────────────────▼──────────────────────────────────────┐
-│  OS Kernel                                                       │
+│  OS Kernel (Phase 5 - Future)                                    │
 │  - Receives identity context                                     │
 │  - Mounts tenant-specific VFS                                   │
 │  - Applies ACL grants to all operations                         │
@@ -51,16 +409,29 @@ The OS is a library that someone boots. Whoever boots it configures auth strateg
 
 ---
 
-## Boot-Time Configuration
+## Installation & Configuration
+
+authd is installed and started post-boot via the service API:
 
 ```typescript
-import { OS } from '@monk-api/os';
+import { OS } from '@anthropic/monk-os';
 
-const os = new OS()
-  .on('auth', (os) => {
-    os.auth.configure({
-      // JWT settings (keys provided externally)
-      jwt: {
+const os = new OS();
+await os.boot();
+
+// Install services (from npm peer dependencies)
+await os.install('@anthropic/monk-smtpd');
+await os.install('@anthropic/monk-authd');
+
+// Start SMTP first (authd uses it for magic links)
+await os.service('start', 'smtpd', {
+    smtp: process.env.SMTP_URL,
+    from: 'noreply@myapp.com',
+});
+
+// Start authd with config
+await os.service('start', 'authd', {
+    jwt: {
         secret: process.env.JWT_SECRET,
         // Or asymmetric
         publicKey: process.env.JWT_PUBLIC_KEY,
@@ -69,85 +440,72 @@ const os = new OS()
         audience: 'myapp.com',
         ttl: 3600,        // 1 hour
         refreshTtl: 86400 // 24 hours
-      },
+    },
 
-      // Auth provider
-      provider: 'magic-link',
-      magicLink: {
-        smtp: process.env.SMTP_URL,
-        from: 'auth@myapp.com',
+    provider: 'magic-link',
+    magicLink: {
+        baseUrl: 'https://myapp.com',
         subject: 'Sign in to MyApp',
         tokenTtl: 600,  // 10 minutes
-      },
-
-      // Or OAuth (can have multiple)
-      // provider: 'oauth',
-      // oauth: {
-      //   google: { clientId: '...', clientSecret: '...' },
-      //   github: { clientId: '...', clientSecret: '...' },
-      // },
-    });
-  });
-
-await os.boot();
+    },
+});
 ```
 
-Configuration written to `/etc/auth/config.json` for authd to read.
+Config is written to `/etc/authd/config.json` by the service manager.
 
 ---
 
 ## User Model
 
-Users are OS files. The VFS "files are rows" philosophy means user records are files with queryable attributes via `setstat()`.
+Users are EMS entities. The "files are rows" philosophy means user records are queryable via EntityOps.
 
 ```
 /etc/users/
-├── {user-uuid-1}      # User file
+├── {user-uuid-1}      # User entity
 ├── {user-uuid-2}
 └── ...
 ```
 
-### User File Attributes (via stat/setstat)
+### User Entity Fields
 
 ```typescript
-interface UserStat {
-  // Standard file fields
-  id: string;           // UUID
-  name: string;         // email or username (unique)
-  model: 'user';        // VFS model type
+interface UserEntity {
+    // System fields (from EMS)
+    id: string;
+    created_at: string;
+    updated_at: string;
+    trashed_at: string | null;
 
-  // User-specific fields
-  email: string;
-  tenant: string;       // Tenant ID
-  status: 'active' | 'suspended' | 'pending';
-  created: number;      // Unix timestamp
-  lastLogin: number;
-
-  // Optional profile
-  displayName?: string;
-  avatar?: string;
+    // User fields
+    email: string;
+    tenant?: string;
+    status: 'active' | 'suspended' | 'pending';
+    last_login?: string;
+    display_name?: string;
+    avatar?: string;
 }
 ```
 
-### User Operations
+### User Operations (via EMS)
 
 ```typescript
-// Create user (authd)
-const userId = await create('/etc/users', 'user', {
-  name: email,
-  email: email,
-  tenant: tenantId,
-  status: 'active',
-});
+// Create user
+const [user] = await collect(ems.createAll('user', [{
+    email: 'ian@example.com',
+    tenant: 'acme',
+    status: 'active',
+}]));
 
 // Update user
-await setstat(`/etc/users/${userId}`, {
-  lastLogin: Date.now(),
-});
+await collect(ems.updateIds('user', [userId], {
+    last_login: new Date().toISOString(),
+}));
 
-// Query users (BeOS-style)
-for await (const user of query('/etc/users', { tenant: 'acme' })) {
-  // ...
+// Query users
+for await (const user of ems.selectAny('user', {
+    where: { tenant: { $eq: 'acme' } }
+})) {
+    console.log(user.email);
 }
 ```
 
@@ -155,53 +513,13 @@ for await (const user of query('/etc/users', { tenant: 'acme' })) {
 
 ## authd Operations
 
-| Op | Input | Output | Description |
-|----|-------|--------|-------------|
-| `auth:begin` | `{ provider, email?, redirect? }` | `{ ok }` or `{ url }` | Start auth flow |
-| `auth:callback` | `{ provider, token?, code? }` | `{ jwt, user }` | Complete auth flow |
-| `auth:validate` | `{ jwt }` | `{ user, grants }` | Validate JWT, return identity |
-| `auth:refresh` | `{ jwt }` | `{ jwt }` | Issue new JWT |
-| `auth:revoke` | `{ jwt }` or `{ userId }` | `{ ok }` | Invalidate token/session |
-
-### auth:begin (Magic Link)
-
-```typescript
-// Input
-{ provider: 'magic-link', email: 'ian@example.com' }
-
-// authd:
-// 1. Find or create user by email
-// 2. Generate short-lived token
-// 3. Store token in /var/auth/tokens/{token}
-// 4. Send email with link
-
-// Output
-{ op: 'ok' }
-```
-
-### auth:callback (Magic Link)
-
-```typescript
-// Input
-{ provider: 'magic-link', token: 'abc123' }
-
-// authd:
-// 1. Look up /var/auth/tokens/{token}
-// 2. Verify not expired
-// 3. Get user ID from token
-// 4. Delete token (single use)
-// 5. Update user.lastLogin
-// 6. Issue JWT
-
-// Output
-{
-  op: 'ok',
-  data: {
-    jwt: 'eyJ...',
-    user: { id, email, tenant }
-  }
-}
-```
+| Op | Input | Output | Phase |
+|----|-------|--------|-------|
+| `auth:validate` | `{ jwt }` | `{ user, grants }` | 2 |
+| `auth:begin` | `{ provider, email }` | `{ ok }` | 2-3 |
+| `auth:callback` | `{ provider, token }` | `{ jwt, user }` | 2-3 |
+| `auth:refresh` | `{ jwt }` | `{ jwt }` | 2 |
+| `auth:revoke` | `{ jwt }` or `{ userId }` | `{ ok }` | 2 |
 
 ### auth:validate
 
@@ -213,19 +531,16 @@ for await (const user of query('/etc/users', { tenant: 'acme' })) {
 // 1. Verify JWT signature (using configured key)
 // 2. Check expiry
 // 3. Extract claims
-// 4. Load user from /etc/users/{sub}
-// 5. Load grants for user
+// 4. Load user from EMS
+// 5. Load grants for user (Phase 5)
 
 // Output
 {
-  op: 'ok',
-  data: {
-    user: { id, email, tenant, status },
-    grants: [
-      { path: '/vol/acme/**', ops: ['read', 'list'] },
-      { path: '/home/{user-id}/**', ops: ['*'] }
-    ]
-  }
+  user: { id, email, tenant, status },
+  grants: [
+    { path: '/vol/acme/**', ops: ['read', 'list'] },
+    { path: '/home/{user-id}/**', ops: ['*'] }
+  ]
 }
 ```
 
@@ -256,101 +571,53 @@ Grants are NOT in JWT - looked up from OS at validation time. This allows real-t
 
 ---
 
-## httpd Auth Endpoints
-
-httpd provides HTTP surface, delegates to authd:
-
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/auth/login` | GET | Render login form |
-| `/auth/login` | POST | `{ email }` → authd:begin |
-| `/auth/callback` | GET | `?token=xxx` → authd:callback |
-| `/auth/oauth/:provider` | GET | Redirect to OAuth provider |
-| `/auth/oauth/callback` | GET | `?code=xxx` → authd:callback |
-| `/auth/refresh` | POST | authd:refresh |
-| `/auth/logout` | POST | authd:revoke, clear cookie |
-
----
-
-## Request Authentication Flow
-
-```
-1. Request arrives at httpd
-   GET /api/orders
-   Cookie: token=eyJ... (or Authorization: Bearer eyJ...)
-
-2. httpd extracts JWT, calls authd
-   authd:validate { jwt: 'eyJ...' }
-
-3. authd validates, returns identity
-   { user: { id, email, tenant }, grants: [...] }
-
-4. httpd establishes OS request context
-   - Sets process identity
-   - Kernel mounts tenant VFS: /vol/{tenant} → tenant's data
-   - Kernel loads ACL grants
-
-5. Handler executes with constrained access
-   - All syscalls filtered through grants
-   - VFS operations scoped to tenant
-```
-
----
-
 ## Directory Structure
 
 ```
 /etc/
 ├── auth/
 │   └── config.json           # Auth configuration (from boot)
-├── users/
-│   ├── {uuid}/               # User files (model: user)
+├── users/                    # User entities (EMS)
 │   └── ...
-└── grants/
-    ├── {user-uuid}.json      # Per-user grants
-    └── {role}.json           # Role-based grants
+├── services/
+│   ├── authd.json            # authd service definition
+│   └── httpd.json            # httpd service definition (Phase 4)
+└── grants/                   # Grant definitions (Phase 5)
+    ├── {user-uuid}.json
+    └── {role}.json
 
 /var/
 └── auth/
-    ├── tokens/               # Magic link tokens (ephemeral)
-    │   └── {token} → { userId, expires }
+    ├── tokens/               # Auth tokens (EMS - ephemeral)
     └── sessions/             # Active sessions (optional)
-        └── {session-id} → { userId, jwt, created }
-```
-
----
-
-## Service Definition
-
-```json
-{
-  "handler": "/sbin/authd",
-  "activate": {
-    "type": "boot"
-  },
-  "io": {
-    "stdin": { "type": "pubsub", "subscribe": ["auth.*"] },
-    "stdout": { "type": "console" },
-    "stderr": { "type": "console" }
-  }
-}
 ```
 
 ---
 
 ## Providers
 
-### Magic Link (Initial)
+### Magic Link (Phase 2-3)
 
 Passwordless email authentication.
 
 ```typescript
 interface MagicLinkConfig {
-  smtp: string;           // SMTP URL
-  from: string;           // From address
-  subject?: string;       // Email subject
-  tokenTtl?: number;      // Token lifetime (default: 600s)
-  template?: string;      // Email template path
+    smtp: string;           // SMTP URL
+    from: string;           // From address
+    subject?: string;       // Email subject
+    tokenTtl?: number;      // Token lifetime (default: 600s)
+    baseUrl: string;        // Base URL for callback links
+}
+```
+
+### API Key (Phase 2)
+
+For service-to-service auth. Simpler than magic link - no SMTP needed.
+
+```typescript
+interface ApiKeyConfig {
+    // API keys stored in /etc/auth/api-keys.json
+    // Format: { "key-id": { key: "xxx", userId: "yyy", grants: [...] } }
 }
 ```
 
@@ -358,24 +625,11 @@ interface MagicLinkConfig {
 
 ```typescript
 interface OAuthConfig {
-  [provider: string]: {
-    clientId: string;
-    clientSecret: string;
-    scopes?: string[];
-    authUrl?: string;     // Override for custom providers
-    tokenUrl?: string;
-  };
-}
-```
-
-### API Key (Future)
-
-For service-to-service auth.
-
-```typescript
-interface ApiKeyConfig {
-  keys: string;           // Path to keys file
-  header?: string;        // Header name (default: X-API-Key)
+    [provider: string]: {
+        clientId: string;
+        clientSecret: string;
+        scopes?: string[];
+    };
 }
 ```
 
@@ -383,52 +637,28 @@ interface ApiKeyConfig {
 
 ## Open Questions
 
-### Tenant Provisioning
+### Resolved
 
-When a new user signs up:
-1. Who creates the tenant?
-2. Who creates the user's home directory?
-3. Who sets initial grants?
+| Question | Decision |
+|----------|----------|
+| Where do users live? | EMS `user` table |
+| How does authd communicate? | Pubsub (`auth.*` topics) |
+| Service activation? | Boot-activated |
 
-Options:
-- authd handles it (knows about new users)
-- Separate `tenantd` service
-- Application-level onboarding handler
-- Boot-time hook for provisioning logic
+### Still Open
 
-### Session Storage
-
-Where do sessions live?
-- VFS files (`/var/auth/sessions/`) - simple, queryable
-- Memory only - lost on restart
-- External store - for horizontal scaling
-
-For single-instance: VFS files seem natural.
-
-### Multi-tenancy Model
-
-Is tenant:
-- A field on user (user belongs to one tenant)?
-- A separate entity (users can belong to multiple)?
-- Implicit from auth provider (OAuth org)?
-
-### Grant Inheritance
-
-How do grants compose?
-- User grants + role grants?
-- Tenant-level defaults?
-- Path-based inheritance?
+| Question | Options | Notes |
+|----------|---------|-------|
+| Tenant provisioning | authd vs separate service | authd knows about new users |
+| Grant storage | VFS files vs EMS table | EMS table probably cleaner |
+| Multi-tenancy model | Single vs multi-tenant per user | Start with single |
+| Session storage | VFS vs memory | VFS for persistence |
 
 ---
 
-## Future Work
+## References
 
-- [ ] OAuth provider support
-- [ ] API key provider
-- [ ] Session management UI
-- [ ] Token revocation lists
-- [ ] Rate limiting per-user
-- [ ] Audit logging (auth events)
-- [ ] Multi-factor authentication
-- [ ] Invite/signup flows
-- [ ] Password provider (if needed)
+- `src/kernel/services.ts` - Service infrastructure
+- `src/kernel/resource/pubsub-port.ts` - Pubsub messaging
+- `src/ems/schema.sql` - EMS schema (add user table here)
+- `src/hal/channel/http.ts` - HTTP client (for OAuth)
