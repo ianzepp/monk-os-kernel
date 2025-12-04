@@ -146,14 +146,14 @@ describe('File Syscalls: send/recv', () => {
         dispatcher.registerAll(createFileSyscalls(mockVfs, {} as any, getHandle, openFile, closeHandle));
     });
 
-    describe('recv syscall', () => {
+    describe('file:recv syscall', () => {
         it('should forward recv to handle', async () => {
             const proc = createMockProcess();
             const handle = new MockHandle('stdin', 'stdin');
             handle.setRecvResponses([respond.item({ text: 'hello\n' }), respond.done()]);
             handles.set(0, handle);
 
-            const responses = await collectResponses(dispatcher.dispatch(proc, 'recv', [0]));
+            const responses = await collectResponses(dispatcher.dispatch(proc, 'file:recv', [0]));
 
             expect(handle.messages.length).toBe(1);
             expect(handle.messages[0]!.op).toBe('recv');
@@ -166,7 +166,7 @@ describe('File Syscalls: send/recv', () => {
             const proc = createMockProcess();
             // No handle at fd 99
 
-            const responses = await collectResponses(dispatcher.dispatch(proc, 'recv', [99]));
+            const responses = await collectResponses(dispatcher.dispatch(proc, 'file:recv', [99]));
 
             expect(responses.length).toBe(1);
             expect(responses[0]!.op).toBe('error');
@@ -176,7 +176,7 @@ describe('File Syscalls: send/recv', () => {
         it('should return EINVAL for non-number fd', async () => {
             const proc = createMockProcess();
 
-            const responses = await collectResponses(dispatcher.dispatch(proc, 'recv', ['not-a-number']));
+            const responses = await collectResponses(dispatcher.dispatch(proc, 'file:recv', ['not-a-number']));
 
             expect(responses.length).toBe(1);
             expect(responses[0]!.op).toBe('error');
@@ -194,7 +194,7 @@ describe('File Syscalls: send/recv', () => {
             ]);
             handles.set(0, handle);
 
-            const responses = await collectResponses(dispatcher.dispatch(proc, 'recv', [0]));
+            const responses = await collectResponses(dispatcher.dispatch(proc, 'file:recv', [0]));
 
             expect(responses.length).toBe(4);
             expect(responses[0]!.op).toBe('item');
@@ -204,14 +204,14 @@ describe('File Syscalls: send/recv', () => {
         });
     });
 
-    describe('send syscall', () => {
+    describe('file:send syscall', () => {
         it('should forward send to handle', async () => {
             const proc = createMockProcess();
             const handle = new MockHandle('stdout', 'stdout');
             handles.set(1, handle);
 
             const msg = respond.item({ text: 'hello\n' });
-            const responses = await collectResponses(dispatcher.dispatch(proc, 'send', [1, msg]));
+            const responses = await collectResponses(dispatcher.dispatch(proc, 'file:send', [1, msg]));
 
             expect(handle.messages.length).toBe(1);
             expect(handle.messages[0]!.op).toBe('send');
@@ -224,7 +224,7 @@ describe('File Syscalls: send/recv', () => {
             const proc = createMockProcess();
             const msg = respond.item({ text: 'test' });
 
-            const responses = await collectResponses(dispatcher.dispatch(proc, 'send', [99, msg]));
+            const responses = await collectResponses(dispatcher.dispatch(proc, 'file:send', [99, msg]));
 
             expect(responses.length).toBe(1);
             expect(responses[0]!.op).toBe('error');
@@ -235,7 +235,7 @@ describe('File Syscalls: send/recv', () => {
             const proc = createMockProcess();
             const msg = respond.item({ text: 'test' });
 
-            const responses = await collectResponses(dispatcher.dispatch(proc, 'send', ['not-a-number', msg]));
+            const responses = await collectResponses(dispatcher.dispatch(proc, 'file:send', ['not-a-number', msg]));
 
             expect(responses.length).toBe(1);
             expect(responses[0]!.op).toBe('error');
@@ -248,13 +248,13 @@ describe('File Syscalls: send/recv', () => {
             handles.set(1, handle);
 
             const msg = respond.data(new Uint8Array([1, 2, 3]));
-            await collectResponses(dispatcher.dispatch(proc, 'send', [1, msg]));
+            await collectResponses(dispatcher.dispatch(proc, 'file:send', [1, msg]));
 
             expect(handle.messages[0]!.data).toEqual(msg);
         });
     });
 
-    describe('send/recv integration pattern', () => {
+    describe('file:send/file:recv integration pattern', () => {
         it('should support cat-like recv-then-send pattern', async () => {
             const proc = createMockProcess();
 
@@ -271,11 +271,11 @@ describe('File Syscalls: send/recv', () => {
             handles.set(1, stdout);
 
             // Simulate cat: recv from stdin, send to stdout
-            const recvResponses = await collectResponses(dispatcher.dispatch(proc, 'recv', [0]));
+            const recvResponses = await collectResponses(dispatcher.dispatch(proc, 'file:recv', [0]));
 
             for (const r of recvResponses) {
                 if (r.op === 'item') {
-                    const sendResponses = await collectResponses(dispatcher.dispatch(proc, 'send', [1, r]));
+                    const sendResponses = await collectResponses(dispatcher.dispatch(proc, 'file:send', [1, r]));
                     expect(sendResponses.length).toBe(1);
                     expect(sendResponses[0]!.op).toBe('ok');
                 }
@@ -303,13 +303,13 @@ describe('File Syscalls: send/recv', () => {
             handles.set(1, stdout);
 
             // Cat-like loop
-            const recvResponses = await collectResponses(dispatcher.dispatch(proc, 'recv', [0]));
+            const recvResponses = await collectResponses(dispatcher.dispatch(proc, 'file:recv', [0]));
             let itemCount = 0;
 
             for (const r of recvResponses) {
                 if (r.op === 'item') {
                     itemCount++;
-                    await collectResponses(dispatcher.dispatch(proc, 'send', [1, r]));
+                    await collectResponses(dispatcher.dispatch(proc, 'file:send', [1, r]));
                 }
             }
 
@@ -341,14 +341,14 @@ describe('File Syscalls: read/write', () => {
         ));
     });
 
-    describe('read syscall', () => {
+    describe('file:read syscall', () => {
         it('should forward read to handle recv', async () => {
             const proc = createMockProcess();
             const handle = new MockHandle('file', '/test.txt');
             handle.setRecvResponses([respond.data(new Uint8Array([65, 66, 67])), respond.done()]);
             handles.set(3, handle);
 
-            const responses = await collectResponses(dispatcher.dispatch(proc, 'read', [3]));
+            const responses = await collectResponses(dispatcher.dispatch(proc, 'file:read', [3]));
 
             expect(handle.messages.length).toBe(1);
             expect(handle.messages[0]!.op).toBe('recv');
@@ -360,20 +360,20 @@ describe('File Syscalls: read/write', () => {
             const handle = new MockHandle('file', '/test.txt');
             handles.set(3, handle);
 
-            await collectResponses(dispatcher.dispatch(proc, 'read', [3, 4096]));
+            await collectResponses(dispatcher.dispatch(proc, 'file:read', [3, 4096]));
 
             expect(handle.messages[0]!.data).toEqual({ chunkSize: 4096 });
         });
     });
 
-    describe('write syscall', () => {
+    describe('file:write syscall', () => {
         it('should forward write to handle send', async () => {
             const proc = createMockProcess();
             const handle = new MockHandle('file', '/test.txt');
             handles.set(3, handle);
 
             const data = new Uint8Array([65, 66, 67]);
-            const responses = await collectResponses(dispatcher.dispatch(proc, 'write', [3, data]));
+            const responses = await collectResponses(dispatcher.dispatch(proc, 'file:write', [3, data]));
 
             expect(handle.messages.length).toBe(1);
             expect(handle.messages[0]!.op).toBe('send');

@@ -140,72 +140,72 @@ describe('Misc Syscalls', () => {
         dispatcher.registerAll(createMiscSyscalls(mockVfs));
     });
 
-    describe('getcwd', () => {
+    describe('proc:getcwd', () => {
         it('should return current working directory', async () => {
             const proc = createMockProcess({ cwd: '/home/user' });
-            const result = await unwrapStream<string>(dispatcher.dispatch(proc, 'getcwd', []));
+            const result = await unwrapStream<string>(dispatcher.dispatch(proc, 'proc:getcwd', []));
             expect(result).toBe('/home/user');
         });
     });
 
-    describe('chdir', () => {
+    describe('proc:chdir', () => {
         it('should change working directory to valid folder', async () => {
             const proc = createMockProcess({ cwd: '/home/user' });
-            await unwrapStream(dispatcher.dispatch(proc, 'chdir', ['/tmp']));
+            await unwrapStream(dispatcher.dispatch(proc, 'proc:chdir', ['/tmp']));
             expect(proc.cwd).toBe('/tmp');
         });
 
         it('should throw EINVAL on non-string path', async () => {
             const proc = createMockProcess();
-            await expect(unwrapStream(dispatcher.dispatch(proc, 'chdir', [123]))).rejects.toThrow('path must be a string');
+            await expect(unwrapStream(dispatcher.dispatch(proc, 'proc:chdir', [123]))).rejects.toThrow('path must be a string');
         });
 
         it('should throw ENOENT on non-existent path', async () => {
             const proc = createMockProcess();
-            await expect(unwrapStream(dispatcher.dispatch(proc, 'chdir', ['/nonexistent']))).rejects.toThrow('No such file');
+            await expect(unwrapStream(dispatcher.dispatch(proc, 'proc:chdir', ['/nonexistent']))).rejects.toThrow('No such file');
         });
 
         it('should throw ENOTDIR on file path', async () => {
             const proc = createMockProcess();
-            await expect(unwrapStream(dispatcher.dispatch(proc, 'chdir', ['/etc/passwd']))).rejects.toThrow('Not a directory');
+            await expect(unwrapStream(dispatcher.dispatch(proc, 'proc:chdir', ['/etc/passwd']))).rejects.toThrow('Not a directory');
         });
 
         it('should resolve relative paths against cwd', async () => {
             const proc = createMockProcess({ cwd: '/home/user' });
-            await unwrapStream(dispatcher.dispatch(proc, 'chdir', ['../..']));
+            await unwrapStream(dispatcher.dispatch(proc, 'proc:chdir', ['../..']));
             expect(proc.cwd).toBe('/');
         });
     });
 
-    describe('getenv', () => {
+    describe('proc:getenv', () => {
         it('should return environment variable', async () => {
             const proc = createMockProcess({ env: { FOO: 'bar' } });
-            const result = await unwrapStream<string>(dispatcher.dispatch(proc, 'getenv', ['FOO']));
+            const result = await unwrapStream<string>(dispatcher.dispatch(proc, 'proc:getenv', ['FOO']));
             expect(result).toBe('bar');
         });
 
         it('should return undefined for missing variable', async () => {
             const proc = createMockProcess({ env: {} });
-            const result = await unwrapStream<string | undefined>(dispatcher.dispatch(proc, 'getenv', ['MISSING']));
+            const result = await unwrapStream<string | undefined>(dispatcher.dispatch(proc, 'proc:getenv', ['MISSING']));
             expect(result).toBeUndefined();
         });
     });
 
-    describe('setenv', () => {
+    describe('proc:setenv', () => {
         it('should set environment variable', async () => {
             const proc = createMockProcess({ env: {} });
-            await unwrapStream(dispatcher.dispatch(proc, 'setenv', ['FOO', 'bar']));
+            await unwrapStream(dispatcher.dispatch(proc, 'proc:setenv', ['FOO', 'bar']));
             expect(proc.env.FOO).toBe('bar');
         });
 
         it('should throw EINVAL on non-string name', async () => {
             const proc = createMockProcess();
-            await expect(unwrapStream(dispatcher.dispatch(proc, 'setenv', [123, 'value']))).rejects.toThrow('name must be a string');
+            await expect(unwrapStream(dispatcher.dispatch(proc, 'proc:setenv', [123, 'value']))).rejects.toThrow('name must be a string');
         });
 
         it('should throw EINVAL on non-string value', async () => {
             const proc = createMockProcess();
-            await expect(unwrapStream(dispatcher.dispatch(proc, 'setenv', ['name', 123]))).rejects.toThrow('value must be a string');
+            await expect(unwrapStream(dispatcher.dispatch(proc, 'proc:setenv', ['name', 123]))).rejects.toThrow('value must be a string');
         });
     });
 });

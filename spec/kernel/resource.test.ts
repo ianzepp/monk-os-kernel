@@ -279,9 +279,9 @@ describe('WatchPort', () => {
         };
     }
 
-    it('should have type "watch"', () => {
-        const port = new WatchPort('watch-1', '/test/*', createMockVfsWatch([]), 'watch:/test/*');
-        expect(port.type).toBe('watch');
+    it('should have type "fs:watch"', () => {
+        const port = new WatchPort('watch-1', '/test/*', createMockVfsWatch([]), 'fs:watch:/test/*');
+        expect(port.type).toBe('fs:watch');
     });
 
     it('should use provided description', () => {
@@ -457,11 +457,11 @@ describe('matchTopic', () => {
 });
 
 describe('PubsubPort', () => {
-    it('should have type "pubsub"', () => {
+    it('should have type "pubsub:subscribe"', () => {
         const publishFn = mock(() => {});
         const unsubscribeFn = mock(() => {});
-        const port = new PubsubPort('pub-1', ['orders.*'], publishFn, unsubscribeFn, 'pubsub:orders.*');
-        expect(port.type).toBe('pubsub');
+        const port = new PubsubPort('pub-1', ['orders.*'], publishFn, unsubscribeFn, 'pubsub:subscribe:orders.*');
+        expect(port.type).toBe('pubsub:subscribe');
     });
 
     it('should use provided description', () => {
