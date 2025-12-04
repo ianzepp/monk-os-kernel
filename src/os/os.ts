@@ -48,6 +48,7 @@ export class OS {
     // Lifecycle event listeners
     private listeners: EventListeners = {
         hal: [],
+        ems: [],
         vfs: [],
         kernel: [],
         boot: [],
@@ -195,20 +196,21 @@ export class OS {
     /**
      * Boot the OS in headless mode.
      *
-     * Initializes HAL, VFS, and kernel. Returns control to the caller.
+     * Initializes HAL, EMS, VFS, and kernel. Returns control to the caller.
      * The OS runs in the background, accessible via the os.* API.
      *
      * Boot sequence:
      * 1. Create and initialize HAL
-     * 2. Emit 'hal' event (configure HAL features)
-     * 3. Create VFS
-     * 4. Initialize VFS (creates /dev, /etc, etc.)
-     * 5. Emit 'vfs' event (configure mounts)
-     * 6. Install queued packages
-     * 7. Create Kernel
-     * 8. Emit 'kernel' event (register services)
-     * 9. Spawn init process if main provided
-     * 10. Emit 'boot' event
+     * 2. Emit 'hal' event
+     * 3. Create Entity Model System (EMS)
+     * 4. Emit 'ems' event (os.database.* available)
+     * 5. Create and initialize VFS
+     * 6. Emit 'vfs' event (os.fs.* available)
+     * 7. Install queued packages
+     * 8. Create Kernel
+     * 9. Emit 'kernel' event
+     * 10. Spawn init process if main provided
+     * 11. Emit 'boot' event
      *
      * @param opts - Optional boot options (e.g., main script)
      */
@@ -221,31 +223,32 @@ export class OS {
         this.hal = new BunHAL(this.buildHALConfig());
         await this.hal.init();
 
-        // 2. Create database connection and ops
+        // 2. Emit 'hal' event
+        await this.emit('hal', this);
+
+        // 3. Create Entity Model System (EMS)
         this.db = await createDatabase(this.hal.channel, this.hal.file);
         const modelCache = new ModelCache(this.db);
         const runner = createObserverRunner();
         this.dbOps = new DatabaseOps(this.db, modelCache, runner);
 
-        // 3. Emit 'hal' event
-        await this.emit('hal', this);
+        // 4. Emit 'ems' event - os.database.* available
+        await this.emit('ems', this);
 
-        // 4. Create VFS
+        // 5. Create and initialize VFS
         this.vfs = new VFS(this.hal);
-
-        // 5. Initialize VFS (creates /dev, etc.)
         await this.vfs.init();
 
-        // 6. Emit 'vfs' event - configure mounts
+        // 6. Emit 'vfs' event - os.fs.* available
         await this.emit('vfs', this);
 
-        // 7. Install queued packages (from config or os.install() calls)
+        // 7. Install queued packages
         await this.pkg.installQueued();
 
         // 8. Create Kernel
         this.kernel = new Kernel(this.hal, this.vfs);
 
-        // 9. Emit 'kernel' event - register services
+        // 9. Emit 'kernel' event
         await this.emit('kernel', this);
 
         // 10. If main is provided, boot with init process

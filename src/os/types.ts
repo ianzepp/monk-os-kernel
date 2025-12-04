@@ -26,8 +26,14 @@ export interface OSEvents {
     hal: (os: OS) => void | Promise<void>;
 
     /**
+     * Called after Entity Model System is created and initialized.
+     * Available: os.database.*
+     */
+    ems: (os: OS) => void | Promise<void>;
+
+    /**
      * Called after VFS is created and initialized.
-     * Available: os.fs.mount(), os.fs.mkdir(), etc.
+     * Available: os.database.*, os.fs.*
      */
     vfs: (os: OS) => void | Promise<void>;
 
