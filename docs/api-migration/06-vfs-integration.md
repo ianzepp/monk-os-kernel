@@ -20,7 +20,7 @@ The architecture uses a two-table design:
     │
     ├── entities table ──────────────────────┐
     │   (identity + hierarchy)               │
-    │   - id, model, parent, name            │
+    │   - id, model, parent, pathname        │
     │   - NO timestamps (cache efficiency)   │
     │                                        │
     │   EntityCache loads this table         │
@@ -43,34 +43,57 @@ The architecture uses a two-table design:
 ```
 
 **Key principles:**
-- `entities` table = UUID→model lookup + path resolution (minimal, cache-friendly)
+- `entities` table = VFS namespace (only VFS-addressable models)
+- `pathname` derived from model field (configurable via `models.pathname`)
 - Detail tables = timestamps + model-specific fields
 - Trashing updates detail table only (cache unchanged)
 - Blob data in HAL (direct I/O)
+
+## VFS-Addressable Models
+
+Not all models need VFS paths. The `models.pathname` column specifies which field becomes the path:
+
+| Model | models.pathname | Entity pathname derived from |
+|-------|-----------------|------------------------------|
+| file | `'filename'` | file.filename → `foo.txt` |
+| users | `'email'` | users.email → `ian@example.com` |
+| logs | `NULL` | No entities row (not VFS) |
+
+- If `pathname` is set → model is VFS-addressable, entities row created
+- If `pathname` is NULL → model is data-only, no entities row
 
 ## Data Flow
 
 ### CREATE
 ```
-Ring 5 SqlCreate:
-  1. BEGIN TRANSACTION
-  2. INSERT INTO entities (id, model, parent, name)
-  3. INSERT INTO temp (id, created_at, updated_at, owner, size, mimetype)
-  4. COMMIT
+Ring 5 SqlCreate (priority 50):
+  - If models.pathname is NULL → INSERT into detail table only
+  - If models.pathname is set:
+    1. BEGIN TRANSACTION
+    2. INSERT INTO entities (id, model, parent, pathname)
+    3. INSERT INTO detail table (id, timestamps, fields)
+    4. COMMIT
 ```
 
 ### UPDATE
 ```
-Ring 5 SqlUpdate:
-  - If parent/name changed → UPDATE entities
-  - All other fields → UPDATE temp (detail table)
-  - Both in transaction if both changed
+Ring 5 SqlUpdate (priority 50):
+  - If parent changed → UPDATE entities.parent
+  - Other fields → UPDATE detail table
+
+Ring 5 PathnameSync (priority 60):
+  - If pathname source field changed (e.g., users.email):
+    → UPDATE entities SET pathname = ? WHERE id = ?
+
+Ring 8 EntityCacheSync:
+  - If entities.pathname changed:
+    → Update cache indexes (remove old, add new)
 ```
 
 ### DELETE (soft)
 ```
 Ring 5 SqlDelete:
-  - UPDATE temp SET trashed_at = ? WHERE id = ?
+  - UPDATE detail SET trashed_at = ? WHERE id = ?
   - entities table unchanged
   - EntityCache unchanged (still contains the entity)
 ```
@@ -78,25 +101,32 @@ Ring 5 SqlDelete:
 ### DELETE (hard)
 ```
 DELETE FROM entities WHERE id = ?
-  → CASCADE deletes from temp table automatically
+  → CASCADE deletes from detail table automatically
 ```
 
 ## Implementation Plan
 
-### Step 1: Schema (DONE)
+### Step 1: Schema
 
-The `entities` table and updated detail tables are in `schema.sql`:
-
+**entities table** (4 columns only):
 ```sql
--- Core identity table (4 columns only)
 CREATE TABLE entities (
-    id      TEXT PRIMARY KEY,
-    model   TEXT NOT NULL,
-    parent  TEXT REFERENCES entities(id),
-    name    TEXT NOT NULL
+    id       TEXT PRIMARY KEY,
+    model    TEXT NOT NULL,
+    parent   TEXT REFERENCES entities(id),
+    pathname TEXT NOT NULL
 );
+```
 
--- Detail table with timestamps
+**models table** (add pathname column):
+```sql
+ALTER TABLE models ADD COLUMN pathname TEXT;
+-- NULL = not VFS-addressable
+-- 'fieldname' = that field becomes the pathname
+```
+
+**Detail tables** (timestamps + model-specific fields):
+```sql
 CREATE TABLE temp (
     id          TEXT PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
     created_at  TEXT DEFAULT (datetime('now')),
@@ -110,19 +140,35 @@ CREATE TABLE temp (
 );
 ```
 
-### Step 2: Ring 5 Observers (DONE)
+### Step 2: Ring 5 Observers
 
-Updated to handle dual-table writes:
-- `SqlCreate` - inserts into entities + detail in transaction
-- `SqlUpdate` - updates entities (parent/name) and/or detail (other fields)
-- `SqlDelete` - updates detail.trashed_at only
+| Observer | Priority | Responsibility |
+|----------|----------|----------------|
+| SqlCreate | 50 | INSERT entities (if VFS) + INSERT detail |
+| SqlUpdate | 50 | UPDATE entities.parent, UPDATE detail |
+| SqlDelete | 50 | UPDATE detail.trashed_at |
+| PathnameSync | 60 | UPDATE entities.pathname when source field changes |
 
-### Step 3: EntityCache (DONE)
+**PathnameSync** (new observer):
+```typescript
+// Ring 5, priority 60 (after SqlUpdate)
+// On UPDATE: check if pathname source field changed
+// If so: UPDATE entities SET pathname = ? WHERE id = ?
+```
 
-Updated to load from entities table only:
+### Step 3: Ring 8 Cache Sync
+
+**EntityCacheSync** handles:
+- CREATE: Add to cache
+- UPDATE: If pathname changed, update cache indexes
+- DELETE: Remove from cache (hard delete only)
+
+### Step 4: EntityCache
+
+Load from entities table:
 ```typescript
 const entities = await db.query<CachedEntity>(
-    'SELECT id, model, parent, name FROM entities'
+    'SELECT id, model, parent, pathname FROM entities'
 );
 ```
 
@@ -198,10 +244,13 @@ After `/tmp` works:
 
 ## Acceptance Criteria
 
-- [x] `entities` table exists with id, model, parent, name
-- [x] Detail tables have timestamps + model-specific fields
-- [x] Ring 5 observers handle dual-table writes
-- [x] EntityCache loads from entities table only
+- [ ] `entities` table exists with id, model, parent, pathname
+- [ ] `models` table has `pathname` column
+- [ ] Detail tables have timestamps + model-specific fields
+- [ ] Ring 5 SqlCreate checks `models.pathname` before creating entities row
+- [ ] Ring 5 PathnameSync observer syncs pathname field → entities.pathname
+- [ ] Ring 8 EntityCacheSync updates cache when pathname changes
+- [ ] EntityCache loads from entities table (id, model, parent, pathname)
 - [ ] DatabaseOps queries JOIN entities with detail tables
 - [ ] TempModel uses new architecture
 - [ ] Can create file in `/tmp` via VFS
@@ -214,7 +263,7 @@ After `/tmp` works:
 
 1. **Query JOIN strategy** - Should DatabaseOps auto-join, or explicit?
 2. **View approach** - Create views per model for convenience?
-3. **Denormalization** - Keep name/parent in both tables for query simplicity?
+3. **pathname uniqueness** - Enforce unique (parent, pathname) in entities?
 
 ## Non-Goals (For Now)
 
