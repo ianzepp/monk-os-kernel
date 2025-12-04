@@ -2,8 +2,8 @@
 
 > **Status**: Planning
 > **Complexity**: Medium
-> **Package**: `@anthropic/monk-terminald`
-> **Dependencies**: `@anthropic/monk-httpd` (or standalone HTTP)
+> **Package**: `@monk-api/terminald`
+> **Dependencies**: `@monk-api/httpd` (or standalone HTTP)
 
 Web-based terminal access to the Monk OS shell.
 
@@ -68,12 +68,12 @@ This is the Monk VFS shell - commands like `ls`, `cat`, `grep` are TypeScript pr
 ## Installation & Usage
 
 ```typescript
-import { OS } from '@anthropic/monk-os';
+import { OS } from '@monk-api/os';
 
 const os = new OS();
 await os.boot();
 
-await os.install('@anthropic/monk-terminald');
+await os.install('@monk-api/terminald');
 
 await os.service('start', 'terminald', {
     port: 3000,
@@ -352,7 +352,7 @@ The Monk OS shell is inherently sandboxed:
 
 ### Phase 1: Basic Terminal
 
-1. Create `@anthropic/monk-terminald` package structure
+1. Create `@monk-api/terminald` package structure
 2. Implement static HTML/xterm.js frontend
 3. Implement WebSocket server (using Bun.serve directly or via HAL)
 4. Bridge WebSocket ↔ shell process I/O
@@ -416,7 +416,7 @@ This is reasonable because:
 ## Package Structure
 
 ```
-@anthropic/monk-terminald/
+@monk-api/terminald/
 ├── package.json
 ├── manifest.json
 ├── sbin/
