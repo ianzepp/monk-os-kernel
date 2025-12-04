@@ -27,13 +27,13 @@ export interface OSEvents {
 
     /**
      * Called after Entity Model System is created and initialized.
-     * Available: os.database.*
+     * Available: os.ems.*
      */
     ems: (os: OS) => void | Promise<void>;
 
     /**
      * Called after VFS is created and initialized.
-     * Available: os.database.*, os.fs.*
+     * Available: os.ems.*, os.fs.*
      */
     vfs: (os: OS) => void | Promise<void>;
 

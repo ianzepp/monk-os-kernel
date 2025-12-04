@@ -71,7 +71,7 @@ import { DeviceModel, initStandardDevices } from '@src/vfs/models/device.js';
 import { LinkModel } from '@src/vfs/models/link.js';
 import { ENOENT, EEXIST, ENOTDIR, EACCES, EINVAL } from '@src/hal/index.js';
 import type { EntityCache } from '@src/ems/entity-cache.js';
-import type { DatabaseOps } from '@src/ems/database-ops.js';
+import type { EntityOps } from '@src/ems/entity-ops.js';
 import type { HostMount, HostMountOptions } from '@src/vfs/mounts/host.js';
 import {
     createHostMount,
@@ -268,16 +268,16 @@ export class VFS {
      *
      * @param hal - Hardware abstraction layer
      * @param cache - Entity cache for path resolution (optional for backwards compat)
-     * @param db - Database operations (optional for backwards compat)
+     * @param entityOps - Entity operations (optional for backwards compat)
      */
-    constructor(hal: HAL, cache?: EntityCache, db?: DatabaseOps) {
+    constructor(hal: HAL, cache?: EntityCache, entityOps?: EntityOps) {
         this.hal = hal;
 
         // Register built-in models
         // FileModel and FolderModel require EMS dependencies
-        if (cache && db) {
-            this.registerModel(new FileModel(cache, db));
-            this.registerModel(new FolderModel(cache, db));
+        if (cache && entityOps) {
+            this.registerModel(new FileModel(cache, entityOps));
+            this.registerModel(new FolderModel(cache, entityOps));
         }
         this.registerModel(new DeviceModel());
         this.registerModel(new LinkModel());

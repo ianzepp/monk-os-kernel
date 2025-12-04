@@ -1,41 +1,61 @@
 /**
- * Model Layer - Public Exports
+ * Entity Model System (EMS) - Public Exports
  *
- * This module re-exports the public API for the model layer, which provides:
+ * This module re-exports the public API for the EMS, which provides:
  * - Database schema and connection management
  * - Model and field metadata classes
  * - Change tracking for entity mutations
  * - Model caching with async HAL-based access
- * - DatabaseService for high-level CRUD operations
+ * - DatabaseOps for generic SQL streaming
+ * - EntityOps for entity-aware streaming with observer pipeline
  * - Observer pipeline for entity mutations
+ *
+ * ARCHITECTURE
+ * ============
+ * ```
+ * ┌─────────────────────────────────────┐
+ * │  EntityAPI (os.ems)                 │  ← Public: array-based
+ * ├─────────────────────────────────────┤
+ * │  EntityOps                          │  ← Kernel: streaming + observers
+ * ├─────────────────────────────────────┤
+ * │  DatabaseOps                        │  ← Kernel: generic SQL streaming
+ * ├─────────────────────────────────────┤
+ * │  DatabaseConnection                 │  ← HAL: channel wrapper
+ * └─────────────────────────────────────┘
+ * ```
  *
  * USAGE
  * =====
  * ```typescript
  * import {
  *     createDatabase,
- *     createDatabaseConnection,
  *     Model,
  *     ModelRecord,
  *     ModelCache,
- *     DatabaseService,
+ *     EntityOps,
+ *     DatabaseOps,
  *     ObserverRunner,
- *     ObserverRing,
  * } from '@src/ems/index.js';
  *
  * // Create database with schema
  * const db = await createDatabase(channelDevice, fileDevice);
  *
- * // Create cache and service
- * const cache = new ModelCache(db);
- * const runner = new ObserverRunner();
- * const service = new DatabaseService(db, cache, runner);
+ * // For generic SQL streaming (no observers)
+ * const dbOps = new DatabaseOps(db);
+ * for await (const row of dbOps.query('SELECT * FROM entities')) {
+ *     console.log(row);
+ * }
  *
- * // Use the service
- * const file = await service.createOne('file', { name: 'test.txt', owner: 'user-123' });
+ * // For entity operations (with observer pipeline)
+ * const cache = new ModelCache(db);
+ * const runner = createObserverRunner();
+ * const entityOps = new EntityOps(db, cache, runner);
+ * for await (const file of entityOps.createAll('file', [{ pathname: 'test.txt' }])) {
+ *     console.log(file);
+ * }
  * ```
  *
- * @module model
+ * @module ems
  */
 
 // =============================================================================
@@ -107,20 +127,26 @@ export {
 export { Filter } from './filter.js';
 
 // =============================================================================
-// DATABASE OPERATIONS (Kernel - Streaming)
-// =============================================================================
-
-export { DatabaseOps, collect, type Source } from './database-ops.js';
-
-// =============================================================================
-// DATABASE SERVICE (Userspace - Arrays)
+// DATABASE OPERATIONS (Generic SQL Streaming)
 // =============================================================================
 
 export {
-    DatabaseService,
+    DatabaseOps,
+    collect,
+    type Source,
     type DbRecord,
-    type ModelSystemContext,
-} from './database.js';
+    type UpdateRecord,
+} from './database-ops.js';
+
+// =============================================================================
+// ENTITY OPERATIONS (Entity-Aware Streaming with Observer Pipeline)
+// =============================================================================
+
+export {
+    EntityOps,
+    type EntityRecord,
+    type EntitySystemContext,
+} from './entity-ops.js';
 
 // =============================================================================
 // OBSERVER PIPELINE

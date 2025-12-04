@@ -43,7 +43,7 @@ import { PosixModel } from '@src/vfs/model.js';
 import type { ModelStat, ModelContext, FieldDef, WatchEvent } from '@src/vfs/model.js';
 import type { FileHandle, OpenFlags, OpenOptions, SeekWhence } from '@src/vfs/handle.js';
 import type { EntityCache, CachedEntity } from '@src/ems/entity-cache.js';
-import type { DatabaseOps, DbRecord } from '@src/ems/database-ops.js';
+import type { EntityOps, EntityRecord } from '@src/ems/entity-ops.js';
 import { ENOENT, EBADF, EACCES, EINVAL, ENOSYS } from '@src/hal/index.js';
 
 // =============================================================================
@@ -127,9 +127,9 @@ export class EntityModel extends PosixModel {
     private readonly cache: EntityCache;
 
     /**
-     * Database operations for detail table queries.
+     * Entity operations for detail table queries.
      */
-    private readonly db: DatabaseOps;
+    private readonly db: EntityOps;
 
     // =========================================================================
     // CONSTRUCTOR
@@ -139,9 +139,9 @@ export class EntityModel extends PosixModel {
      * Create an EntityModel.
      *
      * @param cache - EntityCache for path resolution
-     * @param db - DatabaseOps for detail table queries
+     * @param db - EntityOps for detail table queries
      */
-    constructor(cache: EntityCache, db: DatabaseOps) {
+    constructor(cache: EntityCache, db: EntityOps) {
         super();
         this.cache = cache;
         this.db = db;
@@ -195,7 +195,7 @@ export class EntityModel extends PosixModel {
 
         // Load detail from model's table
         const detail = await first(
-            this.db.selectAny<DbRecord>(entity.model, { where: { id } })
+            this.db.selectAny<EntityRecord>(entity.model, { where: { id } })
         );
         if (!detail) {
             throw new ENOENT(`Detail not found for entity: ${id}`);
@@ -248,7 +248,7 @@ export class EntityModel extends PosixModel {
 
         // Query detail table
         const detail = await first(
-            this.db.selectAny<DbRecord>(entity.model, { where: { id } })
+            this.db.selectAny<EntityRecord>(entity.model, { where: { id } })
         );
         if (!detail) {
             throw new ENOENT(`Detail not found for entity: ${id}`);
@@ -429,7 +429,7 @@ class EntityHandleImpl implements FileHandle {
     // =========================================================================
 
     private readonly ctx: ModelContext;
-    private readonly db: DatabaseOps;
+    private readonly db: EntityOps;
     private readonly entity: CachedEntity;
     private stat: ModelStat;
 
@@ -439,7 +439,7 @@ class EntityHandleImpl implements FileHandle {
 
     constructor(
         ctx: ModelContext,
-        db: DatabaseOps,
+        db: EntityOps,
         entity: CachedEntity,
         stat: ModelStat,
         content: Uint8Array,

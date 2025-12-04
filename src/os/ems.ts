@@ -1,21 +1,20 @@
 /**
- * DatabaseService - Userspace database operations with array-based API
+ * Entity API (os.ems)
  *
- * ARCHITECTURE OVERVIEW
- * =====================
- * DatabaseService provides the userspace interface for database operations.
- * It wraps DatabaseOps (kernel streaming) with familiar array-based signatures,
- * collecting streaming results at the userspace boundary.
+ * Provides entity operations for the OS public API.
+ * Array-based interface wrapping the kernel's streaming EntityOps.
  *
- * LAYERS
- * ======
+ * ARCHITECTURE
+ * ============
  * ```
  * ┌─────────────────────────────────────┐
- * │  Userspace: DatabaseService         │  ← Array in, Promise<Array> out
+ * │  Public: EntityAPI (os.ems)         │  ← Array in, Promise<Array> out
  * ├─────────────────────────────────────┤
- * │  Kernel: DatabaseOps                │  ← Source<T> in, AsyncGenerator out
+ * │  Kernel: EntityOps                  │  ← Source<T> in, AsyncGenerator out
  * ├─────────────────────────────────────┤
- * │  HAL: DatabaseConnection            │  ← SQL in, rows out
+ * │  Kernel: DatabaseOps                │  ← Generic SQL streaming
+ * ├─────────────────────────────────────┤
+ * │  HAL: DatabaseConnection            │  ← Wire protocol (SQLite/Postgres)
  * └─────────────────────────────────────┘
  * ```
  *
@@ -38,19 +37,13 @@
  * - revert*  - undo soft delete (through pipeline)
  * - expire*  - hard delete (through pipeline)
  * - upsert*  - create or update (through pipeline)
- *
- * @module model/database
  */
 
-import type { DatabaseConnection } from './connection.js';
-import type { ModelCache } from './model-cache.js';
-import type { ObserverRunner } from './observers/runner.js';
 import {
-    DatabaseOps,
+    EntityOps,
     collect,
-    type DbRecord,
-    type ModelSystemContext,
-} from './database-ops.js';
+    type EntityRecord,
+} from '@src/ems/entity-ops.js';
 import type {
     FilterData,
     SelectOptions,
@@ -58,40 +51,54 @@ import type {
     UpdateInput,
     DeleteInput,
     RevertInput,
-} from './filter-types.js';
+} from '@src/ems/filter-types.js';
 import { ENOENT, EIO } from '@src/hal/errors.js';
 
 // =============================================================================
 // RE-EXPORTS
 // =============================================================================
 
-// Re-export types from database-ops for convenience
-export type { DbRecord, ModelSystemContext } from './database-ops.js';
-export { collect } from './database-ops.js';
+export type { EntityRecord } from '@src/ems/entity-ops.js';
+export type {
+    FilterData,
+    SelectOptions,
+    CreateInput,
+    UpdateInput,
+    DeleteInput,
+    RevertInput,
+} from '@src/ems/filter-types.js';
 
 // =============================================================================
-// DATABASE SERVICE
+// HOST INTERFACE
 // =============================================================================
 
 /**
- * Userspace CRUD service with array-based API.
- *
- * WHY: Shell commands and userspace programs expect array inputs/outputs.
- * This layer collects streaming results from DatabaseOps into arrays.
+ * Interface for OS methods needed by EntityAPI.
+ * Avoids circular dependency with OS class.
  */
-export class DatabaseService {
-    // =========================================================================
-    // STATE
-    // =========================================================================
+export interface EntityAPIHost {
+    getEntityOps(): EntityOps;
+}
 
-    private readonly ops: DatabaseOps;
+// =============================================================================
+// ENTITY API
+// =============================================================================
 
-    // =========================================================================
-    // CONSTRUCTOR
-    // =========================================================================
+/**
+ * Entity API for OS (os.ems)
+ *
+ * Provides CRUD operations with array-based interface.
+ * All mutations flow through the observer pipeline.
+ */
+export class EntityAPI {
+    private host: EntityAPIHost;
 
-    constructor(db: DatabaseConnection, cache: ModelCache, runner: ObserverRunner) {
-        this.ops = new DatabaseOps(db, cache, runner);
+    constructor(host: EntityAPIHost) {
+        this.host = host;
+    }
+
+    private get ops(): EntityOps {
+        return this.host.getEntityOps();
     }
 
     // =========================================================================
@@ -101,7 +108,7 @@ export class DatabaseService {
     /**
      * Select records matching filter criteria.
      */
-    async selectAny<T extends DbRecord>(
+    async selectAny<T extends EntityRecord>(
         modelName: string,
         filterData: FilterData = {},
         options: SelectOptions = {}
@@ -112,7 +119,7 @@ export class DatabaseService {
     /**
      * Select first record matching filter criteria.
      */
-    async selectOne<T extends DbRecord>(
+    async selectOne<T extends EntityRecord>(
         modelName: string,
         filterData: FilterData,
         options: SelectOptions = {}
@@ -130,7 +137,7 @@ export class DatabaseService {
     /**
      * Select first record or throw if not found.
      */
-    async select404<T extends DbRecord>(
+    async select404<T extends EntityRecord>(
         modelName: string,
         filterData: FilterData,
         message?: string,
@@ -146,7 +153,7 @@ export class DatabaseService {
     /**
      * Select records by IDs.
      */
-    async selectIds<T extends DbRecord>(
+    async selectIds<T extends EntityRecord>(
         modelName: string,
         ids: string[],
         options: SelectOptions = {}
@@ -157,7 +164,7 @@ export class DatabaseService {
     /**
      * Re-select records (refresh from database by their IDs).
      */
-    async selectAll<T extends DbRecord>(modelName: string, records: T[]): Promise<T[]> {
+    async selectAll<T extends EntityRecord>(modelName: string, records: T[]): Promise<T[]> {
         const ids = records.map((r) => r.id);
         return this.selectIds<T>(modelName, ids);
     }
@@ -184,7 +191,7 @@ export class DatabaseService {
     /**
      * Create multiple records.
      */
-    async createAll<T extends DbRecord>(
+    async createAll<T extends EntityRecord>(
         modelName: string,
         records: CreateInput<T>[]
     ): Promise<T[]> {
@@ -194,7 +201,7 @@ export class DatabaseService {
     /**
      * Create a single record.
      */
-    async createOne<T extends DbRecord>(
+    async createOne<T extends EntityRecord>(
         modelName: string,
         data: CreateInput<T>
     ): Promise<T> {
@@ -211,7 +218,7 @@ export class DatabaseService {
     /**
      * Update multiple records with individual changes.
      */
-    async updateAll<T extends DbRecord>(
+    async updateAll<T extends EntityRecord>(
         modelName: string,
         updates: UpdateInput<T>[]
     ): Promise<T[]> {
@@ -221,7 +228,7 @@ export class DatabaseService {
     /**
      * Update a single record by ID.
      */
-    async updateOne<T extends DbRecord>(
+    async updateOne<T extends EntityRecord>(
         modelName: string,
         id: string,
         changes: Partial<T>
@@ -235,7 +242,7 @@ export class DatabaseService {
     /**
      * Update records by IDs with same changes.
      */
-    async updateIds<T extends DbRecord>(
+    async updateIds<T extends EntityRecord>(
         modelName: string,
         ids: string[],
         changes: Partial<T>
@@ -246,7 +253,7 @@ export class DatabaseService {
     /**
      * Update records matching filter with same changes.
      */
-    async updateAny<T extends DbRecord>(
+    async updateAny<T extends EntityRecord>(
         modelName: string,
         filterData: FilterData,
         changes: Partial<T>
@@ -256,18 +263,13 @@ export class DatabaseService {
 
     /**
      * Update first matching record or throw if not found.
-     *
-     * RACE CONDITION FIX: The old pattern (selectOne then updateOne) had a TOCTOU
-     * bug where the record could be deleted between select and update. Now we
-     * perform the update directly and check if any records were affected.
      */
-    async update404<T extends DbRecord>(
+    async update404<T extends EntityRecord>(
         modelName: string,
         filterData: FilterData,
         changes: Partial<T>,
         message?: string
     ): Promise<T> {
-        // Limit to 1 record and perform update atomically
         const limitedFilter = { ...filterData, limit: 1 };
         const results = await this.updateAny<T>(modelName, limitedFilter, changes);
         const result = results[0];
@@ -285,7 +287,7 @@ export class DatabaseService {
     /**
      * Soft delete multiple records.
      */
-    async deleteAll<T extends DbRecord>(
+    async deleteAll<T extends EntityRecord>(
         modelName: string,
         deletes: DeleteInput[]
     ): Promise<T[]> {
@@ -295,7 +297,7 @@ export class DatabaseService {
     /**
      * Soft delete a single record.
      */
-    async deleteOne<T extends DbRecord>(modelName: string, id: string): Promise<T> {
+    async deleteOne<T extends EntityRecord>(modelName: string, id: string): Promise<T> {
         for await (const deleted of this.ops.deleteAll<T>(modelName, [{ id }])) {
             return deleted;
         }
@@ -305,14 +307,14 @@ export class DatabaseService {
     /**
      * Soft delete records by IDs.
      */
-    async deleteIds<T extends DbRecord>(modelName: string, ids: string[]): Promise<T[]> {
+    async deleteIds<T extends EntityRecord>(modelName: string, ids: string[]): Promise<T[]> {
         return collect(this.ops.deleteIds<T>(modelName, ids));
     }
 
     /**
      * Soft delete records matching filter.
      */
-    async deleteAny<T extends DbRecord>(
+    async deleteAny<T extends EntityRecord>(
         modelName: string,
         filterData: FilterData
     ): Promise<T[]> {
@@ -321,17 +323,12 @@ export class DatabaseService {
 
     /**
      * Soft delete first matching record or throw if not found.
-     *
-     * RACE CONDITION FIX: The old pattern (selectOne then deleteOne) had a TOCTOU
-     * bug where the record could be deleted between select and delete. Now we
-     * perform the delete directly and check if any records were affected.
      */
-    async delete404<T extends DbRecord>(
+    async delete404<T extends EntityRecord>(
         modelName: string,
         filterData: FilterData,
         message?: string
     ): Promise<T> {
-        // Limit to 1 record and perform delete atomically
         const limitedFilter = { ...filterData, limit: 1 };
         const results = await this.deleteAny<T>(modelName, limitedFilter);
         const result = results[0];
@@ -349,7 +346,7 @@ export class DatabaseService {
     /**
      * Revert (undelete) multiple records.
      */
-    async revertAll<T extends DbRecord>(
+    async revertAll<T extends EntityRecord>(
         modelName: string,
         reverts: RevertInput[]
     ): Promise<T[]> {
@@ -359,7 +356,7 @@ export class DatabaseService {
     /**
      * Revert (undelete) a single record.
      */
-    async revertOne<T extends DbRecord>(modelName: string, id: string): Promise<T> {
+    async revertOne<T extends EntityRecord>(modelName: string, id: string): Promise<T> {
         for await (const reverted of this.ops.revertAll<T>(modelName, [{ id }])) {
             return reverted;
         }
@@ -369,7 +366,7 @@ export class DatabaseService {
     /**
      * Revert records matching filter.
      */
-    async revertAny<T extends DbRecord>(
+    async revertAny<T extends EntityRecord>(
         modelName: string,
         filterData: FilterData = {}
     ): Promise<T[]> {
@@ -383,7 +380,7 @@ export class DatabaseService {
     /**
      * Hard delete multiple records (permanent).
      */
-    async expireAll<T extends DbRecord>(
+    async expireAll<T extends EntityRecord>(
         modelName: string,
         expires: DeleteInput[]
     ): Promise<T[]> {
@@ -393,7 +390,7 @@ export class DatabaseService {
     /**
      * Hard delete a single record (permanent).
      */
-    async expireOne<T extends DbRecord>(modelName: string, id: string): Promise<T> {
+    async expireOne<T extends EntityRecord>(modelName: string, id: string): Promise<T> {
         for await (const expired of this.ops.expireAll<T>(modelName, [{ id }])) {
             return expired;
         }
@@ -407,7 +404,7 @@ export class DatabaseService {
     /**
      * Upsert multiple records (create or update based on id presence).
      */
-    async upsertAll<T extends DbRecord>(
+    async upsertAll<T extends EntityRecord>(
         modelName: string,
         records: (CreateInput<T> | UpdateInput<T>)[]
     ): Promise<T[]> {
@@ -417,7 +414,7 @@ export class DatabaseService {
     /**
      * Upsert a single record (create or update based on id presence).
      */
-    async upsertOne<T extends DbRecord>(
+    async upsertOne<T extends EntityRecord>(
         modelName: string,
         data: CreateInput<T> | UpdateInput<T>
     ): Promise<T> {
@@ -425,44 +422,5 @@ export class DatabaseService {
             return upserted;
         }
         throw new EIO('Upsert failed');
-    }
-
-    // =========================================================================
-    // PUBLIC ACCESSORS
-    // =========================================================================
-
-    /**
-     * Get the underlying kernel operations (for pipe composition).
-     */
-    getOps(): DatabaseOps {
-        return this.ops;
-    }
-
-    /**
-     * Get system context (for testing).
-     */
-    getSystemContext(): ModelSystemContext {
-        return this.ops.getSystemContext();
-    }
-
-    /**
-     * Get database connection (for testing).
-     */
-    getConnection(): DatabaseConnection {
-        return this.ops.getConnection();
-    }
-
-    /**
-     * Get model cache (for testing).
-     */
-    getCache(): ModelCache {
-        return this.ops.getCache();
-    }
-
-    /**
-     * Get observer runner (for testing).
-     */
-    getRunner(): ObserverRunner {
-        return this.ops.getRunner();
     }
 }

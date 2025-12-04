@@ -17,9 +17,9 @@ import { FilesystemAPI } from './fs.js';
 import { ProcessAPI } from './process.js';
 import { ServiceAPI } from './service.js';
 import { PackageAPI } from './pkg.js';
-import { DatabaseAPI } from './database.js';
+import { EntityAPI } from './ems.js';
 import { createDatabase, type DatabaseConnection } from '@src/ems/connection.js';
-import { DatabaseOps } from '@src/ems/database-ops.js';
+import { EntityOps } from '@src/ems/entity-ops.js';
 import { ModelCache } from '@src/ems/model-cache.js';
 import { EntityCache } from '@src/ems/entity-cache.js';
 import { createObserverRunner } from '@src/ems/observers/registry.js';
@@ -40,7 +40,7 @@ export class OS {
     private vfs: VFS | null = null;
     private kernel: Kernel | null = null;
     private db: DatabaseConnection | null = null;
-    private dbOps: DatabaseOps | null = null;
+    private entityOps: EntityOps | null = null;
     private booted = false;
 
     // Path aliases
@@ -77,16 +77,16 @@ export class OS {
     readonly pkg: PackageAPI;
 
     /**
-     * Database API for model operations.
+     * Entity Model System API for entity operations.
      */
-    readonly database: DatabaseAPI;
+    readonly ems: EntityAPI;
 
     constructor(config?: OSConfig) {
         this.fs = new FilesystemAPI(this);
         this.process = new ProcessAPI(this);
         this.service = new ServiceAPI(this);
         this.pkg = new PackageAPI(this);
-        this.database = new DatabaseAPI(this);
+        this.ems = new EntityAPI(this);
         this.config = config ?? {};
 
         // Initialize aliases from config
@@ -204,7 +204,7 @@ export class OS {
      * 1. Create and initialize HAL
      * 2. Emit 'hal' event
      * 3. Create Entity Model System (EMS)
-     * 4. Emit 'ems' event (os.database.* available)
+     * 4. Emit 'ems' event (os.ems.* available)
      * 5. Create and initialize VFS
      * 6. Emit 'vfs' event (os.fs.* available)
      * 7. Install queued packages
@@ -231,14 +231,14 @@ export class OS {
         this.db = await createDatabase(this.hal.channel, this.hal.file);
         const modelCache = new ModelCache(this.db);
         const runner = createObserverRunner();
-        this.dbOps = new DatabaseOps(this.db, modelCache, runner);
+        this.entityOps = new EntityOps(this.db, modelCache, runner);
         const entityCache = new EntityCache();
 
-        // 4. Emit 'ems' event - os.database.* available
+        // 4. Emit 'ems' event - os.ems.* available
         await this.emit('ems', this);
 
         // 5. Create and initialize VFS
-        this.vfs = new VFS(this.hal, entityCache, this.dbOps);
+        this.vfs = new VFS(this.hal, entityCache, this.entityOps);
         await this.vfs.init();
 
         // 6. Emit 'vfs' event - os.fs.* available
@@ -333,7 +333,7 @@ export class OS {
         this.vfs = null;
         this.kernel = null;
         this.db = null;
-        this.dbOps = null;
+        this.entityOps = null;
     }
 
     /**
@@ -374,13 +374,13 @@ export class OS {
     }
 
     /**
-     * Get the DatabaseOps instance (for DatabaseAPI).
+     * Get the EntityOps instance (for EntityAPI).
      */
-    getDatabaseOps(): DatabaseOps {
-        if (!this.dbOps) {
+    getEntityOps(): EntityOps {
+        if (!this.entityOps) {
             throw new EINVAL('OS not booted');
         }
-        return this.dbOps;
+        return this.entityOps;
     }
 
     /**
