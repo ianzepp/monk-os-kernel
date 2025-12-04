@@ -19,7 +19,7 @@ export function releaseProcessWorkers(self: Kernel, proc: Process): void {
     const procWorkers = self.leasedWorkers.get(proc.id);
     if (procWorkers) {
         for (const [workerId, worker] of procWorkers.entries()) {
-            worker.release().catch((err) => {
+            worker.release().catch((err: unknown) => {
                 printk(self, 'cleanup', `worker ${workerId} release failed: ${formatError(err)}`);
             });
         }

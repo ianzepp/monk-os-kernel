@@ -15,3 +15,6 @@ export { createFileSyscalls } from './syscalls/file.js';
 export { createMiscSyscalls } from './syscalls/misc.js';
 export { createNetworkSyscalls } from './syscalls/network.js';
 export { createChannelSyscalls } from './syscalls/channel.js';
+
+// Re-export registration function
+export { registerSyscalls } from './syscalls/index.js';
