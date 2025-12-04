@@ -1,0 +1,13 @@
+{
+    "name": "httpd",
+    "handler": "/usr/httpd/sbin/httpd.ts",
+    "description": "HTTP server",
+    "host": true,
+    "activate": {
+        "type": "manual"
+    },
+    "defaults": {
+        "port": 8080,
+        "hostname": "localhost"
+    }
+}
