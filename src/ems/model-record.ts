@@ -29,7 +29,7 @@
  * // Observer can check what's changing
  * if (updateRecord.has('email')) {
  *     const oldEmail = updateRecord.old('email'); // 'old@example.com'
- *     const newEmail = updateRecord.new('email'); // 'new@example.com'
+ *     const newEmail = updateRecord.get('email'); // 'new@example.com'
  * }
  *
  * // Get merged record for INSERT/UPDATE
@@ -184,18 +184,6 @@ export class ModelRecord {
      */
     old(field: string): unknown {
         return this.original[field];
-    }
-
-    /**
-     * Get new value (from input).
-     *
-     * WHY separate from get(): Observers may need to compare old vs new.
-     *
-     * @param field - Field name
-     * @returns New value or undefined if field not changed
-     */
-    new(field: string): unknown {
-        return this.changes.get(field);
     }
 
     /**

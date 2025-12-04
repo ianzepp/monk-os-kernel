@@ -77,7 +77,6 @@ function createMockRecord(
     return {
         isNew: () => Object.keys(oldData).length === 0,
         old: (field: string) => oldData[field],
-        new: (field: string) => newData[field],
         get: (field: string) => merged[field],
         has: (field: string) => field in newData,
         set: (field: string, value: unknown) => {
@@ -91,6 +90,16 @@ function createMockRecord(
             const diff: Record<string, { old: unknown; new: unknown }> = {};
             for (const field of changedFields) {
                 diff[field] = { old: oldData[field], new: newData[field] };
+            }
+            return diff;
+        },
+        getDiffForFields: (fields: Set<string>) => {
+            const diff: Record<string, { old: unknown; new: unknown }> = {};
+            for (const field of changedFields) {
+                if (!fields.has(field)) continue;
+                if (oldData[field] !== newData[field]) {
+                    diff[field] = { old: oldData[field], new: newData[field] };
+                }
             }
             return diff;
         },

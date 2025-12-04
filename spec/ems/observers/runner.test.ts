@@ -43,7 +43,6 @@ function createMockRecord(): ModelRecord {
     return {
         isNew: () => true,
         old: () => undefined,
-        new: (field: string) => data[field],
         get: (field: string) => data[field],
         has: (field: string) => field in data,
         set: (field: string, value: unknown) => { data[field] = value; },
@@ -51,6 +50,7 @@ function createMockRecord(): ModelRecord {
         toRecord: () => ({ ...data }),
         toChanges: () => ({ ...data }),
         getDiff: () => ({}),
+        getDiffForFields: () => ({}),
     };
 }
 

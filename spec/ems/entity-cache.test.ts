@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'bun:test';
-import { EntityCache, ROOT_ID, type CachedEntity } from '@src/ems/entity-cache.js';
+import { EntityCache, ROOT_ID } from '@src/ems/entity-cache.js';
 
 // =============================================================================
 // TEST HELPERS
@@ -35,18 +35,6 @@ function createMockDb(entities: Array<{ id: string; model: string; parent: strin
         async exec(_sql: string): Promise<void> {},
         async close(): Promise<void> {},
     };
-}
-
-/**
- * Create a test entity.
- */
-function createEntity(
-    id: string,
-    model: string,
-    pathname: string,
-    parent: string | null = null
-): { id: string; model: string; parent: string | null; pathname: string } {
-    return { id, model, parent, pathname };
 }
 
 // =============================================================================

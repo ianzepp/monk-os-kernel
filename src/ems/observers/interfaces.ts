@@ -105,9 +105,6 @@ export interface ModelRecord {
     /** Get original value (from database) */
     old(field: string): unknown;
 
-    /** Get new value (from input) */
-    new(field: string): unknown;
-
     /** Get merged value (new if changed, else original) */
     get(field: string): unknown;
 

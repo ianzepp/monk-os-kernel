@@ -94,7 +94,6 @@ function createMockRecord(
     return {
         isNew: () => Object.keys(oldData).length === 0,
         old: (field: string) => oldData[field],
-        new: (field: string) => newData[field],
         get: (field: string) => merged[field],
         has: (field: string) => field in newData,
         set: (field: string, value: unknown) => {

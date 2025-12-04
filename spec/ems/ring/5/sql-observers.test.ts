@@ -93,7 +93,6 @@ function createMockRecord(
     return {
         isNew: () => Object.keys(oldData).length === 0,
         old: (field: string) => oldData[field],
-        new: (field: string) => newData[field],
         get: (field: string) => merged[field],
         has: (field: string) => field in newData,
         set: (field: string, value: unknown) => {
@@ -107,6 +106,16 @@ function createMockRecord(
             const diff: Record<string, { old: unknown; new: unknown }> = {};
             for (const field of changedFields) {
                 diff[field] = { old: oldData[field], new: newData[field] };
+            }
+            return diff;
+        },
+        getDiffForFields: (fields: Set<string>) => {
+            const diff: Record<string, { old: unknown; new: unknown }> = {};
+            for (const field of changedFields) {
+                if (!fields.has(field)) continue;
+                if (oldData[field] !== newData[field]) {
+                    diff[field] = { old: oldData[field], new: newData[field] };
+                }
             }
             return diff;
         },
@@ -571,9 +580,8 @@ describe('Ring 5 is required for persistence', () => {
         const { BunHAL } = await import('@src/hal/index.js');
         const { createDatabase } = await import('@src/ems/connection.js');
         const { ModelCache } = await import('@src/ems/model-cache.js');
-        const { DatabaseService } = await import('@src/ems/database.js');
+        const { EntityOps, collect } = await import('@src/ems/entity-ops.js');
         const { ObserverRunner } = await import('@src/ems/observers/runner.js');
-        const { EIO } = await import('@src/hal/errors.js');
 
         // Setup
         const hal = new BunHAL();
@@ -583,22 +591,21 @@ describe('Ring 5 is required for persistence', () => {
 
         // EMPTY runner - no Ring 5 observers registered
         const emptyRunner = new ObserverRunner();
-        const service = new DatabaseService(db, cache, emptyRunner);
+        const entityOps = new EntityOps(db, cache, emptyRunner);
 
         // Attempt to create a record - pipeline runs but no SQL executes
-        // Since no INSERT happened, the re-read finds nothing, and createOne throws EIO
-        try {
-            await service.createOne('file', {
-                pathname: 'ghost-file.txt',
-                owner: 'ghost',
-            });
-            // Should not reach here
-            expect(true).toBe(false);
-        } catch (err) {
-            // Expected: EIO because no record was persisted
-            expect(err).toBeInstanceOf(EIO);
-            expect((err as Error).message).toBe('Create failed');
-        }
+        // Since no INSERT happened, the re-read finds nothing
+        const results = await collect(
+            entityOps.createAll('file', [
+                {
+                    pathname: 'ghost-file.txt',
+                    owner: 'ghost',
+                },
+            ])
+        );
+
+        // The result array should be empty since no SQL was executed
+        expect(results.length).toBe(0);
 
         // Double-check: verify ghost file is NOT in database (check entities table)
         const rows = await db.query('SELECT * FROM entities WHERE pathname = ?', ['ghost-file.txt']);
@@ -613,7 +620,7 @@ describe('Ring 5 is required for persistence', () => {
         const { BunHAL } = await import('@src/hal/index.js');
         const { createDatabase } = await import('@src/ems/connection.js');
         const { ModelCache } = await import('@src/ems/model-cache.js');
-        const { DatabaseService } = await import('@src/ems/database.js');
+        const { EntityOps, collect } = await import('@src/ems/entity-ops.js');
         const { createObserverRunner } = await import('@src/ems/observers/registry.js');
 
         // Setup
@@ -624,15 +631,21 @@ describe('Ring 5 is required for persistence', () => {
 
         // Runner WITH Ring 5 observers
         const runner = createObserverRunner();
-        const service = new DatabaseService(db, cache, runner);
+        const entityOps = new EntityOps(db, cache, runner);
 
         // Create a record - Ring 5 observers execute SQL
-        const created = await service.createOne('file', {
-            pathname: 'real-file.txt',
-            owner: 'real-owner',
-        });
+        const results = await collect(
+            entityOps.createAll('file', [
+                {
+                    pathname: 'real-file.txt',
+                    owner: 'real-owner',
+                },
+            ])
+        );
 
         // The record should exist and have an id
+        expect(results.length).toBe(1);
+        const created = results[0];
         expect(created).toBeDefined();
         expect(created.id).toBeTruthy();
         // Note: pathname is stored in entities table, owner in detail table
