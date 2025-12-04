@@ -93,15 +93,15 @@ export class SqlUpdate extends BaseObserver {
      * Execute UPDATE statement.
      *
      * ALGORITHM:
-     * 1. Get only changed fields from ModelRecord
-     * 2. If no changes, skip (no-op)
-     * 3. Build SET clauses for each changed field
-     * 4. Execute UPDATE WHERE id = ?
-     * 5. Wrap any database errors in EOBSSYS
+     * For entity models (file, folder, device, proc, link, temp):
+     * 1. Split changes into entity fields (parent, name) and detail fields
+     * 2. Begin transaction if both need updating
+     * 3. UPDATE entities table for hierarchy changes
+     * 4. UPDATE detail table for model-specific changes
+     * 5. Commit transaction
      *
-     * WHY check for empty changes: Ring 0-4 observers may strip or reject
-     * all changes (e.g., all fields were immutable). Rather than error,
-     * we treat this as a successful no-op.
+     * For meta-models (models, fields, tracked):
+     * 1. UPDATE directly (no entities table involvement)
      *
      * @param context - Observer context with model, record, and system services
      * @throws EOBSSYS on database execution failure
@@ -109,40 +109,114 @@ export class SqlUpdate extends BaseObserver {
     async execute(context: ObserverContext): Promise<void> {
         const { model, record, system } = context;
 
-        // Get only the changes (not the full merged record)
         const changes = record.toChanges();
         const id = record.get('id') as string;
 
-        // Build SET clauses
-        const columns = Object.keys(changes);
-
         // EARLY EXIT: No changes to apply
-        // WHY: Validation rings may have stripped all changes (e.g., immutable fields).
-        // This is not an error - it's a valid no-op.
-        if (columns.length === 0) {
+        if (Object.keys(changes).length === 0) {
             return;
         }
 
+        // Meta-models don't use entities table
+        if (META_MODELS.has(model.modelName)) {
+            await this.updateDirect(system.db, model.modelName, id, changes);
+            return;
+        }
+
+        // Split changes into entity vs detail fields
+        const entityChanges: Record<string, unknown> = {};
+        const detailChanges: Record<string, unknown> = {};
+
+        for (const [key, value] of Object.entries(changes)) {
+            if (ENTITY_FIELDS.has(key)) {
+                entityChanges[key] = value;
+            } else {
+                detailChanges[key] = value;
+            }
+        }
+
+        const hasEntityChanges = Object.keys(entityChanges).length > 0;
+        const hasDetailChanges = Object.keys(detailChanges).length > 0;
+
+        // If both need updating, use transaction
+        if (hasEntityChanges && hasDetailChanges) {
+            try {
+                await system.db.execute('BEGIN IMMEDIATE');
+                try {
+                    await this.updateTable(system.db, 'entities', id, entityChanges);
+                    await this.updateTable(system.db, model.modelName, id, detailChanges);
+                    await system.db.execute('COMMIT');
+                } catch (err) {
+                    await system.db.execute('ROLLBACK');
+                    throw err;
+                }
+            } catch (err) {
+                const message = err instanceof Error ? err.message : String(err);
+                throw new EOBSSYS(`UPDATE failed for ${model.modelName}[${id}]: ${message}`);
+            }
+        } else if (hasEntityChanges) {
+            await this.updateTable(system.db, 'entities', id, entityChanges);
+        } else if (hasDetailChanges) {
+            await this.updateTable(system.db, model.modelName, id, detailChanges);
+        }
+    }
+
+    /**
+     * Update directly in a table (for meta-models).
+     */
+    private async updateDirect(
+        db: ObserverContext['system']['db'],
+        tableName: string,
+        id: string,
+        changes: Record<string, unknown>
+    ): Promise<void> {
+        await this.updateTable(db, tableName, id, changes);
+    }
+
+    /**
+     * Execute UPDATE on a specific table.
+     */
+    private async updateTable(
+        db: ObserverContext['system']['db'],
+        tableName: string,
+        id: string,
+        changes: Record<string, unknown>
+    ): Promise<void> {
+        const columns = Object.keys(changes);
+        if (columns.length === 0) return;
+
         const setClauses = columns.map((col) => `${col} = ?`).join(', ');
         const values = columns.map((col) => changes[col]);
-
-        // Add id as the WHERE parameter (always last)
         values.push(id);
 
-        // SAFETY: Table/column names from validated metadata, values parameterized.
-        const sql = `UPDATE ${model.modelName} SET ${setClauses} WHERE id = ?`;
+        const sql = `UPDATE ${tableName} SET ${setClauses} WHERE id = ?`;
 
         try {
-            await system.db.execute(sql, values);
+            await db.execute(sql, values);
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
-
-            throw new EOBSSYS(
-                `UPDATE failed for ${model.modelName}[${id}]: ${message}`
-            );
+            throw new EOBSSYS(`UPDATE failed for ${tableName}[${id}]: ${message}`);
         }
     }
 }
+
+// =============================================================================
+// CONSTANTS
+// =============================================================================
+
+/**
+ * Meta-models that don't use the entities table.
+ */
+const META_MODELS = new Set(['models', 'fields', 'tracked']);
+
+/**
+ * Fields that belong in the entities table.
+ * Note: timestamps go to detail tables, not entities.
+ */
+const ENTITY_FIELDS = new Set([
+    'parent',
+    'name',
+]);
 
 // =============================================================================
 // DEFAULT EXPORT

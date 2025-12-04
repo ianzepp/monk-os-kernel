@@ -104,13 +104,13 @@ export class SqlDelete extends BaseObserver {
      * Execute soft DELETE (UPDATE trashed_at).
      *
      * ALGORITHM:
-     * 1. Get record id and trashed_at from ModelRecord
-     * 2. Execute UPDATE to set trashed_at
-     * 3. Wrap any database errors in EOBSSYS
+     * For entity models: UPDATE detail table's trashed_at (entities has no timestamps)
+     * For meta-models: UPDATE that table directly
      *
-     * WHY use record.get('trashed_at'): DatabaseOps sets the trashed_at
-     * value before entering the pipeline. This allows observers in Ring 1-4
-     * to potentially modify or validate the timestamp.
+     * WHY detail table only: The entities table is purely for identity + path
+     * resolution. Timestamps (including trashed_at) live in detail tables.
+     * Trashing an entity doesn't require cache invalidation - the cache
+     * contains all entities, and the detail table query filters on trashed_at.
      *
      * @param context - Observer context with model, record, and system services
      * @throws EOBSSYS on database execution failure
@@ -121,7 +121,8 @@ export class SqlDelete extends BaseObserver {
         const id = record.get('id') as string;
         const trashedAt = record.get('trashed_at');
 
-        // SAFETY: Table name from validated metadata, values parameterized.
+        // For both entity models and meta-models, update the model's table directly
+        // (Entity models have trashed_at in detail table, not entities table)
         const sql = `UPDATE ${model.modelName} SET trashed_at = ? WHERE id = ?`;
 
         try {

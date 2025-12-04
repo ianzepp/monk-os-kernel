@@ -237,17 +237,17 @@ export class EntityCache {
     // =========================================================================
 
     /**
-     * Load all entities from database.
+     * Load all entities from the entities table.
      *
      * ALGORITHM:
-     * 1. Query models table for all active model names
-     * 2. For each model, query minimal fields from its table
-     * 3. Add each entity to cache indexes
+     * 1. Query entities table for all active entities
+     * 2. Add each entity to cache indexes
      *
-     * WHY query each table: Each model has its own table. We can't do a
-     * single query across all models without UNION (which would be slow).
+     * WHY single table: The entities table is the single source of truth for
+     * entity identity and hierarchy. Model-specific details live in separate
+     * detail tables, but the cache only needs id, model, parent, name.
      *
-     * PERFORMANCE: ~200-500ms for 1M entities (SQLite is fast at bulk reads).
+     * PERFORMANCE: Single query, ~100-300ms for 1M entities.
      *
      * @param db - Database connection
      */
@@ -255,53 +255,16 @@ export class EntityCache {
         // Clear existing cache
         this.clear();
 
-        // Get all active model names
-        const models = await db.query<{ model_name: string }>(
-            "SELECT model_name FROM models WHERE status IN ('system', 'active') AND trashed_at IS NULL"
+        // Load all entities from the entities table
+        // Note: entities table has no trashed_at - cache contains ALL entities.
+        // Soft-delete status is determined by the detail table's trashed_at.
+        const entities = await db.query<CachedEntity>(
+            'SELECT id, model, parent, name FROM entities'
         );
 
-        // Load entities from each model's table
-        for (const { model_name } of models) {
-            await this.loadModelEntities(db, model_name);
-        }
-    }
-
-    /**
-     * Load entities from a single model's table.
-     *
-     * @param db - Database connection
-     * @param modelName - Model name (table name)
-     */
-    private async loadModelEntities(db: DatabaseConnection, modelName: string): Promise<void> {
-        // Skip meta-tables (they don't have parent/name columns)
-        if (modelName === 'models' || modelName === 'fields' || modelName === 'tracked') {
-            return;
-        }
-
-        try {
-            // Query minimal fields for path resolution
-            const entities = await db.query<{
-                id: string;
-                parent: string | null;
-                name: string;
-            }>(`SELECT id, parent, name FROM ${modelName} WHERE trashed_at IS NULL`);
-
-            // Add each entity to cache
-            for (const row of entities) {
-                this.addEntity({
-                    id: row.id,
-                    model: modelName,
-                    parent: row.parent,
-                    name: row.name,
-                });
-            }
-        } catch (error) {
-            // Table might not exist yet (model defined but not created)
-            // This is expected during bootstrap
-            const err = error as Error;
-            if (!err.message?.includes('no such table')) {
-                throw error;
-            }
+        // Add each entity to cache
+        for (const entity of entities) {
+            this.addEntity(entity);
         }
     }
 

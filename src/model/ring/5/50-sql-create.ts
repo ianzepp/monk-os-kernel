@@ -105,11 +105,14 @@ export class SqlCreate extends BaseObserver {
      * Execute INSERT statement.
      *
      * ALGORITHM:
-     * 1. Extract merged record data from ModelRecord
-     * 2. Build column list and placeholder list
-     * 3. Extract values in column order
-     * 4. Execute parameterized INSERT
-     * 5. Wrap any database errors in EOBSSYS
+     * For entity models (file, folder, device, proc, link, temp):
+     * 1. Begin transaction
+     * 2. INSERT into entities table (id, model, parent, name, timestamps)
+     * 3. INSERT into detail table (id, model-specific fields)
+     * 4. Commit transaction
+     *
+     * For meta-models (models, fields, tracked):
+     * 1. INSERT directly into that table (no entities row)
      *
      * RACE CONDITION NOTE:
      * If two concurrent creates race with the same id (unlikely with UUID
@@ -125,30 +128,125 @@ export class SqlCreate extends BaseObserver {
 
         // Get merged record (original + changes)
         const data = record.toRecord();
+        const recordId = data.id ?? 'unknown';
 
-        // Build SQL components
-        const columns = Object.keys(data);
-        const placeholders = columns.map(() => '?').join(', ');
-        const values = columns.map((col) => data[col]);
+        // Meta-models don't use entities table
+        if (META_MODELS.has(model.modelName)) {
+            await this.insertDirect(system.db, model.modelName, data);
+            return;
+        }
 
-        // SAFETY: Table name comes from model metadata (validated at model load).
-        // Column names come from record keys (validated by earlier rings).
-        // Values are parameterized (no SQL injection risk).
-        const sql = `INSERT INTO ${model.modelName} (${columns.join(', ')}) VALUES (${placeholders})`;
-
+        // Entity models: insert into entities + detail table in transaction
         try {
-            await system.db.execute(sql, values);
-        } catch (err) {
-            // Wrap database errors with context for debugging
-            const message = err instanceof Error ? err.message : String(err);
-            const recordId = data.id ?? 'unknown';
+            await system.db.execute('BEGIN IMMEDIATE');
 
+            try {
+                // 1. Insert into entities table
+                await this.insertEntity(system.db, model.modelName, data);
+
+                // 2. Insert into detail table
+                await this.insertDetail(system.db, model.modelName, data);
+
+                await system.db.execute('COMMIT');
+            } catch (err) {
+                await system.db.execute('ROLLBACK');
+                throw err;
+            }
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
             throw new EOBSSYS(
                 `INSERT failed for ${model.modelName}[${recordId}]: ${message}`
             );
         }
     }
+
+    /**
+     * Insert directly into a table (for meta-models).
+     */
+    private async insertDirect(
+        db: ObserverContext['system']['db'],
+        tableName: string,
+        data: Record<string, unknown>
+    ): Promise<void> {
+        const columns = Object.keys(data);
+        const placeholders = columns.map(() => '?').join(', ');
+        const values = columns.map((col) => data[col]);
+
+        const sql = `INSERT INTO ${tableName} (${columns.join(', ')}) VALUES (${placeholders})`;
+
+        try {
+            await db.execute(sql, values);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            const recordId = data.id ?? 'unknown';
+            throw new EOBSSYS(
+                `INSERT failed for ${tableName}[${recordId}]: ${message}`
+            );
+        }
+    }
+
+    /**
+     * Insert into entities table (id, model, parent, name only).
+     */
+    private async insertEntity(
+        db: ObserverContext['system']['db'],
+        modelName: string,
+        data: Record<string, unknown>
+    ): Promise<void> {
+        const sql = `INSERT INTO entities (id, model, parent, name) VALUES (?, ?, ?, ?)`;
+        await db.execute(sql, [
+            data.id,
+            modelName,
+            data.parent ?? null,
+            data.name ?? '',
+        ]);
+    }
+
+    /**
+     * Insert into detail table (model-specific fields only).
+     */
+    private async insertDetail(
+        db: ObserverContext['system']['db'],
+        tableName: string,
+        data: Record<string, unknown>
+    ): Promise<void> {
+        // Filter out hierarchy fields (those go in entities table)
+        const detailData: Record<string, unknown> = { id: data.id };
+
+        for (const [key, value] of Object.entries(data)) {
+            if (!ENTITY_FIELDS.has(key)) {
+                detailData[key] = value;
+            }
+        }
+
+        const columns = Object.keys(detailData);
+        const placeholders = columns.map(() => '?').join(', ');
+        const values = columns.map((col) => detailData[col]);
+
+        const sql = `INSERT INTO ${tableName} (${columns.join(', ')}) VALUES (${placeholders})`;
+        await db.execute(sql, values);
+    }
 }
+
+// =============================================================================
+// CONSTANTS
+// =============================================================================
+
+/**
+ * Meta-models that don't use the entities table.
+ * These have their own id generation and don't participate in VFS hierarchy.
+ */
+const META_MODELS = new Set(['models', 'fields', 'tracked']);
+
+/**
+ * Fields that belong in the entities table, not detail tables.
+ * Note: timestamps (created_at, updated_at, trashed_at, expired_at) go to detail tables.
+ */
+const ENTITY_FIELDS = new Set([
+    'model',
+    'parent',
+    'name',
+]);
 
 // =============================================================================
 // DEFAULT EXPORT

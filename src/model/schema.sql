@@ -7,17 +7,22 @@
 -- This schema defines how model and field metadata is stored in Monk OS.
 -- It is the foundation for the entity+data architecture where:
 --
--- - Entity metadata (structured) is stored in SQLite tables defined here
+-- - Entity identity and hierarchy is stored in the `entities` table
+-- - Entity detail (model-specific fields) is stored in per-model tables
 -- - Blob data (raw bytes) is stored separately in HAL block storage
---
--- All VFS entries have their entity metadata stored in these tables. System
--- models (file, folder, device, proc, link) and user-defined models (invoice,
--- customer) are treated identically - all entity mutations flow through the
--- observer pipeline.
 --
 -- TABLE HIERARCHY
 -- ===============
 -- ```
+--   entities        Core identity + hierarchy (id, model, parent, name)
+--      |
+--      +-- file     Detail table (owner, size, mimetype, checksum)
+--      +-- folder   Detail table (owner)
+--      +-- device   Detail table (owner, driver)
+--      +-- proc     Detail table (owner, handler)
+--      +-- link     Detail table (owner, target)
+--      +-- temp     Detail table (owner, size, mimetype)
+--
 --   models          Field definitions for each model
 --      |
 --      +-- fields   One row per field per model
@@ -27,20 +32,26 @@
 --
 -- SYSTEM FIELDS
 -- =============
--- All entity tables include these columns automatically:
+-- The entities table has these columns:
 --   id            UUID primary key (32 hex chars, lowercase)
+--   model         Model name (determines detail table)
+--   parent        Parent entity UUID (null for root)
+--   name          Entity name for path resolution
 --   created_at    Creation timestamp (ISO 8601)
 --   updated_at    Last modification timestamp (ISO 8601)
 --   trashed_at    Soft delete timestamp (null = active)
---   expired_at    Hard delete timestamp (null = not purged)
+--
+-- Detail tables have:
+--   id            FK to entities.id (CASCADE on delete)
+--   ...           Model-specific fields only
 --
 -- INVARIANTS
 -- ==========
--- INV-1: All tables have the 5 system fields above
--- INV-2: model_name is unique and serves as natural key for models
--- INV-3: (model_name, field_name) is unique in fields table
--- INV-4: Foreign keys enforce referential integrity
--- INV-5: Soft delete (trashed_at) hides records from normal queries
+-- INV-1: Every entity has exactly one row in `entities`
+-- INV-2: Every entity has exactly one row in its model's detail table
+-- INV-3: entities.model matches the detail table name
+-- INV-4: entities.parent references a valid entity or is null (root)
+-- INV-5: (parent, name) is unique within active entities
 --
 -- BUN TOUCHPOINTS
 -- ===============
@@ -57,6 +68,60 @@
 
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
+
+-- =============================================================================
+-- ENTITIES TABLE (Core Identity + Hierarchy)
+-- =============================================================================
+-- Single source of truth for entity identity and path hierarchy.
+-- This table is NOT a model - it's core infrastructure like models/fields.
+--
+-- WHY separate from model tables:
+-- 1. EntityCache loads from ONE table, not all model tables
+-- 2. Parent FK can reference any entity type (file in folder, link in folder)
+-- 3. Path resolution is pure entities traversal, no model knowledge needed
+--
+-- WHY not seeded into models/fields:
+-- This is infrastructure, not a user-visible entity type. Like models/fields
+-- themselves, it exists outside the normal model system.
+
+CREATE TABLE IF NOT EXISTS entities (
+    -- -------------------------------------------------------------------------
+    -- Identity (minimal for cache efficiency)
+    -- -------------------------------------------------------------------------
+    -- WHY only 4 columns: EntityCache loads all entities into memory.
+    -- Every byte matters at scale. Timestamps live in detail tables.
+    id          TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+
+    -- WHY model NOT NULL: Every entity belongs to exactly one model.
+    -- This determines which detail table has additional fields.
+    model       TEXT NOT NULL,
+
+    -- -------------------------------------------------------------------------
+    -- Hierarchy
+    -- -------------------------------------------------------------------------
+    -- WHY parent nullable: Root entity has no parent.
+    -- WHY FK to entities: Cross-model parent relationships (file in folder).
+    parent      TEXT REFERENCES entities(id),
+
+    -- WHY name NOT NULL: Every entity needs a name for path resolution.
+    -- Root is special case (name = '').
+    name        TEXT NOT NULL
+);
+
+-- Index for path resolution: find child by parent + name
+-- This is the critical index for O(1) path component lookup
+-- Note: No partial index - entities table has no trashed_at column.
+-- Uniqueness is enforced across all entities (trashed or not).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_entities_parent_name
+    ON entities(parent, name);
+
+-- Index for listing children of a parent (readdir)
+CREATE INDEX IF NOT EXISTS idx_entities_parent
+    ON entities(parent);
+
+-- Index for finding all entities of a model type
+CREATE INDEX IF NOT EXISTS idx_entities_model
+    ON entities(model);
 
 -- =============================================================================
 -- MODELS TABLE
@@ -304,294 +369,143 @@ CREATE INDEX IF NOT EXISTS idx_tracked_record
     ON tracked(model_name, record_id, change_id DESC);
 
 -- =============================================================================
--- SYSTEM ENTITY TABLES
+-- MODEL DETAIL TABLES
 -- =============================================================================
--- These are the actual storage tables for VFS entity metadata.
+-- These tables store model-specific fields. They do NOT store hierarchy
+-- (id, parent, name) - that's in the entities table.
 --
--- WHY static DDL for system models: Bootstrap problem - observers need the
--- models/fields tables to exist, but DDL observers would create entity tables.
--- System models (file, folder, device, proc, link) are part of the OS firmware,
--- so they get static DDL here. User-defined models use dynamic DDL via observers.
---
--- WHY separate tables per model: Enables SQL-level constraints, indexes, and
--- efficient queries. Alternative (single entities table with JSON) would lose
--- queryability - violating the "files are queryable" principle from AGENTS.md.
---
--- BLOB DATA: Not stored here. Entity tables hold metadata only.
--- Blob content is in HAL block storage, keyed by entity ID.
+-- WHY FK with CASCADE: When entity is deleted, detail row is auto-deleted.
+-- WHY separate tables: Enables SQL-level constraints and efficient queries.
 
 -- =============================================================================
--- FILE TABLE
+-- FILE TABLE (Detail)
 -- =============================================================================
 -- Regular file entities. Metadata here, blob content in HAL block storage.
---
--- WHY no FK on parent: Parent could be folder or null (root-level).
--- Referential integrity enforced by application layer (observers).
 
 CREATE TABLE IF NOT EXISTS file (
-    -- -------------------------------------------------------------------------
-    -- System Fields (all entities have these - see INV-1)
-    -- -------------------------------------------------------------------------
-    id          TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    -- Identity: FK to entities table
+    id          TEXT PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
     created_at  TEXT DEFAULT (datetime('now')),
     updated_at  TEXT DEFAULT (datetime('now')),
     trashed_at  TEXT,
     expired_at  TEXT,
 
-    -- -------------------------------------------------------------------------
-    -- File-Specific Fields
-    -- -------------------------------------------------------------------------
-    -- WHY name NOT NULL: Every file must have a name.
-    name        TEXT NOT NULL,
-
-    -- WHY parent nullable: Root-level files have no parent.
-    -- References folder.id but no FK constraint (cross-table complexity).
-    parent      TEXT,
-
-    -- WHY owner NOT NULL: Every file must have an owner for permissions.
+    -- File-specific fields
     owner       TEXT NOT NULL,
-
-    -- WHY size default 0: New files start empty.
     size        INTEGER DEFAULT 0,
-
-    -- WHY mimetype nullable: Can be auto-detected or unset.
     mimetype    TEXT,
-
-    -- WHY checksum nullable: Computed lazily on first read or explicitly.
     checksum    TEXT
 );
 
--- Index for listing files in a folder (readdir)
-CREATE INDEX IF NOT EXISTS idx_file_parent
-    ON file(parent)
-    WHERE trashed_at IS NULL;
-
--- Index for finding files by name within a folder (path resolution)
-CREATE INDEX IF NOT EXISTS idx_file_parent_name
-    ON file(parent, name)
-    WHERE trashed_at IS NULL;
-
 -- Index for listing files by owner
 CREATE INDEX IF NOT EXISTS idx_file_owner
-    ON file(owner)
-    WHERE trashed_at IS NULL;
+    ON file(owner);
 
 -- =============================================================================
--- FOLDER TABLE
+-- FOLDER TABLE (Detail)
 -- =============================================================================
--- Directory entities. No blob data - children computed via parent field query.
+-- Directory entities. No blob data - children computed via entities.parent.
 
 CREATE TABLE IF NOT EXISTS folder (
-    -- -------------------------------------------------------------------------
-    -- System Fields
-    -- -------------------------------------------------------------------------
-    id          TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    -- Identity: FK to entities table
+    id          TEXT PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
     created_at  TEXT DEFAULT (datetime('now')),
     updated_at  TEXT DEFAULT (datetime('now')),
     trashed_at  TEXT,
     expired_at  TEXT,
 
-    -- -------------------------------------------------------------------------
-    -- Folder-Specific Fields
-    -- -------------------------------------------------------------------------
-    name        TEXT NOT NULL,
-    parent      TEXT,  -- null for root folders
+    -- Folder-specific fields
     owner       TEXT NOT NULL
 );
 
--- Index for listing folders in a folder (readdir)
-CREATE INDEX IF NOT EXISTS idx_folder_parent
-    ON folder(parent)
-    WHERE trashed_at IS NULL;
-
--- Index for finding folders by name within a folder (path resolution)
-CREATE INDEX IF NOT EXISTS idx_folder_parent_name
-    ON folder(parent, name)
-    WHERE trashed_at IS NULL;
-
 -- Index for listing folders by owner
 CREATE INDEX IF NOT EXISTS idx_folder_owner
-    ON folder(owner)
-    WHERE trashed_at IS NULL;
+    ON folder(owner);
 
 -- =============================================================================
--- DEVICE TABLE
+-- DEVICE TABLE (Detail)
 -- =============================================================================
 -- Device node entities. Kernel-provided virtual files (/dev/console, etc.).
---
--- WHY driver field: Maps to HAL device implementation.
--- Format: "hal:{device}" (e.g., "hal:console", "hal:random", "hal:entropy")
 
 CREATE TABLE IF NOT EXISTS device (
-    -- -------------------------------------------------------------------------
-    -- System Fields
-    -- -------------------------------------------------------------------------
-    id          TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    -- Identity: FK to entities table
+    id          TEXT PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
     created_at  TEXT DEFAULT (datetime('now')),
     updated_at  TEXT DEFAULT (datetime('now')),
     trashed_at  TEXT,
     expired_at  TEXT,
 
-    -- -------------------------------------------------------------------------
-    -- Device-Specific Fields
-    -- -------------------------------------------------------------------------
-    name        TEXT NOT NULL,
-    parent      TEXT,  -- typically /dev folder
+    -- Device-specific fields
     owner       TEXT NOT NULL,
-
-    -- WHY driver NOT NULL: Every device must map to a HAL implementation.
     driver      TEXT NOT NULL
 );
 
--- Index for listing devices in a folder
-CREATE INDEX IF NOT EXISTS idx_device_parent
-    ON device(parent)
-    WHERE trashed_at IS NULL;
-
--- Index for finding devices by name within a folder
-CREATE INDEX IF NOT EXISTS idx_device_parent_name
-    ON device(parent, name)
-    WHERE trashed_at IS NULL;
-
 -- =============================================================================
--- PROC TABLE
+-- PROC TABLE (Detail)
 -- =============================================================================
 -- Process/virtual file entities. Dynamic content generated by handler.
---
--- WHY handler field: Function identifier for content generation.
--- Format: "kernel:{handler}" (e.g., "kernel:proc_stat", "kernel:proc_env")
 
 CREATE TABLE IF NOT EXISTS proc (
-    -- -------------------------------------------------------------------------
-    -- System Fields
-    -- -------------------------------------------------------------------------
-    id          TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    -- Identity: FK to entities table
+    id          TEXT PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
     created_at  TEXT DEFAULT (datetime('now')),
     updated_at  TEXT DEFAULT (datetime('now')),
     trashed_at  TEXT,
     expired_at  TEXT,
 
-    -- -------------------------------------------------------------------------
-    -- Proc-Specific Fields
-    -- -------------------------------------------------------------------------
-    name        TEXT NOT NULL,
-    parent      TEXT,  -- typically /proc/{pid} folder
+    -- Proc-specific fields
     owner       TEXT NOT NULL,
-
-    -- WHY handler NOT NULL: Every proc entry must have content generator.
     handler     TEXT NOT NULL
 );
 
--- Index for listing proc entries in a folder
-CREATE INDEX IF NOT EXISTS idx_proc_parent
-    ON proc(parent)
-    WHERE trashed_at IS NULL;
-
--- Index for finding proc entries by name within a folder
-CREATE INDEX IF NOT EXISTS idx_proc_parent_name
-    ON proc(parent, name)
-    WHERE trashed_at IS NULL;
-
 -- =============================================================================
--- LINK TABLE
+-- LINK TABLE (Detail)
 -- =============================================================================
 -- Symbolic link entities. Redirect path resolution to another location.
---
--- WHY target as text not UUID: Can point to paths, not just entities.
--- Supports both absolute (/vol/data/file) and relative (../other) targets.
 
 CREATE TABLE IF NOT EXISTS link (
-    -- -------------------------------------------------------------------------
-    -- System Fields
-    -- -------------------------------------------------------------------------
-    id          TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    -- Identity: FK to entities table
+    id          TEXT PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
     created_at  TEXT DEFAULT (datetime('now')),
     updated_at  TEXT DEFAULT (datetime('now')),
     trashed_at  TEXT,
     expired_at  TEXT,
 
-    -- -------------------------------------------------------------------------
-    -- Link-Specific Fields
-    -- -------------------------------------------------------------------------
-    name        TEXT NOT NULL,
-    parent      TEXT,
+    -- Link-specific fields
     owner       TEXT NOT NULL,
-
-    -- WHY target NOT NULL: A link without a target is meaningless.
-    -- WHY TEXT not UUID: Target is a path, not necessarily an entity ID.
     target      TEXT NOT NULL
 );
 
--- Index for listing links in a folder
-CREATE INDEX IF NOT EXISTS idx_link_parent
-    ON link(parent)
-    WHERE trashed_at IS NULL;
-
--- Index for finding links by name within a folder
-CREATE INDEX IF NOT EXISTS idx_link_parent_name
-    ON link(parent, name)
-    WHERE trashed_at IS NULL;
-
 -- =============================================================================
--- TEMP TABLE
+-- TEMP TABLE (Detail)
 -- =============================================================================
--- Temporary file entities for /tmp filesystem. Metadata stored here in SQL,
--- blob content stored in HAL block storage keyed by entity ID.
---
--- WHY separate table from file: /tmp is a proof-of-concept for the new
--- entity+data architecture where SQL stores queryable metadata and HAL stores
--- blob content. This separation enables rich queries on temp file metadata
--- while keeping large blobs out of SQLite.
---
--- WHY flat structure (no nested folders): Simplicity for the proof-of-concept.
--- Nested folders can be added later by using parent field with self-reference.
---
--- BLOB KEY FORMAT: blob:temp:{id} in HAL storage
+-- Temporary file entities for /tmp filesystem.
 
 CREATE TABLE IF NOT EXISTS temp (
-    -- -------------------------------------------------------------------------
-    -- System Fields
-    -- -------------------------------------------------------------------------
-    id          TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    -- Identity: FK to entities table
+    id          TEXT PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
     created_at  TEXT DEFAULT (datetime('now')),
     updated_at  TEXT DEFAULT (datetime('now')),
     trashed_at  TEXT,
     expired_at  TEXT,
 
-    -- -------------------------------------------------------------------------
-    -- Temp-Specific Fields
-    -- -------------------------------------------------------------------------
-    -- WHY name NOT NULL: Every temp file must have a name.
-    name        TEXT NOT NULL,
-
-    -- WHY parent nullable: Root-level temp files have no parent.
-    -- Future: can reference another temp entry for nested folders.
-    parent      TEXT,
-
-    -- WHY owner NOT NULL: Every temp file must have an owner for cleanup.
+    -- Temp-specific fields
     owner       TEXT NOT NULL,
-
-    -- WHY size default 0: New files start empty.
     size        INTEGER DEFAULT 0,
-
-    -- WHY mimetype nullable: Can be auto-detected or unset.
     mimetype    TEXT
 );
 
--- Index for listing temp files by parent (readdir)
-CREATE INDEX IF NOT EXISTS idx_temp_parent
-    ON temp(parent)
-    WHERE trashed_at IS NULL;
+-- =============================================================================
+-- SEED DATA: ROOT ENTITY
+-- =============================================================================
+-- The root entity is the namespace origin. All paths start here.
+-- WHY well-known UUID: Simplifies bootstrap, no discovery needed.
 
--- Index for finding temp files by name within parent (path resolution)
-CREATE INDEX IF NOT EXISTS idx_temp_parent_name
-    ON temp(parent, name)
-    WHERE trashed_at IS NULL;
+INSERT OR IGNORE INTO entities (id, model, parent, name) VALUES
+    ('00000000-0000-0000-0000-000000000000', 'folder', NULL, '');
 
--- Index for listing temp files by owner (cleanup)
-CREATE INDEX IF NOT EXISTS idx_temp_owner
-    ON temp(owner)
-    WHERE trashed_at IS NULL;
+INSERT OR IGNORE INTO folder (id, owner) VALUES
+    ('00000000-0000-0000-0000-000000000000', 'system');
 
 -- =============================================================================
 -- SEED DATA: SYSTEM META-MODELS
@@ -609,12 +523,8 @@ INSERT OR IGNORE INTO models (model_name, status, sudo, description) VALUES
 -- =============================================================================
 -- SEED DATA: VFS SYSTEM MODELS
 -- =============================================================================
--- Core VFS entity types. Their blob data (if any) is stored separately
--- in HAL block storage, keyed by entity ID.
---
--- WHY status='system': Protected from accidental modification.
--- WHY sudo=0: Normal operations can create/modify files, but model
--- definition changes still require sudo via the models table.
+-- Core VFS entity types. Their detail is in per-model tables, blob data
+-- (if any) is stored separately in HAL block storage.
 
 INSERT OR IGNORE INTO models (model_name, status, description) VALUES
     ('file', 'system', 'Regular file entity - has associated blob data'),
@@ -627,7 +537,6 @@ INSERT OR IGNORE INTO models (model_name, status, description) VALUES
 -- =============================================================================
 -- SEED DATA: MODELS TABLE FIELDS (Meta-model)
 -- =============================================================================
--- Fields that describe the models table itself.
 
 INSERT OR IGNORE INTO fields (model_name, field_name, type, required, description) VALUES
     ('models', 'model_name', 'text', 1, 'Unique identifier for the model'),
@@ -642,7 +551,6 @@ INSERT OR IGNORE INTO fields (model_name, field_name, type, required, descriptio
 -- =============================================================================
 -- SEED DATA: FIELDS TABLE FIELDS (Meta-model)
 -- =============================================================================
--- Fields that describe the fields table itself.
 
 INSERT OR IGNORE INTO fields (model_name, field_name, type, required, description) VALUES
     ('fields', 'model_name', 'text', 1, 'Parent model this field belongs to'),
@@ -673,7 +581,6 @@ INSERT OR IGNORE INTO fields (model_name, field_name, type, required, descriptio
 -- =============================================================================
 -- SEED DATA: TRACKED TABLE FIELDS (Meta-model)
 -- =============================================================================
--- Fields for the change tracking table.
 
 INSERT OR IGNORE INTO fields (model_name, field_name, type, required, description) VALUES
     ('tracked', 'change_id', 'integer', 1, 'Sequence number within record'),
@@ -688,12 +595,9 @@ INSERT OR IGNORE INTO fields (model_name, field_name, type, required, descriptio
 -- =============================================================================
 -- SEED DATA: FILE MODEL FIELDS
 -- =============================================================================
--- Fields for the file entity type. These track metadata; blob content
--- is stored separately in HAL block storage.
+-- Note: parent and name are in entities table, not here
 
 INSERT OR IGNORE INTO fields (model_name, field_name, type, required, description) VALUES
-    ('file', 'name', 'text', 1, 'File name (without path)'),
-    ('file', 'parent', 'uuid', 0, 'Parent folder ID (null for root-level)'),
     ('file', 'owner', 'uuid', 1, 'Owner user or process ID'),
     ('file', 'size', 'integer', 0, 'Blob size in bytes'),
     ('file', 'mimetype', 'text', 0, 'MIME type (e.g., application/pdf)'),
@@ -702,55 +606,39 @@ INSERT OR IGNORE INTO fields (model_name, field_name, type, required, descriptio
 -- =============================================================================
 -- SEED DATA: FOLDER MODEL FIELDS
 -- =============================================================================
--- Folders have no blob data. Children are computed via parent field query.
 
 INSERT OR IGNORE INTO fields (model_name, field_name, type, required, description) VALUES
-    ('folder', 'name', 'text', 1, 'Folder name'),
-    ('folder', 'parent', 'uuid', 0, 'Parent folder ID (null for root)'),
     ('folder', 'owner', 'uuid', 1, 'Owner user or process ID');
 
 -- =============================================================================
 -- SEED DATA: DEVICE MODEL FIELDS
 -- =============================================================================
--- Devices are kernel-provided virtual files (e.g., /dev/console, /dev/random).
 
 INSERT OR IGNORE INTO fields (model_name, field_name, type, required, description) VALUES
-    ('device', 'name', 'text', 1, 'Device name (e.g., console, random)'),
-    ('device', 'parent', 'uuid', 0, 'Parent folder ID'),
     ('device', 'owner', 'uuid', 1, 'Owner user or process ID'),
     ('device', 'driver', 'text', 1, 'Device driver identifier (e.g., hal:console)');
 
 -- =============================================================================
 -- SEED DATA: PROC MODEL FIELDS
 -- =============================================================================
--- Proc entries are dynamic virtual files with computed content.
 
 INSERT OR IGNORE INTO fields (model_name, field_name, type, required, description) VALUES
-    ('proc', 'name', 'text', 1, 'Proc entry name'),
-    ('proc', 'parent', 'uuid', 0, 'Parent folder ID'),
     ('proc', 'owner', 'uuid', 1, 'Owner user or process ID'),
     ('proc', 'handler', 'text', 1, 'Handler function identifier');
 
 -- =============================================================================
 -- SEED DATA: LINK MODEL FIELDS
 -- =============================================================================
--- Symbolic links redirect path resolution to another location.
 
 INSERT OR IGNORE INTO fields (model_name, field_name, type, required, description) VALUES
-    ('link', 'name', 'text', 1, 'Link name'),
-    ('link', 'parent', 'uuid', 0, 'Parent folder ID'),
     ('link', 'owner', 'uuid', 1, 'Owner user or process ID'),
     ('link', 'target', 'text', 1, 'Target path (absolute or relative)');
 
 -- =============================================================================
 -- SEED DATA: TEMP MODEL FIELDS
 -- =============================================================================
--- Temporary files store metadata in SQL, blob content in HAL storage.
--- This is the proof-of-concept for the entity+data architecture.
 
 INSERT OR IGNORE INTO fields (model_name, field_name, type, required, description) VALUES
-    ('temp', 'name', 'text', 1, 'Temp file name'),
-    ('temp', 'parent', 'text', 0, 'Parent temp ID (null for root-level)'),
     ('temp', 'owner', 'text', 1, 'Owner process or user ID'),
     ('temp', 'size', 'integer', 0, 'Blob size in bytes'),
     ('temp', 'mimetype', 'text', 0, 'MIME type (e.g., application/octet-stream)');
