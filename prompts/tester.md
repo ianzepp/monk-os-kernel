@@ -15,6 +15,11 @@ When refactoring core infrastructure (HAL, VFS, EMS, Kernel), tests often fall o
 4. **Schema changes** - Database/entity fields added/removed
 5. **Initialization changes** - Setup requirements changed
 
+> **NOTE**: This prompt is for fixing **kernel/infrastructure tests** (`spec/kernel/*`, `spec/hal/*`,
+> `spec/vfs/*`, `spec/ems/*`, `perf/*`). For **userspace tests** (`spec/rom/*`), see the
+> "Testing Userspace Code" section in `prompts/userspace-dev.md`. Userspace tests use the `OS`
+> public API, not kernel internals.
+
 ---
 
 ## Step 1: Gather Failure Data

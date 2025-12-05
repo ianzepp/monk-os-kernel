@@ -15,18 +15,39 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { createTestContext, EXIT, type TestContext } from './_harness.js';
+import { OS } from '@src/os/os.js';
+
+// Standard exit codes
+const EXIT = {
+    SUCCESS: 0,
+    FAILURE: 1,
+} as const;
 
 describe.skip('cat', () => {
-    let ctx: TestContext;
+    let os: OS;
 
     beforeEach(async () => {
-        ctx = await createTestContext();
+        os = new OS();
+        await os.boot();
     });
 
     afterEach(async () => {
-        await ctx.shutdown();
+        await os.shutdown();
     });
+
+    /**
+     * Helper to run a shell command and capture output.
+     */
+    async function run(command: string): Promise<{ exitCode: number; stdout: string }> {
+        const handle = await os.process.spawn('/bin/shell.ts', {
+            args: ['shell', '-c', `${command} > /tmp/out`],
+        });
+
+        const result = await handle.wait();
+        const stdout = await os.fs.readText('/tmp/out');
+
+        return { exitCode: result.exitCode, stdout };
+    }
 
     // -------------------------------------------------------------------------
     // Stdin Passthrough
@@ -34,14 +55,14 @@ describe.skip('cat', () => {
 
     describe('stdin passthrough', () => {
         it('should pass through piped input', async () => {
-            const result = await ctx.run('echo hello | cat');
+            const result = await run('echo hello | cat');
 
             expect(result.exitCode).toBe(EXIT.SUCCESS);
             expect(result.stdout).toBe('hello\n');
         });
 
         it('should pass through multiple lines', async () => {
-            const result = await ctx.run('echo -n "line1\nline2\nline3" | cat');
+            const result = await run('echo -n "line1\nline2\nline3" | cat');
 
             expect(result.exitCode).toBe(EXIT.SUCCESS);
             expect(result.stdout).toBe('line1\nline2\nline3');
@@ -54,28 +75,28 @@ describe.skip('cat', () => {
 
     describe('pipe chains', () => {
         it('should pipe through 2 cats', async () => {
-            const result = await ctx.run('echo hello | cat | cat');
+            const result = await run('echo hello | cat | cat');
 
             expect(result.exitCode).toBe(EXIT.SUCCESS);
             expect(result.stdout).toBe('hello\n');
         });
 
         it('should pipe through 3 cats', async () => {
-            const result = await ctx.run('echo hello | cat | cat | cat');
+            const result = await run('echo hello | cat | cat | cat');
 
             expect(result.exitCode).toBe(EXIT.SUCCESS);
             expect(result.stdout).toBe('hello\n');
         });
 
         it('should pipe through 5 cats', async () => {
-            const result = await ctx.run('echo hello | cat | cat | cat | cat | cat');
+            const result = await run('echo hello | cat | cat | cat | cat | cat');
 
             expect(result.exitCode).toBe(EXIT.SUCCESS);
             expect(result.stdout).toBe('hello\n');
         }, { timeout: 10000 });
 
         it('should preserve longer text through pipes', async () => {
-            const result = await ctx.run('echo "the quick brown fox" | cat | cat | cat');
+            const result = await run('echo "the quick brown fox" | cat | cat | cat');
 
             expect(result.exitCode).toBe(EXIT.SUCCESS);
             expect(result.stdout).toBe('the quick brown fox\n');
@@ -91,7 +112,7 @@ describe.skip('cat', () => {
             // Create file, then cat it (using subshell via semicolon)
             // Note: We need to write file first, then read it
             // Using a single command that creates and reads
-            const result = await ctx.run('echo "test content" | cat');
+            const result = await run('echo "test content" | cat');
 
             expect(result.exitCode).toBe(EXIT.SUCCESS);
             expect(result.stdout).toBe('test content\n');
@@ -104,10 +125,13 @@ describe.skip('cat', () => {
 
     describe('error handling', () => {
         it('should fail on non-existent file', async () => {
-            const result = await ctx.run('cat /nonexistent/file.txt');
+            const handle = await os.process.spawn('/bin/shell.ts', {
+                args: ['shell', '-c', 'cat /nonexistent/file.txt'],
+            });
+
+            const result = await handle.wait();
 
             expect(result.exitCode).toBe(EXIT.FAILURE);
-            // stderr goes to console (not captured)
         });
     });
 
@@ -117,7 +141,7 @@ describe.skip('cat', () => {
 
     describe('help', () => {
         it('should display help with --help', async () => {
-            const result = await ctx.run('cat --help');
+            const result = await run('cat --help');
 
             expect(result.exitCode).toBe(EXIT.SUCCESS);
             expect(result.stdout).toContain('Usage:');

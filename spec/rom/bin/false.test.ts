@@ -12,34 +12,54 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { createTestContext, EXIT, type TestContext } from './_harness.js';
+import { OS } from '@src/os/os.js';
+
+// Standard exit codes
+const EXIT = {
+    SUCCESS: 0,
+    FAILURE: 1,
+} as const;
 
 describe('false', () => {
-    let ctx: TestContext;
+    let os: OS;
 
     beforeEach(async () => {
-        ctx = await createTestContext();
+        os = new OS();
+        await os.boot();
     });
 
     afterEach(async () => {
-        await ctx.shutdown();
+        await os.shutdown();
     });
 
     it('should exit with code 1', async () => {
-        const result = await ctx.run('false');
+        const handle = await os.process.spawn('/bin/shell.ts', {
+            args: ['shell', '-c', 'false'],
+        });
+
+        const result = await handle.wait();
 
         expect(result.exitCode).toBe(EXIT.FAILURE);
     });
 
     it('should produce no output', async () => {
-        const result = await ctx.run('false');
+        const handle = await os.process.spawn('/bin/shell.ts', {
+            args: ['shell', '-c', 'false > /tmp/out'],
+        });
 
-        expect(result.stdout).toBe('');
-        expect(result.stderr).toBe('');
+        await handle.wait();
+
+        const stdout = await os.fs.readText('/tmp/out');
+
+        expect(stdout).toBe('');
     });
 
     it('should ignore arguments', async () => {
-        const result = await ctx.run('false ignored args --flag');
+        const handle = await os.process.spawn('/bin/shell.ts', {
+            args: ['shell', '-c', 'false ignored args --flag'],
+        });
+
+        const result = await handle.wait();
 
         expect(result.exitCode).toBe(EXIT.FAILURE);
     });

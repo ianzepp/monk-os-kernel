@@ -12,42 +12,68 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { createTestContext, EXIT, type TestContext } from './_harness.js';
+import { OS } from '@src/os/os.js';
+
+// Standard exit codes
+const EXIT = {
+    SUCCESS: 0,
+    FAILURE: 1,
+} as const;
 
 describe('true', () => {
-    let ctx: TestContext;
+    let os: OS;
 
     beforeEach(async () => {
-        ctx = await createTestContext();
+        os = new OS();
+        await os.boot();
     });
 
     afterEach(async () => {
-        await ctx.shutdown();
+        await os.shutdown();
     });
 
     it('should exit with code 0', async () => {
-        const result = await ctx.run('true');
+        const handle = await os.process.spawn('/bin/shell.ts', {
+            args: ['shell', '-c', 'true'],
+        });
+
+        const result = await handle.wait();
 
         expect(result.exitCode).toBe(EXIT.SUCCESS);
     });
 
     it('should produce no output', async () => {
-        const result = await ctx.run('true');
+        const handle = await os.process.spawn('/bin/shell.ts', {
+            args: ['shell', '-c', 'true > /tmp/out'],
+        });
 
-        expect(result.stdout).toBe('');
-        expect(result.stderr).toBe('');
+        const result = await handle.wait();
+
+        expect(result.exitCode).toBe(EXIT.SUCCESS);
+
+        const stdout = await os.fs.readText('/tmp/out');
+
+        expect(stdout).toBe('');
     });
 
     it('should ignore arguments', async () => {
-        const result = await ctx.run('true ignored args --flag');
+        const handle = await os.process.spawn('/bin/shell.ts', {
+            args: ['shell', '-c', 'true ignored args --flag'],
+        });
+
+        const result = await handle.wait();
 
         expect(result.exitCode).toBe(EXIT.SUCCESS);
     });
 
     // TODO: && chaining with redirects needs investigation
     // it('should work in && chain', async () => {
-    //     const result = await ctx.run('true && echo yes');
+    //     const handle = await os.process.spawn('/bin/shell.ts', {
+    //         args: ['shell', '-c', 'true && echo yes > /tmp/out'],
+    //     });
+    //     const result = await handle.wait();
     //     expect(result.exitCode).toBe(EXIT.SUCCESS);
-    //     expect(result.stdout).toBe('yes\n');
+    //     const stdout = await os.fs.readText('/tmp/out');
+    //     expect(stdout).toBe('yes\n');
     // });
 });

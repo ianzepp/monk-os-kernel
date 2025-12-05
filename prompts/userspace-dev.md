@@ -799,6 +799,128 @@ if (!isValidOption(parsed)) {
 
 ---
 
+## Testing Userspace Code
+
+> **CRITICAL**: Tests for userspace code (`rom/bin/*`, `rom/lib/*`) must use the `OS` public API,
+> not kernel internals. We are testing userspace code through userspace interfaces.
+
+### Test Structure
+
+```typescript
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { OS } from '@src/os/os.js';
+
+// Standard exit codes
+const EXIT = {
+    SUCCESS: 0,
+    FAILURE: 1,
+} as const;
+
+describe('command-name', () => {
+    let os: OS;
+
+    // Fresh OS instance per test for isolation
+    beforeEach(async () => {
+        os = new OS();
+        await os.boot();
+    });
+
+    afterEach(async () => {
+        await os.shutdown();
+    });
+
+    it('should do something', async () => {
+        // Spawn shell with command, capture output via redirect
+        const handle = await os.process.spawn('/bin/shell.ts', {
+            args: ['shell', '-c', 'echo hello > /tmp/out'],
+        });
+
+        const result = await handle.wait();
+        expect(result.exitCode).toBe(EXIT.SUCCESS);
+
+        // Read captured output via OS filesystem API
+        const stdout = await os.fs.readText('/tmp/out');
+        expect(stdout).toBe('hello\n');
+    });
+});
+```
+
+### Key Principles
+
+1. **Use `OS` API, not kernel internals**
+   - `os.process.spawn()` - NOT `kernel.boot()` or `kernel.spawnExternal()`
+   - `os.fs.readText()` - NOT `vfs.open()` directly
+   - Let the shell handle piping - that's the userspace code we're testing
+
+2. **Fresh OS per test** (`beforeEach`)
+   - Complete isolation between tests
+   - No state leakage (files, processes)
+   - Tests can run in any order
+
+3. **Output capture via shell redirects**
+   - Use `command > /tmp/out` in the shell command
+   - Read with `os.fs.readText('/tmp/out')`
+   - This tests the real shell redirect path
+
+4. **Test through the shell**
+   - Spawn `/bin/shell.ts` with `-c 'command'`
+   - Shell handles pipes, redirects, command chaining
+   - Tests exercise the full userspace stack
+
+### Helper Pattern (optional)
+
+For test files with many similar tests, extract a helper:
+
+```typescript
+/**
+ * Run a shell command and capture output.
+ */
+async function run(command: string): Promise<{ exitCode: number; stdout: string }> {
+    const handle = await os.process.spawn('/bin/shell.ts', {
+        args: ['shell', '-c', `${command} > /tmp/out`],
+    });
+
+    const result = await handle.wait();
+    const stdout = await os.fs.readText('/tmp/out');
+
+    return { exitCode: result.exitCode, stdout };
+}
+
+// Usage
+it('should echo hello', async () => {
+    const result = await run('echo hello');
+    expect(result.stdout).toBe('hello\n');
+});
+```
+
+### What NOT to Do
+
+```typescript
+// BAD: Using kernel directly (bypasses userspace)
+const kernel = stack.kernel!;
+await kernel.boot({ initPath: '/bin/shell.ts', ... });
+
+// BAD: Reading VFS directly (kernel internal)
+const vfs = stack.vfs!;
+const handle = await vfs.open('/tmp/out', { read: true }, 'kernel');
+
+// BAD: Mocking syscalls (defeats the purpose)
+jest.mock('@rom/lib/process', () => ({ ... }));
+
+// GOOD: Using OS public API
+const os = new OS();
+await os.boot();
+const handle = await os.process.spawn('/bin/shell.ts', { ... });
+const content = await os.fs.readText('/tmp/out');
+```
+
+### Test Location
+
+- Command tests: `spec/rom/bin/<command>.test.ts`
+- Library tests: `spec/rom/lib/<library>.test.ts`
+
+---
+
 ## Checklist Before Submitting Rewrite
 
 ### Commands (`rom/bin/*`)

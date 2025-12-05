@@ -15,18 +15,39 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { createTestContext, EXIT, type TestContext } from './_harness.js';
+import { OS } from '@src/os/os.js';
+
+// Standard exit codes
+const EXIT = {
+    SUCCESS: 0,
+    FAILURE: 1,
+} as const;
 
 describe.skip('echo', () => {
-    let ctx: TestContext;
+    let os: OS;
 
     beforeEach(async () => {
-        ctx = await createTestContext();
+        os = new OS();
+        await os.boot();
     });
 
     afterEach(async () => {
-        await ctx.shutdown();
+        await os.shutdown();
     });
+
+    /**
+     * Helper to run a shell command and capture output.
+     */
+    async function run(command: string): Promise<{ exitCode: number; stdout: string }> {
+        const handle = await os.process.spawn('/bin/shell.ts', {
+            args: ['shell', '-c', `${command} > /tmp/out`],
+        });
+
+        const result = await handle.wait();
+        const stdout = await os.fs.readText('/tmp/out');
+
+        return { exitCode: result.exitCode, stdout };
+    }
 
     // -------------------------------------------------------------------------
     // Basic Output
@@ -34,21 +55,21 @@ describe.skip('echo', () => {
 
     describe('basic output', () => {
         it('should output single argument with newline', async () => {
-            const result = await ctx.run('echo hello');
+            const result = await run('echo hello');
 
             expect(result.exitCode).toBe(EXIT.SUCCESS);
             expect(result.stdout).toBe('hello\n');
         });
 
         it('should output multiple arguments with spaces', async () => {
-            const result = await ctx.run('echo hello world');
+            const result = await run('echo hello world');
 
             expect(result.exitCode).toBe(EXIT.SUCCESS);
             expect(result.stdout).toBe('hello world\n');
         });
 
         it('should output blank line with no arguments', async () => {
-            const result = await ctx.run('echo');
+            const result = await run('echo');
 
             expect(result.exitCode).toBe(EXIT.SUCCESS);
             expect(result.stdout).toBe('\n');
@@ -61,7 +82,7 @@ describe.skip('echo', () => {
 
     describe('flags', () => {
         it('should suppress newline with -n flag', async () => {
-            const result = await ctx.run('echo -n hello');
+            const result = await run('echo -n hello');
 
             expect(result.exitCode).toBe(EXIT.SUCCESS);
             expect(result.stdout).toBe('hello');
@@ -69,7 +90,7 @@ describe.skip('echo', () => {
 
         it('should treat -n after text as literal', async () => {
             // GNU behavior: only leading flags are parsed
-            const result = await ctx.run('echo hello -n');
+            const result = await run('echo hello -n');
 
             expect(result.exitCode).toBe(EXIT.SUCCESS);
             expect(result.stdout).toBe('hello -n\n');
@@ -82,14 +103,14 @@ describe.skip('echo', () => {
 
     describe('quoted strings', () => {
         it('should preserve spaces in double quotes', async () => {
-            const result = await ctx.run('echo "hello   world"');
+            const result = await run('echo "hello   world"');
 
             expect(result.exitCode).toBe(EXIT.SUCCESS);
             expect(result.stdout).toBe('hello   world\n');
         });
 
         it('should preserve spaces in single quotes', async () => {
-            const result = await ctx.run("echo 'hello   world'");
+            const result = await run("echo 'hello   world'");
 
             expect(result.exitCode).toBe(EXIT.SUCCESS);
             expect(result.stdout).toBe('hello   world\n');
@@ -102,14 +123,14 @@ describe.skip('echo', () => {
 
     describe('pipeline', () => {
         it('should work as pipe source', async () => {
-            const result = await ctx.run('echo hello | cat');
+            const result = await run('echo hello | cat');
 
             expect(result.exitCode).toBe(EXIT.SUCCESS);
             expect(result.stdout).toBe('hello\n');
         });
 
         it('should work through multiple pipes', async () => {
-            const result = await ctx.run('echo hello | cat | cat');
+            const result = await run('echo hello | cat | cat');
 
             expect(result.exitCode).toBe(EXIT.SUCCESS);
             expect(result.stdout).toBe('hello\n');
