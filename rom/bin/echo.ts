@@ -39,7 +39,8 @@
  * MESSAGE BEHAVIOR
  * ================
  * stdin:  Ignored - echo does not read from stdin
- * stdout: Sends item({ text }) message containing concatenated arguments
+ * stdout: Sends one item({ text }) message per line for pipeline compatibility.
+ *         Multi-line input "a\nb\nc" sends 3 separate messages.
  * stderr: Sends item({ text }) for error messages on invalid usage
  *
  * EDGE CASES
@@ -236,12 +237,29 @@ export default async function main(): Promise<void> {
     try {
         const text = formatOutput(opts.args);
 
-        // GNU BEHAVIOR: -n suppresses trailing newline
-        if (opts.noNewline) {
-            await print(text);
-        }
-        else {
-            await println(text);
+        // PROTOCOL: Send one message per line for proper pipeline composition.
+        // Commands like sort, grep, uniq expect one line per message.
+        const lines = text.split('\n');
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const isLast = i === lines.length - 1;
+
+            if (line === undefined) {
+                continue;
+            }
+
+            // GNU BEHAVIOR: -n suppresses trailing newline on final line only
+            if (isLast && opts.noNewline) {
+                await print(line);
+            }
+            else if (isLast) {
+                await println(line);
+            }
+            else {
+                // Not the last line - always include newline
+                await println(line);
+            }
         }
 
         return exit(EXIT_SUCCESS);
