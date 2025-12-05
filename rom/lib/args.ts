@@ -114,6 +114,30 @@ export interface ParsedArgs {
     errors: string[];
 }
 
+/**
+ * Options for parseArgs() behavior.
+ */
+export interface ParseOptions {
+    /**
+     * Stop flag parsing at first positional or unknown flag.
+     *
+     * GNU ECHO BEHAVIOR: Some commands like echo only parse leading flags.
+     * Once a non-flag argument or unknown flag is encountered, all remaining
+     * arguments become positional (text).
+     *
+     * Example with stopAtFirstPositional=true:
+     *   args: ['-n', 'hello', '-n']
+     *   result: flags={n:true}, positional=['hello', '-n']
+     *
+     * Example with stopAtFirstPositional=false (default):
+     *   args: ['-n', 'hello', '-n']
+     *   result: flags={n:true}, positional=['hello']
+     *
+     * @default false
+     */
+    stopAtFirstPositional?: boolean;
+}
+
 // =============================================================================
 // MAIN FUNCTIONS
 // =============================================================================
@@ -131,8 +155,9 @@ export interface ParsedArgs {
  * - "-" is treated as positional (stdin by convention)
  * - Unknown flags are collected, not errors
  *
- * @param args - Raw argument array (typically from process.argv.slice(2))
+ * @param args - Raw argument array (typically from getargs().slice(1))
  * @param specs - Argument specifications keyed by flag name
+ * @param options - Parsing options (e.g., stopAtFirstPositional for echo-style)
  * @returns Parsed arguments with flags, positional args, errors, and unknown flags
  *
  * @example
@@ -146,6 +171,13 @@ export interface ParsedArgs {
  * // result.positional = ['file.txt']
  *
  * @example
+ * // Echo-style parsing (leading flags only)
+ * const result = parseArgs(['hello', '-n'], { n: { short: 'n' } },
+ *     { stopAtFirstPositional: true });
+ * // result.flags = {}
+ * // result.positional = ['hello', '-n']
+ *
+ * @example
  * // Handle unknown flags
  * const result = parseArgs(['--unknown', 'file.txt'], {});
  * // result.unknown = ['--unknown']
@@ -154,6 +186,7 @@ export interface ParsedArgs {
 export function parseArgs(
     args: string[],
     specs: Record<string, ArgSpec> = {},
+    options: ParseOptions = {},
 ): ParsedArgs {
     const result: ParsedArgs = {
         flags: {},
@@ -211,6 +244,12 @@ export function parseArgs(
         // Non-flags are always positional
         if (positionalOnly || !arg.startsWith('-') || arg === '-') {
             result.positional.push(arg);
+
+            // ECHO BEHAVIOR: Stop flag parsing at first positional
+            if (options.stopAtFirstPositional === true) {
+                positionalOnly = true;
+            }
+
             i++;
             continue;
         }
@@ -236,6 +275,12 @@ export function parseArgs(
             const specKey = longMap.get(flagName);
 
             if (specKey === undefined) {
+                // ECHO BEHAVIOR: Unknown flag stops parsing, becomes positional
+                if (options.stopAtFirstPositional === true) {
+                    result.positional.push(...args.slice(i));
+                    return result;
+                }
+
                 // Unknown flag - collect but don't error
                 result.unknown.push(arg);
                 i++;
@@ -299,6 +344,12 @@ export function parseArgs(
             const specKey = shortMap.get(char);
 
             if (specKey === undefined) {
+                // ECHO BEHAVIOR: Unknown flag stops parsing, becomes positional
+                if (options.stopAtFirstPositional === true) {
+                    result.positional.push(...args.slice(i));
+                    return result;
+                }
+
                 // Unknown short flag
                 result.unknown.push(`-${char}`);
                 j++;
