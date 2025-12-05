@@ -58,7 +58,7 @@
 // =============================================================================
 
 // Monk OS process I/O
-import { print, println, eprintln, exit } from '@rom/lib/process';
+import { print, println, eprintln, exit, getargs } from '@rom/lib/process';
 
 // =============================================================================
 // CONSTANTS
@@ -213,13 +213,13 @@ function formatOutput(args: string[]): string {
  * - Write failures: Print to stderr, exit 1
  * - Success: Exit 0 (always, echo cannot fail on valid input)
  *
- * @param args - Command-line arguments (excluding command name)
  */
-export default async function main(args: string[]): Promise<void> {
+export default async function main(): Promise<void> {
     // -------------------------------------------------------------------------
     // Argument Parsing
     // -------------------------------------------------------------------------
-    const opts = parseOptions(args);
+    const args = await getargs();
+    const opts = parseOptions(args.slice(1));
 
     // -------------------------------------------------------------------------
     // Handle Help

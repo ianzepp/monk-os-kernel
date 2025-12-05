@@ -84,6 +84,69 @@ const PHASE2_COMMANDS: Array<{ name: string; cmd: string[]; filter: (out: string
 ];
 
 // =============================================================================
+// Pre-flight Checks (fast static analysis)
+// =============================================================================
+
+/**
+ * Check that all rom/bin commands properly define their entry point.
+ *
+ * STANDARD: Commands in rom/bin/*.ts should follow one of these patterns:
+ *
+ * 1. Program style (preferred): Export default function, auto-invoked by runtime
+ *    ```
+ *    export default async function main() { ... }
+ *    ```
+ *
+ * 2. Script style: Top-level executable code (no main function)
+ *
+ * 3. Legacy style: Define main() and explicitly call it
+ *    ```
+ *    async function main() { ... }
+ *    main().catch(...);
+ *    ```
+ *
+ * Files that define main() but neither export it as default nor call it
+ * will hang when spawned because they never call exit().
+ *
+ * @returns Array of files with issues, empty if all good
+ */
+async function checkRomBinMain(): Promise<string[]> {
+    const glob = new Bun.Glob('rom/bin/*.ts');
+    const issues: string[] = [];
+
+    for await (const path of glob.scan('.')) {
+        const content = await Bun.file(path).text();
+
+        // Check if file defines a main function
+        const definesMain = /(?:async\s+)?function\s+main\s*\(/.test(content);
+
+        if (!definesMain) {
+            // No main function - that's fine (script style or different pattern)
+            continue;
+        }
+
+        // Check if main is exported as default (auto-invoked by runtime)
+        const exportsDefault = /export\s+default\s+(?:async\s+)?function\s+main/.test(content);
+
+        if (exportsDefault) {
+            // Good - will be auto-invoked
+            continue;
+        }
+
+        // Check if file invokes main at top level (legacy style)
+        // Patterns: main(), main().catch(...), await main()
+        const invokesMain = /^main\s*\(/m.test(content) ||
+                           /^await\s+main\s*\(/m.test(content);
+
+        if (!invokesMain) {
+            issues.push(path);
+        }
+    }
+
+    return issues;
+}
+
+// =============================================================================
 // Filters
 // =============================================================================
 
@@ -519,6 +582,36 @@ async function main() {
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('  Monk OS Audit');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('');
+
+    // -------------------------------------------------------------------------
+    // Pre-flight: Static analysis checks
+    // -------------------------------------------------------------------------
+
+    console.log('[PRE-FLIGHT] Checking rom/bin command structure...');
+
+    const romBinIssues = await checkRomBinMain();
+
+    if (romBinIssues.length > 0) {
+        console.log('  ✗ rom/bin main() check failed');
+        console.log('');
+        console.log('  The following files define main() but never invoke it:');
+
+        for (const file of romBinIssues) {
+            console.log(`    - ${file}`);
+        }
+
+        console.log('');
+        console.log('  Fix: Add `main().catch(...)` at the end of each file.');
+        console.log('');
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('  ✗ Pre-flight checks failed');
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('');
+        process.exit(1);
+    }
+
+    console.log('  ✓ rom/bin main() check');
     console.log('');
 
     // -------------------------------------------------------------------------

@@ -354,13 +354,13 @@ async function processFile(cwd: string, file: string, maxLines: number): Promise
  * - File errors: Print to stderr, continue processing, exit 1 at end
  * - Success: Exit 0
  *
- * @param args - Command-line arguments from process
  */
-export default async function main(args: string[]): Promise<void> {
+export default async function main(): Promise<void> {
     // -------------------------------------------------------------------------
     // Argument Parsing
     // -------------------------------------------------------------------------
-    const parsed = parseOptions(args);
+    const args = await getargs();
+    const parsed = parseOptions(args.slice(1));
 
     // Handle parse errors
     if ('error' in parsed) {
@@ -434,21 +434,4 @@ export default async function main(args: string[]): Promise<void> {
     return exit(hadError ? EXIT_FAILURE : EXIT_SUCCESS);
 }
 
-// =============================================================================
-// ENTRY POINT
-// =============================================================================
-
-/**
- * Bootstrap the main function with error handling.
- *
- * DESIGN: Catch any unhandled errors and report them properly.
- * This ensures no uncaught promise rejections.
- */
-getargs()
-    .then(args => main(args))
-    .catch(async (err: unknown) => {
-        const msg = err instanceof Error ? err.message : String(err);
-
-        await eprintln(`head: ${msg}`);
-        await exit(EXIT_FAILURE);
-    });
+// Entry point: main() is auto-invoked by the runtime via export default

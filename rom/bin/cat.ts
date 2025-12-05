@@ -65,6 +65,7 @@ import {
     println,
     eprintln,
     exit,
+    getargs,
 } from '@rom/lib/process';
 
 // Local utilities
@@ -316,16 +317,16 @@ async function passthroughStdin(): Promise<void> {
  * GNU BEHAVIOR: Process all files even if some fail. Exit code reflects
  * whether ANY file failed, not just the last one.
  *
- * @param args - Command-line arguments (excluding argv[0])
  */
-export default async function main(args: string[]): Promise<void> {
+export default async function main(): Promise<void> {
     // -------------------------------------------------------------------------
     // Argument Parsing
     // -------------------------------------------------------------------------
+    const args = await getargs();
     let opts: Options;
 
     try {
-        opts = parseOptions(args);
+        opts = parseOptions(args.slice(1));
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

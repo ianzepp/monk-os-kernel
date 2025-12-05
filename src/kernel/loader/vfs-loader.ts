@@ -430,9 +430,14 @@ ${mod.js}
 
         // Execute entry point
         // WHY: Starts the module evaluation chain
+        // WHY auto-invoke default: Programs export main() as default, runtime should call it
+        // This matches how compiled languages (C, Rust, Go) invoke main() automatically
         bundle += `
 // Entry point
-__require('${entryPath}');
+const __entry = __require('${entryPath}');
+if (typeof __entry.default === 'function') {
+    __entry.default();
+}
 `;
 
         return bundle;
