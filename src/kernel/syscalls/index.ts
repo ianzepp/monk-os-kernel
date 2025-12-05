@@ -97,6 +97,7 @@ import { createFileSyscalls } from './file.js';
 import { createMiscSyscalls } from './misc.js';
 import { createNetworkSyscalls } from './network.js';
 import { createChannelSyscalls } from './channel.js';
+import { createEmsSyscalls } from './ems.js';
 
 // =============================================================================
 // TYPE EXPORTS
@@ -182,6 +183,19 @@ export { createNetworkSyscalls } from './network.js';
  * - chan:close, chan:accept
  */
 export { createChannelSyscalls } from './channel.js';
+
+/**
+ * Entity Management System (EMS) syscall handlers.
+ *
+ * WHY: EMS operations (CRUD on entities) are isolated from file operations
+ * because they interact with the EntityOps subsystem and go through the
+ * observer pipeline for validation, triggers, and audit logging.
+ *
+ * USAGE: Kernel calls createEmsSyscalls(entityOps) and registers handlers:
+ * - ems:select, ems:create, ems:update
+ * - ems:delete, ems:revert, ems:expire
+ */
+export { createEmsSyscalls } from './ems.js';
 
 // =============================================================================
 // SYSCALL REGISTRATION
@@ -372,6 +386,15 @@ export function registerSyscalls(kernel: Kernel): void {
             (proc, ch) => closeHandle(kernel, proc, ch)
         )
     );
+
+    // -------------------------------------------------------------------------
+    // EMS SYSCALLS
+    // Entity Management System: CRUD operations on entities
+    // -------------------------------------------------------------------------
+
+    if (kernel.deps.entityOps) {
+        kernel.syscalls.registerAll(createEmsSyscalls(kernel.deps.entityOps));
+    }
 
     // -------------------------------------------------------------------------
     // IPC SYSCALLS

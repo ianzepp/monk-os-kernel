@@ -52,6 +52,7 @@
 import type { HAL } from '@src/hal/index.js';
 import { EINVAL } from '@src/hal/errors.js';
 import type { VFS } from '@src/vfs/index.js';
+import type { EntityOps } from '@src/ems/entity-ops.js';
 import type { ExitStatus, BootEnv } from '@src/kernel/types.js';
 import { SIGTERM, SIGKILL, TERM_GRACE_MS } from '@src/kernel/types.js';
 import { poll } from '@src/kernel/poll.js';
@@ -98,6 +99,9 @@ export interface KernelDeps {
 
     /** Cancel a scheduled callback (default: clearTimeout) */
     clearTimeout: (id: ReturnType<typeof setTimeout>) => void;
+
+    /** Entity operations for EMS syscalls (optional) */
+    entityOps?: EntityOps;
 }
 
 /**

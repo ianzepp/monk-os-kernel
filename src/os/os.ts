@@ -254,8 +254,10 @@ export class OS {
         // 8. Install queued packages
         await this.pkg.installQueued();
 
-        // 8. Create Kernel
-        this.kernel = new Kernel(this.hal, this.vfs);
+        // 8. Create Kernel (with EMS for entity syscalls)
+        this.kernel = new Kernel(this.hal, this.vfs, {
+            entityOps: this.entityOps ?? undefined,
+        });
 
         // 9. Emit 'kernel' event
         await this.emit('kernel', this);
