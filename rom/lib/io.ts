@@ -1,7 +1,35 @@
 /**
- * Buffered I/O Library for VFS Scripts
+ * Buffered BYTE I/O Library - For Files and Sockets (NOT Pipes)
  *
- * Provides ByteReader and ByteWriter for precise control over streaming byte data.
+ * Provides ByteReader and ByteWriter for precise control over streaming BYTE data.
+ * Use these for reading/writing files, sockets, and other byte-oriented I/O.
+ *
+ * THIS IS FOR BYTES, NOT MESSAGES.
+ *
+ * Monk OS has two distinct I/O systems:
+ *
+ * 1. BYTE I/O (this module) - for files and sockets
+ *    - read(fd) → AsyncIterable<Uint8Array>
+ *    - write(fd, bytes) → number
+ *    - ByteReader: buffered reading with readLine(), read(n), etc.
+ *    - ByteWriter: buffered writing with backpressure
+ *
+ * 2. MESSAGE I/O (process/pipe.ts) - for process communication
+ *    - recv(fd) → AsyncIterable<Response>
+ *    - send(fd, msg) → void
+ *    - Pipes carry structured Response messages, NOT bytes
+ *
+ * When to use ByteReader/ByteWriter:
+ * - Reading file contents: new ByteReader(read(fd))
+ * - Parsing network protocols: new ByteReader(read(socketFd))
+ * - Generating streaming output to files
+ *
+ * When to use recv/send (from pipe.ts):
+ * - Reading from stdin (fd 0): recv(0)
+ * - Writing to stdout (fd 1): send(1, respond.item({text}))
+ * - Inter-process pipes created with pipe()
+ *
+ * @module rom/lib/io
  */
 
 /**
