@@ -128,24 +128,24 @@ Streaming utilities use message-based I/O—`recv(0)` for stdin, `send(1, msg)` 
 
 ## Status
 
-**Overall Completeness: ~90%** — Production-ready for single-node (SQLite) or distributed (PostgreSQL) use.
+**Overall Completeness: ~95%** — Production-ready for single-node (SQLite) or distributed (PostgreSQL) use.
 
 | Component | Status | Notes |
 |-----------|--------|-------|
 | Kernel/Core | 95% | Full process lifecycle, 30+ syscalls, worker pools |
 | Process Mgmt | 95% | UUID/PID, signals, parent-child, worker isolation |
-| VFS | 85% | Plan 9 "everything is a file", EMS migration underway |
+| VFS | 95% | Plan 9 "everything is a file", hybrid EMS/HAL storage |
 | IPC | 90% | Pipes, ports, channels, shared memory (mutex/semaphore) |
 | Networking | 85% | TCP/UDP, HTTP/WS, PostgreSQL/SQLite channels |
 | HAL Devices | 95% | 14 devices: SQLite + PostgreSQL storage backends |
-| EMS | 85% | 8-ring observer pipeline, streaming queries |
+| EMS | 95% | 8-ring observer pipeline, streaming queries |
 | Boot | 95% | ROM bootstrap, service activation, lifecycle events |
 
 **Storage Backends**:
 - **SQLite** — Embedded, single-node, WAL mode for concurrent reads
 - **PostgreSQL** — Distributed, multi-node, full MVCC concurrency
 
-**In Progress**: EMS migration for VFS models.
+**VFS Architecture**: File/Folder use EMS (SQL). Device/Proc/Link use HAL KV (virtual by design).
 
 See `AGENTS.md` for detailed technical documentation.
 

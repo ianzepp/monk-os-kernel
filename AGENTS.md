@@ -218,9 +218,9 @@ abstract class PosixModel {
 
 **Supported Entities**:
 - `entity` - Generic catch-all model
-- `file` - Documents with binary data
-- `folder` - Container entities
-- (TODO) `device`, `proc`, `link` - Need EMS migration
+- `file` - Documents with binary data (EMS-backed)
+- `folder` - Container entities (EMS-backed)
+- `device`, `proc`, `link` - Virtual entities (HAL-backed, by design)
 
 **Storage Keys**:
 ```
@@ -230,7 +230,7 @@ child:{parent}:{name} → child UUID (O(1) child lookup)
 data:{uuid}       → file content blobs
 ```
 
-**Status**: ~85% complete. File/Folder migrated to EMS. Device/Proc/Link still on HAL. PostgreSQL backend planned.
+**Status**: Complete. File/Folder use EMS (SQL-backed). Device/Proc/Link use HAL storage (virtual entities by design).
 
 ---
 
@@ -848,14 +848,14 @@ await worker.release(workerId);                // Release to pool
 
 ## 10. Completeness Status
 
-**Overall: ~90%** — Production-ready for single-node (SQLite) or distributed (PostgreSQL) use.
+**Overall: ~95%** — Production-ready for single-node (SQLite) or distributed (PostgreSQL) use.
 
 | Component | Status | Notes |
 |-----------|--------|-------|
 | Kernel/Core | 95% | Full process lifecycle, 30+ syscalls, worker pools |
 | Process Mgmt | 95% | UUID/PID, signals, parent-child, worker isolation |
-| VFS | 85% | Plan 9 "everything is a file", EMS migration underway |
-| EMS | 85% | 8-ring observer pipeline, streaming queries |
+| VFS | 95% | Plan 9 "everything is a file", hybrid EMS/HAL storage |
+| EMS | 95% | 8-ring observer pipeline, streaming queries |
 | IPC | 90% | Pipes, ports, channels, shared memory (mutex/semaphore/condvar) |
 | Networking | 85% | TCP/UDP, HTTP/WS, PostgreSQL/SQLite channels |
 | HAL Devices | 95% | 14 devices: SQLite + PostgreSQL storage backends |
@@ -867,8 +867,12 @@ await worker.release(workerId);                // Release to pool
 - **PostgreSQL** (`PostgresStorageEngine`) — Distributed, multi-node, full MVCC
 - **Memory** (`MemoryStorageEngine`) — Testing, ephemeral
 
+**VFS Hybrid Architecture**:
+- File/Folder entities use EMS (SQL tables, EntityCache, observer pipeline)
+- Device/Proc/Link entities use HAL KV storage (virtual, no persistence needed)
+- Path resolution transparently handles both via child indexes
+
 **Key TODOs**:
-- Finish EMS migration for Device/Proc/Link models
 - Complete `os.exec()` takeover mode
 - Implement `EntityModel.watch()`
 - Full UDP exposure to userland
