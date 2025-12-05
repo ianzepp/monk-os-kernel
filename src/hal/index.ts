@@ -15,7 +15,7 @@
  * - All async operations use Promise/AsyncIterable patterns
  * - Errors follow POSIX conventions (ENOENT, EBADF, etc.)
  *
- * The HAL aggregates 14 device interfaces:
+ * The HAL aggregates 16 device interfaces:
  *
  * 1. BlockDevice: Raw byte storage (files, S3, databases as byte arrays)
  * 2. StorageEngine: Key-value store with transactions (SQLite, PostgreSQL, memory)
@@ -31,6 +31,8 @@
  * 12. ChannelDevice: Protocol-aware messaging (HTTP, WebSocket, PostgreSQL, SQLite)
  * 13. CompressionDevice: Gzip/deflate compression/decompression
  * 14. FileDevice: Host filesystem access (KERNEL USE ONLY - see file.ts)
+ * 15. JsonDevice: JSON encoding/decoding
+ * 16. YamlDevice: YAML encoding/decoding (uses Bun.YAML.parse)
  *
  * BunHAL is the production implementation using Bun primitives. Test implementations
  * (MockHAL, MemoryStorageEngine, etc.) enable deterministic testing without real
@@ -118,6 +120,8 @@ import { BunIPCDevice } from './ipc.js';
 import { BunChannelDevice } from './channel.js';
 import { BunCompressionDevice } from './compression.js';
 import { BunFileDevice } from './file.js';
+import { BunJsonDevice } from './json.js';
+import { BunYamlDevice } from './yaml.js';
 import { EIO } from './errors.js';
 
 // =============================================================================
@@ -209,6 +213,8 @@ export type { IPCDevice, Mutex, MutexLockOpts, Semaphore, CondVar } from './ipc.
 export type { ChannelDevice, Channel, ChannelOpts } from './channel.js';
 export type { CompressionDevice, CompressionAlg, CompressionLevel, CompressionOpts } from './compression.js';
 export type { FileDevice, FileStat } from './file.js';
+export type { JsonDevice } from './json.js';
+export type { YamlDevice } from './yaml.js';
 
 // =============================================================================
 // DEVICE IMPLEMENTATION CLASSES (RE-EXPORTS)
@@ -230,6 +236,8 @@ export { BunIPCDevice, MockIPCDevice } from './ipc.js';
 export { BunChannelDevice } from './channel.js';
 export { BunCompressionDevice, MockCompressionDevice } from './compression.js';
 export { BunFileDevice, MockFileDevice } from './file.js';
+export { BunJsonDevice, MockJsonDevice } from './json.js';
+export { BunYamlDevice, MockYamlDevice } from './yaml.js';
 
 // =============================================================================
 // HAL INTERFACE
@@ -298,6 +306,12 @@ export interface HAL {
      * See hal/file.ts for restrictions and proper usage.
      */
     readonly file: import('./file.js').FileDevice;
+
+    /** JSON encoding/decoding */
+    readonly json: import('./json.js').JsonDevice;
+
+    /** YAML encoding/decoding */
+    readonly yaml: import('./yaml.js').YamlDevice;
 
     /**
      * Initialize the HAL
@@ -421,6 +435,8 @@ export class BunHAL implements HAL {
     readonly channel: import('./channel.js').ChannelDevice;
     readonly compression: import('./compression.js').CompressionDevice;
     readonly file: import('./file.js').FileDevice;
+    readonly json: import('./json.js').JsonDevice;
+    readonly yaml: import('./yaml.js').YamlDevice;
 
     // =========================================================================
     // LIFECYCLE STATE
@@ -499,6 +515,8 @@ export class BunHAL implements HAL {
         this.channel = new BunChannelDevice();
         this.compression = new BunCompressionDevice();
         this.file = new BunFileDevice();
+        this.json = new BunJsonDevice();
+        this.yaml = new BunYamlDevice();
     }
 
     // =========================================================================
