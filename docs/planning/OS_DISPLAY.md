@@ -2,6 +2,61 @@
 
 A browser-based display server using EMS entities and EntityMount.
 
+## Status
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| HAL JsonDevice | ✅ Done | `hal.json.encode/decode` |
+| HAL YamlDevice | ✅ Done | `hal.yaml.encode/decode` using `Bun.YAML.parse` |
+| displayd package | ✅ Done | YAML model definitions in `packages/displayd/models/` |
+| Model loader | ⏳ Pending | Load YAML models via `os.install()` → `PackageAPI` |
+| EntityMount for /dev/display | ⏳ Pending | Auto-mount from package manifest |
+| jsond EMS integration | ⏳ Pending | WebSocket streaming of entity changes |
+| display-client | ⏳ Pending | Browser webapp for rendering |
+
+### Completed Models (packages/displayd/models/)
+
+| Model | Fields | Notes |
+|-------|--------|-------|
+| display | 7 | Browser session (width, height, dpi, connected, session_id, user_agent, last_ping) |
+| window | 21 | Application window (position, size, focus, z-order, owner_pid, opacity, etc.) |
+| element | 15 | DOM element (tag, props, text, order, layout hints) - passthrough |
+| event | 17 | Input event (type, coordinates, modifiers, key) - passthrough |
+| cursor | 7 | Mouse state (position, style, visibility) - passthrough |
+| selection | 9 | Text selection (offsets, direction, collapsed) |
+
+### Next Steps
+
+1. **Model loader in PackageAPI** - Extend `pkg.ts`:
+   ```typescript
+   // In install(), after mounting:
+   const monkConfig = pkgJson.monk as MonkConfig | undefined;
+   if (monkConfig?.models) {
+       await this.loadModels(hostPath, monkConfig.models);
+   }
+   ```
+
+2. **YAML → EMS transformation** - Parse model YAML and upsert:
+   ```typescript
+   for (const modelName of models) {
+       const yaml = await hal.file.readText(`${hostPath}/models/${modelName}.yaml`);
+       const def = hal.yaml.decode(yaml);
+       await ems.ops.upsertAll('models', [transformModel(def)]);
+       await ems.ops.upsertAll('fields', transformFields(def));
+   }
+   ```
+
+3. **Auto-mount EntityMount** - From package manifest:
+   ```json
+   "monk": {
+       "mounts": [{ "path": "/dev/display", "model": "display", "field": "id" }]
+   }
+   ```
+
+4. **jsond EMS operations** - Add `ems:*` message handlers to jsond
+
+5. **display-client webapp** - Browser renderer connecting via WebSocket
+
 ## Overview
 
 The display system exposes a graphical interface to browsers using the existing EMS infrastructure. Instead of a custom display protocol, displays, windows, and elements are EMS entities that:
@@ -66,6 +121,9 @@ The display system exposes a graphical interface to browsers using the existing 
 
 ## Entity Models
 
+> **Implementation**: See `packages/displayd/models/*.yaml` for full field definitions.
+> TypeScript types in `packages/displayd/types.ts`.
+
 ### display
 
 Represents a browser session/connection.
@@ -78,6 +136,8 @@ Represents a browser session/connection.
 | dpi         | number  | Device pixel ratio             |
 | connected   | boolean | Browser currently connected    |
 | session_id  | string  | Browser session identifier     |
+| user_agent  | string  | Browser user agent             |
+| last_ping   | timestamp | Last heartbeat               |
 
 ### window
 
@@ -88,18 +148,24 @@ Represents a window owned by a process.
 | id         | string  | Window ID                        |
 | display_id | string  | Parent display (relationship)    |
 | title      | string  | Window title                     |
-| x          | number  | X position                       |
-| y          | number  | Y position                       |
-| width      | number  | Window width                     |
-| height     | number  | Window height                    |
+| x, y       | number  | Position in pixels               |
+| width, height | number | Size in pixels                |
+| min/max_width/height | number | Size constraints        |
 | z_index    | number  | Stacking order                   |
 | focused    | boolean | Has keyboard focus               |
 | visible    | boolean | Is visible                       |
-| owner_pid  | number  | Owning process PID               |
+| minimized  | boolean | Window is minimized              |
+| maximized  | boolean | Window is maximized              |
+| resizable  | boolean | Can be resized                   |
+| movable    | boolean | Can be moved                     |
+| closable   | boolean | Can be closed                    |
+| owner_pid  | string  | Owning process UUID              |
+| background | string  | Background color/CSS             |
+| opacity    | number  | Window opacity (0-1)             |
 
 ### element
 
-Represents a DOM element within a window.
+Represents a DOM element within a window. Uses `passthrough: true` for performance.
 
 | Field      | Type        | Description                     |
 |------------|-------------|----------------------------------|
@@ -110,10 +176,14 @@ Represents a DOM element within a window.
 | props      | JSON        | Attributes, class, style         |
 | text       | string/null | Text content                     |
 | order      | number      | Sibling order                    |
+| disabled   | boolean     | Element is disabled              |
+| hidden     | boolean     | Element is hidden                |
+| value      | string      | Input value                      |
+| placeholder | string     | Input placeholder                |
 
 ### event
 
-Represents an input event from the browser.
+Represents an input event from the browser. Uses `passthrough: true` for performance.
 
 | Field       | Type   | Description                      |
 |-------------|--------|----------------------------------|
@@ -121,9 +191,40 @@ Represents an input event from the browser.
 | display_id  | string | Source display                   |
 | window_id   | string | Target window                    |
 | element_id  | string | Target element (if any)          |
-| type        | string | click, keydown, input, etc.      |
+| type        | enum   | click, keydown, input, etc.      |
 | data        | JSON   | Event-specific data              |
-| timestamp   | number | Unix timestamp                   |
+| timestamp   | number | Unix timestamp (ms)              |
+| key         | string | Key pressed (keyboard events)    |
+| button      | number | Mouse button (0=left, 2=right)   |
+| x, y        | number | Coordinates                      |
+| shift/ctrl/alt/meta | boolean | Modifier keys           |
+| handled     | boolean | Event has been processed        |
+
+### cursor
+
+Mouse cursor state per display. Uses `passthrough: true` for performance.
+
+| Field       | Type   | Description                      |
+|-------------|--------|----------------------------------|
+| display_id  | string | Parent display (unique)          |
+| x, y        | number | Cursor position                  |
+| style       | enum   | CSS cursor style                 |
+| visible     | boolean | Cursor is visible               |
+| window_id   | string | Window cursor is over            |
+| element_id  | string | Element cursor is over           |
+
+### selection
+
+Text selection state within a window.
+
+| Field       | Type   | Description                      |
+|-------------|--------|----------------------------------|
+| window_id   | string | Window containing selection      |
+| element_id  | string | Element containing selection     |
+| text        | string | Selected text                    |
+| start/end_offset | number | Selection offsets           |
+| collapsed   | boolean | Is caret only (no selection)    |
+| direction   | enum   | forward, backward, none          |
 
 ## Protocol
 
@@ -198,12 +299,30 @@ for await (const event of ems.select('event', { window_id: window.id })) {
 }
 ```
 
-## display-client Package
+## displayd Package Structure
 
-Minimal TypeScript webapp served to browsers.
+Server-side display daemon (implemented):
 
 ```
-packages/display-client/
+packages/displayd/
+  package.json            # Manifest with monk.models, monk.mounts
+  index.ts                # Package entry point
+  types.ts                # TypeScript interfaces for all models
+  models/
+    display.yaml          # Browser session
+    window.yaml           # Application window
+    element.yaml          # DOM element
+    event.yaml            # Input event
+    cursor.yaml           # Mouse state
+    selection.yaml        # Text selection
+```
+
+## displayd-client Package
+
+Browser webapp (not yet implemented):
+
+```
+packages/displayd-client/
   package.json
   src/
     index.ts              # Entry point
@@ -214,7 +333,7 @@ packages/display-client/
   public/
     index.html            # Shell page
   dist/
-    display-client.js     # Bundled output
+    displayd-client.js    # Bundled output
 ```
 
 ### Responsibilities
@@ -294,13 +413,13 @@ All scenarios exceed 60fps by 2x or more. The likely bottlenecks will be:
 
 If performance tuning is needed:
 
-1. **Passthrough models** (already supported) - Skip observer rings 2-7:
-   ```typescript
-   await ems.ops.createAll('models', [{
-     model_name: 'element',
-     passthrough: true,  // Bypasses validation, transforms, triggers
-   }]);
+1. **Passthrough models** (already configured) - Skip observer rings 2-7:
+   ```yaml
+   # packages/displayd/models/element.yaml
+   name: element
+   passthrough: true  # Bypasses validation, transforms, triggers
    ```
+   Already set for: `element`, `event`, `cursor`
 
 2. **Volatile models** (potential feature) - Memory-only, no disk persistence:
    ```sql
