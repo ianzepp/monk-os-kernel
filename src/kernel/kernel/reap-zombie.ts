@@ -70,7 +70,7 @@ export function reapZombie(
     self: Kernel,
     parent: Process,
     pid: number,
-    zombie: Process
+    zombie: Process,
 ): void {
     // Remove from parent's child map
     // WHY: Frees PID for reuse in parent's namespace

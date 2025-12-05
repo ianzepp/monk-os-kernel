@@ -83,6 +83,7 @@ export class PackageAPI {
         for (const { npmName, opts } of this.pending) {
             await this.install(npmName, opts);
         }
+
         this.pending = [];
     }
 
@@ -123,6 +124,7 @@ export class PackageAPI {
 
         // Mount the package directory
         const vfs = this.host.getVFS();
+
         vfs.mountHost(mountPoint, hostPath, { readonly: true });
 
         // Discover services
@@ -139,6 +141,7 @@ export class PackageAPI {
             config: opts?.config ?? {},
             autoStart: opts?.autoStart ?? true,
         };
+
         this.packages.set(name, record);
     }
 
@@ -152,12 +155,14 @@ export class PackageAPI {
      */
     async uninstall(name: string): Promise<void> {
         const record = this.packages.get(name);
+
         if (!record) {
             throw new ENOENT(`Package '${name}' is not installed`);
         }
 
         // Unmount the package
         const vfs = this.host.getVFS();
+
         vfs.unmountHost(record.mountPoint);
 
         // Remove from registry
@@ -181,6 +186,7 @@ export class PackageAPI {
      */
     async get(name: string): Promise<PackageInfo | undefined> {
         const record = this.packages.get(name);
+
         return record ? this.toPackageInfo(record) : undefined;
     }
 
@@ -192,6 +198,7 @@ export class PackageAPI {
      */
     async configure(name: string, config: Record<string, unknown>): Promise<void> {
         const record = this.packages.get(name);
+
         if (!record) {
             throw new ENOENT(`Package '${name}' is not installed`);
         }
@@ -205,7 +212,7 @@ export class PackageAPI {
      * @internal
      */
     getAutoStartPackages(): PackageRecord[] {
-        return Array.from(this.packages.values()).filter((p) => p.autoStart);
+        return Array.from(this.packages.values()).filter(p => p.autoStart);
     }
 
     /**
@@ -219,12 +226,14 @@ export class PackageAPI {
 
             // Convert file:// URL to path
             const url = new URL(resolved);
+
             // Return directory (remove /package.json)
             return url.pathname.replace(/\/package\.json$/, '');
-        } catch {
+        }
+        catch {
             throw new ENOENT(
                 `Cannot resolve package '${npmName}'. ` +
-                    `Ensure it is installed: bun install ${npmName}`
+                    `Ensure it is installed: bun install ${npmName}`,
             );
         }
     }
@@ -234,11 +243,14 @@ export class PackageAPI {
      */
     private async readPackageJson(hostPath: string): Promise<Record<string, unknown>> {
         const pkgPath = `${hostPath}/package.json`;
+
         try {
             const file = Bun.file(pkgPath);
             const text = await file.text();
+
             return JSON.parse(text);
-        } catch {
+        }
+        catch {
             throw new ENOENT(`Cannot read package.json at ${pkgPath}`);
         }
     }
@@ -252,9 +264,11 @@ export class PackageAPI {
         // Handle scoped packages
         if (npmName.startsWith('@')) {
             const parts = npmName.split('/');
+
             // Scoped packages always have format @scope/name
             return parts[1] ?? npmName;
         }
+
         return npmName;
     }
 
@@ -272,7 +286,8 @@ export class PackageAPI {
             // Check if services directory exists
             try {
                 await vfs.stat(servicesPath, 'kernel');
-            } catch {
+            }
+            catch {
                 // No services directory - that's fine
                 return services;
             }
@@ -282,10 +297,12 @@ export class PackageAPI {
                 if (entry.name.endsWith('.json')) {
                     // Service name is filename without .json
                     const serviceName = entry.name.replace(/\.json$/, '');
+
                     services.push(serviceName);
                 }
             }
-        } catch {
+        }
+        catch {
             // Ignore errors - services are optional
         }
 

@@ -154,7 +154,7 @@ interface StreamState {
 export async function handleSyscall(
     self: Kernel,
     proc: Process,
-    request: SyscallRequest
+    request: SyscallRequest,
 ): Promise<void> {
     printk(self, 'syscall', `${proc.cmd}: ${request.name}`);
 
@@ -222,12 +222,14 @@ export async function handleSyscall(
             //      it hasn't received yet. First item initializes lastPingTime.
             if (state.itemsSent > 0) {
                 const stallTime = self.deps.now() - state.lastPingTime;
+
                 if (stallTime >= STREAM_STALL_TIMEOUT) {
                     sendResponse(self, proc, request.id, {
                         op: 'error',
                         data: { code: 'ETIMEDOUT', message: 'Stream consumer unresponsive' },
                     });
                     printk(self, 'syscall', `${proc.cmd}: ${request.name} -> timeout (stall: ${stallTime}ms)`);
+
                     return;
                 }
             }
@@ -246,6 +248,7 @@ export async function handleSyscall(
             //      Must return immediately to prevent further iteration.
             if (response.op === 'ok' || response.op === 'done' || response.op === 'error' || response.op === 'redirect') {
                 printk(self, 'syscall', `${proc.cmd}: ${request.name} -> ${response.op}`);
+
                 return;
             }
 
@@ -266,11 +269,12 @@ export async function handleSyscall(
             // -------------------------------------------------------------------------
 
             const gap = state.itemsSent - state.itemsAcked;
+
             if (gap >= STREAM_HIGH_WATER) {
                 printk(self, 'syscall', `${proc.cmd}: ${request.name} -> backpressure (gap=${gap})`);
 
                 // Pause iteration until consumer catches up (gap <= LOW_WATER)
-                await new Promise<void>((resolve) => {
+                await new Promise<void>(resolve => {
                     state.resumeResolve = resolve;
 
                     // Safety timeout to prevent permanent block if consumer dies
@@ -287,17 +291,20 @@ export async function handleSyscall(
                 // RACE FIX: Re-check stall after resume
                 // Consumer may have died during backpressure pause
                 const stallTime = self.deps.now() - state.lastPingTime;
+
                 if (stallTime >= STREAM_STALL_TIMEOUT) {
                     sendResponse(self, proc, request.id, {
                         op: 'error',
                         data: { code: 'ETIMEDOUT', message: 'Stream consumer unresponsive' },
                     });
                     printk(self, 'syscall', `${proc.cmd}: ${request.name} -> timeout after backpressure`);
+
                     return;
                 }
             }
         }
-    } catch (error) {
+    }
+    catch (error) {
         // -------------------------------------------------------------------------
         // Error handling (uncaught exceptions from syscall handler)
         // -------------------------------------------------------------------------
@@ -305,12 +312,14 @@ export async function handleSyscall(
         // WHY: Syscall handlers may throw errors (ENOENT, EBADF, etc.)
         //      Convert to error Response for consumer
         const err = error as Error & { code?: string };
+
         sendResponse(self, proc, request.id, {
             op: 'error',
             data: { code: err.code ?? 'EIO', message: err.message },
         });
         printk(self, 'syscall', `${proc.cmd}: ${request.name} -> error: ${err.code ?? 'EIO'}`);
-    } finally {
+    }
+    finally {
         // -------------------------------------------------------------------------
         // Cleanup (always runs, even on error/cancel)
         // -------------------------------------------------------------------------

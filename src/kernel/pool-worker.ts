@@ -23,6 +23,7 @@ self.onmessage = async (e: MessageEvent) => {
             try {
                 // Dynamic import of the handler script
                 const module = await import(msg.path!);
+
                 currentHandler = module.default ?? module.handle ?? module.handler;
 
                 if (typeof currentHandler !== 'function') {
@@ -30,10 +31,13 @@ self.onmessage = async (e: MessageEvent) => {
                 }
 
                 self.postMessage({ type: 'loaded' });
-            } catch (err) {
+            }
+            catch (err) {
                 const error = err as Error;
+
                 self.postMessage({ type: 'error', error: error.message });
             }
+
             break;
         }
 
@@ -51,25 +55,30 @@ self.onmessage = async (e: MessageEvent) => {
                     for await (const item of result as AsyncIterable<unknown>) {
                         self.postMessage({ type: 'message', data: item });
                     }
+
                     self.postMessage({ type: 'done' });
                 }
                 // Handle promises
                 else if (result instanceof Promise) {
                     const resolved = await result;
+
                     self.postMessage({ type: 'message', data: resolved });
                 }
                 // Handle sync results
                 else {
                     self.postMessage({ type: 'message', data: result });
                 }
-            } catch (err) {
+            }
+            catch (err) {
                 const error = err as Error;
+
                 self.postMessage({
                     type: 'error',
                     error: error.message,
                     stack: error.stack,
                 });
             }
+
             break;
         }
 

@@ -16,12 +16,15 @@ describe('ByteReader', () => {
 
         const reader = new ByteReader(source());
         const chunk1 = await reader.read(2);
+
         expect(chunk1).toEqual(new Uint8Array([1, 2]));
 
         const chunk2 = await reader.read(2);
+
         expect(chunk2).toEqual(new Uint8Array([3, 4]));
 
         const chunk3 = await reader.read(10);
+
         expect(chunk3).toEqual(new Uint8Array([5]));
     });
 
@@ -31,8 +34,10 @@ describe('ByteReader', () => {
         }
 
         const reader = new ByteReader(source());
+
         await reader.read(2);
         const eof = await reader.read(1);
+
         expect(eof).toEqual(new Uint8Array(0));
     });
 
@@ -42,6 +47,7 @@ describe('ByteReader', () => {
         }
 
         const reader = new ByteReader(source());
+
         expect(await reader.readLine()).toBe('hello');
         expect(await reader.readLine()).toBe('world');
         expect(await reader.readLine()).toBeNull();
@@ -58,6 +64,7 @@ describe('ByteWriter', () => {
         writer.end();
 
         const chunks: Uint8Array[] = [];
+
         for await (const chunk of writer) {
             chunks.push(chunk);
         }
@@ -69,6 +76,7 @@ describe('ByteWriter', () => {
 
     it('should throw when writing to ended writer', () => {
         const writer = new ByteWriter();
+
         writer.end();
         expect(() => writer.write(new Uint8Array([1]))).toThrow('Cannot write to ended ByteWriter');
     });
@@ -109,6 +117,7 @@ describe('ByteWriter', () => {
 
         // Consume one chunk (10 bytes) - now 10 bytes queued, below 15 byte limit
         const iterator = writer[Symbol.asyncIterator]();
+
         await iterator.next();
 
         // Wait a tick for drain to resolve
@@ -135,14 +144,17 @@ describe('ByteWriter', () => {
             if (writer.full) {
                 await writer.waitForDrain();
             }
+
             writer.write(new Uint8Array(5));
         }
+
         writer.end();
 
         await consumer;
 
         // All chunks should be consumed
         const totalBytes = consumed.reduce((a, b) => a + b, 0);
+
         expect(totalBytes).toBe(25);
     });
 });

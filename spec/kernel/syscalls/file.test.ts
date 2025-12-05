@@ -79,11 +79,13 @@ class MockHandle implements Handle {
             for (const r of this.recvResponses) {
                 yield r;
             }
-        } else if (msg.op === 'send') {
+        }
+        else if (msg.op === 'send') {
             for (const r of this.sendResponses) {
                 yield r;
             }
-        } else {
+        }
+        else {
             yield respond.ok();
         }
     }
@@ -98,9 +100,11 @@ class MockHandle implements Handle {
  */
 async function collectResponses(iterable: AsyncIterable<Response>): Promise<Response[]> {
     const results: Response[] = [];
+
     for await (const response of iterable) {
         results.push(response);
     }
+
     return results;
 }
 
@@ -139,6 +143,7 @@ describe('File Syscalls: send/recv', () => {
                         ctime: Date.now(),
                     };
                 }
+
                 throw new ENOENT(`No such file: ${path}`);
             },
         } as VFS;
@@ -151,6 +156,7 @@ describe('File Syscalls: send/recv', () => {
         it('should forward recv to handle', async () => {
             const proc = createMockProcess();
             const handle = new MockHandle('stdin', 'stdin');
+
             handle.setRecvResponses([respond.item({ text: 'hello\n' }), respond.done()]);
             handles.set(0, handle);
 
@@ -187,6 +193,7 @@ describe('File Syscalls: send/recv', () => {
         it('should yield all responses from handle', async () => {
             const proc = createMockProcess();
             const handle = new MockHandle('stdin', 'stdin');
+
             handle.setRecvResponses([
                 respond.item({ text: 'line1\n' }),
                 respond.item({ text: 'line2\n' }),
@@ -209,6 +216,7 @@ describe('File Syscalls: send/recv', () => {
         it('should forward send to handle', async () => {
             const proc = createMockProcess();
             const handle = new MockHandle('stdout', 'stdout');
+
             handles.set(1, handle);
 
             const msg = respond.item({ text: 'hello\n' });
@@ -246,9 +254,11 @@ describe('File Syscalls: send/recv', () => {
         it('should pass message data to handle', async () => {
             const proc = createMockProcess();
             const handle = new MockHandle('stdout', 'stdout');
+
             handles.set(1, handle);
 
             const msg = respond.data(new Uint8Array([1, 2, 3]));
+
             await collectResponses(dispatcher.dispatch(proc, 'file:send', [1, msg]));
 
             expect(handle.messages[0]!.data).toEqual(msg);
@@ -261,6 +271,7 @@ describe('File Syscalls: send/recv', () => {
 
             // Stdin handle with one message then EOF
             const stdin = new MockHandle('stdin', 'stdin');
+
             stdin.setRecvResponses([
                 respond.item({ text: 'piped data\n' }),
                 respond.done(),
@@ -269,6 +280,7 @@ describe('File Syscalls: send/recv', () => {
 
             // Stdout handle
             const stdout = new MockHandle('stdout', 'stdout');
+
             handles.set(1, stdout);
 
             // Simulate cat: recv from stdin, send to stdout
@@ -277,6 +289,7 @@ describe('File Syscalls: send/recv', () => {
             for (const r of recvResponses) {
                 if (r.op === 'item') {
                     const sendResponses = await collectResponses(dispatcher.dispatch(proc, 'file:send', [1, r]));
+
                     expect(sendResponses.length).toBe(1);
                     expect(sendResponses[0]!.op).toBe('ok');
                 }
@@ -292,6 +305,7 @@ describe('File Syscalls: send/recv', () => {
             const proc = createMockProcess();
 
             const stdin = new MockHandle('stdin', 'stdin');
+
             stdin.setRecvResponses([
                 respond.item({ text: 'msg1\n' }),
                 respond.item({ text: 'msg2\n' }),
@@ -301,6 +315,7 @@ describe('File Syscalls: send/recv', () => {
             handles.set(0, stdin);
 
             const stdout = new MockHandle('stdout', 'stdout');
+
             handles.set(1, stdout);
 
             // Cat-like loop
@@ -332,13 +347,14 @@ describe('File Syscalls: read/write', () => {
         handles = new Map();
 
         const mockVfs = {} as VFS;
+
         dispatcher = new SyscallDispatcher();
         dispatcher.registerAll(createFileSyscalls(
             mockVfs,
             {} as any,
             getHandle,
             async () => 3,
-            async () => {}
+            async () => {},
         ));
     });
 
@@ -346,6 +362,7 @@ describe('File Syscalls: read/write', () => {
         it('should forward read to handle recv', async () => {
             const proc = createMockProcess();
             const handle = new MockHandle('file', '/test.txt');
+
             handle.setRecvResponses([respond.data(new Uint8Array([65, 66, 67])), respond.done()]);
             handles.set(3, handle);
 
@@ -359,6 +376,7 @@ describe('File Syscalls: read/write', () => {
         it('should pass chunkSize to handle', async () => {
             const proc = createMockProcess();
             const handle = new MockHandle('file', '/test.txt');
+
             handles.set(3, handle);
 
             await collectResponses(dispatcher.dispatch(proc, 'file:read', [3, 4096]));
@@ -371,6 +389,7 @@ describe('File Syscalls: read/write', () => {
         it('should forward write to handle send', async () => {
             const proc = createMockProcess();
             const handle = new MockHandle('file', '/test.txt');
+
             handles.set(3, handle);
 
             const data = new Uint8Array([65, 66, 67]);

@@ -19,7 +19,8 @@ export async function loadServices(self: Kernel): Promise<void> {
     try {
         await self.vfs.stat('/etc/services', 'kernel');
         serviceDirs.push('/etc/services');
-    } catch {
+    }
+    catch {
         await self.vfs.mkdir('/etc/services', 'kernel', { recursive: true });
         serviceDirs.push('/etc/services');
     }
@@ -28,16 +29,22 @@ export async function loadServices(self: Kernel): Promise<void> {
     try {
         await self.vfs.stat('/usr', 'kernel');
         for await (const pkg of self.vfs.readdir('/usr', 'kernel')) {
-            if (pkg.model !== 'folder') continue;
+            if (pkg.model !== 'folder') {
+                continue;
+            }
+
             const pkgServicesDir = `/usr/${pkg.name}/etc/services`;
+
             try {
                 await self.vfs.stat(pkgServicesDir, 'kernel');
                 serviceDirs.push(pkgServicesDir);
-            } catch {
+            }
+            catch {
                 // No services - fine
             }
         }
-    } catch {
+    }
+    catch {
         // No /usr - fine
     }
 

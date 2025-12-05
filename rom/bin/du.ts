@@ -31,14 +31,14 @@ import {
 } from '@rom/lib/process';
 import { resolvePath } from '@rom/lib/shell';
 
-type DuOptions = {
+interface DuOptions {
     all: boolean;
     human: boolean;
     summary: boolean;
     total: boolean;
     maxDepth: number;
     unit: 'bytes' | 'kilobytes' | 'megabytes';
-};
+}
 
 async function main(): Promise<void> {
     const args = await getargs();
@@ -61,26 +61,50 @@ async function main(): Promise<void> {
     const targets: string[] = [];
 
     let i = 0;
+
     while (i < argv.length) {
         const arg = argv[i];
-        if (arg === undefined) { i++; continue; }
 
-        if (arg === '-a') { options.all = true; i++; }
-        else if (arg === '-h') { options.human = true; i++; }
-        else if (arg === '-s') { options.summary = true; options.maxDepth = 0; i++; }
-        else if (arg === '-c') { options.total = true; i++; }
-        else if (arg === '-b') { options.unit = 'bytes'; i++; }
-        else if (arg === '-k') { options.unit = 'kilobytes'; i++; }
-        else if (arg === '-m') { options.unit = 'megabytes'; i++; }
+        if (arg === undefined) {
+            i++; continue;
+        }
+
+        if (arg === '-a') {
+            options.all = true; i++;
+        }
+        else if (arg === '-h') {
+            options.human = true; i++;
+        }
+        else if (arg === '-s') {
+            options.summary = true; options.maxDepth = 0; i++;
+        }
+        else if (arg === '-c') {
+            options.total = true; i++;
+        }
+        else if (arg === '-b') {
+            options.unit = 'bytes'; i++;
+        }
+        else if (arg === '-k') {
+            options.unit = 'kilobytes'; i++;
+        }
+        else if (arg === '-m') {
+            options.unit = 'megabytes'; i++;
+        }
         else if (arg === '-d' && i + 1 < argv.length) {
             const val = argv[i + 1];
-            if (val === undefined) { i += 2; continue; }
+
+            if (val === undefined) {
+                i += 2; continue;
+            }
+
             options.maxDepth = parseInt(val, 10);
             i += 2;
-        } else if (!arg.startsWith('-')) {
+        }
+        else if (!arg.startsWith('-')) {
             targets.push(arg);
             i++;
-        } else {
+        }
+        else {
             i++;
         }
     }
@@ -109,8 +133,10 @@ async function main(): Promise<void> {
             }
 
             grandTotal += size;
-        } catch (err) {
+        }
+        catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
+
             await eprintln(`du: ${target}: ${msg}`);
             exitCode = 1;
         }
@@ -127,7 +153,7 @@ async function calculateSize(
     path: string,
     options: DuOptions,
     depth: number,
-    results: { path: string; size: number }[]
+    results: { path: string; size: number }[],
 ): Promise<number> {
     const entry = await stat(path);
 
@@ -135,6 +161,7 @@ async function calculateSize(
         if (options.all && !options.summary && depth <= options.maxDepth) {
             results.push({ path, size: entry.size });
         }
+
         return entry.size;
     }
 
@@ -143,10 +170,13 @@ async function calculateSize(
 
     for (const child of entries) {
         const childPath = path === '/' ? `/${child}` : `${path}/${child}`;
+
         try {
             const childSize = await calculateSize(childPath, options, depth + 1, results);
+
             totalSize += childSize;
-        } catch {
+        }
+        catch {
             // Skip inaccessible entries
         }
     }
@@ -170,6 +200,7 @@ function formatSize(bytes: number, options: DuOptions): string {
         }
 
         const formatted = unitIndex === 0 ? String(size) : size.toFixed(size < 10 ? 1 : 0);
+
         return formatted + units[unitIndex];
     }
 
@@ -192,7 +223,7 @@ async function showHelp(): Promise<void> {
     await println('  -b/-k/-m    Bytes/KB/MB');
 }
 
-main().catch(async (err) => {
+main().catch(async err => {
     await eprintln(`du: ${err.message}`);
     await exit(1);
 });

@@ -198,7 +198,6 @@ export class VFSLoader {
      * @param importPath - Import path from source code
      * @returns Resolved VFS path or original path
      */
-    // @ts-expect-error Scaffolding for alias resolution
     private resolveAlias(importPath: string): string {
         // Check for exact alias match
         if (this.aliases.has(importPath)) {
@@ -253,6 +252,7 @@ export class VFSLoader {
         // Check cache for matching hash
         // WHY hash-based: Detects source changes even if filename unchanged
         const cached = this.cache.get(vfsPath);
+
         if (cached && cached.hash === hash) {
             return cached;
         }
@@ -284,6 +284,7 @@ export class VFSLoader {
         };
 
         this.cache.set(vfsPath, mod);
+
         return mod;
     }
 
@@ -326,10 +327,12 @@ export class VFSLoader {
             if (visited.has(path)) {
                 continue;
             }
+
             visited.add(path);
 
             // Compile module (may hit cache)
             const mod = await this.compileModule(path);
+
             modules.set(path, mod);
 
             // Queue unresolved VFS dependencies
@@ -454,6 +457,7 @@ __require('${entryPath}');
      */
     createBlobURL(bundle: string): string {
         const blob = new Blob([bundle], { type: 'application/javascript' });
+
         return URL.createObjectURL(blob);
     }
 
@@ -537,10 +541,15 @@ __require('${entryPath}');
         try {
             while (true) {
                 const chunk = await handle.read(65536); // 64KB chunks
-                if (chunk.length === 0) break; // EOF
+
+                if (chunk.length === 0) {
+                    break;
+                } // EOF
+
                 chunks.push(chunk);
             }
-        } finally {
+        }
+        finally {
             // SAFETY: Always close handle to prevent leaks
             await handle.close();
         }
@@ -549,6 +558,7 @@ __require('${entryPath}');
         const total = chunks.reduce((sum, c) => sum + c.length, 0);
         const combined = new Uint8Array(total);
         let offset = 0;
+
         for (const chunk of chunks) {
             combined.set(chunk, offset);
             offset += chunk.length;

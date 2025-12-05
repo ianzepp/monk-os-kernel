@@ -29,7 +29,7 @@ describe('HTTP Channel', () => {
 
                 // POST endpoint
                 if (url.pathname === '/users' && req.method === 'POST') {
-                    return req.json().then((body) => {
+                    return req.json().then(body => {
                         return Response.json({ id: 3, ...body }, { status: 201 });
                     });
                 }
@@ -38,15 +38,18 @@ describe('HTTP Channel', () => {
                 if (url.pathname === '/search') {
                     const q = url.searchParams.get('q');
                     const limit = url.searchParams.get('limit');
+
                     return Response.json({ query: q, limit: Number(limit) });
                 }
 
                 // Echo headers endpoint
                 if (url.pathname === '/headers') {
                     const headers: Record<string, string> = {};
+
                     req.headers.forEach((value, key) => {
                         headers[key] = value;
                     });
+
                     return Response.json(headers);
                 }
 
@@ -62,6 +65,7 @@ describe('HTTP Channel', () => {
                             controller.close();
                         },
                     });
+
                     return new Response(stream, {
                         headers: { 'content-type': 'application/jsonl' },
                     });
@@ -79,6 +83,7 @@ describe('HTTP Channel', () => {
                             controller.close();
                         },
                     });
+
                     return new Response(stream, {
                         headers: { 'content-type': 'text/event-stream' },
                     });
@@ -95,7 +100,7 @@ describe('HTTP Channel', () => {
 
                 // Slow endpoint for timeout testing
                 if (url.pathname === '/slow') {
-                    return new Promise((resolve) => {
+                    return new Promise(resolve => {
                         setTimeout(() => {
                             resolve(Response.json({ delayed: true }));
                         }, 2000);
@@ -118,6 +123,7 @@ describe('HTTP Channel', () => {
             const channel = new BunHttpChannel(baseUrl);
 
             const responses: Response[] = [];
+
             for await (const r of channel.handle({
                 op: 'request',
                 data: { method: 'GET', path: '/users' },
@@ -139,6 +145,7 @@ describe('HTTP Channel', () => {
             const channel = new BunHttpChannel(baseUrl);
 
             const responses: Response[] = [];
+
             for await (const r of channel.handle({
                 op: 'request',
                 data: { method: 'GET', path: '/users/1' },
@@ -156,6 +163,7 @@ describe('HTTP Channel', () => {
             const channel = new BunHttpChannel(baseUrl);
 
             const responses: Response[] = [];
+
             for await (const r of channel.handle({
                 op: 'request',
                 data: {
@@ -183,6 +191,7 @@ describe('HTTP Channel', () => {
             const channel = new BunHttpChannel(baseUrl);
 
             const responses: Response[] = [];
+
             for await (const r of channel.handle({
                 op: 'request',
                 data: {
@@ -208,6 +217,7 @@ describe('HTTP Channel', () => {
             });
 
             const responses: Response[] = [];
+
             for await (const r of channel.handle({
                 op: 'request',
                 data: { method: 'GET', path: '/headers' },
@@ -227,6 +237,7 @@ describe('HTTP Channel', () => {
             });
 
             const responses: Response[] = [];
+
             for await (const r of channel.handle({
                 op: 'request',
                 data: {
@@ -239,6 +250,7 @@ describe('HTTP Channel', () => {
             }
 
             const headers = responses[0]!.data as Record<string, string>;
+
             expect(headers['x-default']).toBe('default-value');
             expect(headers['x-request']).toBe('request-value');
 
@@ -254,7 +266,7 @@ describe('HTTP Channel', () => {
                 channel.handle({
                     op: 'request',
                     data: { method: 'GET', path: '/events', accept: 'application/jsonl' },
-                })
+                }),
             );
 
             expect(items).toHaveLength(4);
@@ -274,7 +286,7 @@ describe('HTTP Channel', () => {
                 channel.handle({
                     op: 'request',
                     data: { method: 'GET', path: '/events' },
-                })
+                }),
             );
 
             expect(items).toHaveLength(4);
@@ -288,6 +300,7 @@ describe('HTTP Channel', () => {
             const channel = new BunHttpChannel(baseUrl);
 
             const responses: Response[] = [];
+
             for await (const r of channel.handle({
                 op: 'request',
                 data: { method: 'GET', path: '/sse' },
@@ -296,7 +309,8 @@ describe('HTTP Channel', () => {
             }
 
             // Filter out the done response
-            const events = responses.filter((r) => r.op === 'event');
+            const events = responses.filter(r => r.op === 'event');
+
             expect(events).toHaveLength(2);
             // respond.event(type, data) spreads data: { type, ...data }
             expect(events[0]!.data).toEqual({ type: 'message', text: 'hello' });
@@ -314,6 +328,7 @@ describe('HTTP Channel', () => {
             const channel = new BunHttpChannel(baseUrl);
 
             const responses: Response[] = [];
+
             for await (const r of channel.handle({
                 op: 'request',
                 data: { method: 'GET', path: '/not-found' },
@@ -332,6 +347,7 @@ describe('HTTP Channel', () => {
             const channel = new BunHttpChannel(baseUrl);
 
             const responses: Response[] = [];
+
             for await (const r of channel.handle({
                 op: 'request',
                 data: { method: 'GET', path: '/server-error' },
@@ -350,6 +366,7 @@ describe('HTTP Channel', () => {
             const channel = new BunHttpChannel(baseUrl);
 
             const responses: Response[] = [];
+
             for await (const r of channel.handle({
                 op: 'unknown',
                 data: {},
@@ -370,6 +387,7 @@ describe('HTTP Channel', () => {
             const channel = new BunHttpChannel(baseUrl, { timeout: 100 });
 
             const responses: Response[] = [];
+
             for await (const r of channel.handle({
                 op: 'request',
                 data: { method: 'GET', path: '/slow' },
@@ -388,6 +406,7 @@ describe('HTTP Channel', () => {
     describe('channel state', () => {
         it('should report closed status', async () => {
             const channel = new BunHttpChannel(baseUrl);
+
             expect(channel.closed).toBe(false);
             await channel.close();
             expect(channel.closed).toBe(true);
@@ -395,9 +414,11 @@ describe('HTTP Channel', () => {
 
         it('should return error when used after close', async () => {
             const channel = new BunHttpChannel(baseUrl);
+
             await channel.close();
 
             const responses: Response[] = [];
+
             for await (const r of channel.handle({
                 op: 'request',
                 data: { method: 'GET', path: '/users' },
@@ -413,16 +434,19 @@ describe('HTTP Channel', () => {
     describe('channel metadata', () => {
         it('should have correct protocol', () => {
             const channel = new BunHttpChannel(baseUrl);
+
             expect(channel.proto).toBe('http');
         });
 
         it('should have description matching URL', () => {
             const channel = new BunHttpChannel(baseUrl);
+
             expect(channel.description).toBe(baseUrl);
         });
 
         it('should have unique id', () => {
             const channel = new BunHttpChannel(baseUrl);
+
             expect(channel.id).toMatch(/^[0-9a-f-]{36}$/);
         });
     });
@@ -430,15 +454,17 @@ describe('HTTP Channel', () => {
     describe('push/recv not supported', () => {
         it('should throw on push', async () => {
             const channel = new BunHttpChannel(baseUrl);
+
             await expect(channel.push({ op: 'ok' })).rejects.toThrow(
-                'HTTP client channels do not support push'
+                'HTTP client channels do not support push',
             );
         });
 
         it('should throw on recv', async () => {
             const channel = new BunHttpChannel(baseUrl);
+
             await expect(channel.recv()).rejects.toThrow(
-                'HTTP client channels do not support recv'
+                'HTTP client channels do not support recv',
             );
         });
     });

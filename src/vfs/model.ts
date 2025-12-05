@@ -729,6 +729,7 @@ export abstract class PosixModel implements Model {
                 case 'open': {
                     const data = msg.data as { flags: OpenFlags; opts?: OpenOptions };
                     const handle = await this.open(ctx, id, data.flags, data.opts);
+
                     yield respond.ok({ handle: handle.id });
                     break;
                 }
@@ -738,12 +739,14 @@ export abstract class PosixModel implements Model {
                 // -----------------------------------------------------------------
                 case 'stat': {
                     const stat = await this.stat(ctx, id);
+
                     yield respond.ok(stat);
                     break;
                 }
 
                 case 'setstat': {
                     const fields = msg.data as Partial<ModelStat>;
+
                     await this.setstat(ctx, id, fields);
                     yield respond.ok();
                     break;
@@ -755,6 +758,7 @@ export abstract class PosixModel implements Model {
                 case 'create': {
                     const data = msg.data as { name: string; fields?: Partial<ModelStat> };
                     const newId = await this.create(ctx, id, data.name, data.fields);
+
                     yield respond.ok({ id: newId });
                     break;
                 }
@@ -772,10 +776,12 @@ export abstract class PosixModel implements Model {
                     for await (const childId of this.list(ctx, id)) {
                         // Fetch full entity for each child
                         const child = await ctx.getEntity(childId);
+
                         if (child) {
                             yield respond.item(child);
                         }
                     }
+
                     yield respond.done();
                     break;
                 }
@@ -788,7 +794,9 @@ export abstract class PosixModel implements Model {
                         yield respond.error('ENOSYS', 'Watch not supported');
                         break;
                     }
+
                     const data = msg.data as { pattern?: string } | undefined;
+
                     for await (const event of this.watch(ctx, id, data?.pattern)) {
                         yield respond.event(event.op, {
                             entity: event.entity,
@@ -797,6 +805,7 @@ export abstract class PosixModel implements Model {
                             fields: event.fields,
                         });
                     }
+
                     break;
                 }
 
@@ -806,12 +815,14 @@ export abstract class PosixModel implements Model {
                 default:
                     yield respond.error('ENOSYS', `Unknown operation: ${msg.op}`);
             }
-        } catch (err) {
+        }
+        catch (err) {
             // Convert thrown errors to error responses
             const error = err as Error & { code?: string };
+
             yield respond.error(
                 error.code ?? 'EIO',
-                error.message ?? 'Unknown error'
+                error.message ?? 'Unknown error',
             );
         }
     }

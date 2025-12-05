@@ -24,11 +24,13 @@ describe('Kernel Boot', () => {
 
         // Check /dev exists
         const devStat = await vfs.stat('/dev', 'kernel');
+
         expect(devStat).toBeDefined();
         expect(devStat.model).toBe('folder');
 
         // Check /dev/console exists
         const consoleStat = await vfs.stat('/dev/console', 'kernel');
+
         expect(consoleStat).toBeDefined();
         expect(consoleStat.model).toBe('device');
     });
@@ -40,6 +42,7 @@ describe('Kernel Boot', () => {
         const writeHandle = await vfs.open('/dev/console', { write: true }, 'kernel');
         const testData = new TextEncoder().encode('Hello from test!\n');
         const bytesWritten = await writeHandle.write(testData);
+
         await writeHandle.close();
 
         // Verify write completed successfully
@@ -65,6 +68,7 @@ describe('VFS Device Initialization', () => {
 
         for (const device of devices) {
             const stat = await vfs.stat(`/dev/${device}`, 'kernel');
+
             expect(stat).toBeDefined();
             expect(stat.model).toBe('device');
             expect(stat.name).toBe(device);
@@ -76,6 +80,7 @@ describe('VFS Device Initialization', () => {
 
         const handle = await vfs.open('/dev/zero', { read: true }, 'kernel');
         const data = await handle.read(16);
+
         await handle.close();
 
         expect(data.length).toBe(16);
@@ -87,6 +92,7 @@ describe('VFS Device Initialization', () => {
 
         const handle = await vfs.open('/dev/null', { write: true }, 'kernel');
         const written = await handle.write(new Uint8Array([1, 2, 3, 4, 5]));
+
         await handle.close();
 
         expect(written).toBe(5);
@@ -98,6 +104,7 @@ describe('VFS Device Initialization', () => {
         const handle = await vfs.open('/dev/random', { read: true }, 'kernel');
         const data1 = await handle.read(16);
         const data2 = await handle.read(16);
+
         await handle.close();
 
         expect(data1.length).toBe(16);

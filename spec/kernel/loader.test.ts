@@ -26,6 +26,7 @@ describe('ModuleCache', () => {
         });
 
         const mod = cache.get('/lib/test.ts');
+
         expect(mod).toBeDefined();
         expect(mod?.js).toBe('const x = 1;');
         expect(mod?.hash).toBe('abc123');
@@ -43,6 +44,7 @@ describe('ModuleCache', () => {
         });
 
         const mod = cache.get('/lib/test.ts');
+
         expect(mod?.usedAt).toBeGreaterThan(oldTime);
     });
 
@@ -91,24 +93,28 @@ describe('extractImports', () => {
     test('should extract named imports', () => {
         const js = `import { foo, bar } from '/lib/utils';`;
         const imports = extractImports(js);
+
         expect(imports).toContain('/lib/utils');
     });
 
     test('should extract default imports', () => {
         const js = `import Config from '/lib/config';`;
         const imports = extractImports(js);
+
         expect(imports).toContain('/lib/config');
     });
 
     test('should extract namespace imports', () => {
         const js = `import * as utils from '/lib/utils';`;
         const imports = extractImports(js);
+
         expect(imports).toContain('/lib/utils');
     });
 
     test('should extract side-effect imports', () => {
         const js = `import '/lib/polyfills';`;
         const imports = extractImports(js);
+
         expect(imports).toContain('/lib/polyfills');
     });
 
@@ -118,6 +124,7 @@ describe('extractImports', () => {
             import { bar } from '/lib/utils';
         `;
         const imports = extractImports(js);
+
         expect(imports.filter(i => i === '/lib/utils').length).toBe(1);
     });
 
@@ -129,6 +136,7 @@ describe('extractImports', () => {
             import '/lib/polyfills';
         `;
         const imports = extractImports(js);
+
         expect(imports).toContain('/lib/process');
         expect(imports).toContain('/lib/config');
         expect(imports).toContain('/lib/helpers');
@@ -160,36 +168,42 @@ describe('rewriteImports', () => {
     test('should rewrite named imports', () => {
         const js = `import { foo, bar } from '/lib/utils';`;
         const result = rewriteImports(js, '/bin/app.ts');
+
         expect(result).toContain(`const { foo, bar } = __require('/lib/utils.ts')`);
     });
 
     test('should rewrite default imports', () => {
         const js = `import Config from '/lib/config';`;
         const result = rewriteImports(js, '/bin/app.ts');
+
         expect(result).toContain(`const Config = __require('/lib/config.ts').default`);
     });
 
     test('should rewrite namespace imports', () => {
         const js = `import * as utils from '/lib/utils';`;
         const result = rewriteImports(js, '/bin/app.ts');
+
         expect(result).toContain(`const utils = __require('/lib/utils.ts')`);
     });
 
     test('should rewrite side-effect imports', () => {
         const js = `import '/lib/polyfills';`;
         const result = rewriteImports(js, '/bin/app.ts');
+
         expect(result).toContain(`__require('/lib/polyfills.ts')`);
     });
 
     test('should rewrite export default', () => {
         const js = `export default function main() {}`;
         const result = rewriteImports(js, '/bin/app.ts');
+
         expect(result).toContain(`exports.default = function main() {}`);
     });
 
     test('should rewrite named exports', () => {
         const js = `export { foo, bar };`;
         const result = rewriteImports(js, '/bin/app.ts');
+
         expect(result).toContain(`exports.foo = foo`);
         expect(result).toContain(`exports.bar = bar`);
     });
@@ -197,6 +211,7 @@ describe('rewriteImports', () => {
     test('should rewrite export function', () => {
         const js = `export function hello() { return 'hi'; }`;
         const result = rewriteImports(js, '/bin/app.ts');
+
         expect(result).toContain(`function hello() { return 'hi'; }`);
         expect(result).toContain(`exports.hello = hello`);
     });
@@ -204,6 +219,7 @@ describe('rewriteImports', () => {
     test('should rewrite export const', () => {
         const js = `export const VERSION = '1.0';`;
         const result = rewriteImports(js, '/bin/app.ts');
+
         expect(result).toContain(`const VERSION = '1.0';`);
         expect(result).toContain(`exports.VERSION = VERSION`);
     });
@@ -216,6 +232,7 @@ describe('rewriteImports', () => {
     baz,
 } from '/lib/utils';`;
         const result = rewriteImports(js, '/bin/app.ts');
+
         expect(result).toContain(`__require('/lib/utils.ts')`);
         expect(result).toContain('foo');
         expect(result).toContain('bar');
@@ -225,6 +242,7 @@ describe('rewriteImports', () => {
     test('should handle mixed default and named imports', () => {
         const js = `import Config, { version, name } from '/lib/config';`;
         const result = rewriteImports(js, '/bin/app.ts');
+
         expect(result).toContain(`__require('/lib/config.ts')`);
         expect(result).toContain('.default');
         expect(result).toContain('version');
@@ -234,12 +252,14 @@ describe('rewriteImports', () => {
     test('should handle export * from path', () => {
         const js = `export * from '/lib/utils';`;
         const result = rewriteImports(js, '/bin/app.ts');
+
         expect(result).toContain(`Object.assign(exports, __require('/lib/utils.ts'))`);
     });
 
     test('should handle re-exports with aliasing', () => {
         const js = `export { foo as bar } from '/lib/utils';`;
         const result = rewriteImports(js, '/bin/app.ts');
+
         expect(result).toContain(`__require('/lib/utils.ts')`);
         expect(result).toContain('exports.bar');
         expect(result).toContain('.foo');
@@ -248,12 +268,14 @@ describe('rewriteImports', () => {
     test('should handle local export aliasing', () => {
         const js = `export { localName as exportedName };`;
         const result = rewriteImports(js, '/bin/app.ts');
+
         expect(result).toContain('exports.exportedName = localName');
     });
 
     test('should handle import aliasing', () => {
         const js = `import { foo as bar } from '/lib/utils';`;
         const result = rewriteImports(js, '/bin/app.ts');
+
         expect(result).toContain(`__require('/lib/utils.ts')`);
         expect(result).toContain('foo: bar');
     });
@@ -261,6 +283,7 @@ describe('rewriteImports', () => {
     test('should handle async function exports', () => {
         const js = `export async function fetchData() { return await fetch('/api'); }`;
         const result = rewriteImports(js, '/bin/app.ts');
+
         expect(result).toContain('async function fetchData()');
         expect(result).toContain('exports.fetchData = fetchData');
     });
@@ -268,6 +291,7 @@ describe('rewriteImports', () => {
     test('should handle generator function exports', () => {
         const js = `export function* generate() { yield 1; yield 2; }`;
         const result = rewriteImports(js, '/bin/app.ts');
+
         expect(result).toContain('function* generate()');
         expect(result).toContain('exports.generate = generate');
     });
@@ -275,6 +299,7 @@ describe('rewriteImports', () => {
     test('should handle async generator exports', () => {
         const js = `export async function* stream() { yield 1; }`;
         const result = rewriteImports(js, '/bin/app.ts');
+
         expect(result).toContain('async function* stream()');
         expect(result).toContain('exports.stream = stream');
     });
@@ -282,6 +307,7 @@ describe('rewriteImports', () => {
     test('should handle class exports', () => {
         const js = `export class Service { constructor() {} }`;
         const result = rewriteImports(js, '/bin/app.ts');
+
         expect(result).toContain('class Service');
         expect(result).toContain('exports.Service = Service');
     });
@@ -289,12 +315,14 @@ describe('rewriteImports', () => {
     test('should handle export default class', () => {
         const js = `export default class MyClass {}`;
         const result = rewriteImports(js, '/bin/app.ts');
+
         expect(result).toContain('exports.default = class MyClass');
     });
 
     test('should handle export default expression', () => {
         const js = `export default { foo: 1, bar: 2 };`;
         const result = rewriteImports(js, '/bin/app.ts');
+
         expect(result).toContain('exports.default = { foo: 1, bar: 2 }');
     });
 
@@ -304,6 +332,7 @@ const x = 1;
 function helper() { return foo + x; }
 export { helper };`;
         const result = rewriteImports(js, '/bin/app.ts');
+
         expect(result).toContain('const x = 1');
         expect(result).toContain('function helper()');
         expect(result).toContain('exports.helper = helper');
@@ -332,6 +361,7 @@ describe('VFSLoader', () => {
         // Write a test module to VFS
         const source = `export const message = 'hello';`;
         const handle = await vfs.open('/lib/test.ts', { write: true, create: true }, 'kernel');
+
         await handle.write(new TextEncoder().encode(source));
         await handle.close();
 
@@ -349,6 +379,7 @@ describe('VFSLoader', () => {
             export function readAll() {}
         `;
         const handle = await vfs.open('/lib/io.ts', { write: true, create: true }, 'kernel');
+
         await handle.write(new TextEncoder().encode(source));
         await handle.close();
 
@@ -361,6 +392,7 @@ describe('VFSLoader', () => {
         const vfs = stack.vfs!;
         const source = `export const x = 1;`;
         const handle = await vfs.open('/lib/cached.ts', { write: true, create: true }, 'kernel');
+
         await handle.write(new TextEncoder().encode(source));
         await handle.close();
 
@@ -370,6 +402,7 @@ describe('VFSLoader', () => {
 
         // Second compile (should use cache)
         const mod2 = await loader.compileModule('/lib/cached.ts');
+
         expect(mod2.hash).toBe(hash1);
     });
 
@@ -378,6 +411,7 @@ describe('VFSLoader', () => {
         // Create /lib/utils.ts
         const utilsSource = `export function format(x: number) { return x.toString(); }`;
         let h = await vfs.open('/lib/utils.ts', { write: true, create: true }, 'kernel');
+
         await h.write(new TextEncoder().encode(utilsSource));
         await h.close();
 
@@ -387,6 +421,7 @@ describe('VFSLoader', () => {
             import { format } from '/lib/utils';
             const result = format(42);
         `;
+
         h = await vfs.open('/bin/app.ts', { write: true, create: true }, 'kernel');
         await h.write(new TextEncoder().encode(appSource));
         await h.close();
@@ -402,6 +437,7 @@ describe('VFSLoader', () => {
         // Create /lib/helper.ts
         const helperSource = `export const greeting = 'Hello';`;
         let h = await vfs.open('/lib/helper.ts', { write: true, create: true }, 'kernel');
+
         await h.write(new TextEncoder().encode(helperSource));
         await h.close();
 
@@ -411,6 +447,7 @@ describe('VFSLoader', () => {
             import { greeting } from '/lib/helper';
             console.log(greeting);
         `;
+
         h = await vfs.open('/bin/main.ts', { write: true, create: true }, 'kernel');
         await h.write(new TextEncoder().encode(mainSource));
         await h.close();
@@ -429,6 +466,7 @@ describe('VFSLoader', () => {
         const vfs = stack.vfs!;
         const source = `export const x = 1;`;
         const h = await vfs.open('/lib/blob-test.ts', { write: true, create: true }, 'kernel');
+
         await h.write(new TextEncoder().encode(source));
         await h.close();
 
@@ -461,6 +499,7 @@ describe('VFS Script Execution', () => {
 
         // Verify /lib/process.ts exists
         const stat = await vfs.stat('/lib/process.ts', 'kernel');
+
         expect(stat).toBeDefined();
         expect(stat.model).toBe('file');
         expect(stat.size).toBeGreaterThan(0);
@@ -474,20 +513,28 @@ describe('VFS Script Execution', () => {
 
         const handle = await vfs.open('/lib/process.ts', { read: true }, 'kernel');
         const chunks: Uint8Array[] = [];
+
         while (true) {
             const chunk = await handle.read(65536);
-            if (chunk.length === 0) break;
+
+            if (chunk.length === 0) {
+                break;
+            }
+
             chunks.push(chunk);
         }
+
         await handle.close();
 
         const content = new TextDecoder().decode(
             chunks.reduce((acc, c) => {
                 const result = new Uint8Array(acc.length + c.length);
+
                 result.set(acc);
                 result.set(c, acc.length);
+
                 return result;
-            }, new Uint8Array(0))
+            }, new Uint8Array(0)),
         );
 
         // Should contain key exports (process.ts now re-exports from ./process/index)

@@ -56,12 +56,29 @@ async function main(): Promise<void> {
 
     const parts: string[] = [];
 
-    if (flags.kernel || !hasFlags) parts.push(KERNEL_NAME);
-    if (flags.nodename) parts.push(hostname);
-    if (flags.release) parts.push(KERNEL_RELEASE);
-    if (flags.version) parts.push(KERNEL_VERSION);
-    if (flags.machine) parts.push(MACHINE);
-    if (flags.os) parts.push(OS);
+    if (flags.kernel || !hasFlags) {
+        parts.push(KERNEL_NAME);
+    }
+
+    if (flags.nodename) {
+        parts.push(hostname);
+    }
+
+    if (flags.release) {
+        parts.push(KERNEL_RELEASE);
+    }
+
+    if (flags.version) {
+        parts.push(KERNEL_VERSION);
+    }
+
+    if (flags.machine) {
+        parts.push(MACHINE);
+    }
+
+    if (flags.os) {
+        parts.push(OS);
+    }
 
     await println(parts.join(' '));
     await exit(0);

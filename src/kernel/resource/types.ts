@@ -110,62 +110,62 @@ export type { PortType } from '@src/kernel/types.js';
  * INVARIANT: TCP listener messages always include socket.
  */
 export interface PortMessage {
-	/**
-	 * Source identifier for this message.
-	 *
-	 * Format depends on port type:
-	 * - tcp:listen: Remote IP:port (e.g., "192.168.1.100:54321")
-	 * - udp: Remote IP:port
-	 * - watch: File path (e.g., "/var/log/app.log")
-	 * - pubsub: Topic name (e.g., "log.error")
-	 *
-	 * WHY: Enables routing, filtering, and reply-to semantics.
-	 * INVARIANT: Never empty string or undefined.
-	 */
-	from: string;
+    /**
+     * Source identifier for this message.
+     *
+     * Format depends on port type:
+     * - tcp:listen: Remote IP:port (e.g., "192.168.1.100:54321")
+     * - udp: Remote IP:port
+     * - watch: File path (e.g., "/var/log/app.log")
+     * - pubsub: Topic name (e.g., "log.error")
+     *
+     * WHY: Enables routing, filtering, and reply-to semantics.
+     * INVARIANT: Never empty string or undefined.
+     */
+    from: string;
 
-	/**
-	 * Binary payload.
-	 *
-	 * WHY required for UDP:
-	 * Network is a byte boundary. Datagram payloads must be bytes, not
-	 * structured objects, because they cross process/machine boundaries.
-	 *
-	 * WHY optional for pubsub/watch:
-	 * Internal kernel messages can use structured meta field directly.
-	 * Bytes are only needed when crossing serialization boundaries.
-	 *
-	 * INVARIANT: Required for UDP, optional for watch/pubsub.
-	 */
-	data?: Uint8Array;
+    /**
+     * Binary payload.
+     *
+     * WHY required for UDP:
+     * Network is a byte boundary. Datagram payloads must be bytes, not
+     * structured objects, because they cross process/machine boundaries.
+     *
+     * WHY optional for pubsub/watch:
+     * Internal kernel messages can use structured meta field directly.
+     * Bytes are only needed when crossing serialization boundaries.
+     *
+     * INVARIANT: Required for UDP, optional for watch/pubsub.
+     */
+    data?: Uint8Array;
 
-	/**
-	 * Accepted socket for tcp:listen.
-	 *
-	 * WHY:
-	 * TCP listeners don't receive data - they receive new connections.
-	 * Each connection is a bidirectional Socket handle that can be used
-	 * for subsequent read/write operations.
-	 *
-	 * INVARIANT: Only present for tcp:listen port messages.
-	 */
-	socket?: Socket;
+    /**
+     * Accepted socket for tcp:listen.
+     *
+     * WHY:
+     * TCP listeners don't receive data - they receive new connections.
+     * Each connection is a bidirectional Socket handle that can be used
+     * for subsequent read/write operations.
+     *
+     * INVARIANT: Only present for tcp:listen port messages.
+     */
+    socket?: Socket;
 
-	/**
-	 * Structured metadata.
-	 *
-	 * WHY:
-	 * For internal kernel messages (watch, pubsub), this is the primary
-	 * data carrier. Structured objects are more efficient than serializing
-	 * to bytes when staying inside the same process.
-	 *
-	 * Examples:
-	 * - watch: { op: 'update', timestamp: 1234567890 }
-	 * - pubsub: { level: 'error', message: 'Database connection failed' }
-	 *
-	 * INVARIANT: Optional for all port types, but primary carrier for watch/pubsub.
-	 */
-	meta?: Record<string, unknown>;
+    /**
+     * Structured metadata.
+     *
+     * WHY:
+     * For internal kernel messages (watch, pubsub), this is the primary
+     * data carrier. Structured objects are more efficient than serializing
+     * to bytes when staying inside the same process.
+     *
+     * Examples:
+     * - watch: { op: 'update', timestamp: 1234567890 }
+     * - pubsub: { level: 'error', message: 'Database connection failed' }
+     *
+     * INVARIANT: Optional for all port types, but primary carrier for watch/pubsub.
+     */
+    meta?: Record<string, unknown>;
 }
 
 /**
@@ -185,110 +185,110 @@ export interface PortMessage {
  * Tests can verify correct port type and track lifecycle.
  */
 export interface Port {
-	/**
-	 * Unique port identifier.
-	 *
-	 * WHY:
-	 * Enables kernel to track ports globally, reference them in file
-	 * descriptor tables, and ensure cleanup on process exit.
-	 *
-	 * INVARIANT: Globally unique (generated via HAL entropy device).
-	 */
-	readonly id: string;
+    /**
+     * Unique port identifier.
+     *
+     * WHY:
+     * Enables kernel to track ports globally, reference them in file
+     * descriptor tables, and ensure cleanup on process exit.
+     *
+     * INVARIANT: Globally unique (generated via HAL entropy device).
+     */
+    readonly id: string;
 
-	/**
-	 * Port type discriminator.
-	 *
-	 * WHY:
-	 * Allows kernel to dispatch operations correctly and validate
-	 * compatibility (e.g., send() only works on UDP ports).
-	 *
-	 * INVARIANT: One of 'tcp:listen' | 'udp:bind' | 'fs:watch' | 'pubsub:subscribe'.
-	 */
-	readonly type: PortType;
+    /**
+     * Port type discriminator.
+     *
+     * WHY:
+     * Allows kernel to dispatch operations correctly and validate
+     * compatibility (e.g., send() only works on UDP ports).
+     *
+     * INVARIANT: One of 'tcp:listen' | 'udp:bind' | 'fs:watch' | 'pubsub:subscribe'.
+     */
+    readonly type: PortType;
 
-	/**
-	 * Human-readable description.
-	 *
-	 * WHY:
-	 * Debugging and diagnostics. Examples:
-	 * - "tcp:listen:0.0.0.0:8080"
-	 * - "fs:watch:/var/log/*.log"
-	 * - "pubsub:subscribe:log.*"
-	 * - "udp:bind:0.0.0.0:9000"
-	 *
-	 * TESTABILITY: Useful for test assertions and error messages.
-	 */
-	readonly description: string;
+    /**
+     * Human-readable description.
+     *
+     * WHY:
+     * Debugging and diagnostics. Examples:
+     * - "tcp:listen:0.0.0.0:8080"
+     * - "fs:watch:/var/log/*.log"
+     * - "pubsub:subscribe:log.*"
+     * - "udp:bind:0.0.0.0:9000"
+     *
+     * TESTABILITY: Useful for test assertions and error messages.
+     */
+    readonly description: string;
 
-	/**
-	 * Receive next message from port.
-	 *
-	 * Blocks until a message is available or port is closed.
-	 *
-	 * ALGORITHM:
-	 * 1. Check if port is closed (throw EBADF if true)
-	 * 2. If message queue has items, dequeue and return immediately
-	 * 3. Otherwise, create Promise and add to pending resolvers list
-	 * 4. When next message arrives, resolve oldest pending Promise
-	 *
-	 * RACE CONDITION:
-	 * Multiple concurrent recv() calls create race for which gets next
-	 * message. Callers must serialize recv() access. This matches POSIX
-	 * semantics for socket recv().
-	 *
-	 * @returns Promise resolving to next PortMessage
-	 * @throws EBADF - If port is closed
-	 */
-	recv(): Promise<PortMessage>;
+    /**
+     * Receive next message from port.
+     *
+     * Blocks until a message is available or port is closed.
+     *
+     * ALGORITHM:
+     * 1. Check if port is closed (throw EBADF if true)
+     * 2. If message queue has items, dequeue and return immediately
+     * 3. Otherwise, create Promise and add to pending resolvers list
+     * 4. When next message arrives, resolve oldest pending Promise
+     *
+     * RACE CONDITION:
+     * Multiple concurrent recv() calls create race for which gets next
+     * message. Callers must serialize recv() access. This matches POSIX
+     * semantics for socket recv().
+     *
+     * @returns Promise resolving to next PortMessage
+     * @throws EBADF - If port is closed
+     */
+    recv(): Promise<PortMessage>;
 
-	/**
-	 * Send message to destination.
-	 *
-	 * Not all ports support sending:
-	 * - udp: YES - send datagrams to remote address
-	 * - tcp:listen: NO - listeners only accept connections
-	 * - watch: NO - file system events are read-only
-	 * - pubsub: YES - publish to topic (via kernel message system)
-	 *
-	 * WHY data is optional:
-	 * Internal messages (pubsub) can use meta field without serializing
-	 * to bytes. Network messages (UDP) require data.
-	 *
-	 * @param to - Destination address (format depends on port type)
-	 * @param data - Optional binary payload
-	 * @param meta - Optional structured metadata
-	 * @returns Promise resolving when send completes
-	 * @throws EBADF - If port is closed
-	 * @throws EINVAL - If port type doesn't support sending
-	 */
-	send(to: string, data?: Uint8Array, meta?: Record<string, unknown>): Promise<void>;
+    /**
+     * Send message to destination.
+     *
+     * Not all ports support sending:
+     * - udp: YES - send datagrams to remote address
+     * - tcp:listen: NO - listeners only accept connections
+     * - watch: NO - file system events are read-only
+     * - pubsub: YES - publish to topic (via kernel message system)
+     *
+     * WHY data is optional:
+     * Internal messages (pubsub) can use meta field without serializing
+     * to bytes. Network messages (UDP) require data.
+     *
+     * @param to - Destination address (format depends on port type)
+     * @param data - Optional binary payload
+     * @param meta - Optional structured metadata
+     * @returns Promise resolving when send completes
+     * @throws EBADF - If port is closed
+     * @throws EINVAL - If port type doesn't support sending
+     */
+    send(to: string, data?: Uint8Array, meta?: Record<string, unknown>): Promise<void>;
 
-	/**
-	 * Close port and release resources.
-	 *
-	 * ALGORITHM:
-	 * 1. Mark port as closed
-	 * 2. Drain pending message queue (reject pending recv() calls)
-	 * 3. Release underlying HAL resources (socket, watcher, subscription)
-	 * 4. Subsequent recv()/send() calls throw EBADF
-	 *
-	 * Safe to call multiple times - subsequent calls are no-ops.
-	 *
-	 * @returns Promise resolving when cleanup completes
-	 */
-	close(): Promise<void>;
+    /**
+     * Close port and release resources.
+     *
+     * ALGORITHM:
+     * 1. Mark port as closed
+     * 2. Drain pending message queue (reject pending recv() calls)
+     * 3. Release underlying HAL resources (socket, watcher, subscription)
+     * 4. Subsequent recv()/send() calls throw EBADF
+     *
+     * Safe to call multiple times - subsequent calls are no-ops.
+     *
+     * @returns Promise resolving when cleanup completes
+     */
+    close(): Promise<void>;
 
-	/**
-	 * Check if port is closed.
-	 *
-	 * WHY:
-	 * Allows callers to check state before attempting operations.
-	 * Useful for cleanup code and error handling.
-	 *
-	 * INVARIANT: Once true, never becomes false again.
-	 */
-	readonly closed: boolean;
+    /**
+     * Check if port is closed.
+     *
+     * WHY:
+     * Allows callers to check state before attempting operations.
+     * Useful for cleanup code and error handling.
+     *
+     * INVARIANT: Once true, never becomes false again.
+     */
+    readonly closed: boolean;
 }
 
 // =============================================================================
@@ -305,28 +305,28 @@ export interface Port {
  * TESTABILITY: Exposed interface allows tests to verify binding configuration.
  */
 export interface UdpSocketOpts {
-	/**
-	 * Local port to bind.
-	 *
-	 * WHY:
-	 * UDP sockets must bind to a port to receive messages. Port 0
-	 * lets the kernel choose an ephemeral port.
-	 *
-	 * INVARIANT: 0-65535 range (validated by HAL network device).
-	 */
-	bind: number;
+    /**
+     * Local port to bind.
+     *
+     * WHY:
+     * UDP sockets must bind to a port to receive messages. Port 0
+     * lets the kernel choose an ephemeral port.
+     *
+     * INVARIANT: 0-65535 range (validated by HAL network device).
+     */
+    bind: number;
 
-	/**
-	 * Local address to bind.
-	 *
-	 * WHY default is 0.0.0.0:
-	 * Binding to 0.0.0.0 accepts datagrams on all interfaces. This is
-	 * the most common use case for server sockets.
-	 *
-	 * Binding to 127.0.0.1 restricts to loopback (localhost only).
-	 * Binding to specific IP restricts to that interface.
-	 *
-	 * @default "0.0.0.0"
-	 */
-	address?: string;
+    /**
+     * Local address to bind.
+     *
+     * WHY default is 0.0.0.0:
+     * Binding to 0.0.0.0 accepts datagrams on all interfaces. This is
+     * the most common use case for server sockets.
+     *
+     * Binding to 127.0.0.1 restricts to loopback (localhost only).
+     * Binding to specific IP restricts to that interface.
+     *
+     * @default "0.0.0.0"
+     */
+    address?: string;
 }

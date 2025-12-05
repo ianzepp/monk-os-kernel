@@ -46,7 +46,7 @@ import type { Process } from '../types.js';
 export async function leaseWorker(
     self: Kernel,
     proc: Process,
-    pool?: string
+    pool?: string,
 ): Promise<string> {
     // Step 1: Get worker from pool (may block if pool exhausted)
     // WHY: PoolManager handles auto-scaling, backpressure, and idle timeout
@@ -54,6 +54,7 @@ export async function leaseWorker(
 
     // Step 2: Get or create per-process worker tracking Map
     let procWorkers = self.leasedWorkers.get(proc.id);
+
     if (!procWorkers) {
         procWorkers = new Map();
         self.leasedWorkers.set(proc.id, procWorkers);

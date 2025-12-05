@@ -116,16 +116,18 @@ export function redirectHandle(
     self: Kernel,
     proc: Process,
     targetH: number,
-    sourceH: number
+    sourceH: number,
 ): string {
     // Validate source fd and get its handle ID
     const sourceHandleId = proc.handles.get(sourceH);
+
     if (!sourceHandleId) {
         throw new EBADF(`Bad source file descriptor: ${sourceH}`);
     }
 
     // Validate target fd and save its handle ID
     const savedHandleId = proc.handles.get(targetH);
+
     if (!savedHandleId) {
         throw new EBADF(`Bad target file descriptor: ${targetH}`);
     }

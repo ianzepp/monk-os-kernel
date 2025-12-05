@@ -148,7 +148,7 @@ export async function connectTcp(
     self: Kernel,
     proc: Process,
     host: string,
-    port: number
+    port: number,
 ): Promise<number> {
     // Connect to socket (ASYNC - process could die here)
     // For TCP: DNS lookup + handshake

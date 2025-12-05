@@ -45,26 +45,31 @@ describe('EntityCache', () => {
     describe('constructor', () => {
         it('should create an empty cache', () => {
             const cache = new EntityCache();
+
             expect(cache.size).toBe(0);
         });
 
         it('should enable childrenOf by default', () => {
             const cache = new EntityCache();
+
             cache.addEntity({ id: 'parent', model: 'folder', parent: null, pathname: 'root' });
             cache.addEntity({ id: 'child', model: 'file', parent: 'parent', pathname: 'file.txt' });
 
             // childrenOf should be maintained
             const children = cache.listChildren('parent');
+
             expect(children).toContain('child');
         });
 
         it('should allow disabling childrenOf index', () => {
             const cache = new EntityCache({ maintainChildrenOf: false });
+
             cache.addEntity({ id: 'parent', model: 'folder', parent: null, pathname: 'root' });
             cache.addEntity({ id: 'child', model: 'file', parent: 'parent', pathname: 'file.txt' });
 
             // listChildren still works (falls back to scan)
             const children = cache.listChildren('parent');
+
             expect(children).toContain('child');
         });
     });
@@ -84,6 +89,7 @@ describe('EntityCache', () => {
             cache.addEntity({ id: 'test-1', model: 'file', parent: 'root', pathname: 'test.txt' });
 
             const entity = cache.getEntity('test-1');
+
             expect(entity).toBeDefined();
             expect(entity!.id).toBe('test-1');
             expect(entity!.model).toBe('file');
@@ -96,6 +102,7 @@ describe('EntityCache', () => {
             cache.addEntity({ id: 'child', model: 'file', parent: 'parent', pathname: 'file.txt' });
 
             const childId = cache.getChild('parent', 'file.txt');
+
             expect(childId).toBe('child');
         });
 
@@ -104,6 +111,7 @@ describe('EntityCache', () => {
 
             // Root has no parent, so no childIndex entry
             const entity = cache.getEntity(ROOT_ID);
+
             expect(entity).toBeDefined();
             expect(entity!.parent).toBeNull();
         });
@@ -112,6 +120,7 @@ describe('EntityCache', () => {
             cache.addEntity({ id: 'test', model: 'file', pathname: 'orphan.txt' });
 
             const entity = cache.getEntity('test');
+
             expect(entity!.parent).toBeNull();
         });
 
@@ -121,6 +130,7 @@ describe('EntityCache', () => {
             cache.addEntity({ id: 'child2', model: 'file', parent: 'parent', pathname: 'b.txt' });
 
             const children = cache.listChildren('parent');
+
             expect(children).toHaveLength(2);
             expect(children).toContain('child1');
             expect(children).toContain('child2');
@@ -148,6 +158,7 @@ describe('EntityCache', () => {
 
             // Entity should have new name
             const entity = cache.getEntity('file1');
+
             expect(entity!.pathname).toBe('new.txt');
         });
 
@@ -162,6 +173,7 @@ describe('EntityCache', () => {
 
             // Entity should have new parent
             const entity = cache.getEntity('file1');
+
             expect(entity!.parent).toBe('parent2');
         });
 
@@ -173,6 +185,7 @@ describe('EntityCache', () => {
 
             // Entity should have no parent
             const entity = cache.getEntity('file1');
+
             expect(entity!.parent).toBeNull();
         });
 
@@ -211,6 +224,7 @@ describe('EntityCache', () => {
         it('should remove from childrenOf', () => {
             cache.removeEntity('child');
             const children = cache.listChildren('parent');
+
             expect(children).not.toContain('child');
         });
 
@@ -313,11 +327,13 @@ describe('EntityCache', () => {
 
         it('should resolve parent and pathname', async () => {
             const result = await cache.resolveParent('/home/newfile.txt');
+
             expect(result).toEqual({ parentId: 'home-id', pathname: 'newfile.txt' });
         });
 
         it('should resolve root as parent for top-level files', async () => {
             const result = await cache.resolveParent('/topfile.txt');
+
             expect(result).toEqual({ parentId: ROOT_ID, pathname: 'topfile.txt' });
         });
 
@@ -337,15 +353,18 @@ describe('EntityCache', () => {
     describe('getEntity', () => {
         it('should return entity if exists', () => {
             const cache = new EntityCache();
+
             cache.addEntity({ id: 'test', model: 'file', parent: null, pathname: 'test.txt' });
 
             const entity = cache.getEntity('test');
+
             expect(entity).toBeDefined();
             expect(entity!.id).toBe('test');
         });
 
         it('should return undefined if not exists', () => {
             const cache = new EntityCache();
+
             expect(cache.getEntity('missing')).toBeUndefined();
         });
     });
@@ -353,6 +372,7 @@ describe('EntityCache', () => {
     describe('getModel', () => {
         it('should return model name', () => {
             const cache = new EntityCache();
+
             cache.addEntity({ id: 'test', model: 'video', parent: null, pathname: 'clip.mp4' });
 
             expect(cache.getModel('test')).toBe('video');
@@ -360,6 +380,7 @@ describe('EntityCache', () => {
 
         it('should return undefined for missing entity', () => {
             const cache = new EntityCache();
+
             expect(cache.getModel('missing')).toBeUndefined();
         });
     });
@@ -367,6 +388,7 @@ describe('EntityCache', () => {
     describe('hasEntity', () => {
         it('should return true if entity exists', () => {
             const cache = new EntityCache();
+
             cache.addEntity({ id: 'test', model: 'file', parent: null, pathname: 'test.txt' });
 
             expect(cache.hasEntity('test')).toBe(true);
@@ -374,6 +396,7 @@ describe('EntityCache', () => {
 
         it('should return false if entity does not exist', () => {
             const cache = new EntityCache();
+
             expect(cache.hasEntity('missing')).toBe(false);
         });
     });
@@ -391,6 +414,7 @@ describe('EntityCache', () => {
 
         it('should return all children', () => {
             const children = cache.listChildren('parent');
+
             expect(children).toHaveLength(3);
             expect(children).toContain('child1');
             expect(children).toContain('child2');
@@ -399,11 +423,13 @@ describe('EntityCache', () => {
 
         it('should return empty array for leaf entities', () => {
             const children = cache.listChildren('child1');
+
             expect(children).toHaveLength(0);
         });
 
         it('should return empty array for non-existent parent', () => {
             const children = cache.listChildren('non-existent');
+
             expect(children).toHaveLength(0);
         });
     });
@@ -430,6 +456,7 @@ describe('EntityCache', () => {
 
         it('should clear existing cache before loading', async () => {
             const cache = new EntityCache();
+
             cache.addEntity({ id: 'existing', model: 'file', parent: null, pathname: 'old.txt' });
 
             const mockDb = createMockDb([
@@ -459,6 +486,7 @@ describe('EntityCache', () => {
     describe('getStats', () => {
         it('should return accurate statistics', () => {
             const cache = new EntityCache();
+
             cache.addEntity({ id: 'parent', model: 'folder', parent: null, pathname: 'home' });
             cache.addEntity({ id: 'child1', model: 'file', parent: 'parent', pathname: 'a.txt' });
             cache.addEntity({ id: 'child2', model: 'file', parent: 'parent', pathname: 'b.txt' });
@@ -475,6 +503,7 @@ describe('EntityCache', () => {
     describe('clear', () => {
         it('should remove all entities', () => {
             const cache = new EntityCache();
+
             cache.addEntity({ id: 'a', model: 'file', parent: null, pathname: 'a.txt' });
             cache.addEntity({ id: 'b', model: 'file', parent: null, pathname: 'b.txt' });
 
@@ -493,10 +522,12 @@ describe('EntityCache', () => {
     describe('getAllIds', () => {
         it('should return all entity IDs', () => {
             const cache = new EntityCache();
+
             cache.addEntity({ id: 'a', model: 'file', parent: null, pathname: 'a.txt' });
             cache.addEntity({ id: 'b', model: 'file', parent: null, pathname: 'b.txt' });
 
             const ids = cache.getAllIds();
+
             expect(ids).toHaveLength(2);
             expect(ids).toContain('a');
             expect(ids).toContain('b');
@@ -506,13 +537,16 @@ describe('EntityCache', () => {
     describe('getAllEntities', () => {
         it('should return all entities', () => {
             const cache = new EntityCache();
+
             cache.addEntity({ id: 'a', model: 'file', parent: null, pathname: 'a.txt' });
             cache.addEntity({ id: 'b', model: 'folder', parent: null, pathname: 'dir' });
 
             const entities = cache.getAllEntities();
+
             expect(entities).toHaveLength(2);
 
-            const models = entities.map((e) => e.model);
+            const models = entities.map(e => e.model);
+
             expect(models).toContain('file');
             expect(models).toContain('folder');
         });
@@ -525,28 +559,35 @@ describe('EntityCache', () => {
     describe('edge cases', () => {
         it('should handle deeply nested paths', async () => {
             const cache = new EntityCache();
+
             cache.addEntity({ id: ROOT_ID, model: 'folder', parent: null, pathname: '' });
 
             // Create 100-level deep path
             let parentId = ROOT_ID;
+
             for (let i = 0; i < 100; i++) {
                 const id = `level-${i}`;
+
                 cache.addEntity({ id, model: 'folder', parent: parentId, pathname: `dir${i}` });
                 parentId = id;
             }
+
             cache.addEntity({ id: 'leaf', model: 'file', parent: parentId, pathname: 'deep.txt' });
 
             // Should be able to resolve
             const path = '/dir0/' + Array.from({ length: 99 }, (_, i) => `dir${i + 1}`).join('/') + '/deep.txt';
+
             expect(await cache.resolvePath(path)).toBe('leaf');
 
             // Should be able to compute path
             const computed = cache.computePath('leaf');
+
             expect(computed).toBe(path);
         });
 
         it('should handle special characters in names', async () => {
             const cache = new EntityCache();
+
             cache.addEntity({ id: ROOT_ID, model: 'folder', parent: null, pathname: '' });
             cache.addEntity({
                 id: 'special',
@@ -560,6 +601,7 @@ describe('EntityCache', () => {
 
         it('should handle unicode names', async () => {
             const cache = new EntityCache();
+
             cache.addEntity({ id: ROOT_ID, model: 'folder', parent: null, pathname: '' });
             cache.addEntity({ id: 'unicode', model: 'file', parent: ROOT_ID, pathname: '日本語ファイル.txt' });
 
@@ -568,6 +610,7 @@ describe('EntityCache', () => {
 
         it('should handle empty name for root', () => {
             const cache = new EntityCache();
+
             cache.addEntity({ id: ROOT_ID, model: 'folder', parent: null, pathname: '' });
 
             expect(cache.getEntity(ROOT_ID)!.pathname).toBe('');
@@ -582,6 +625,7 @@ describe('EntityCache', () => {
     describe('consistency', () => {
         it('should maintain byId and childIndex consistency after operations', async () => {
             const cache = new EntityCache();
+
             cache.addEntity({ id: ROOT_ID, model: 'folder', parent: null, pathname: '' });
             cache.addEntity({ id: 'file', model: 'file', parent: ROOT_ID, pathname: 'test.txt' });
 

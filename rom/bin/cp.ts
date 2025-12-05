@@ -42,7 +42,8 @@ async function main(): Promise<void> {
     for (const arg of argv) {
         if (arg === '-r' || arg === '-R' || arg === '--recursive') {
             recursive = true;
-        } else if (!arg.startsWith('-')) {
+        }
+        else if (!arg.startsWith('-')) {
             positional.push(arg);
         }
     }
@@ -59,6 +60,7 @@ async function main(): Promise<void> {
 
     if (srcArg === undefined || destArg === undefined) {
         await eprintln('cp: missing source or destination');
+
         return await exit(1);
     }
 
@@ -73,14 +75,18 @@ async function main(): Promise<void> {
                 await eprintln(`cp: ${srcArg}: is a directory (use -r)`);
                 await exit(1);
             }
+
             await copyDirectory(src, dest, srcArg);
-        } else {
+        }
+        else {
             await copyFile(src, dest);
         }
 
         await exit(0);
-    } catch (err) {
+    }
+    catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         await eprintln(`cp: ${srcArg}: ${msg}`);
         await exit(1);
     }
@@ -92,14 +98,18 @@ async function main(): Promise<void> {
 async function copyFile(src: string, dest: string): Promise<void> {
     // Check if dest is a directory
     let finalDest = dest;
+
     try {
         const destStat = await stat(dest);
+
         if (destStat.model === 'folder') {
             // Copy into directory with same name
             const srcName = src.split('/').pop() || 'file';
+
             finalDest = dest + '/' + srcName;
         }
-    } catch {
+    }
+    catch {
         // Dest doesn't exist, use as-is
     }
 
@@ -113,16 +123,19 @@ async function copyDirectory(src: string, dest: string, srcArg: string): Promise
     // Create destination directory
     try {
         await mkdir(dest);
-    } catch (err) {
+    }
+    catch (err) {
         // Ignore if already exists
         if (!(err instanceof Error && err.message.includes('EEXIST'))) {
             // Check if it's because the directory exists
             try {
                 const s = await stat(dest);
+
                 if (s.model !== 'folder') {
                     throw err;
                 }
-            } catch {
+            }
+            catch {
                 throw err;
             }
         }
@@ -140,17 +153,20 @@ async function copyDirectory(src: string, dest: string, srcArg: string): Promise
 
             if (entryStat.model === 'folder') {
                 await copyDirectory(srcPath, destPath, srcArg + '/' + entry);
-            } else {
+            }
+            else {
                 await copyFile(srcPath, destPath);
             }
-        } catch (err) {
+        }
+        catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
+
             await eprintln(`cp: ${srcPath}: ${msg}`);
         }
     }
 }
 
-main().catch(async (err) => {
+main().catch(async err => {
     await eprintln(`cp: ${err.message}`);
     await exit(1);
 });

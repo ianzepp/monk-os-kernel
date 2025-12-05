@@ -27,14 +27,18 @@ export interface PollOptions {
  */
 export async function poll(
     condition: () => boolean | Promise<boolean>,
-    options: PollOptions = {}
+    options: PollOptions = {},
 ): Promise<boolean> {
     const { interval = 10, timeout = 5000 } = options;
     const deadline = Date.now() + timeout;
 
     while (Date.now() < deadline) {
-        if (await condition()) return true;
+        if (await condition()) {
+            return true;
+        }
+
         await new Promise(r => setTimeout(r, interval));
     }
+
     return false;
 }

@@ -40,7 +40,7 @@ export function sendResponse(
     self: Kernel,
     proc: Process,
     requestId: string,
-    response: Response
+    response: Response,
 ): void {
     try {
         // RACE CONDITION: Worker may be terminating here
@@ -50,7 +50,8 @@ export function sendResponse(
             id: requestId,
             result: response,
         });
-    } catch (err) {
+    }
+    catch (err) {
         // Expected during worker termination - log but don't throw
         // WHY: Kernel must continue processing even when individual workers fail
         printk(self, 'warn', `Failed to send response to ${proc.cmd}: ${formatError(err)}`);

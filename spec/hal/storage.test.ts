@@ -17,14 +17,17 @@ describe('Storage Engine', () => {
         describe('get/put', () => {
             it('should return null for missing key', async () => {
                 const value = await storage.get('missing');
+
                 expect(value).toBeNull();
             });
 
             it('should store and retrieve value', async () => {
                 const data = new Uint8Array([1, 2, 3, 4, 5]);
+
                 await storage.put('key1', data);
 
                 const result = await storage.get('key1');
+
                 expect(result).toEqual(data);
             });
 
@@ -33,20 +36,24 @@ describe('Storage Engine', () => {
                 await storage.put('key1', new Uint8Array([4, 5, 6]));
 
                 const result = await storage.get('key1');
+
                 expect(result).toEqual(new Uint8Array([4, 5, 6]));
             });
 
             it('should handle empty value', async () => {
                 await storage.put('empty', new Uint8Array(0));
                 const result = await storage.get('empty');
+
                 expect(result).toEqual(new Uint8Array(0));
             });
 
             it('should handle binary data', async () => {
                 const data = new Uint8Array(256);
+
                 for (let i = 0; i < 256; i++) {
                     data[i] = i;
                 }
+
                 await storage.put('binary', data);
                 expect(await storage.get('binary')).toEqual(data);
             });
@@ -82,10 +89,12 @@ describe('Storage Engine', () => {
 
             it('should return size and mtime', async () => {
                 const before = Date.now();
+
                 await storage.put('key1', new Uint8Array(100));
                 const after = Date.now();
 
                 const stat = await storage.stat('key1');
+
                 expect(stat).not.toBeNull();
                 expect(stat!.size).toBe(100);
                 expect(stat!.mtime).toBeGreaterThanOrEqual(before);
@@ -96,9 +105,11 @@ describe('Storage Engine', () => {
         describe('list', () => {
             it('should return empty for no matches', async () => {
                 const keys: string[] = [];
+
                 for await (const key of storage.list('prefix:')) {
                     keys.push(key);
                 }
+
                 expect(keys).toEqual([]);
             });
 
@@ -108,6 +119,7 @@ describe('Storage Engine', () => {
                 await storage.put('other:c', new Uint8Array([3]));
 
                 const keys: string[] = [];
+
                 for await (const key of storage.list('prefix:')) {
                     keys.push(key);
                 }
@@ -120,6 +132,7 @@ describe('Storage Engine', () => {
                 await storage.put('b', new Uint8Array([2]));
 
                 const keys: string[] = [];
+
                 for await (const key of storage.list('')) {
                     keys.push(key);
                 }
@@ -131,6 +144,7 @@ describe('Storage Engine', () => {
         describe('transaction', () => {
             it('should commit changes', async () => {
                 const tx = await storage.begin();
+
                 await tx.put('key1', new Uint8Array([1, 2, 3]));
                 await tx.commit();
 
@@ -141,6 +155,7 @@ describe('Storage Engine', () => {
                 await storage.put('key1', new Uint8Array([1, 2, 3]));
 
                 const tx = await storage.begin();
+
                 await tx.put('key1', new Uint8Array([4, 5, 6]));
                 await tx.delete('key1');
                 await tx.rollback();
@@ -150,9 +165,11 @@ describe('Storage Engine', () => {
 
             it('should read uncommitted changes within transaction', async () => {
                 const tx = await storage.begin();
+
                 await tx.put('key1', new Uint8Array([1, 2, 3]));
 
                 const value = await tx.get('key1');
+
                 expect(value).toEqual(new Uint8Array([1, 2, 3]));
 
                 await tx.rollback();
@@ -163,6 +180,7 @@ describe('Storage Engine', () => {
 
                 {
                     const tx = await storage.begin();
+
                     await tx.put('key1', new Uint8Array([2]));
                     await tx[Symbol.asyncDispose]();
                 }
@@ -177,7 +195,9 @@ describe('Storage Engine', () => {
                 const watchPromise = (async () => {
                     for await (const event of storage.watch('test:*')) {
                         events.push({ key: event.key, op: event.op });
-                        if (events.length >= 1) break;
+                        if (events.length >= 1) {
+                            break;
+                        }
                     }
                 })();
 
@@ -197,7 +217,9 @@ describe('Storage Engine', () => {
                 const watchPromise = (async () => {
                     for await (const event of storage.watch('test:*')) {
                         events.push({ key: event.key, op: event.op });
-                        if (events.length >= 1) break;
+                        if (events.length >= 1) {
+                            break;
+                        }
                     }
                 })();
 
@@ -213,7 +235,9 @@ describe('Storage Engine', () => {
                 const watchPromise = (async () => {
                     for await (const event of storage.watch('a/**')) {
                         events.push(event.key);
-                        if (events.length >= 2) break;
+                        if (events.length >= 2) {
+                            break;
+                        }
                     }
                 })();
 
@@ -254,7 +278,8 @@ describe('Storage Engine', () => {
                 await unlink(testPath);
                 await unlink(testPath + '-wal');
                 await unlink(testPath + '-shm');
-            } catch {
+            }
+            catch {
                 // Ignore cleanup errors
             }
         });
@@ -262,9 +287,11 @@ describe('Storage Engine', () => {
         describe('get/put', () => {
             it('should store and retrieve value', async () => {
                 const data = new Uint8Array([1, 2, 3, 4, 5]);
+
                 await storage.put('key1', data);
 
                 const result = await storage.get('key1');
+
                 expect(result).toEqual(data);
             });
 
@@ -288,6 +315,7 @@ describe('Storage Engine', () => {
                 await storage.put('other:c', new Uint8Array([3]));
 
                 const keys: string[] = [];
+
                 for await (const key of storage.list('prefix:')) {
                     keys.push(key);
                 }
@@ -299,6 +327,7 @@ describe('Storage Engine', () => {
         describe('transaction', () => {
             it('should commit atomically', async () => {
                 const tx = await storage.begin();
+
                 await tx.put('tx:a', new Uint8Array([1]));
                 await tx.put('tx:b', new Uint8Array([2]));
                 await tx.commit();
@@ -311,6 +340,7 @@ describe('Storage Engine', () => {
                 await storage.put('key1', new Uint8Array([1]));
 
                 const tx = await storage.begin();
+
                 await tx.put('key1', new Uint8Array([2]));
                 await tx.rollback();
 
@@ -349,7 +379,8 @@ describe('Storage Engine', () => {
             try {
                 await adminSql.unsafe(`DROP SCHEMA IF EXISTS ${testSchema} CASCADE`);
                 adminSql.close();
-            } catch {
+            }
+            catch {
                 // Ignore cleanup errors
             }
         });
@@ -370,9 +401,11 @@ describe('Storage Engine', () => {
         describe('get/put', () => {
             it('should store and retrieve value', async () => {
                 const data = new Uint8Array([1, 2, 3, 4, 5]);
+
                 await storage.put('key1', data);
 
                 const result = await storage.get('key1');
+
                 expect(result).toEqual(data);
             });
 
@@ -385,14 +418,17 @@ describe('Storage Engine', () => {
                 await storage.put('key1', new Uint8Array([4, 5, 6]));
 
                 const result = await storage.get('key1');
+
                 expect(result).toEqual(new Uint8Array([4, 5, 6]));
             });
 
             it('should handle binary data', async () => {
                 const data = new Uint8Array(256);
+
                 for (let i = 0; i < 256; i++) {
                     data[i] = i;
                 }
+
                 await storage.put('binary', data);
                 expect(await storage.get('binary')).toEqual(data);
             });
@@ -428,10 +464,12 @@ describe('Storage Engine', () => {
 
             it('should return size and mtime', async () => {
                 const before = Date.now();
+
                 await storage.put('key1', new Uint8Array(100));
                 const after = Date.now();
 
                 const stat = await storage.stat('key1');
+
                 expect(stat).not.toBeNull();
                 expect(stat!.size).toBe(100);
                 expect(stat!.mtime).toBeGreaterThanOrEqual(before);
@@ -442,9 +480,11 @@ describe('Storage Engine', () => {
         describe('list', () => {
             it('should return empty for no matches', async () => {
                 const keys: string[] = [];
+
                 for await (const key of storage.list('prefix:')) {
                     keys.push(key);
                 }
+
                 expect(keys).toEqual([]);
             });
 
@@ -454,6 +494,7 @@ describe('Storage Engine', () => {
                 await storage.put('other:c', new Uint8Array([3]));
 
                 const keys: string[] = [];
+
                 for await (const key of storage.list('prefix:')) {
                     keys.push(key);
                 }
@@ -466,6 +507,7 @@ describe('Storage Engine', () => {
                 await storage.put('b', new Uint8Array([2]));
 
                 const keys: string[] = [];
+
                 for await (const key of storage.list('')) {
                     keys.push(key);
                 }
@@ -477,6 +519,7 @@ describe('Storage Engine', () => {
         describe('transaction', () => {
             it('should commit changes', async () => {
                 const tx = await storage.begin();
+
                 await tx.put('key1', new Uint8Array([1, 2, 3]));
                 await tx.commit();
 
@@ -487,6 +530,7 @@ describe('Storage Engine', () => {
                 await storage.put('key1', new Uint8Array([1, 2, 3]));
 
                 const tx = await storage.begin();
+
                 await tx.put('key1', new Uint8Array([4, 5, 6]));
                 await tx.delete('key1');
                 await tx.rollback();
@@ -496,9 +540,11 @@ describe('Storage Engine', () => {
 
             it('should read uncommitted changes within transaction', async () => {
                 const tx = await storage.begin();
+
                 await tx.put('key1', new Uint8Array([1, 2, 3]));
 
                 const value = await tx.get('key1');
+
                 expect(value).toEqual(new Uint8Array([1, 2, 3]));
 
                 await tx.rollback();
@@ -509,6 +555,7 @@ describe('Storage Engine', () => {
 
                 {
                     const tx = await storage.begin();
+
                     await tx.put('key1', new Uint8Array([2]));
                     await tx[Symbol.asyncDispose]();
                 }
@@ -518,6 +565,7 @@ describe('Storage Engine', () => {
 
             it('should commit atomically', async () => {
                 const tx = await storage.begin();
+
                 await tx.put('tx:a', new Uint8Array([1]));
                 await tx.put('tx:b', new Uint8Array([2]));
                 await tx.commit();
@@ -533,7 +581,9 @@ describe('Storage Engine', () => {
                 const watchPromise = (async () => {
                     for await (const event of storage.watch('test:*')) {
                         events.push({ key: event.key, op: event.op });
-                        if (events.length >= 1) break;
+                        if (events.length >= 1) {
+                            break;
+                        }
                     }
                 })();
 
@@ -553,7 +603,9 @@ describe('Storage Engine', () => {
                 const watchPromise = (async () => {
                     for await (const event of storage.watch('test:*')) {
                         events.push({ key: event.key, op: event.op });
-                        if (events.length >= 1) break;
+                        if (events.length >= 1) {
+                            break;
+                        }
                     }
                 })();
 
@@ -569,7 +621,9 @@ describe('Storage Engine', () => {
                 const watchPromise = (async () => {
                     for await (const event of storage.watch('a/**')) {
                         events.push(event.key);
-                        if (events.length >= 2) break;
+                        if (events.length >= 2) {
+                            break;
+                        }
                     }
                 })();
 

@@ -72,7 +72,7 @@ import { Lexer, Parser, Interpreter } from '@rom/lib/awk';
 
 const abortController = new AbortController();
 
-onSignal((signal) => {
+onSignal(signal => {
     if (signal === SIGTERM) {
         abortController.abort();
     }
@@ -100,8 +100,10 @@ async function main(): Promise<void> {
     const positional: string[] = [];
 
     let i = 0;
+
     while (i < argv.length) {
         const arg = argv[i];
+
         if (!arg) {
             i++;
             continue;
@@ -109,17 +111,23 @@ async function main(): Promise<void> {
 
         if (arg === '-F' && i + 1 < argv.length) {
             const nextArg = argv[i + 1];
+
             if (nextArg) {
                 fieldSep = nextArg;
             }
+
             i += 2;
-        } else if (arg.startsWith('-F')) {
+        }
+        else if (arg.startsWith('-F')) {
             fieldSep = arg.slice(2);
             i++;
-        } else if (arg === '-v' && i + 1 < argv.length) {
+        }
+        else if (arg === '-v' && i + 1 < argv.length) {
             const assignment = argv[i + 1];
+
             if (assignment) {
                 const eqIdx = assignment.indexOf('=');
+
                 if (eqIdx > 0) {
                     variables.push({
                         name: assignment.slice(0, eqIdx),
@@ -127,17 +135,24 @@ async function main(): Promise<void> {
                     });
                 }
             }
+
             i += 2;
-        } else if (arg === '-f' && i + 1 < argv.length) {
+        }
+        else if (arg === '-f' && i + 1 < argv.length) {
             const nextArg = argv[i + 1];
+
             if (nextArg) {
                 progFile = nextArg;
             }
+
             i += 2;
-        } else if (arg.startsWith('-') && arg !== '-') {
+        }
+        else if (arg.startsWith('-') && arg !== '-') {
             await eprintln(`awk: unknown option: ${arg}`);
+
             return exit(1);
-        } else {
+        }
+        else {
             positional.push(arg);
             i++;
         }
@@ -149,48 +164,69 @@ async function main(): Promise<void> {
 
     if (progFile) {
         const resolved = resolvePath(cwd, progFile);
+
         try {
             programSource = await readFileContent(resolved);
-        } catch (err) {
+        }
+        catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
+
             await eprintln(`awk: ${progFile}: ${msg}`);
+
             return exit(1);
         }
-    } else if (positional.length > 0) {
+    }
+    else if (positional.length > 0) {
         const prog = positional.shift();
+
         if (!prog) {
             await eprintln('awk: no program given');
+
             return exit(1);
         }
+
         programSource = prog;
-    } else {
+    }
+    else {
         await eprintln('awk: no program given');
+
         return exit(1);
     }
 
     // Parse program
     let program;
+
     try {
         const lexer = new Lexer(programSource);
         const tokens = lexer.tokenize();
         const parser = new Parser(tokens);
+
         program = parser.parse();
-    } catch (err) {
+    }
+    catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         await eprintln(`awk: ${msg}`);
+
         return exit(1);
     }
 
     // Create interpreter
     if (!program) {
         await eprintln('awk: failed to parse program');
+
         return exit(1);
     }
+
     const interpreter = new Interpreter(
         program,
-        (text: string) => { print(text); },
-        (text: string) => { eprintln(text); },
-        abortController.signal
+        (text: string) => {
+            print(text);
+        },
+        (text: string) => {
+            eprintln(text);
+        },
+        abortController.signal,
     );
 
     // Set field separator
@@ -201,6 +237,7 @@ async function main(): Promise<void> {
     // Set variables
     for (const { name, value } of variables) {
         const num = parseFloat(value);
+
         interpreter.setVariable(name, isNaN(num) ? value : num);
     }
 
@@ -215,19 +252,24 @@ async function main(): Promise<void> {
             }
 
             const resolved = resolvePath(cwd, file);
+
             try {
                 const content = await readFileContent(resolved);
+
                 input += content;
                 if (!input.endsWith('\n')) {
                     input += '\n';
                 }
-            } catch (err) {
+            }
+            catch (err) {
                 const msg = err instanceof Error ? err.message : String(err);
+
                 await eprintln(`awk: ${file}: ${msg}`);
                 await exit(1);
             }
         }
-    } else {
+    }
+    else {
         // Read from stdin
         input = await readStdin();
     }
@@ -235,9 +277,12 @@ async function main(): Promise<void> {
     // Run program
     try {
         const exitCode = await interpreter.run(input);
+
         await exit(exitCode);
-    } catch (err) {
+    }
+    catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         await eprintln(`awk: ${msg}`);
         await exit(1);
     }
@@ -266,7 +311,7 @@ async function showHelp(): Promise<void> {
     await println('  awk \'{sum+=$1} END{print sum}\'      Sum first column');
 }
 
-main().catch(async (err) => {
+main().catch(async err => {
     await eprintln(`awk: ${err.message}`);
     await exit(1);
 });

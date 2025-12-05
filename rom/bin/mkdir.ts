@@ -25,15 +25,20 @@ async function mkdirParents(path: string): Promise<void> {
     // Try to create the directory
     try {
         await mkdir(path);
+
         return;
-    } catch (err) {
+    }
+    catch (err) {
         // If parent doesn't exist, try creating it first
         const parent = dirname(path);
+
         if (parent !== path && parent !== '/') {
             await mkdirParents(parent);
             await mkdir(path);
+
             return;
         }
+
         throw err;
     }
 }
@@ -46,6 +51,7 @@ async function main(): Promise<void> {
         for (const err of parsed.errors) {
             await eprintln(`mkdir: ${err}`);
         }
+
         await exit(1);
     }
 
@@ -67,21 +73,27 @@ async function main(): Promise<void> {
                 // Check if already exists
                 try {
                     const info = await stat(path);
+
                     if (info.model === 'folder') {
                         continue; // Already exists, no error with -p
                     }
+
                     await eprintln(`mkdir: ${target}: exists but is not a directory`);
                     exitCode = 1;
                     continue;
-                } catch {
+                }
+                catch {
                     // Doesn't exist, create it
                     await mkdirParents(path);
                 }
-            } else {
+            }
+            else {
                 await mkdir(path);
             }
-        } catch (err) {
+        }
+        catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
+
             await eprintln(`mkdir: ${target}: ${msg}`);
             exitCode = 1;
         }
@@ -90,7 +102,7 @@ async function main(): Promise<void> {
     await exit(exitCode);
 }
 
-main().catch(async (err) => {
+main().catch(async err => {
     await eprintln(`mkdir: ${err.message}`);
     await exit(1);
 });

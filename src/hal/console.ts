@@ -261,9 +261,11 @@ export class BunConsoleDevice implements ConsoleDevice {
         }
 
         const { value, done } = await this.stdinReader.read();
+
         if (done || !value) {
             return new Uint8Array(0);
         }
+
         return new Uint8Array(value);
     }
 
@@ -304,27 +306,35 @@ export class BunConsoleDevice implements ConsoleDevice {
         while (true) {
             // Check buffer for newline
             const newlineIndex = this.stdinBuffer.indexOf(10); // '\\n'
+
             if (newlineIndex !== -1) {
                 const line = decoder.decode(this.stdinBuffer.slice(0, newlineIndex));
+
                 this.stdinBuffer = this.stdinBuffer.slice(newlineIndex + 1);
+
                 // Remove trailing \\r if present (Windows line endings)
                 return line.replace(/\r$/, '');
             }
 
             // Read more data
             const chunk = await this.read();
+
             if (chunk.length === 0) {
                 // EOF - return remaining buffer if any
                 if (this.stdinBuffer.length > 0) {
                     const line = decoder.decode(this.stdinBuffer);
+
                     this.stdinBuffer = new Uint8Array(0);
+
                     return line;
                 }
+
                 return null;
             }
 
             // Append to buffer
             const newBuffer = new Uint8Array(this.stdinBuffer.length + chunk.length);
+
             newBuffer.set(this.stdinBuffer);
             newBuffer.set(chunk, this.stdinBuffer.length);
             this.stdinBuffer = newBuffer;
@@ -484,10 +494,12 @@ export class BufferConsoleDevice implements ConsoleDevice {
         const total = this.output.reduce((sum, chunk) => sum + chunk.length, 0);
         const result = new Uint8Array(total);
         let offset = 0;
+
         for (const chunk of this.output) {
             result.set(chunk, offset);
             offset += chunk.length;
         }
+
         return new TextDecoder().decode(result);
     }
 
@@ -503,10 +515,12 @@ export class BufferConsoleDevice implements ConsoleDevice {
         const total = this.errors.reduce((sum, chunk) => sum + chunk.length, 0);
         const result = new Uint8Array(total);
         let offset = 0;
+
         for (const chunk of this.errors) {
             result.set(chunk, offset);
             offset += chunk.length;
         }
+
         return new TextDecoder().decode(result);
     }
 
@@ -561,7 +575,9 @@ export class BufferConsoleDevice implements ConsoleDevice {
 
         // Return remaining input
         const result = this.input.slice(this.inputPos);
+
         this.inputPos = this.input.length;
+
         return result;
     }
 
@@ -589,11 +605,14 @@ export class BufferConsoleDevice implements ConsoleDevice {
 
         if (newlineIndex === -1) {
             this.inputPos = this.input.length;
+
             return new TextDecoder().decode(remaining);
         }
 
         const line = new TextDecoder().decode(remaining.slice(0, newlineIndex));
+
         this.inputPos += newlineIndex + 1;
+
         return line.replace(/\r$/, '');
     }
 

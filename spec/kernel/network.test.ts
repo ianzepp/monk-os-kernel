@@ -82,14 +82,18 @@ describe('Network Syscalls', () => {
         const connectTcp = mock(async (proc: Process, host: string, port: number) => {
             // Simulate kernel's connectTcp - allocate handle
             const h = proc.nextHandle++;
+
             allocatedFds.set(`${host}:${port}`, h);
+
             return h;
         });
 
         const createPort = mock(async (proc: Process, type: string, _opts: unknown) => {
             // Simulate kernel's createPort - allocate handle
             const h = proc.nextHandle++;
+
             allocatedPorts.set(type, h);
+
             return h;
         });
 
@@ -148,7 +152,7 @@ describe('Network Syscalls', () => {
             const proc = createMockProcess();
 
             await expect(
-                unwrapStream(dispatcher.dispatch(proc, 'net:connect', ['udp', 'example.com', 53]))
+                unwrapStream(dispatcher.dispatch(proc, 'net:connect', ['udp', 'example.com', 53])),
             ).rejects.toThrow('unsupported protocol');
         });
 
@@ -156,7 +160,7 @@ describe('Network Syscalls', () => {
             const proc = createMockProcess();
 
             await expect(
-                unwrapStream(dispatcher.dispatch(proc, 'net:connect', [123, 'example.com', 80]))
+                unwrapStream(dispatcher.dispatch(proc, 'net:connect', [123, 'example.com', 80])),
             ).rejects.toThrow('proto must be a string');
         });
 
@@ -164,7 +168,7 @@ describe('Network Syscalls', () => {
             const proc = createMockProcess();
 
             await expect(
-                unwrapStream(dispatcher.dispatch(proc, 'net:connect', ['tcp', 123, 80]))
+                unwrapStream(dispatcher.dispatch(proc, 'net:connect', ['tcp', 123, 80])),
             ).rejects.toThrow('host must be a string');
         });
 
@@ -172,7 +176,7 @@ describe('Network Syscalls', () => {
             const proc = createMockProcess();
 
             await expect(
-                unwrapStream(dispatcher.dispatch(proc, 'net:connect', ['tcp', 'example.com', '80']))
+                unwrapStream(dispatcher.dispatch(proc, 'net:connect', ['tcp', 'example.com', '80'])),
             ).rejects.toThrow('port must be a number');
         });
     });
@@ -190,7 +194,7 @@ describe('Network Syscalls', () => {
             const proc = createMockProcess();
 
             await expect(
-                unwrapStream(dispatcher.dispatch(proc, 'port:create', [123, {}]))
+                unwrapStream(dispatcher.dispatch(proc, 'port:create', [123, {}])),
             ).rejects.toThrow('type must be a string');
         });
     });
@@ -200,7 +204,7 @@ describe('Network Syscalls', () => {
             const proc = createMockProcess();
 
             await expect(
-                unwrapStream(dispatcher.dispatch(proc, 'port:close', ['not-a-number']))
+                unwrapStream(dispatcher.dispatch(proc, 'port:close', ['not-a-number'])),
             ).rejects.toThrow('portId must be a number');
         });
     });

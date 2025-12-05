@@ -402,6 +402,7 @@ export class BunCryptoDevice implements CryptoDevice {
         };
 
         const hasher = new Bun.CryptoHasher(algMap[alg] as any);
+
         hasher.update(data);
         const result = hasher.digest();
 
@@ -446,11 +447,12 @@ export class BunCryptoDevice implements CryptoDevice {
             key.buffer.slice(key.byteOffset, key.byteOffset + key.byteLength) as ArrayBuffer,
             { name: 'HMAC', hash: algMap[alg] },
             false,
-            ['sign']
+            ['sign'],
         );
 
         // Sign data with HMAC
         const signature = await crypto.subtle.sign('HMAC', cryptoKey, data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer);
+
         return new Uint8Array(signature);
     }
 
@@ -495,8 +497,10 @@ export class BunCryptoDevice implements CryptoDevice {
         // Prepend IV to ciphertext
         // WHY: Decryption needs IV, so we bundle it with ciphertext
         const result = new Uint8Array(iv.length + ciphertext.byteLength);
+
         result.set(iv);
         result.set(new Uint8Array(ciphertext), iv.length);
+
         return result;
     }
 
@@ -536,6 +540,7 @@ export class BunCryptoDevice implements CryptoDevice {
 
         // Decrypt data
         const plaintext = await crypto.subtle.decrypt(algSpec, key, ciphertext.buffer.slice(ciphertext.byteOffset, ciphertext.byteOffset + ciphertext.byteLength) as ArrayBuffer);
+
         return new Uint8Array(plaintext);
     }
 
@@ -645,7 +650,7 @@ export class BunCryptoDevice implements CryptoDevice {
                     password.buffer.slice(password.byteOffset, password.byteOffset + password.byteLength) as ArrayBuffer,
                     'PBKDF2',
                     false,
-                    ['deriveBits']
+                    ['deriveBits'],
                 );
 
                 // Derive key bits
@@ -658,7 +663,7 @@ export class BunCryptoDevice implements CryptoDevice {
                         hash: 'SHA-256',
                     },
                     keyMaterial,
-                    256
+                    256,
                 );
 
                 return new Uint8Array(bits);

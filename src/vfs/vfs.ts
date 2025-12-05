@@ -279,7 +279,6 @@ export class VFS {
      */
     private entityMounts: EntityMount[] = [];
 
-
     // =========================================================================
     // STATE
     // =========================================================================
@@ -314,6 +313,7 @@ export class VFS {
             this.registerModel(new FileModel(ems.cache, ems.ops));
             this.registerModel(new FolderModel(ems.cache, ems.ops));
         }
+
         this.registerModel(new DeviceModel());
         this.registerModel(new LinkModel());
     }
@@ -339,6 +339,7 @@ export class VFS {
         if (this.initialized) {
             return;
         }
+
         this.initialized = true;
 
         // Create root folder if needed
@@ -346,9 +347,11 @@ export class VFS {
 
         // Mount root with folder model
         const folderModel = this.models.get('folder');
+
         if (!folderModel) {
             throw new ENOENT('Folder model not registered');
         }
+
         this.mount('/', folderModel, {});
 
         // Initialize /dev directory with standard devices
@@ -366,6 +369,7 @@ export class VFS {
         // Just verify it exists in cache.
         if (this.ems) {
             const root = this.ems.cache.getEntity(ROOT_ID);
+
             if (!root) {
                 throw new EINVAL('Root entity not found in EntityCache. Database may not be initialized.');
             }
@@ -383,12 +387,14 @@ export class VFS {
 
         // Check if /dev already exists
         let devId = await this.resolvePath('/dev');
+
         if (devId) {
             return; // Already initialized
         }
 
         // Create /dev folder
         const folderModel = this.models.get('folder');
+
         if (!folderModel) {
             throw new ENOENT('Folder model not registered');
         }
@@ -403,6 +409,7 @@ export class VFS {
             grants: [{ to: '*', ops: ['read', 'list', 'stat'] }],
             deny: [],
         };
+
         await this.hal.storage.put(accessKey(devId), encodeACL(devACL));
 
         // Create standard devices (/dev/console, /dev/null, etc.)
@@ -470,6 +477,7 @@ export class VFS {
      */
     unmount(path: string): void {
         const normalPath = this.normalizePath(path);
+
         this.mounts.delete(normalPath);
     }
 
@@ -485,6 +493,7 @@ export class VFS {
      */
     mountHost(vfsPath: string, hostPath: string, options?: HostMountOptions): void {
         const mount = createHostMount(vfsPath, hostPath, options);
+
         this.hostMounts.push(mount);
 
         // INVARIANT MAINTENANCE: Keep sorted by path length descending
@@ -499,6 +508,7 @@ export class VFS {
      */
     unmountHost(vfsPath: string): void {
         const normalPath = this.normalizePath(vfsPath);
+
         this.hostMounts = this.hostMounts.filter(m => m.vfsPath !== normalPath);
     }
 
@@ -542,8 +552,9 @@ export class VFS {
             this.ems.cache,
             this.ems.ops,
             this.ems.models,
-            options
+            options,
         );
+
         this.entityMounts.push(mount);
 
         // Keep sorted by path length descending (longest prefix first)
@@ -557,6 +568,7 @@ export class VFS {
      */
     unmountEntity(vfsPath: string): void {
         const normalPath = this.normalizePath(vfsPath);
+
         this.entityMounts = this.entityMounts.filter(m => m.vfsPath !== normalPath);
     }
 
@@ -574,6 +586,7 @@ export class VFS {
                 return mount;
             }
         }
+
         return null;
     }
 
@@ -589,9 +602,11 @@ export class VFS {
     resolveToHostPath(vfsPath: string): string | null {
         const normalPath = this.normalizePath(vfsPath);
         const mount = this.findHostMount(normalPath);
+
         if (!mount) {
             return null;
         }
+
         return resolveHostPath(mount, normalPath);
     }
 
@@ -611,6 +626,7 @@ export class VFS {
                 return mount;
             }
         }
+
         return null;
     }
 
@@ -641,7 +657,7 @@ export class VFS {
         path: string,
         flags: OpenFlags,
         caller: string,
-        opts?: OpenOptions
+        opts?: OpenOptions,
     ): Promise<FileHandle> {
         const normalPath = this.normalizePath(path);
         const ctx = this.createContext(caller);
@@ -654,6 +670,7 @@ export class VFS {
 
         // Try entity mount (synthetic entity filesystem)
         const entityMount = this.findEntityMount(normalPath);
+
         if (entityMount) {
             // Entity mount bypasses ACL (kernel-owned)
             return entityOpen(entityMount, normalPath, flags);
@@ -665,6 +682,7 @@ export class VFS {
         // If not in VFS, try host mounts (read-only bundled files)
         if (!entityId) {
             const hostMount = this.findHostMount(normalPath);
+
             if (hostMount) {
                 // Host mounts bypass ACL (they're pre-authorized at mount time)
                 return hostOpen(hostMount, normalPath, flags);
@@ -682,19 +700,27 @@ export class VFS {
 
         // RACE FIX: Re-validate entity exists after resolution
         const entity = await ctx.getEntity(entityId);
+
         if (!entity) {
             throw new ENOENT(`Entity disappeared: ${entityId}`);
         }
 
         // Check access
         const requiredOps: string[] = [];
-        if (flags.read) requiredOps.push('read');
-        if (flags.write) requiredOps.push('write');
+
+        if (flags.read) {
+            requiredOps.push('read');
+        }
+
+        if (flags.write) {
+            requiredOps.push('write');
+        }
 
         await this.checkEntityAccess(entityId, caller, requiredOps);
 
         // Get model and delegate open
         const model = this.models.get(entity.model);
+
         if (!model) {
             throw new EINVAL(`Unknown model: ${entity.model}`);
         }
@@ -722,18 +748,22 @@ export class VFS {
 
         // Try entity mount
         const entityMount = this.findEntityMount(normalPath);
+
         if (entityMount) {
             return entityStat(entityMount, normalPath);
         }
 
         // Try VFS storage
         const entityId = await this.resolvePath(normalPath);
+
         if (!entityId) {
             // Fall back to host mount
             const hostMount = this.findHostMount(normalPath);
+
             if (hostMount) {
                 return hostStat(hostMount, normalPath);
             }
+
             throw new ENOENT(`No such file: ${path}`);
         }
 
@@ -742,12 +772,14 @@ export class VFS {
 
         // Get entity
         const entity = await ctx.getEntity(entityId);
+
         if (!entity) {
             throw new ENOENT(`Entity not found: ${entityId}`);
         }
 
         // Delegate to model for any computed fields
         const model = this.models.get(entity.model);
+
         if (!model) {
             throw new EINVAL(`Unknown model: ${entity.model}`);
         }
@@ -769,6 +801,7 @@ export class VFS {
         const ctx = this.createContext(caller);
 
         const entityId = await this.resolvePath(normalPath);
+
         if (!entityId) {
             throw new ENOENT(`No such file: ${path}`);
         }
@@ -777,11 +810,13 @@ export class VFS {
         await this.checkEntityAccess(entityId, caller, ['write']);
 
         const entity = await ctx.getEntity(entityId);
+
         if (!entity) {
             throw new ENOENT(`Entity not found: ${entityId}`);
         }
 
         const model = this.models.get(entity.model);
+
         if (!model) {
             throw new EINVAL(`Unknown model: ${entity.model}`);
         }
@@ -811,15 +846,18 @@ export class VFS {
 
         // Check if already exists
         const existing = await this.resolvePath(normalPath);
+
         if (existing) {
             if (recursive) {
                 // mkdir -p behavior: if exists and is directory, return it
                 const ctx = this.createContext(caller);
                 const entity = await ctx.getEntity(existing);
+
                 if (entity?.model === 'folder') {
                     return existing;
                 }
             }
+
             throw new EEXIST(`Path exists: ${path}`);
         }
 
@@ -828,11 +866,13 @@ export class VFS {
 
         // Resolve parent
         let parentId = await this.resolvePath(parentPath);
+
         if (!parentId) {
             if (recursive && parentPath !== '/') {
                 // Recursively create parent directories
                 parentId = await this.mkdir(parentPath, caller, { recursive: true });
-            } else {
+            }
+            else {
                 throw new ENOENT(`Parent not found: ${parentPath}`);
             }
         }
@@ -840,6 +880,7 @@ export class VFS {
         // Verify parent is a folder
         const ctx = this.createContext(caller);
         const parent = await ctx.getEntity(parentId);
+
         if (!parent || parent.model !== 'folder') {
             throw new ENOTDIR(`Not a directory: ${parentPath}`);
         }
@@ -849,6 +890,7 @@ export class VFS {
 
         // Create the folder
         const folderModel = this.models.get('folder');
+
         if (!folderModel) {
             throw new ENOENT('Folder model not registered');
         }
@@ -876,12 +918,14 @@ export class VFS {
         // Try proc mount first (for /proc/{uuid}/path/ entries)
         if (this.procMount && isUnderProcMount(this.procMount, normalPath)) {
             await procUnlink(this.procMount, normalPath, caller);
+
             return;
         }
 
         const ctx = this.createContext(caller);
 
         const entityId = await this.resolvePath(normalPath);
+
         if (!entityId) {
             throw new ENOENT(`No such file: ${path}`);
         }
@@ -895,11 +939,13 @@ export class VFS {
         await this.checkEntityAccess(entityId, caller, ['delete']);
 
         const entity = await ctx.getEntity(entityId);
+
         if (!entity) {
             throw new ENOENT(`Entity not found: ${entityId}`);
         }
 
         const model = this.models.get(entity.model);
+
         if (!model) {
             throw new EINVAL(`Unknown model: ${entity.model}`);
         }
@@ -929,6 +975,7 @@ export class VFS {
         // Try proc mount first (for /proc/{uuid}/path/ entries)
         if (this.procMount && isUnderProcMount(this.procMount, normalPath)) {
             await procSymlink(this.procMount, target, normalPath, caller);
+
             // Return a synthetic ID for proc symlinks
             return `proc-link:${normalPath}`;
         }
@@ -937,6 +984,7 @@ export class VFS {
 
         // Resolve parent
         const parentId = await this.resolvePath(parentPath);
+
         if (!parentId) {
             throw new ENOENT(`Parent not found: ${parentPath}`);
         }
@@ -944,6 +992,7 @@ export class VFS {
         // Verify parent is a folder
         const ctx = this.createContext(caller);
         const parent = await ctx.getEntity(parentId);
+
         if (!parent || parent.model !== 'folder') {
             throw new ENOTDIR(`Not a directory: ${parentPath}`);
         }
@@ -953,6 +1002,7 @@ export class VFS {
 
         // Create link (LinkModel.create throws EPERM currently)
         const linkModel = this.models.get('link');
+
         if (!linkModel) {
             throw new ENOENT('Link model not registered');
         }
@@ -979,6 +1029,7 @@ export class VFS {
 
         // For VFS links, stat returns target in the result
         const stat = await this.stat(path, caller);
+
         if (stat.model !== 'link' || !stat.target) {
             throw new ENOENT(`Not a symbolic link: ${path}`);
         }
@@ -1003,25 +1054,32 @@ export class VFS {
         // Try proc mount first
         if (this.procMount && isUnderProcMount(this.procMount, normalPath)) {
             yield* procReaddir(this.procMount, normalPath, caller);
+
             return;
         }
 
         // Try entity mount
         const entityMount = this.findEntityMount(normalPath);
+
         if (entityMount) {
             yield* entityReaddir(entityMount, normalPath);
+
             return;
         }
 
         // Try VFS storage
         const entityId = await this.resolvePath(normalPath);
+
         if (!entityId) {
             // Fall back to host mount
             const hostMount = this.findHostMount(normalPath);
+
             if (hostMount) {
                 yield* hostReaddir(hostMount, normalPath);
+
                 return;
             }
+
             throw new ENOENT(`No such directory: ${path}`);
         }
 
@@ -1029,18 +1087,21 @@ export class VFS {
         await this.checkEntityAccess(entityId, caller, ['list']);
 
         const entity = await ctx.getEntity(entityId);
+
         if (!entity || entity.model !== 'folder') {
             throw new ENOTDIR(`Not a directory: ${path}`);
         }
 
         // Delegate to folder model
         const folderModel = this.models.get('folder');
+
         if (!folderModel) {
             throw new ENOENT('Folder model not registered');
         }
 
         for await (const childId of folderModel.list(ctx, entityId)) {
             const child = await ctx.getEntity(childId);
+
             if (child) {
                 yield child;
             }
@@ -1065,6 +1126,7 @@ export class VFS {
         const normalPath = this.normalizePath(path);
 
         const entityId = await this.resolvePath(normalPath);
+
         if (!entityId) {
             throw new ENOENT(`No such file: ${path}`);
         }
@@ -1088,6 +1150,7 @@ export class VFS {
         const normalPath = this.normalizePath(path);
 
         const entityId = await this.resolvePath(normalPath);
+
         if (!entityId) {
             throw new ENOENT(`No such file: ${path}`);
         }
@@ -1099,10 +1162,12 @@ export class VFS {
             // Reset to default ACL (owner-based)
             const ctx = this.createContext(caller);
             const entity = await ctx.getEntity(entityId);
+
             if (entity) {
                 await this.hal.storage.put(accessKey(entityId), encodeACL(defaultACL(entity.owner)));
             }
-        } else {
+        }
+        else {
             await this.hal.storage.put(accessKey(entityId), encodeACL(acl));
         }
     }
@@ -1126,6 +1191,7 @@ export class VFS {
         const ctx = this.createContext(caller);
 
         const entityId = await this.resolvePath(normalPath);
+
         if (!entityId) {
             throw new ENOENT(`No such file: ${path}`);
         }
@@ -1134,11 +1200,13 @@ export class VFS {
         await this.checkEntityAccess(entityId, caller, ['stat']);
 
         const entity = await ctx.getEntity(entityId);
+
         if (!entity) {
             throw new ENOENT(`Entity not found: ${entityId}`);
         }
 
         const model = this.models.get(entity.model);
+
         if (!model || !model.watch) {
             return; // Model doesn't support watch
         }
@@ -1169,7 +1237,8 @@ export class VFS {
             if (part === '..') {
                 // Go up, but never above root
                 normalized.pop();
-            } else if (part !== '.') {
+            }
+            else if (part !== '.') {
                 normalized.push(part);
             }
         }
@@ -1185,10 +1254,12 @@ export class VFS {
      */
     private splitPath(path: string): SplitPath {
         const lastSlash = path.lastIndexOf('/');
+
         if (lastSlash <= 0) {
             // Path is like "/foo" - parent is root
             return { parentPath: '/', name: path.slice(1) };
         }
+
         return {
             parentPath: path.slice(0, lastSlash) || '/',
             name: path.slice(lastSlash + 1),
@@ -1218,11 +1289,14 @@ export class VFS {
 
         // Walk from root
         let currentId = ROOT_ID;
+
         for (const part of parts) {
             const childId = await this.findChild(currentId, part);
+
             if (!childId) {
                 return null;
             }
+
             currentId = childId;
         }
 
@@ -1243,6 +1317,7 @@ export class VFS {
         // Try EntityCache first (EMS entities: file, folder)
         if (this.ems) {
             const childId = this.ems.cache.getChild(parentId, name);
+
             if (childId) {
                 return childId;
             }
@@ -1252,6 +1327,7 @@ export class VFS {
         // These use HAL KV storage by design - they're virtual/ephemeral
         const indexKey = childKey(parentId, name);
         const indexData = await this.hal.storage.get(indexKey);
+
         if (indexData) {
             return new TextDecoder().decode(indexData);
         }
@@ -1275,6 +1351,7 @@ export class VFS {
         // For HAL-backed entities (device, proc, link), we use HAL child index.
         // This hybrid approach is intentional - virtual entities don't need SQL persistence.
         const key = childKey(parentId, name);
+
         await this.hal.storage.put(key, new TextEncoder().encode(entityId));
     }
 
@@ -1290,6 +1367,7 @@ export class VFS {
         // For EMS-backed entities (file, folder), EntityCache is updated via Ring 8 observer.
         // For HAL-backed entities (device, proc, link), we still need HAL index.
         const key = childKey(parentId, name);
+
         await this.hal.storage.delete(key);
     }
 
@@ -1312,6 +1390,7 @@ export class VFS {
 
         // Resolve parent
         const parentId = await this.resolvePath(parentPath);
+
         if (!parentId) {
             throw new ENOENT(`Parent not found: ${parentPath}`);
         }
@@ -1319,6 +1398,7 @@ export class VFS {
         // Verify parent is a folder
         const ctx = this.createContext(caller);
         const parent = await ctx.getEntity(parentId);
+
         if (!parent || parent.model !== 'folder') {
             throw new ENOTDIR(`Not a directory: ${parentPath}`);
         }
@@ -1328,6 +1408,7 @@ export class VFS {
 
         // Create file
         const fileModel = this.models.get('file');
+
         if (!fileModel) {
             throw new ENOENT('File model not registered');
         }
@@ -1357,14 +1438,17 @@ export class VFS {
      */
     private async getACL(entityId: string): Promise<ACL> {
         const data = await this.hal.storage.get(accessKey(entityId));
+
         if (data) {
             return decodeACL(data);
         }
 
         // No explicit ACL - derive from owner
         const entityData = await this.hal.storage.get(entityKey(entityId));
+
         if (entityData) {
             const entity = JSON.parse(new TextDecoder().decode(entityData)) as ModelStat;
+
             return defaultACL(entity.owner);
         }
 
@@ -1394,6 +1478,7 @@ export class VFS {
             // Check caller's access, and also wildcard (*) for public access
             const hasAccess = checkAccess(acl, caller, op, now) ||
                               checkAccess(acl, '*', op, now);
+
             if (!hasAccess) {
                 throw new EACCES(`Permission denied: ${op}`);
             }
@@ -1418,6 +1503,7 @@ export class VFS {
      */
     private createContext(caller: string): ModelContext {
         const self = this;
+
         return {
             hal: this.hal,
             caller,
@@ -1439,16 +1525,18 @@ export class VFS {
                 // EMS entities: EntityCache → EntityOps
                 if (self.ems) {
                     const cached = self.ems.cache.getEntity(id);
+
                     if (cached) {
                         // Query detail table for full record
                         for await (const record of self.ems.ops.selectAny(
                             cached.model,
-                            { where: { id }, limit: 1 }
+                            { where: { id }, limit: 1 },
                         )) {
                             // Map EMS fields to VFS ModelStat
                             const rec = record as Record<string, unknown>;
                             const updatedAt = rec.updated_at as string | undefined;
                             const createdAt = rec.created_at as string | undefined;
+
                             return {
                                 ...record,
                                 id: cached.id,
@@ -1468,7 +1556,11 @@ export class VFS {
                 // HAL entities (device, proc, link): use HAL storage by design
                 // Virtual entities don't need SQL persistence
                 const data = await self.hal.storage.get(entityKey(id));
-                if (!data) return null;
+
+                if (!data) {
+                    return null;
+                }
+
                 return JSON.parse(new TextDecoder().decode(data));
             },
 
@@ -1486,6 +1578,7 @@ export class VFS {
                     // EMS entities: use EntityCache
                     if (self.ems) {
                         const cached = self.ems.cache.getEntity(currentId);
+
                         if (cached) {
                             parts.unshift(cached.pathname);
                             currentId = cached.parent;
@@ -1495,9 +1588,13 @@ export class VFS {
 
                     // HAL entities (device, proc, link): use HAL storage by design
                     const data = await self.hal.storage.get(entityKey(currentId));
-                    if (!data) break;
+
+                    if (!data) {
+                        break;
+                    }
 
                     const entity = JSON.parse(new TextDecoder().decode(data)) as ModelStat;
+
                     parts.unshift(entity.name);
                     currentId = entity.parent;
                 }

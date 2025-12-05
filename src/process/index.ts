@@ -445,6 +445,7 @@ export function access(path: string, acl?: ACL | null): Promise<ACL | void> {
     if (acl === undefined) {
         return withTypedErrors(syscall<ACL>('file:access', path));
     }
+
     return withTypedErrors(syscall<void>('file:access', path, acl));
 }
 
@@ -490,7 +491,7 @@ export function pipe(): Promise<[number, number]> {
  */
 export async function redirect(targetFd: number, sourceFd: number): Promise<() => Promise<void>> {
     const saved = await withTypedErrors(
-        syscall<string>('redirect', { target: targetFd, source: sourceFd })
+        syscall<string>('redirect', { target: targetFd, source: sourceFd }),
     );
 
     return async () => {
@@ -714,22 +715,32 @@ export function setenv(name: string, value: string): Promise<void> {
  */
 export async function readFile(path: string): Promise<string> {
     const fd = await open(path, { read: true });
+
     try {
         const chunks: Uint8Array[] = [];
+
         while (true) {
             const chunk = await read(fd, 65536);
-            if (chunk.length === 0) break;
+
+            if (chunk.length === 0) {
+                break;
+            }
+
             chunks.push(chunk);
         }
+
         const total = chunks.reduce((sum, c) => sum + c.length, 0);
         const result = new Uint8Array(total);
         let offset = 0;
+
         for (const chunk of chunks) {
             result.set(chunk, offset);
             offset += chunk.length;
         }
+
         return new TextDecoder().decode(result);
-    } finally {
+    }
+    finally {
         await close(fd);
     }
 }
@@ -747,9 +758,11 @@ export async function readFile(path: string): Promise<string> {
  */
 export async function writeFile(path: string, content: string): Promise<void> {
     const fd = await open(path, { write: true, create: true, truncate: true });
+
     try {
         await write(fd, new TextEncoder().encode(content));
-    } finally {
+    }
+    finally {
         await close(fd);
     }
 }
@@ -798,5 +811,5 @@ export async function eprintln(text: string): Promise<void> {
  * @param ms - Milliseconds to sleep
  */
 export function sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+    return new Promise(resolve => setTimeout(resolve, ms));
 }

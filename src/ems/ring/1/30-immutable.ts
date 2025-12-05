@@ -105,20 +105,27 @@ export class Immutable extends BaseObserver {
 
         // Get immutable fields from model metadata
         const immutableFields = model.getImmutableFields();
-        if (immutableFields.size === 0) return;
+
+        if (immutableFields.size === 0) {
+            return;
+        }
 
         // Collect violations
         const violations: { field: string; old: unknown; new: unknown }[] = [];
 
         for (const fieldName of record.getChangedFields()) {
             // Skip if field is not immutable
-            if (!immutableFields.has(fieldName)) continue;
+            if (!immutableFields.has(fieldName)) {
+                continue;
+            }
 
             const oldValue = record.old(fieldName);
             const newValue = record.get(fieldName);
 
             // Allow first write (old was null/undefined)
-            if (oldValue === null || oldValue === undefined) continue;
+            if (oldValue === null || oldValue === undefined) {
+                continue;
+            }
 
             // Check if actually changing the value
             // Use JSON.stringify for deep comparison of objects/arrays
@@ -130,12 +137,12 @@ export class Immutable extends BaseObserver {
         // Throw if any violations found
         if (violations.length > 0) {
             const details = violations
-                .map((v) => `${v.field} (was: ${JSON.stringify(v.old)})`)
+                .map(v => `${v.field} (was: ${JSON.stringify(v.old)})`)
                 .join(', ');
 
             throw new EOBSIMMUT(
                 `Cannot modify immutable field(s): ${details}`,
-                violations[0]!.field
+                violations[0]!.field,
             );
         }
     }

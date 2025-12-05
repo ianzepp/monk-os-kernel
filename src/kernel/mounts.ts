@@ -137,7 +137,8 @@ export async function loadMounts(deps: MountLoaderDeps): Promise<void> {
 
     try {
         await vfs.stat(mountsPath, 'kernel');
-    } catch {
+    }
+    catch {
         // No mounts.json - that's fine, skip
         return;
     }
@@ -145,16 +146,23 @@ export async function loadMounts(deps: MountLoaderDeps): Promise<void> {
     try {
         const handle = await vfs.open(mountsPath, { read: true }, 'kernel');
         const chunks: Uint8Array[] = [];
+
         while (true) {
             const chunk = await handle.read(65536);
-            if (chunk.length === 0) break;
+
+            if (chunk.length === 0) {
+                break;
+            }
+
             chunks.push(chunk);
         }
+
         await handle.close();
 
         const total = chunks.reduce((sum, c) => sum + c.length, 0);
         const combined = new Uint8Array(total);
         let offset = 0;
+
         for (const chunk of chunks) {
             combined.set(chunk, offset);
             offset += chunk.length;
@@ -166,10 +174,12 @@ export async function loadMounts(deps: MountLoaderDeps): Promise<void> {
         for (const mount of config.mounts) {
             await applyMount(deps, mount);
         }
-    } catch (err) {
+    }
+    catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         hal.console.error(
-            new TextEncoder().encode(`Failed to load mounts: ${msg}\n`)
+            new TextEncoder().encode(`Failed to load mounts: ${msg}\n`),
         );
     }
 }
@@ -183,7 +193,8 @@ export async function applyMount(deps: MountLoaderDeps, mount: MountDef): Promis
     // Ensure mount point exists
     try {
         await vfs.stat(mount.path, 'kernel');
-    } catch {
+    }
+    catch {
         await vfs.mkdir(mount.path, 'kernel', { recursive: true });
     }
 
@@ -200,6 +211,7 @@ export async function applyMount(deps: MountLoaderDeps, mount: MountDef): Promis
                     deny: [],
                 });
             }
+
             break;
 
         case 'host':
@@ -218,6 +230,7 @@ export async function applyMount(deps: MountLoaderDeps, mount: MountDef): Promis
             if (mount.options?.aliases) {
                 loader.setAliases(mount.options.aliases);
             }
+
             break;
 
         case 'storage':
@@ -227,7 +240,7 @@ export async function applyMount(deps: MountLoaderDeps, mount: MountDef): Promis
 
         default:
             hal.console.error(
-                new TextEncoder().encode(`Unknown mount type: ${(mount as MountDef).type}\n`)
+                new TextEncoder().encode(`Unknown mount type: ${(mount as MountDef).type}\n`),
             );
     }
 }
@@ -237,6 +250,7 @@ export async function applyMount(deps: MountLoaderDeps, mount: MountDef): Promis
  */
 export function parseSize(size: string): number {
     const match = size.match(/^(\d+(?:\.\d+)?)\s*(B|KB|MB|GB|TB)?$/i);
+
     if (!match) {
         throw new EINVAL(`Invalid size format: ${size}`);
     }
@@ -253,8 +267,10 @@ export function parseSize(size: string): number {
     };
 
     const multiplier = multipliers[unit];
+
     if (multiplier === undefined) {
         throw new EINVAL(`Unknown size unit: ${unit}`);
     }
+
     return Math.floor(value * multiplier);
 }

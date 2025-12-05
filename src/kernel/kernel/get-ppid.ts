@@ -89,6 +89,7 @@ export function getppid(self: Kernel, proc: Process): number {
 
     // Look up parent process
     const parent = self.processes.get(proc.parent);
+
     if (!parent) {
         // Parent died, we're orphaned (reparented to init)
         // WHY 1: Init's PID is always 1
@@ -101,6 +102,7 @@ export function getppid(self: Kernel, proc: Process): number {
 
     // Look up grandparent process
     const grandparent = self.processes.get(parent.parent);
+
     if (!grandparent) {
         // Parent is init (or orphaned)
         // WHY 1: Parent's PID is 1 in its namespace

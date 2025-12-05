@@ -250,6 +250,7 @@ export class SocketHandleAdapter implements Handle {
         // RACE FIX: Check closure state before dispatch
         if (this._closed) {
             yield respond.error('EBADF', 'Handle closed');
+
             return;
         }
 
@@ -319,6 +320,7 @@ export class SocketHandleAdapter implements Handle {
                 totalYielded += chunk.length;
                 if (totalYielded > MAX_STREAM_BYTES) {
                     yield respond.error('EFBIG', `Read stream exceeded ${MAX_STREAM_BYTES} bytes`);
+
                     return;
                 }
 
@@ -326,7 +328,8 @@ export class SocketHandleAdapter implements Handle {
             }
 
             yield respond.done();
-        } catch (err) {
+        }
+        catch (err) {
             // Catch socket errors (connection reset, timeout, etc.)
             yield respond.error('EIO', (err as Error).message);
         }
@@ -361,17 +364,23 @@ export class SocketHandleAdapter implements Handle {
             if (size >= this.buffer.length) {
                 // Requested size fits entire buffer - return all and clear
                 const data = this.buffer;
+
                 this.buffer = new Uint8Array(0);
+
                 return data;
             }
+
             // Buffer larger than requested - return prefix, keep rest
             const data = this.buffer.slice(0, size);
+
             this.buffer = this.buffer.slice(size);
+
             return data;
         }
 
         // Buffer empty - read from socket
         const chunk = await this.socket.read();
+
         if (chunk.length === 0) {
             // EOF - connection closed
             return chunk;
@@ -385,6 +394,7 @@ export class SocketHandleAdapter implements Handle {
         // Chunk larger than requested - return prefix, buffer rest
         // WHY: Provides consistent chunk sizes for protocol parsing
         this.buffer = chunk.slice(size);
+
         return chunk.slice(0, size);
     }
 
@@ -406,6 +416,7 @@ export class SocketHandleAdapter implements Handle {
     private async *send(data: Uint8Array): AsyncIterable<Response> {
         if (!(data instanceof Uint8Array)) {
             yield respond.error('EINVAL', 'data must be Uint8Array');
+
             return;
         }
 
@@ -414,7 +425,8 @@ export class SocketHandleAdapter implements Handle {
             await this.socket.write(data);
             // Assume all bytes written (HAL doesn't return partial writes)
             yield respond.ok({ written: data.length });
-        } catch (err) {
+        }
+        catch (err) {
             // Catch socket errors (connection reset, peer closed, etc.)
             yield respond.error('EIO', (err as Error).message);
         }
@@ -441,7 +453,10 @@ export class SocketHandleAdapter implements Handle {
      * close, subsequent calls no-op. No lock needed.
      */
     async close(): Promise<void> {
-        if (this._closed) return;
+        if (this._closed) {
+            return;
+        }
+
         this._closed = true;
         await this.socket.close();
     }

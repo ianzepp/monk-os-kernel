@@ -122,6 +122,7 @@ export function extractImports(js: string): string[] {
 
     for (const pattern of patterns) {
         let match;
+
         // WHY while loop instead of matchAll:
         // Need to reset lastIndex between patterns. exec() provides this control.
         while ((match = pattern.exec(js)) !== null) {
@@ -168,6 +169,7 @@ export function resolveImport(importPath: string, fromModule: string): string {
     // TypeScript/Bun transpiler converts 'import "./foo"' to 'import "./foo.js"'
     // for Node.js compatibility, but our VFS stores source as .ts files.
     let path = importPath;
+
     if (path.endsWith('.js')) {
         path = path.slice(0, -3);
     }
@@ -193,6 +195,7 @@ export function resolveImport(importPath: string, fromModule: string): string {
         // not the file itself. '/app/main.ts' -> '/app'
         const fromDir = fromModule.substring(0, fromModule.lastIndexOf('/')) || '/';
         const resolved = resolvePath(fromDir, path);
+
         return resolved.endsWith('.ts') ? resolved : resolved + '.ts';
     }
 
@@ -239,11 +242,13 @@ export function resolvePath(base: string, relative: string): string {
             // WHY skip empty and '.':
             // These represent the current directory and don't change the path.
             continue;
-        } else if (part === '..') {
+        }
+        else if (part === '..') {
             // WHY pop():
             // Move up one directory level by removing the last segment.
             baseParts.pop();
-        } else {
+        }
+        else {
             // WHY push():
             // Normal path segment - append to current path.
             baseParts.push(part);

@@ -65,6 +65,7 @@ export class ProcessAPI {
 
         // Assign a PID for this process
         const pid = this.nextPid++;
+
         this.handles.set(pid, kernelHandle);
 
         // Create OS-level handle
@@ -78,8 +79,10 @@ export class ProcessAPI {
 
             wait: async () => {
                 const result = await kernelHandle.wait();
+
                 // Clean up our tracking
                 this.handles.delete(pid);
+
                 return {
                     exitCode: result.code,
                 };

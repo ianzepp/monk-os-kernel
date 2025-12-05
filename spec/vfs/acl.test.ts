@@ -16,6 +16,7 @@ describe('VFS ACL', () => {
                 grants: [{ to: 'user1', ops: ['read', 'write'] }],
                 deny: ['user1'],
             };
+
             expect(checkAccess(acl, 'user1', 'read')).toBe(false);
         });
 
@@ -24,6 +25,7 @@ describe('VFS ACL', () => {
                 grants: [{ to: 'user1', ops: ['read', 'write'] }],
                 deny: [],
             };
+
             expect(checkAccess(acl, 'user1', 'read')).toBe(true);
             expect(checkAccess(acl, 'user1', 'write')).toBe(true);
         });
@@ -33,6 +35,7 @@ describe('VFS ACL', () => {
                 grants: [{ to: 'user1', ops: ['read'] }],
                 deny: [],
             };
+
             expect(checkAccess(acl, 'user2', 'read')).toBe(false);
         });
 
@@ -41,6 +44,7 @@ describe('VFS ACL', () => {
                 grants: [{ to: 'user1', ops: ['read'] }],
                 deny: [],
             };
+
             expect(checkAccess(acl, 'user1', 'write')).toBe(false);
         });
 
@@ -49,6 +53,7 @@ describe('VFS ACL', () => {
                 grants: [{ to: 'user1', ops: ['*'] }],
                 deny: [],
             };
+
             expect(checkAccess(acl, 'user1', 'read')).toBe(true);
             expect(checkAccess(acl, 'user1', 'write')).toBe(true);
             expect(checkAccess(acl, 'user1', 'delete')).toBe(true);
@@ -61,6 +66,7 @@ describe('VFS ACL', () => {
                 grants: [{ to: 'user1', ops: ['read'], expires: 500 }],
                 deny: [],
             };
+
             expect(checkAccess(acl, 'user1', 'read', now)).toBe(false);
         });
 
@@ -70,6 +76,7 @@ describe('VFS ACL', () => {
                 grants: [{ to: 'user1', ops: ['read'], expires: 2000 }],
                 deny: [],
             };
+
             expect(checkAccess(acl, 'user1', 'read', now)).toBe(true);
         });
 
@@ -81,6 +88,7 @@ describe('VFS ACL', () => {
                 ],
                 deny: [],
             };
+
             expect(checkAccess(acl, 'user1', 'read')).toBe(true);
             expect(checkAccess(acl, 'user1', 'write')).toBe(true);
         });
@@ -90,6 +98,7 @@ describe('VFS ACL', () => {
                 grants: [],
                 deny: [],
             };
+
             expect(checkAccess(acl, 'user1', 'read')).toBe(false);
         });
 
@@ -98,6 +107,7 @@ describe('VFS ACL', () => {
                 grants: [{ to: 'user1', ops: ['read'] }],
                 deny: [],
             };
+
             expect(checkAccess(acl, 'user1', 'read')).toBe(true);
         });
     });
@@ -108,6 +118,7 @@ describe('VFS ACL', () => {
                 grants: [{ to: 'user1', ops: ['read', 'write', 'delete'] }],
                 deny: [],
             };
+
             expect(checkAccessAll(acl, 'user1', ['read', 'write'])).toBe(true);
         });
 
@@ -116,6 +127,7 @@ describe('VFS ACL', () => {
                 grants: [{ to: 'user1', ops: ['read'] }],
                 deny: [],
             };
+
             expect(checkAccessAll(acl, 'user1', ['read', 'write'])).toBe(false);
         });
 
@@ -124,6 +136,7 @@ describe('VFS ACL', () => {
                 grants: [],
                 deny: [],
             };
+
             expect(checkAccessAll(acl, 'user1', [])).toBe(true);
         });
     });
@@ -131,22 +144,27 @@ describe('VFS ACL', () => {
     describe('defaultACL', () => {
         it('should grant * to creator and read/stat to everyone', () => {
             const acl = defaultACL('creator-uuid');
+
             expect(acl.grants.length).toBe(2);
             const creatorGrant = acl.grants[0]!;
+
             expect(creatorGrant.to).toBe('creator-uuid');
             expect(creatorGrant.ops).toContain('*');
             const everyoneGrant = acl.grants[1]!;
+
             expect(everyoneGrant.to).toBe('*');
             expect(everyoneGrant.ops).toEqual(['read', 'stat']);
         });
 
         it('should have empty deny list', () => {
             const acl = defaultACL('creator-uuid');
+
             expect(acl.deny).toEqual([]);
         });
 
         it('should allow any operation for creator', () => {
             const acl = defaultACL('creator-uuid');
+
             expect(checkAccess(acl, 'creator-uuid', 'read')).toBe(true);
             expect(checkAccess(acl, 'creator-uuid', 'write')).toBe(true);
             expect(checkAccess(acl, 'creator-uuid', 'delete')).toBe(true);
@@ -157,12 +175,14 @@ describe('VFS ACL', () => {
             // Note: checkAccess uses exact caller matching. Wildcard matching
             // is handled at VFS layer via checkAccess(acl, '*', op)
             const acl = defaultACL('creator-uuid');
+
             expect(checkAccess(acl, '*', 'read')).toBe(true);
             expect(checkAccess(acl, '*', 'stat')).toBe(true);
         });
 
         it('should deny write for wildcard', () => {
             const acl = defaultACL('creator-uuid');
+
             expect(checkAccess(acl, '*', 'write')).toBe(false);
             expect(checkAccess(acl, '*', 'delete')).toBe(false);
         });
@@ -203,6 +223,7 @@ describe('VFS ACL', () => {
             };
 
             const decoded = decodeACL(encodeACL(acl));
+
             expect(decoded).toEqual(acl);
         });
     });

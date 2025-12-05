@@ -202,7 +202,7 @@ export interface HostMount {
 export function createHostMount(
     vfsPath: string,
     hostPath: string,
-    options: HostMountOptions = {}
+    options: HostMountOptions = {},
 ): HostMount {
     // Normalize VFS path: remove trailing slashes, ensure at least '/'
     // WHY: Consistent path matching requires normalized paths
@@ -278,6 +278,7 @@ export function resolveHostPath(mount: HostMount, vfsPath: string): string | nul
     // SECURITY: Verify resolved path is still under mount
     // This catches path traversal attacks like /../../../etc/passwd
     const resolved = resolve(hostPath);
+
     if (!resolved.startsWith(mount.resolvedHostPath)) {
         // Path traversal attempt detected
         return null;
@@ -305,6 +306,7 @@ export function isUnderHostMount(mount: HostMount, vfsPath: string): boolean {
 
     // Prefix match
     const prefix = mount.vfsPath === '/' ? '/' : mount.vfsPath + '/';
+
     return vfsPath.startsWith(prefix);
 }
 
@@ -332,6 +334,7 @@ export function isUnderHostMount(mount: HostMount, vfsPath: string): boolean {
 export async function hostStat(mount: HostMount, vfsPath: string): Promise<ModelStat> {
     // Resolve and validate path
     const hostPath = resolveHostPath(mount, vfsPath);
+
     if (!hostPath) {
         throw new ENOENT(`No such file: ${vfsPath}`);
     }
@@ -353,11 +356,14 @@ export async function hostStat(mount: HostMount, vfsPath: string): Promise<Model
             mtime: stats.mtimeMs,
             ctime: stats.ctimeMs,
         };
-    } catch (err: unknown) {
+    }
+    catch (err: unknown) {
         const error = err as NodeJS.ErrnoException;
+
         if (error.code === 'ENOENT') {
             throw new ENOENT(`No such file: ${vfsPath}`);
         }
+
         throw err;
     }
 }
@@ -387,10 +393,11 @@ export async function hostStat(mount: HostMount, vfsPath: string): Promise<Model
  */
 export async function* hostReaddir(
     mount: HostMount,
-    vfsPath: string
+    vfsPath: string,
 ): AsyncIterable<ModelStat> {
     // Resolve and validate path
     const hostPath = resolveHostPath(mount, vfsPath);
+
     if (!hostPath) {
         throw new ENOENT(`No such directory: ${vfsPath}`);
     }
@@ -420,19 +427,24 @@ export async function* hostReaddir(
                     mtime: stats.mtimeMs,
                     ctime: stats.ctimeMs,
                 };
-            } catch {
+            }
+            catch {
                 // Skip entries we can't stat
                 // WHY: Don't let one bad entry prevent listing others
             }
         }
-    } catch (err: unknown) {
+    }
+    catch (err: unknown) {
         const error = err as NodeJS.ErrnoException;
+
         if (error.code === 'ENOENT') {
             throw new ENOENT(`No such directory: ${vfsPath}`);
         }
+
         if (error.code === 'ENOTDIR') {
             throw new ENOTDIR(`Not a directory: ${vfsPath}`);
         }
+
         throw err;
     }
 }
@@ -461,10 +473,11 @@ export async function* hostReaddir(
 export async function hostOpen(
     mount: HostMount,
     vfsPath: string,
-    flags: OpenFlags
+    flags: OpenFlags,
 ): Promise<FileHandle> {
     // Resolve and validate path
     const hostPath = resolveHostPath(mount, vfsPath);
+
     if (!hostPath) {
         throw new ENOENT(`No such file: ${vfsPath}`);
     }
@@ -477,28 +490,34 @@ export async function hostOpen(
     // Verify file exists and check type
     try {
         const stats = await fsStat(hostPath);
+
         if (stats.isDirectory()) {
             throw new EISDIR(`Is a directory: ${vfsPath}`);
         }
-    } catch (err: unknown) {
+    }
+    catch (err: unknown) {
         // Handle specific error cases
         if (err instanceof EISDIR) {
             throw err; // Re-throw our own error
         }
 
         const error = err as NodeJS.ErrnoException;
+
         if (error.code === 'ENOENT') {
             // File doesn't exist
             if (!flags.create) {
                 throw new ENOENT(`No such file: ${vfsPath}`);
             }
+
             // Create flag set but mount is readonly
             if (mount.options.readonly) {
                 throw new EACCES(`Mount is read-only: ${vfsPath}`);
             }
+
             // Would create on first write (not implemented)
             throw new EACCES(`Host mount file creation not implemented: ${vfsPath}`);
         }
+
         throw err;
     }
 
@@ -655,12 +674,14 @@ class HostFileHandle implements FileHandle {
 
         // Calculate bytes to return
         const remaining = this._content!.length - this._position;
+
         if (remaining <= 0) {
             return new Uint8Array(0); // EOF
         }
 
         const toRead = size !== undefined ? Math.min(size, remaining) : remaining;
         const result = this._content!.slice(this._position, this._position + toRead);
+
         this._position += toRead;
 
         return result;
@@ -744,6 +765,7 @@ class HostFileHandle implements FileHandle {
         }
 
         this._position = newPosition;
+
         return this._position;
     }
 
@@ -803,6 +825,7 @@ class HostFileHandle implements FileHandle {
      */
     private async loadContent(): Promise<void> {
         const buffer = await readFile(this._hostPath);
+
         this._content = new Uint8Array(buffer);
     }
 }

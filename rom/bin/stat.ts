@@ -56,25 +56,33 @@ async function main(): Promise<void> {
     const files: string[] = [];
 
     let i = 0;
+
     while (i < argv.length) {
         const arg = argv[i];
+
         if (!arg) {
             i++;
             continue;
         }
+
         if (arg === '-c' && i + 1 < argv.length) {
             const nextArg = argv[i + 1];
+
             if (nextArg) {
                 format = nextArg;
             }
+
             i += 2;
-        } else if (arg === '-t') {
+        }
+        else if (arg === '-t') {
             terse = true;
             i++;
-        } else if (arg.startsWith('-') && arg !== '-') {
+        }
+        else if (arg.startsWith('-') && arg !== '-') {
             await eprintln(`stat: invalid option: ${arg}`);
             await exit(1);
-        } else {
+        }
+        else {
             files.push(arg);
             i++;
         }
@@ -96,16 +104,21 @@ async function main(): Promise<void> {
 
             if (format) {
                 await println(applyFormat(format, entry, file));
-            } else if (terse) {
+            }
+            else if (terse) {
                 await println(formatTerse(entry));
-            } else {
+            }
+            else {
                 const lines = formatDefault(entry, file);
+
                 for (const line of lines) {
                     await println(line);
                 }
             }
-        } catch (err) {
+        }
+        catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
+
             await eprintln(`stat: cannot stat '${file}': ${msg}`);
             exitCode = 1;
         }
@@ -137,6 +150,7 @@ function applyFormat(format: string, entry: Stat, _path: string): string {
     const ctime = formatTime(entry.ctime);
 
     let result = format;
+
     result = result.replace(/%n/g, entry.name);
     result = result.replace(/%s/g, String(entry.size));
     result = result.replace(/%F/g, getFileType(entry.model));
@@ -171,6 +185,7 @@ function formatDefault(entry: Stat, _path: string): string[] {
 function formatTerse(entry: Stat): string {
     const mtime = Math.floor(entry.mtime.getTime() / 1000);
     const ctime = Math.floor(entry.ctime.getTime() / 1000);
+
     return [entry.name, entry.size, entry.model, entry.id, entry.owner, mtime, ctime].join(' ');
 }
 
@@ -184,7 +199,7 @@ async function showHelp(): Promise<void> {
     await println('Format: %n=name %s=size %F=type %i=id %U=owner %y=mtime %z=ctime');
 }
 
-main().catch(async (err) => {
+main().catch(async err => {
     await eprintln(`stat: ${err.message}`);
     await exit(1);
 });

@@ -425,9 +425,11 @@ export class MockCompressionDevice implements CompressionDevice {
         // Prepend marker byte and algorithm indicator
         const algByte = alg === 'gzip' ? 0x01 : 0x02;
         const result = new Uint8Array(data.length + 2);
+
         result[0] = MockCompressionDevice.MARKER;
         result[1] = algByte;
         result.set(data, 2);
+
         return result;
     }
 
@@ -456,10 +458,13 @@ export class MockCompressionDevice implements CompressionDevice {
         if (data[0] !== MockCompressionDevice.MARKER) {
             throw new EINVAL('Invalid mock compressed data: missing marker');
         }
+
         const expectedAlg = alg === 'gzip' ? 0x01 : 0x02;
+
         if (data[1] !== expectedAlg) {
             throw new EINVAL('Invalid mock compressed data: algorithm mismatch');
         }
+
         return data.slice(2);
     }
 

@@ -259,7 +259,7 @@ export class EntityCache {
         // Note: entities table has no trashed_at - cache contains ALL entities.
         // Soft-delete status is determined by the detail table's trashed_at.
         const entities = await db.query<CachedEntity>(
-            'SELECT id, model, parent, pathname FROM entities'
+            'SELECT id, model, parent, pathname FROM entities',
         );
 
         // Add each entity to cache
@@ -335,14 +335,15 @@ export class EntityCache {
     private async resolveFromDatabase(
         db: DatabaseConnection,
         parentId: string,
-        pathname: string
+        pathname: string,
     ): Promise<string | undefined> {
         const rows = await db.query<CachedEntity>(
             'SELECT id, model, parent, pathname FROM entities WHERE parent = ? AND pathname = ?',
-            [parentId, pathname]
+            [parentId, pathname],
         );
 
         const entity = rows[0];
+
         if (!entity) {
             return undefined;
         }
@@ -372,6 +373,7 @@ export class EntityCache {
 
         // Check if entity exists
         let current = this.byId.get(id);
+
         if (!current) {
             return null; // Entity not found
         }
@@ -406,9 +408,10 @@ export class EntityCache {
      */
     async resolveParent(
         path: string,
-        db?: DatabaseConnection
+        db?: DatabaseConnection,
     ): Promise<{ parentId: string; pathname: string } | null> {
         const parts = path.split('/').filter(Boolean);
+
         if (parts.length === 0) {
             return null; // Can't get parent of root
         }
@@ -478,17 +481,20 @@ export class EntityCache {
     listChildren(parentId: string): string[] {
         // Use childrenOf index if available
         const children = this.childrenOf.get(parentId);
+
         if (children) {
             return Array.from(children);
         }
 
         // Fall back to scanning (still fast)
         const results: string[] = [];
+
         for (const [id, entity] of this.byId) {
             if (entity.parent === parentId) {
                 results.push(id);
             }
         }
+
         return results;
     }
 
@@ -521,10 +527,12 @@ export class EntityCache {
             // Add to childrenOf index (if enabled)
             if (this.maintainChildrenOf) {
                 let siblings = this.childrenOf.get(entity.parent);
+
                 if (!siblings) {
                     siblings = new Set();
                     this.childrenOf.set(entity.parent, siblings);
                 }
+
                 siblings.add(entity.id);
             }
         }
@@ -541,6 +549,7 @@ export class EntityCache {
      */
     updateEntity(id: string, changes: EntityUpdate): void {
         const existing = this.byId.get(id);
+
         if (!existing) {
             return; // Entity not in cache (shouldn't happen)
         }
@@ -557,6 +566,7 @@ export class EntityCache {
                 ...existing,
                 pathname: changes.pathname,
             };
+
             this.byId.set(id, updated);
 
             // Add new child index entry
@@ -583,6 +593,7 @@ export class EntityCache {
                 ...existing,
                 parent: changes.parent ?? null,
             };
+
             this.byId.set(id, updated);
 
             // Add to new parent's indexes
@@ -591,10 +602,12 @@ export class EntityCache {
 
                 if (this.maintainChildrenOf) {
                     let siblings = this.childrenOf.get(updated.parent);
+
                     if (!siblings) {
                         siblings = new Set();
                         this.childrenOf.set(updated.parent, siblings);
                     }
+
                     siblings.add(id);
                 }
             }
@@ -610,6 +623,7 @@ export class EntityCache {
      */
     removeEntity(id: string): void {
         const existing = this.byId.get(id);
+
         if (!existing) {
             return; // Already removed
         }

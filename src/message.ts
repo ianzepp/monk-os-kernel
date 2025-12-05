@@ -135,7 +135,7 @@ export const respond = {
  */
 export function isResponseOp<T extends Response['op']>(
     response: Response,
-    op: T
+    op: T,
 ): response is Response & { op: T } {
     return response.op === op;
 }
@@ -146,11 +146,14 @@ export function isResponseOp<T extends Response['op']>(
 export function unwrapResponse<T = unknown>(response: Response): T {
     if (response.op === 'error') {
         const err = response.data as { code: string; message: string };
+
         throw fromCode(err.code, err.message);
     }
+
     if (response.op === 'ok') {
         return response.data as T;
     }
+
     throw new EINVAL(`Unexpected response op: ${response.op}`);
 }
 
@@ -158,19 +161,24 @@ export function unwrapResponse<T = unknown>(response: Response): T {
  * Collect all 'item' responses from a stream into an array.
  */
 export async function collectItems<T = unknown>(
-    stream: AsyncIterable<Response>
+    stream: AsyncIterable<Response>,
 ): Promise<T[]> {
     const items: T[] = [];
+
     for await (const response of stream) {
         if (response.op === 'item') {
             items.push(response.data as T);
-        } else if (response.op === 'error') {
+        }
+        else if (response.op === 'error') {
             const err = response.data as { code: string; message: string };
+
             throw fromCode(err.code, err.message);
-        } else if (response.op === 'done') {
+        }
+        else if (response.op === 'done') {
             break;
         }
     }
+
     return items;
 }
 
@@ -179,16 +187,19 @@ export async function collectItems<T = unknown>(
  * Throws on 'error' response.
  */
 export async function unwrapStream<T = unknown>(
-    stream: AsyncIterable<Response>
+    stream: AsyncIterable<Response>,
 ): Promise<T> {
     for await (const response of stream) {
         if (response.op === 'ok') {
             return response.data as T;
         }
+
         if (response.op === 'error') {
             const err = response.data as { code: string; message: string };
+
             throw fromCode(err.code, err.message);
         }
     }
+
     throw new EIO('No ok response received');
 }

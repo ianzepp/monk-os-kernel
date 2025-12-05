@@ -40,7 +40,7 @@ export type ReaddirFn = (path: string) => Promise<GlobEntry[]>;
 export async function expandGlobs(
     args: string[],
     cwd: string,
-    readdir: ReaddirFn
+    readdir: ReaddirFn,
 ): Promise<string[]> {
     const result: string[] = [];
 
@@ -58,11 +58,13 @@ export async function expandGlobs(
             // No slash: glob in cwd
             dir = cwd;
             pattern = arg;
-        } else if (lastSlash === 0) {
+        }
+        else if (lastSlash === 0) {
             // Leading slash: glob in root
             dir = '/';
             pattern = arg.slice(1);
-        } else {
+        }
+        else {
             // Path with directory: resolve and glob
             dir = resolvePath(cwd, arg.slice(0, lastSlash));
             pattern = arg.slice(lastSlash + 1);
@@ -80,17 +82,20 @@ export async function expandGlobs(
                 .filter(e => match(e.name, pattern))
                 .map(e => {
                     const path = dir === cwd ? e.name : `${dir}/${e.name}`;
+
                     return e.isDirectory ? path + '/' : path;
                 })
                 .sort();
 
             if (matches.length > 0) {
                 result.push(...matches);
-            } else {
+            }
+            else {
                 // No matches: keep literal (bash behavior)
                 result.push(arg);
             }
-        } catch {
+        }
+        catch {
             // Error reading directory: keep literal
             result.push(arg);
         }
@@ -105,7 +110,7 @@ export async function expandGlobs(
 export async function expandGlob(
     arg: string,
     cwd: string,
-    readdir: ReaddirFn
+    readdir: ReaddirFn,
 ): Promise<string[]> {
     return expandGlobs([arg], cwd, readdir);
 }

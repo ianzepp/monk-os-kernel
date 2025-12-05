@@ -34,7 +34,7 @@ export class Interpreter {
         program: ProgramNode,
         stdout: OutputWriter,
         stderr: OutputWriter,
-        signal?: AbortSignal
+        signal?: AbortSignal,
     ) {
         this.program = program;
         this.stdout = stdout;
@@ -87,7 +87,10 @@ export class Interpreter {
         try {
             // Run BEGIN blocks
             for (const block of this.program.begin) {
-                if (this.signal?.aborted) return 130;
+                if (this.signal?.aborted) {
+                    return 130;
+                }
+
                 await this.executeBlock(block);
                 if (this.state.exitCode !== null) {
                     return this.state.exitCode;
@@ -106,8 +109,13 @@ export class Interpreter {
             }
 
             for (const record of records) {
-                if (this.signal?.aborted) return 130;
-                if (this.state.exitCode !== null) break;
+                if (this.signal?.aborted) {
+                    return 130;
+                }
+
+                if (this.state.exitCode !== null) {
+                    break;
+                }
 
                 this.state.builtins.NR++;
                 this.state.builtins.FNR++;
@@ -115,28 +123,38 @@ export class Interpreter {
 
                 try {
                     for (const rule of this.program.rules) {
-                        if (this.signal?.aborted) return 130;
+                        if (this.signal?.aborted) {
+                            return 130;
+                        }
+
                         await this.executeRule(rule);
                     }
-                } catch (e) {
+                }
+                catch (e) {
                     if (e instanceof NextException) {
                         continue;
                     }
+
                     throw e;
                 }
             }
 
             // Run END blocks
             for (const block of this.program.end) {
-                if (this.signal?.aborted) return 130;
+                if (this.signal?.aborted) {
+                    return 130;
+                }
+
                 await this.executeBlock(block);
             }
 
             return this.state.exitCode ?? 0;
-        } catch (e) {
+        }
+        catch (e) {
             if (e instanceof ExitException) {
                 return e.code;
             }
+
             throw e;
         }
     }
@@ -146,19 +164,23 @@ export class Interpreter {
         const fs = this.state.builtins.FS;
 
         let parts: string[];
+
         if (fs === ' ') {
             // Special: split on runs of whitespace, trim leading/trailing
             parts = record.trim().split(/\s+/);
             if (parts.length === 1 && parts[0] === '') {
                 parts = [];
             }
-        } else if (fs === '') {
+        }
+        else if (fs === '') {
             // Split into characters
             parts = record.split('');
-        } else {
+        }
+        else {
             try {
                 parts = record.split(new RegExp(fs));
-            } catch {
+            }
+            catch {
                 parts = record.split(fs);
             }
         }
@@ -170,6 +192,7 @@ export class Interpreter {
     private rebuildRecord(): void {
         // Rebuild $0 from fields
         const ofs = this.state.builtins.OFS;
+
         this.state.fields[0] = this.state.fields.slice(1).join(ofs);
     }
 
@@ -177,20 +200,24 @@ export class Interpreter {
         // Check pattern
         if (rule.pattern) {
             const matches = await this.evaluatePattern(rule, rule.pattern);
-            if (!matches) return;
+
+            if (!matches) {
+                return;
+            }
         }
 
         // Execute action (or default: print $0)
         if (rule.action) {
             await this.executeBlock(rule.action);
-        } else {
+        }
+        else {
             this.stdout(this.state.fields[0] + this.state.builtins.ORS);
         }
     }
 
     private async evaluatePattern(
         rule: RuleNode,
-        pattern: ExprNode | PatternRangeNode
+        pattern: ExprNode | PatternRangeNode,
     ): Promise<boolean> {
         // Pattern range
         if (pattern.type === 'PatternRange') {
@@ -199,16 +226,22 @@ export class Interpreter {
 
             if (!inRange) {
                 const startMatches = toBool(await this.evaluate(range.start));
+
                 if (startMatches) {
                     this.state.rangeStates.set(rule, true);
+
                     return true;
                 }
+
                 return false;
-            } else {
+            }
+            else {
                 const endMatches = toBool(await this.evaluate(range.end));
+
                 if (endMatches) {
                     this.state.rangeStates.set(rule, false);
                 }
+
                 return true;
             }
         }
@@ -216,10 +249,13 @@ export class Interpreter {
         // Regular expression pattern - match against $0
         if (pattern.type === 'RegexLiteral') {
             const regex = pattern as RegexLiteralNode;
+
             try {
                 const re = new RegExp(regex.pattern, regex.flags);
+
                 return re.test(this.state.fields[0] ?? '');
-            } catch {
+            }
+            catch {
                 return false;
             }
         }
@@ -230,7 +266,10 @@ export class Interpreter {
 
     private async executeBlock(block: BlockNode): Promise<void> {
         for (const stmt of block.statements) {
-            if (this.signal?.aborted) throw new ExitException(130);
+            if (this.signal?.aborted) {
+                throw new ExitException(130);
+            }
+
             await this.executeStatement(stmt);
         }
     }
@@ -272,13 +311,17 @@ export class Interpreter {
             case 'NextStmt':
                 throw new NextException();
 
-            case 'ExitStmt':
+            case 'ExitStmt': {
                 const exitCode = stmt.code ? toNumber(await this.evaluate(stmt.code)) : 0;
-                throw new ExitException(exitCode);
 
-            case 'ReturnStmt':
+                throw new ExitException(exitCode);
+            }
+
+            case 'ReturnStmt': {
                 const returnValue = stmt.value ? await this.evaluate(stmt.value) : '';
+
                 throw new ReturnException(returnValue);
+            }
 
             case 'DeleteStmt':
                 await this.executeDelete(stmt as DeleteStmtNode);
@@ -300,21 +343,33 @@ export class Interpreter {
 
     private async executeIf(stmt: IfStmtNode): Promise<void> {
         const condition = toBool(await this.evaluate(stmt.condition));
+
         if (condition) {
             await this.executeStatement(stmt.consequent);
-        } else if (stmt.alternate) {
+        }
+        else if (stmt.alternate) {
             await this.executeStatement(stmt.alternate);
         }
     }
 
     private async executeWhile(stmt: WhileStmtNode): Promise<void> {
         while (toBool(await this.evaluate(stmt.condition))) {
-            if (this.signal?.aborted) throw new ExitException(130);
+            if (this.signal?.aborted) {
+                throw new ExitException(130);
+            }
+
             try {
                 await this.executeStatement(stmt.body);
-            } catch (e) {
-                if (e instanceof BreakException) break;
-                if (e instanceof ContinueException) continue;
+            }
+            catch (e) {
+                if (e instanceof BreakException) {
+                    break;
+                }
+
+                if (e instanceof ContinueException) {
+                    continue;
+                }
+
                 throw e;
             }
         }
@@ -322,12 +377,22 @@ export class Interpreter {
 
     private async executeDoWhile(stmt: DoWhileStmtNode): Promise<void> {
         do {
-            if (this.signal?.aborted) throw new ExitException(130);
+            if (this.signal?.aborted) {
+                throw new ExitException(130);
+            }
+
             try {
                 await this.executeStatement(stmt.body);
-            } catch (e) {
-                if (e instanceof BreakException) break;
-                if (e instanceof ContinueException) continue;
+            }
+            catch (e) {
+                if (e instanceof BreakException) {
+                    break;
+                }
+
+                if (e instanceof ContinueException) {
+                    continue;
+                }
+
                 throw e;
             }
         } while (toBool(await this.evaluate(stmt.condition)));
@@ -339,17 +404,29 @@ export class Interpreter {
         }
 
         while (stmt.condition ? toBool(await this.evaluate(stmt.condition)) : true) {
-            if (this.signal?.aborted) throw new ExitException(130);
+            if (this.signal?.aborted) {
+                throw new ExitException(130);
+            }
+
             try {
                 await this.executeStatement(stmt.body);
-            } catch (e) {
-                if (e instanceof BreakException) break;
+            }
+            catch (e) {
+                if (e instanceof BreakException) {
+                    break;
+                }
+
                 if (e instanceof ContinueException) {
-                    if (stmt.update) await this.evaluate(stmt.update);
+                    if (stmt.update) {
+                        await this.evaluate(stmt.update);
+                    }
+
                     continue;
                 }
+
                 throw e;
             }
+
             if (stmt.update) {
                 await this.evaluate(stmt.update);
             }
@@ -358,16 +435,29 @@ export class Interpreter {
 
     private async executeForIn(stmt: ForInStmtNode): Promise<void> {
         const array = this.state.globals.arrays.get(stmt.array);
-        if (!array) return;
+
+        if (!array) {
+            return;
+        }
 
         for (const key of Array.from(array.keys())) {
-            if (this.signal?.aborted) throw new ExitException(130);
+            if (this.signal?.aborted) {
+                throw new ExitException(130);
+            }
+
             this.state.globals.variables.set(stmt.variable, key);
             try {
                 await this.executeStatement(stmt.body);
-            } catch (e) {
-                if (e instanceof BreakException) break;
-                if (e instanceof ContinueException) continue;
+            }
+            catch (e) {
+                if (e instanceof BreakException) {
+                    break;
+                }
+
+                if (e instanceof ContinueException) {
+                    continue;
+                }
+
                 throw e;
             }
         }
@@ -375,16 +465,21 @@ export class Interpreter {
 
     private async executeDelete(stmt: DeleteStmtNode): Promise<void> {
         const array = this.state.globals.arrays.get(stmt.array);
-        if (!array) return;
+
+        if (!array) {
+            return;
+        }
 
         if (stmt.index === null) {
             // Delete entire array
             array.clear();
-        } else {
+        }
+        else {
             // Delete specific element
             const keys = await Promise.all(
-                stmt.index.map(async (e) => toString(await this.evaluate(e)))
+                stmt.index.map(async e => toString(await this.evaluate(e))),
             );
+
             array.delete(keys.join(this.state.builtins.SUBSEP));
         }
     }
@@ -394,9 +489,11 @@ export class Interpreter {
 
         if (stmt.args.length === 0) {
             output = this.state.fields[0] ?? '';
-        } else {
-            const values = await Promise.all(stmt.args.map((a) => this.evaluate(a)));
-            output = values.map((v) => toString(v)).join(this.state.builtins.OFS);
+        }
+        else {
+            const values = await Promise.all(stmt.args.map(a => this.evaluate(a)));
+
+            output = values.map(v => toString(v)).join(this.state.builtins.OFS);
         }
 
         output += this.state.builtins.ORS;
@@ -405,8 +502,9 @@ export class Interpreter {
 
     private async executePrintf(stmt: PrintfStmtNode): Promise<void> {
         const format = toString(await this.evaluate(stmt.format));
-        const args = await Promise.all(stmt.args.map((a) => this.evaluate(a)));
+        const args = await Promise.all(stmt.args.map(a => this.evaluate(a)));
         const output = formatPrintf(format, args);
+
         this.writeOutput(output, stmt.output);
     }
 
@@ -427,10 +525,13 @@ export class Interpreter {
             case 'RegexLiteral': {
                 // When used as expression, match against $0
                 const regex = expr as RegexLiteralNode;
+
                 try {
                     const re = new RegExp(regex.pattern, regex.flags);
+
                     return re.test(this.state.fields[0] ?? '') ? 1 : 0;
-                } catch {
+                }
+                catch {
                     return 0;
                 }
             }
@@ -491,8 +592,10 @@ export class Interpreter {
     private setVariableValue(name: string, value: AwkValue): void {
         // Check built-in variables
         if (name in this.state.builtins) {
-            const builtins = this.state.builtins as Record<string, AwkValue>;
+            const builtins = this.state.builtins as unknown as Record<string, AwkValue>;
+
             builtins[name] = value;
+
             return;
         }
 
@@ -503,14 +606,21 @@ export class Interpreter {
         const idx = toNumber(await this.evaluate(expr.index));
         const index = Math.floor(idx);
 
-        if (index < 0) return '';
-        if (index >= this.state.fields.length) return '';
+        if (index < 0) {
+            return '';
+        }
+
+        if (index >= this.state.fields.length) {
+            return '';
+        }
 
         return this.state.fields[index] ?? '';
     }
 
     private async setField(index: number, value: AwkValue): Promise<void> {
-        if (index < 0) return;
+        if (index < 0) {
+            return;
+        }
 
         // Extend fields array if needed
         while (this.state.fields.length <= index) {
@@ -527,7 +637,8 @@ export class Interpreter {
         // Rebuild $0 if we changed a field (not $0)
         if (index > 0) {
             this.rebuildRecord();
-        } else {
+        }
+        else {
             // Changed $0, re-split
             this.setRecord(toString(value));
         }
@@ -535,12 +646,13 @@ export class Interpreter {
 
     private async getArrayElement(expr: ArrayAccessNode): Promise<AwkValue> {
         let array = this.state.globals.arrays.get(expr.array);
+
         if (!array) {
             array = new Map();
             this.state.globals.arrays.set(expr.array, array);
         }
 
-        const keys = await Promise.all(expr.indices.map((i) => this.evaluate(i)));
+        const keys = await Promise.all(expr.indices.map(i => this.evaluate(i)));
         const key = keys.map(toString).join(this.state.builtins.SUBSEP);
 
         return array.get(key) ?? '';
@@ -549,15 +661,16 @@ export class Interpreter {
     private async setArrayElement(
         arrayName: string,
         indices: ExprNode[],
-        value: AwkValue
+        value: AwkValue,
     ): Promise<void> {
         let array = this.state.globals.arrays.get(arrayName);
+
         if (!array) {
             array = new Map();
             this.state.globals.arrays.set(arrayName, array);
         }
 
-        const keys = await Promise.all(indices.map((i) => this.evaluate(i)));
+        const keys = await Promise.all(indices.map(i => this.evaluate(i)));
         const key = keys.map(toString).join(this.state.builtins.SUBSEP);
 
         array.set(key, value);
@@ -569,13 +682,21 @@ export class Interpreter {
         // Short-circuit operators
         if (op === '&&') {
             const left = toBool(await this.evaluate(expr.left));
-            if (!left) return 0;
+
+            if (!left) {
+                return 0;
+            }
+
             return toBool(await this.evaluate(expr.right)) ? 1 : 0;
         }
 
         if (op === '||') {
             const left = toBool(await this.evaluate(expr.left));
-            if (left) return 1;
+
+            if (left) {
+                return 1;
+            }
+
             return toBool(await this.evaluate(expr.right)) ? 1 : 0;
         }
 
@@ -591,17 +712,21 @@ export class Interpreter {
         if (op === '~' || op === '!~') {
             const str = toString(left);
             let pattern: string;
+
             if (expr.right.type === 'RegexLiteral') {
                 pattern = (expr.right as RegexLiteralNode).pattern;
-            } else {
+            }
+            else {
                 pattern = toString(right);
             }
 
             try {
                 const regex = new RegExp(pattern);
                 const matches = regex.test(str);
+
                 return (op === '~' ? matches : !matches) ? 1 : 0;
-            } catch {
+            }
+            catch {
                 return 0;
             }
         }
@@ -637,6 +762,7 @@ export class Interpreter {
         if (leftIsNum && rightIsNum) {
             const l = toNumber(left);
             const r = toNumber(right);
+
             switch (op) {
                 case '==': return l === r;
                 case '!=': return l !== r;
@@ -650,6 +776,7 @@ export class Interpreter {
         // String comparison
         const l = toString(left);
         const r = toString(right);
+
         switch (op) {
             case '==': return l === r;
             case '!=': return l !== r;
@@ -679,6 +806,7 @@ export class Interpreter {
 
     private async evaluateTernary(expr: TernaryNode): Promise<AwkValue> {
         const condition = toBool(await this.evaluate(expr.condition));
+
         return condition
             ? await this.evaluate(expr.consequent)
             : await this.evaluate(expr.alternate);
@@ -705,6 +833,7 @@ export class Interpreter {
         }
 
         await this.setLValue(target, value);
+
         return value;
     }
 
@@ -726,14 +855,16 @@ export class Interpreter {
                 break;
             case 'FieldAccess': {
                 const idx = toNumber(await this.evaluate((expr as FieldAccessNode).index));
+
                 await this.setField(Math.floor(idx), value);
                 break;
             }
+
             case 'ArrayAccess':
                 await this.setArrayElement(
                     (expr as ArrayAccessNode).array,
                     (expr as ArrayAccessNode).indices,
-                    value
+                    value,
                 );
                 break;
         }
@@ -749,10 +880,11 @@ export class Interpreter {
     }
 
     private async evaluateFunctionCall(expr: FunctionCallNode): Promise<AwkValue> {
-        const args = await Promise.all(expr.args.map((a) => this.evaluate(a)));
+        const args = await Promise.all(expr.args.map(a => this.evaluate(a)));
 
         // Check built-in functions
         const builtin = builtins[expr.name];
+
         if (builtin) {
             return builtin(
                 args,
@@ -760,19 +892,23 @@ export class Interpreter {
                 (name, value) => this.setVariableValue(name, value),
                 (name, key, value) => {
                     let array = this.state.globals.arrays.get(name);
+
                     if (!array) {
                         array = new Map();
                         this.state.globals.arrays.set(name, array);
                     }
+
                     array.set(key, value);
-                }
+                },
             );
         }
 
         // User-defined function
         const fn = this.state.functions.get(expr.name);
+
         if (fn === undefined) {
             this.stderr(`awk: unknown function ${expr.name}\n`);
+
             return '';
         }
 
@@ -787,20 +923,29 @@ export class Interpreter {
         // Bind parameters
         for (let i = 0; i < fn.params.length; i++) {
             const param = fn.params[i];
-            if (param === undefined) continue;
+
+            if (param === undefined) {
+                continue;
+            }
+
             const value = i < args.length ? (args[i] ?? '') : '';
+
             this.state.globals.variables.set(param, value);
         }
 
         try {
             await this.executeBlock(fn.body);
+
             return '';
-        } catch (e) {
+        }
+        catch (e) {
             if (e instanceof ReturnException) {
                 return e.value;
             }
+
             throw e;
-        } finally {
+        }
+        finally {
             // Restore scope
             this.state.globals.variables = savedVars;
             this.state.globals.arrays = savedArrays;
@@ -814,17 +959,30 @@ export class Interpreter {
 
     private evaluateIn(expr: InExprNode): AwkValue {
         const array = this.state.globals.arrays.get(expr.array);
-        if (!array) return 0;
+
+        if (!array) {
+            return 0;
+        }
 
         // Synchronously evaluate indices for 'in' expression
-        const keys = expr.index.map((e) => {
-            if (e.type === 'StringLiteral') return (e as StringLiteralNode).value;
-            if (e.type === 'NumberLiteral') return String((e as NumberLiteralNode).value);
-            if (e.type === 'Identifier') return toString(this.getVariable((e as IdentifierNode).name));
+        const keys = expr.index.map(e => {
+            if (e.type === 'StringLiteral') {
+                return (e as StringLiteralNode).value;
+            }
+
+            if (e.type === 'NumberLiteral') {
+                return String((e as NumberLiteralNode).value);
+            }
+
+            if (e.type === 'Identifier') {
+                return toString(this.getVariable((e as IdentifierNode).name));
+            }
+
             return '';
         });
 
         const key = keys.join(this.state.builtins.SUBSEP);
+
         return array.has(key) ? 1 : 0;
     }
 }

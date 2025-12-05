@@ -14,6 +14,7 @@
 export function isEmail(str: string): boolean {
     // Simplified but reasonable email regex
     const regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
     return regex.test(str);
 }
 
@@ -25,20 +26,26 @@ export function isURL(str: string, options: { protocols?: string[]; requireProto
 
     try {
         const url = new URL(str);
+
         if (protocols.length > 0 && !protocols.includes(url.protocol.replace(':', ''))) {
             return false;
         }
+
         return true;
-    } catch {
+    }
+    catch {
         if (!requireProtocol) {
             // Try with https://
             try {
                 new URL('https://' + str);
+
                 return true;
-            } catch {
+            }
+            catch {
                 return false;
             }
         }
+
         return false;
     }
 }
@@ -57,6 +64,7 @@ export function isUUID(str: string, version?: 1 | 3 | 4 | 5 | 7): boolean {
     };
 
     const pattern = patterns[version ?? 'any'];
+
     return pattern !== undefined ? pattern.test(str) : false;
 }
 
@@ -66,8 +74,10 @@ export function isUUID(str: string, version?: 1 | 3 | 4 | 5 | 7): boolean {
 export function isJSON(str: string): boolean {
     try {
         JSON.parse(str);
+
         return true;
-    } catch {
+    }
+    catch {
         return false;
     }
 }
@@ -77,11 +87,17 @@ export function isJSON(str: string): boolean {
  */
 export function isIP(str: string, version?: 4 | 6): boolean {
     if (version === 4 || version === undefined) {
-        if (isIPv4(str)) return true;
+        if (isIPv4(str)) {
+            return true;
+        }
     }
+
     if (version === 6 || version === undefined) {
-        if (isIPv6(str)) return true;
+        if (isIPv6(str)) {
+            return true;
+        }
     }
+
     return false;
 }
 
@@ -90,13 +106,25 @@ export function isIP(str: string, version?: 4 | 6): boolean {
  */
 export function isIPv4(str: string): boolean {
     const parts = str.split('.');
-    if (parts.length !== 4) return false;
+
+    if (parts.length !== 4) {
+        return false;
+    }
 
     for (const part of parts) {
-        if (!/^\d+$/.test(part)) return false;
+        if (!/^\d+$/.test(part)) {
+            return false;
+        }
+
         const num = parseInt(part, 10);
-        if (num < 0 || num > 255) return false;
-        if (part.length > 1 && part[0] === '0') return false; // No leading zeros
+
+        if (num < 0 || num > 255) {
+            return false;
+        }
+
+        if (part.length > 1 && part[0] === '0') {
+            return false;
+        } // No leading zeros
     }
 
     return true;
@@ -108,6 +136,7 @@ export function isIPv4(str: string): boolean {
 export function isIPv6(str: string): boolean {
     // Simplified IPv6 validation
     const regex = /^([0-9a-f]{1,4}:){7}[0-9a-f]{1,4}$|^::$|^([0-9a-f]{1,4}:){1,7}:$|^:([0-9a-f]{1,4}:){1,7}$|^([0-9a-f]{1,4}:){1,6}:[0-9a-f]{1,4}$|^([0-9a-f]{1,4}:){1,5}(:[0-9a-f]{1,4}){1,2}$|^([0-9a-f]{1,4}:){1,4}(:[0-9a-f]{1,4}){1,3}$|^([0-9a-f]{1,4}:){1,3}(:[0-9a-f]{1,4}){1,4}$|^([0-9a-f]{1,4}:){1,2}(:[0-9a-f]{1,4}){1,5}$|^[0-9a-f]{1,4}:(:[0-9a-f]{1,4}){1,6}$|^:((:[0-9a-f]{1,4}){1,7}|:)$/i;
+
     return regex.test(str);
 }
 
@@ -124,8 +153,13 @@ export function isMACAddress(str: string, options: { separator?: ':' | '-' | '' 
     const colonFormat = /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i;
     const dashFormat = /^([0-9a-f]{2}-){5}[0-9a-f]{2}$/i;
 
-    if (separator === ':') return colonFormat.test(str);
-    if (separator === '-') return dashFormat.test(str);
+    if (separator === ':') {
+        return colonFormat.test(str);
+    }
+
+    if (separator === '-') {
+        return dashFormat.test(str);
+    }
 
     return colonFormat.test(str) || dashFormat.test(str);
 }
@@ -135,6 +169,7 @@ export function isMACAddress(str: string, options: { separator?: ':' | '-' | '' 
  */
 export function isPort(str: string): boolean {
     const num = parseInt(str, 10);
+
     return Number.isInteger(num) && num >= 0 && num <= 65535;
 }
 
@@ -167,11 +202,19 @@ export function isNumeric(str: string): boolean {
  * Check if string is a valid integer.
  */
 export function isInt(str: string, options: { min?: number; max?: number } = {}): boolean {
-    if (!/^[-+]?\d+$/.test(str)) return false;
+    if (!/^[-+]?\d+$/.test(str)) {
+        return false;
+    }
 
     const num = parseInt(str, 10);
-    if (options.min !== undefined && num < options.min) return false;
-    if (options.max !== undefined && num > options.max) return false;
+
+    if (options.min !== undefined && num < options.min) {
+        return false;
+    }
+
+    if (options.max !== undefined && num > options.max) {
+        return false;
+    }
 
     return true;
 }
@@ -180,12 +223,23 @@ export function isInt(str: string, options: { min?: number; max?: number } = {})
  * Check if string is a valid float.
  */
 export function isFloat(str: string, options: { min?: number; max?: number } = {}): boolean {
-    if (!/^[-+]?\d*\.?\d+([eE][-+]?\d+)?$/.test(str)) return false;
+    if (!/^[-+]?\d*\.?\d+([eE][-+]?\d+)?$/.test(str)) {
+        return false;
+    }
 
     const num = parseFloat(str);
-    if (!Number.isFinite(num)) return false;
-    if (options.min !== undefined && num < options.min) return false;
-    if (options.max !== undefined && num > options.max) return false;
+
+    if (!Number.isFinite(num)) {
+        return false;
+    }
+
+    if (options.min !== undefined && num < options.min) {
+        return false;
+    }
+
+    if (options.max !== undefined && num > options.max) {
+        return false;
+    }
 
     return true;
 }
@@ -201,8 +255,14 @@ export function isHexadecimal(str: string): boolean {
  * Check if string is valid base64.
  */
 export function isBase64(str: string): boolean {
-    if (str.length === 0) return false;
-    if (str.length % 4 !== 0) return false;
+    if (str.length === 0) {
+        return false;
+    }
+
+    if (str.length % 4 !== 0) {
+        return false;
+    }
+
     return /^[A-Za-z0-9+/]*={0,2}$/.test(str);
 }
 
@@ -229,8 +289,15 @@ export function isEmpty(str: string): boolean {
  */
 export function isLength(str: string, options: { min?: number; max?: number }): boolean {
     const { min = 0, max } = options;
-    if (str.length < min) return false;
-    if (max !== undefined && str.length > max) return false;
+
+    if (str.length < min) {
+        return false;
+    }
+
+    if (max !== undefined && str.length > max) {
+        return false;
+    }
+
     return true;
 }
 
@@ -253,6 +320,7 @@ export function isUppercase(str: string): boolean {
  */
 export function matches(str: string, pattern: RegExp | string): boolean {
     const regex = typeof pattern === 'string' ? new RegExp(pattern) : pattern;
+
     return regex.test(str);
 }
 
@@ -286,10 +354,14 @@ export function isMimeType(str: string): boolean {
  */
 export function isJWT(str: string): boolean {
     const parts = str.split('.');
-    if (parts.length !== 3) return false;
+
+    if (parts.length !== 3) {
+        return false;
+    }
 
     // Each part should be valid base64url
     const base64urlRegex = /^[A-Za-z0-9_-]+$/;
+
     return parts.every(part => base64urlRegex.test(part));
 }
 
@@ -299,7 +371,10 @@ export function isJWT(str: string): boolean {
 export function isCreditCard(str: string): boolean {
     // Remove spaces and dashes
     const sanitized = str.replace(/[\s-]/g, '');
-    if (!/^\d{13,19}$/.test(sanitized)) return false;
+
+    if (!/^\d{13,19}$/.test(sanitized)) {
+        return false;
+    }
 
     // Luhn algorithm
     let sum = 0;
@@ -307,12 +382,18 @@ export function isCreditCard(str: string): boolean {
 
     for (let i = sanitized.length - 1; i >= 0; i--) {
         const char = sanitized[i];
-        if (char === undefined) continue;
+
+        if (char === undefined) {
+            continue;
+        }
+
         let digit = parseInt(char, 10);
 
         if (isEven) {
             digit *= 2;
-            if (digit > 9) digit -= 9;
+            if (digit > 9) {
+                digit -= 9;
+            }
         }
 
         sum += digit;

@@ -82,7 +82,7 @@
  * - { write: true, truncate: true } - Overwrite existing content
  * - { write: true, append: true } - Append to end
  */
-export type OpenFlags = {
+export interface OpenFlags {
     /**
      * Open for reading.
      *
@@ -133,7 +133,7 @@ export type OpenFlags = {
      * POSIX equivalent: O_APPEND
      */
     append?: boolean;
-};
+}
 
 /**
  * Seek reference point.

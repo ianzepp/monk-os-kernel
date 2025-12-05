@@ -257,6 +257,7 @@ class MessageQueue {
         if (this.recvClosed) {
             throw new EPIPE('Recv end closed');
         }
+
         if (this.sendClosed) {
             throw new EPIPE('Send end closed');
         }
@@ -264,7 +265,9 @@ class MessageQueue {
         // Fast path: deliver directly to waiting receiver
         if (this.waiters.length > 0) {
             const waiter = this.waiters.shift()!;
+
             waiter(msg);
+
             return;
         }
 
@@ -341,13 +344,17 @@ class MessageQueue {
      * MEMORY: Clearing waiters prevents promise leak if caller abandons recv().
      */
     closeSend(): void {
-        if (this.sendClosed) return;
+        if (this.sendClosed) {
+            return;
+        }
+
         this.sendClosed = true;
 
         // RC-2: Wake all waiters before clearing list
         for (const waiter of this.waiters) {
             waiter(null);
         }
+
         this.waiters = [];
     }
 
@@ -371,7 +378,10 @@ class MessageQueue {
      * MEMORY: RC-4 mitigation - immediate cleanup prevents memory leaks.
      */
     closeRecv(): void {
-        if (this.recvClosed) return;
+        if (this.recvClosed) {
+            return;
+        }
+
         this.recvClosed = true;
 
         // Free memory immediately (INV-4)
@@ -381,6 +391,7 @@ class MessageQueue {
         for (const waiter of this.waiters) {
             waiter(null);
         }
+
         this.waiters = [];
     }
 }
@@ -484,7 +495,7 @@ export class MessagePipe implements Handle {
         id: string,
         end: PipeEnd,
         queue: MessageQueue,
-        description: string
+        description: string,
     ) {
         this.id = id;
         this.end = end;
@@ -534,6 +545,7 @@ export class MessagePipe implements Handle {
         // RC-1: Check closure before operation
         if (this._closed) {
             yield respond.error('EBADF', 'Handle closed');
+
             return;
         }
 
@@ -544,8 +556,10 @@ export class MessagePipe implements Handle {
                 // Validate operation is allowed for this end
                 if (this.end !== 'recv') {
                     yield respond.error('EBADF', 'Cannot recv from send end of pipe');
+
                     return;
                 }
+
                 yield* this.doRecv();
                 break;
 
@@ -553,8 +567,10 @@ export class MessagePipe implements Handle {
                 // Validate operation is allowed for this end
                 if (this.end !== 'send') {
                     yield respond.error('EBADF', 'Cannot send to recv end of pipe');
+
                     return;
                 }
+
                 yield* this.doSend(msg.data as Response);
                 break;
 
@@ -590,15 +606,19 @@ export class MessagePipe implements Handle {
         try {
             while (true) {
                 const msg = await this.queue.recv();
+
                 if (msg === null) {
                     // EOF - send end closed and queue drained
                     yield respond.done();
+
                     return;
                 }
+
                 // Pass through the Response directly
                 yield msg;
             }
-        } catch (err) {
+        }
+        catch (err) {
             // Defensive - queue.recv() shouldn't throw
             yield respond.error('EIO', (err as Error).message);
         }
@@ -626,12 +646,15 @@ export class MessagePipe implements Handle {
         try {
             this.queue.send(msg);
             yield respond.ok();
-        } catch (err) {
+        }
+        catch (err) {
             if (err instanceof EPIPE) {
                 yield respond.error('EPIPE', err.message);
-            } else if (err instanceof EAGAIN) {
+            }
+            else if (err instanceof EAGAIN) {
                 yield respond.error('EAGAIN', err.message);
-            } else {
+            }
+            else {
                 // Defensive - other errors shouldn't occur
                 yield respond.error('EIO', (err as Error).message);
             }
@@ -660,12 +683,16 @@ export class MessagePipe implements Handle {
      * - Both ends must close before queue is garbage collected
      */
     async close(): Promise<void> {
-        if (this._closed) return;
+        if (this._closed) {
+            return;
+        }
+
         this._closed = true;
 
         if (this.end === 'send') {
             this.queue.closeSend();
-        } else {
+        }
+        else {
             this.queue.closeRecv();
         }
     }
@@ -716,7 +743,7 @@ export class MessagePipe implements Handle {
  */
 export function createMessagePipe(
     pipeId: string,
-    highWaterMark?: number
+    highWaterMark?: number,
 ): [MessagePipe, MessagePipe] {
     const queue = new MessageQueue(highWaterMark);
 
@@ -724,14 +751,14 @@ export function createMessagePipe(
         `${pipeId}:recv`,
         'recv',
         queue,
-        `pipe:${pipeId}:recv`
+        `pipe:${pipeId}:recv`,
     );
 
     const sendEnd = new MessagePipe(
         `${pipeId}:send`,
         'send',
         queue,
-        `pipe:${pipeId}:send`
+        `pipe:${pipeId}:send`,
     );
 
     return [recvEnd, sendEnd];

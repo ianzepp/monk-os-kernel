@@ -157,7 +157,7 @@ const CONSOLE_PATH = '/dev/console';
 export async function createIOSourceHandle(
     self: Kernel,
     source: IOSource,
-    proc: Process
+    proc: Process,
 ): Promise<Handle> {
     switch (source.type) {
         // ---------------------------------------------------------------------
@@ -166,6 +166,7 @@ export async function createIOSourceHandle(
         case 'console': {
             // Open /dev/console through VFS (goes through DeviceModel → HAL console)
             const vfsHandle = await self.vfs.open(CONSOLE_PATH, { read: true }, 'kernel');
+
             return new FileHandleAdapter(vfsHandle.id, vfsHandle);
         }
 
@@ -175,6 +176,7 @@ export async function createIOSourceHandle(
         case 'file': {
             // Open configured file path through VFS
             const vfsHandle = await self.vfs.open(source.path, { read: true }, 'kernel');
+
             return new FileHandleAdapter(vfsHandle.id, vfsHandle);
         }
 
@@ -189,7 +191,9 @@ export async function createIOSourceHandle(
                 type: 'file' as const,                    // Pretend to be file for compatibility
                 description: '/dev/null (input)',
                 closed: false,
-                async *exec() { yield respond.done(); }, // EOF immediately
+                async *exec() {
+                    yield respond.done();
+                }, // EOF immediately
                 async close() {},                         // Nothing to clean up
             };
         }
@@ -212,7 +216,7 @@ export async function createIOSourceHandle(
                 topic: string,
                 data: Uint8Array | undefined,
                 meta: Record<string, unknown> | undefined,
-                sourcePortId: string
+                sourcePortId: string,
             ) => {
                 publishPubsub(self, topic, data, meta, sourcePortId);
             };
@@ -226,6 +230,7 @@ export async function createIOSourceHandle(
 
             // Create port and register in kernel's pubsub routing table
             const port = new PubsubPort(portId, patterns, publishFn, unsubscribeFn, description);
+
             self.pubsubPorts.add(port); // CRITICAL: Must happen before service starts
 
             // Wrap in adapter for Handle interface
@@ -264,7 +269,7 @@ export async function createIOSourceHandle(
             const port = new UdpPort(
                 portId,
                 { bind: source.port, address: source.host },
-                description
+                description,
             );
 
             // Wrap in adapter for Handle interface

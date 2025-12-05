@@ -127,11 +127,12 @@ export class SqlDelete extends BaseObserver {
 
         try {
             await system.db.execute(sql, [trashedAt, id]);
-        } catch (err) {
+        }
+        catch (err) {
             const message = err instanceof Error ? err.message : String(err);
 
             throw new EOBSSYS(
-                `DELETE (soft) failed for ${model.modelName}[${id}]: ${message}`
+                `DELETE (soft) failed for ${model.modelName}[${id}]: ${message}`,
             );
         }
     }

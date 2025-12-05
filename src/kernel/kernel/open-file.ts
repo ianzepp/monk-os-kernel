@@ -158,7 +158,7 @@ export async function openFile(
     self: Kernel,
     proc: Process,
     path: string,
-    flags: OpenFlags
+    flags: OpenFlags,
 ): Promise<number> {
     // Open file through VFS (ASYNC - process could die here)
     // Performs: path resolution, entity lookup, permission checks,

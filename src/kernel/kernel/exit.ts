@@ -154,7 +154,8 @@ export async function exit(self: Kernel, proc: Process, code: number): Promise<n
     for (const [h] of proc.handles) {
         try {
             await closeHandle(self, proc, h);
-        } catch (err) {
+        }
+        catch (err) {
             // Log but continue - don't let one bad handle prevent cleanup
             // WHY: One corrupted handle shouldn't leak all other handles
             printk(self, 'cleanup', `handle ${h} close failed: ${formatError(err)}`);

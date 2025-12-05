@@ -37,9 +37,9 @@
     "useUnknownInCatchVariables": true,
     "alwaysStrict": true,
 
-    // Additional safety
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
+    // Additional safety (unused vars handled by ESLint with _ prefix support)
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
     "noUncheckedIndexedAccess": true,

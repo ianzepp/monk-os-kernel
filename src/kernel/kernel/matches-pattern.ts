@@ -43,5 +43,6 @@ export function matchesPattern(pattern: string, value: string): boolean {
         .replace(/<<<GLOBSTAR>>>/g, '.*');    // ** matches across components
 
     const regex = new RegExp(`^${regexStr}$`);
+
     return regex.test(value);
 }

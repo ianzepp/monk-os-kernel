@@ -78,7 +78,7 @@ export class Http {
     private constructor(
         ch: number,
         _baseUrl: string,
-        opts?: HttpOptions
+        opts?: HttpOptions,
     ) {
         this.ch = ch;
         this.defaultHeaders = opts?.headers ?? {};
@@ -102,6 +102,7 @@ export class Http {
             headers: opts?.headers,
             timeout: opts?.timeout,
         });
+
         return new Http(ch, baseUrl, opts);
     }
 
@@ -118,6 +119,7 @@ export class Http {
      */
     async get<T = unknown>(path: string, opts?: RequestOptions): Promise<T> {
         const response = await this.request<T>('GET', path, undefined, opts);
+
         return response.data;
     }
 
@@ -134,6 +136,7 @@ export class Http {
      */
     async post<T = unknown>(path: string, body?: unknown, opts?: RequestOptions): Promise<T> {
         const response = await this.request<T>('POST', path, body, opts);
+
         return response.data;
     }
 
@@ -150,6 +153,7 @@ export class Http {
      */
     async put<T = unknown>(path: string, body?: unknown, opts?: RequestOptions): Promise<T> {
         const response = await this.request<T>('PUT', path, body, opts);
+
         return response.data;
     }
 
@@ -166,6 +170,7 @@ export class Http {
      */
     async patch<T = unknown>(path: string, body?: unknown, opts?: RequestOptions): Promise<T> {
         const response = await this.request<T>('PATCH', path, body, opts);
+
         return response.data;
     }
 
@@ -181,6 +186,7 @@ export class Http {
      */
     async delete<T = unknown>(path: string, opts?: RequestOptions): Promise<T> {
         const response = await this.request<T>('DELETE', path, undefined, opts);
+
         return response.data;
     }
 
@@ -208,11 +214,14 @@ export class Http {
         for await (const response of channel.stream(this.ch, msg)) {
             if (response.op === 'error') {
                 const err = response.data as { code: string; message: string };
+
                 throw new HttpError(err.code, err.message);
             }
+
             if (response.op === 'item') {
                 yield response.data as T;
             }
+
             if (response.op === 'done') {
                 break;
             }
@@ -238,7 +247,7 @@ export class Http {
         method: string,
         path: string,
         body?: unknown,
-        opts?: RequestOptions
+        opts?: RequestOptions,
     ): Promise<HttpResponse<T>> {
         const msg = httpRequest({
             method,
@@ -252,6 +261,7 @@ export class Http {
 
         if (response.op === 'error') {
             const err = response.data as { code: string; message: string };
+
             throw new HttpError(err.code, err.message);
         }
 

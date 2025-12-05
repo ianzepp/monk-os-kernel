@@ -147,7 +147,7 @@ const DEFAULT_FILE_APPEND = false;
  */
 export async function createIOTargetHandle(
     self: Kernel,
-    target: IOTarget
+    target: IOTarget,
 ): Promise<Handle> {
     switch (target.type) {
         // ---------------------------------------------------------------------
@@ -156,6 +156,7 @@ export async function createIOTargetHandle(
         case 'console': {
             // Open /dev/console through VFS (goes through DeviceModel → HAL console)
             const vfsHandle = await self.vfs.open(CONSOLE_PATH, { write: true }, 'kernel');
+
             return new FileHandleAdapter(vfsHandle.id, vfsHandle);
         }
 
@@ -191,7 +192,9 @@ export async function createIOTargetHandle(
                 type: 'file' as const,              // Pretend to be file for compatibility
                 description: '/dev/null (output)',
                 closed: false,
-                async *exec() { yield respond.ok(); }, // Accept write, discard data
+                async *exec() {
+                    yield respond.ok();
+                }, // Accept write, discard data
                 async close() {},                       // Nothing to clean up
             };
         }

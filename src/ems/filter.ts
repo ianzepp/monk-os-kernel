@@ -239,12 +239,15 @@ export class Filter {
     select(...fields: string[]): Filter {
         if (fields.length === 0 || fields.includes('*')) {
             this.selectFields = ['*'];
-        } else {
+        }
+        else {
             for (const field of fields) {
                 this.validateIdentifier(field, 'field name');
             }
+
             this.selectFields = fields;
         }
+
         return this;
     }
 
@@ -255,6 +258,7 @@ export class Filter {
      */
     where(conditions: WhereConditions): Filter {
         this.whereData = conditions;
+
         return this;
     }
 
@@ -266,11 +270,13 @@ export class Filter {
     andWhere(conditions: WhereConditions): Filter {
         if (Object.keys(this.whereData).length === 0) {
             this.whereData = conditions;
-        } else {
+        }
+        else {
             this.whereData = {
                 $and: [this.whereData, conditions],
             };
         }
+
         return this;
     }
 
@@ -281,6 +287,7 @@ export class Filter {
      */
     order(specs: OrderSpec | OrderSpec[] | string | string[]): Filter {
         this.orderSpecs = this.normalizeOrder(specs);
+
         return this;
     }
 
@@ -291,6 +298,7 @@ export class Filter {
      */
     limit(value: number): Filter {
         this.limitValue = value;
+
         return this;
     }
 
@@ -301,6 +309,7 @@ export class Filter {
      */
     offset(value: number): Filter {
         this.offsetValue = value;
+
         return this;
     }
 
@@ -311,6 +320,7 @@ export class Filter {
      */
     trashed(option: TrashedOption): Filter {
         this.trashedOption = option;
+
         return this;
     }
 
@@ -324,21 +334,27 @@ export class Filter {
         if (data.select) {
             this.select(...data.select);
         }
+
         if (data.where) {
             this.where(data.where);
         }
+
         if (data.order) {
             this.order(data.order);
         }
+
         if (data.limit !== undefined) {
             this.limit(data.limit);
         }
+
         if (data.offset !== undefined) {
             this.offset(data.offset);
         }
+
         if (options.trashed) {
             this.trashed(options.trashed);
         }
+
         return this;
     }
 
@@ -363,20 +379,24 @@ export class Filter {
             // Detail table (d) drives the query, join entities (e) for hierarchy columns
             const selectExpr = this.selectFields.includes('*')
                 ? 'e.id, e.model, e.parent, e.pathname, d.*'
-                : this.selectFields.map((f) => this.qualifyField(f)).join(', ');
+                : this.selectFields.map(f => this.qualifyField(f)).join(', ');
+
             parts.push(
-                `SELECT ${selectExpr} FROM ${this.tableName} d JOIN entities e ON d.id = e.id`
+                `SELECT ${selectExpr} FROM ${this.tableName} d JOIN entities e ON d.id = e.id`,
             );
-        } else {
+        }
+        else {
             // Metadata table - alias as 'd' but no JOIN
             const selectExpr = this.selectFields.includes('*')
                 ? 'd.*'
-                : this.selectFields.map((f) => `d.${f}`).join(', ');
+                : this.selectFields.map(f => `d.${f}`).join(', ');
+
             parts.push(`SELECT ${selectExpr} FROM ${this.tableName} d`);
         }
 
         // WHERE
         const where = this.buildWhereClause(params);
+
         if (where) {
             parts.push(`WHERE ${where}`);
         }
@@ -384,8 +404,9 @@ export class Filter {
         // ORDER BY
         if (this.orderSpecs.length > 0) {
             const orderClauses = this.orderSpecs.map(
-                (s) => `${this.qualifyField(s.field)} ${s.sort.toUpperCase()}`
+                s => `${this.qualifyField(s.field)} ${s.sort.toUpperCase()}`,
             );
+
             parts.push(`ORDER BY ${orderClauses.join(', ')}`);
         }
 
@@ -393,6 +414,7 @@ export class Filter {
         if (this.limitValue !== undefined) {
             parts.push(`LIMIT ${this.limitValue}`);
         }
+
         if (this.offsetValue !== undefined) {
             parts.push(`OFFSET ${this.offsetValue}`);
         }
@@ -413,6 +435,7 @@ export class Filter {
         const parts: string[] = [`SELECT COUNT(*) as count FROM ${fromClause}`];
 
         const where = this.buildWhereClause(params);
+
         if (where) {
             parts.push(`WHERE ${where}`);
         }
@@ -428,6 +451,7 @@ export class Filter {
     toWhereSQL(): WhereResult {
         const params: unknown[] = [];
         const clause = this.buildWhereClause(params);
+
         return { clause: clause || '1=1', params };
     }
 
@@ -443,12 +467,14 @@ export class Filter {
 
         // Add soft-delete condition
         const trashedCondition = this.buildTrashedCondition();
+
         if (trashedCondition) {
             conditions.push(trashedCondition);
         }
 
         // Add user conditions
         const userCondition = this.buildConditions(this.whereData, params);
+
         if (userCondition) {
             conditions.push(userCondition);
         }
@@ -483,64 +509,77 @@ export class Filter {
         const parts: string[] = [];
 
         for (const [key, value] of Object.entries(conditions)) {
-            if (value === undefined) continue;
+            if (value === undefined) {
+                continue;
+            }
 
             // Handle logical operators
             if (key === '$and' || key === FilterOp.AND) {
                 const subConditions = value as WhereConditions[];
                 const subParts = subConditions
-                    .map((c) => this.buildConditions(c, params))
+                    .map(c => this.buildConditions(c, params))
                     .filter(Boolean);
+
                 if (subParts.length > 0) {
                     parts.push(`(${subParts.join(' AND ')})`);
                 }
+
                 continue;
             }
 
             if (key === '$or' || key === FilterOp.OR) {
                 const subConditions = value as WhereConditions[];
                 const subParts = subConditions
-                    .map((c) => this.buildConditions(c, params))
+                    .map(c => this.buildConditions(c, params))
                     .filter(Boolean);
+
                 if (subParts.length > 0) {
                     parts.push(`(${subParts.join(' OR ')})`);
                 }
+
                 continue;
             }
 
             if (key === '$not' || key === FilterOp.NOT) {
                 const subCondition = this.buildConditions(value as WhereConditions, params);
+
                 if (subCondition) {
                     parts.push(`NOT (${subCondition})`);
                 }
+
                 continue;
             }
 
             if (key === '$nand' || key === FilterOp.NAND) {
                 const subConditions = value as WhereConditions[];
                 const subParts = subConditions
-                    .map((c) => this.buildConditions(c, params))
+                    .map(c => this.buildConditions(c, params))
                     .filter(Boolean);
+
                 if (subParts.length > 0) {
                     parts.push(`NOT (${subParts.join(' AND ')})`);
                 }
+
                 continue;
             }
 
             if (key === '$nor' || key === FilterOp.NOR) {
                 const subConditions = value as WhereConditions[];
                 const subParts = subConditions
-                    .map((c) => this.buildConditions(c, params))
+                    .map(c => this.buildConditions(c, params))
                     .filter(Boolean);
+
                 if (subParts.length > 0) {
                     parts.push(`NOT (${subParts.join(' OR ')})`);
                 }
+
                 continue;
             }
 
             // Regular field condition
             this.validateIdentifier(key, 'field name');
             const condition = this.buildFieldCondition(key, value, params);
+
             if (condition) {
                 parts.push(condition);
             }
@@ -556,7 +595,7 @@ export class Filter {
     private buildFieldCondition(
         field: string,
         value: unknown,
-        params: unknown[]
+        params: unknown[],
     ): string {
         const qualifiedField = this.qualifyField(field);
 
@@ -568,6 +607,7 @@ export class Filter {
         // Primitive value (implicit $eq)
         if (typeof value !== 'object') {
             params.push(value);
+
             return `${qualifiedField} = ?`;
         }
 
@@ -577,6 +617,7 @@ export class Filter {
 
         for (const [op, opValue] of Object.entries(operators)) {
             const condition = this.buildOperatorCondition(qualifiedField, op, opValue, params);
+
             if (condition) {
                 conditions.push(condition);
             }
@@ -593,75 +634,93 @@ export class Filter {
         field: string,
         op: string,
         value: unknown,
-        params: unknown[]
+        params: unknown[],
     ): string {
         switch (op) {
             // Comparison
             case '$eq':
             case FilterOp.EQ:
-                if (value === null) return `${field} IS NULL`;
+                if (value === null) {
+                    return `${field} IS NULL`;
+                }
+
                 params.push(value);
+
                 return `${field} = ?`;
 
             case '$ne':
             case FilterOp.NE:
             case '$neq':
             case FilterOp.NEQ:
-                if (value === null) return `${field} IS NOT NULL`;
+                if (value === null) {
+                    return `${field} IS NOT NULL`;
+                }
+
                 params.push(value);
+
                 return `${field} != ?`;
 
             case '$gt':
             case FilterOp.GT:
                 params.push(value);
+
                 return `${field} > ?`;
 
             case '$gte':
             case FilterOp.GTE:
                 params.push(value);
+
                 return `${field} >= ?`;
 
             case '$lt':
             case FilterOp.LT:
                 params.push(value);
+
                 return `${field} < ?`;
 
             case '$lte':
             case FilterOp.LTE:
                 params.push(value);
+
                 return `${field} <= ?`;
 
             // Pattern matching
             case '$like':
             case FilterOp.LIKE:
                 params.push(value);
+
                 return `${field} LIKE ?`;
 
             case '$ilike':
             case FilterOp.ILIKE:
                 // SQLite: use LOWER() for case-insensitive
                 params.push(String(value).toLowerCase());
+
                 return `LOWER(${field}) LIKE LOWER(?)`;
 
             case '$nlike':
             case FilterOp.NLIKE:
                 params.push(value);
+
                 return `${field} NOT LIKE ?`;
 
             case '$nilike':
             case FilterOp.NILIKE:
                 params.push(String(value).toLowerCase());
+
                 return `LOWER(${field}) NOT LIKE LOWER(?)`;
 
             // Regex matching (requires regexp function registered in SQLite)
             case '$regex':
             case FilterOp.REGEX:
                 params.push(value);
+
                 return `${field} REGEXP ?`;
 
             case '$nregex':
             case FilterOp.NREGEX:
                 params.push(value);
+
                 return `${field} NOT REGEXP ?`;
 
             // Text search (case-insensitive contains)
@@ -670,24 +729,37 @@ export class Filter {
             case '$text':
             case FilterOp.TEXT:
                 params.push(`%${String(value).toLowerCase()}%`);
+
                 return `LOWER(${field}) LIKE ?`;
 
             // Array membership
             case '$in':
             case FilterOp.IN: {
                 const arr = value as unknown[];
-                if (arr.length === 0) return '0=1'; // Empty IN = no match
+
+                if (arr.length === 0) {
+                    return '0=1';
+                } // Empty IN = no match
+
                 const placeholders = arr.map(() => '?').join(', ');
+
                 params.push(...arr);
+
                 return `${field} IN (${placeholders})`;
             }
 
             case '$nin':
             case FilterOp.NIN: {
                 const arr = value as unknown[];
-                if (arr.length === 0) return '1=1'; // Empty NIN = all match
+
+                if (arr.length === 0) {
+                    return '1=1';
+                } // Empty NIN = all match
+
                 const placeholders = arr.map(() => '?').join(', ');
+
                 params.push(...arr);
+
                 return `${field} NOT IN (${placeholders})`;
             }
 
@@ -695,16 +767,21 @@ export class Filter {
             case '$size':
             case FilterOp.SIZE: {
                 const lengthExpr = `json_array_length(${field})`;
+
                 if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
                     // Nested operator: { $size: { $gte: 1 } }
                     const entries = Object.entries(value as Record<string, unknown>);
+
                     if (entries.length === 1) {
                         const [nestedOp, nestedValue] = entries[0]!;
+
                         return this.buildSizeCondition(lengthExpr, nestedOp, nestedValue, params);
                     }
                 }
+
                 // Simple equality: { $size: 3 }
                 params.push(value);
+
                 return `${lengthExpr} = ?`;
             }
 
@@ -712,7 +789,9 @@ export class Filter {
             case '$between':
             case FilterOp.BETWEEN: {
                 const [min, max] = value as [unknown, unknown];
+
                 params.push(min, max);
+
                 return `${field} BETWEEN ? AND ?`;
             }
 
@@ -737,34 +816,40 @@ export class Filter {
         lengthExpr: string,
         op: string,
         value: unknown,
-        params: unknown[]
+        params: unknown[],
     ): string {
         switch (op) {
             case '$eq':
             case FilterOp.EQ:
                 params.push(value);
+
                 return `${lengthExpr} = ?`;
             case '$ne':
             case FilterOp.NE:
             case '$neq':
             case FilterOp.NEQ:
                 params.push(value);
+
                 return `${lengthExpr} != ?`;
             case '$gt':
             case FilterOp.GT:
                 params.push(value);
+
                 return `${lengthExpr} > ?`;
             case '$gte':
             case FilterOp.GTE:
                 params.push(value);
+
                 return `${lengthExpr} >= ?`;
             case '$lt':
             case FilterOp.LT:
                 params.push(value);
+
                 return `${lengthExpr} < ?`;
             case '$lte':
             case FilterOp.LTE:
                 params.push(value);
+
                 return `${lengthExpr} <= ?`;
             default:
                 throw new EINVAL(`Unsupported operator for $size: ${op}`);
@@ -784,6 +869,7 @@ export class Filter {
         if (this.shouldJoinEntities && ENTITY_COLUMNS.has(field)) {
             return `e.${field}`;
         }
+
         return `d.${field}`;
     }
 
@@ -805,7 +891,7 @@ export class Filter {
      * Normalize order specification to OrderSpec array.
      */
     private normalizeOrder(
-        specs: OrderSpec | OrderSpec[] | string | string[]
+        specs: OrderSpec | OrderSpec[] | string | string[],
     ): OrderSpec[] {
         const result: OrderSpec[] = [];
 
@@ -816,13 +902,19 @@ export class Filter {
                 // Parse "field" or "field asc" or "field desc"
                 const parts = spec.trim().split(/\s+/);
                 const field = parts[0] ?? '';
-                if (!field) continue; // Skip empty strings
+
+                if (!field) {
+                    continue;
+                } // Skip empty strings
+
                 const sort = (parts[1]?.toLowerCase() === 'desc' ? 'desc' : 'asc') as
                     | 'asc'
                     | 'desc';
+
                 this.validateIdentifier(field, 'order field');
                 result.push({ field, sort });
-            } else {
+            }
+            else {
                 this.validateIdentifier(spec.field, 'order field');
                 result.push({
                     field: spec.field,
@@ -848,7 +940,7 @@ export class Filter {
     static from(
         tableName: string,
         data: FilterData = {},
-        options: SelectOptions = {}
+        options: SelectOptions = {},
     ): Filter {
         return new Filter(tableName).apply(data, options);
     }

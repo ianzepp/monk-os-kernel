@@ -9,8 +9,10 @@
  */
 export function concat(a: Uint8Array, b: Uint8Array): Uint8Array {
     const result = new Uint8Array(a.length + b.length);
+
     result.set(a);
     result.set(b, a.length);
+
     return result;
 }
 
@@ -18,17 +20,25 @@ export function concat(a: Uint8Array, b: Uint8Array): Uint8Array {
  * Concatenate multiple Uint8Arrays into one.
  */
 export function concatAll(arrays: Uint8Array[]): Uint8Array {
-    if (arrays.length === 0) return new Uint8Array(0);
+    if (arrays.length === 0) {
+        return new Uint8Array(0);
+    }
+
     const firstArray = arrays[0];
-    if (arrays.length === 1 && firstArray !== undefined) return firstArray;
+
+    if (arrays.length === 1 && firstArray !== undefined) {
+        return firstArray;
+    }
 
     const total = arrays.reduce((sum, arr) => sum + arr.length, 0);
     const result = new Uint8Array(total);
     let offset = 0;
+
     for (const arr of arrays) {
         result.set(arr, offset);
         offset += arr.length;
     }
+
     return result;
 }
 
@@ -77,10 +87,12 @@ export class ByteReader {
     private async fill(n: number): Promise<void> {
         while (this.buffer.length < n && !this.eof) {
             const { value, done } = await this.iterator.next();
+
             if (done) {
                 this.eof = true;
                 break;
             }
+
             this.buffer = concat(this.buffer, value);
         }
     }
@@ -94,7 +106,9 @@ export class ByteReader {
     async read(n: number): Promise<Uint8Array> {
         await this.fill(n);
         const result = this.buffer.subarray(0, Math.min(n, this.buffer.length));
+
         this.buffer = this.buffer.subarray(result.length);
+
         return result;
     }
 
@@ -106,6 +120,7 @@ export class ByteReader {
      */
     async peek(n: number): Promise<Uint8Array> {
         await this.fill(n);
+
         return this.buffer.subarray(0, Math.min(n, this.buffer.length));
     }
 
@@ -118,25 +133,41 @@ export class ByteReader {
     async readUntil(delim: number): Promise<Uint8Array | null> {
         while (true) {
             const idx = this.buffer.indexOf(delim);
+
             if (idx !== -1) {
                 const result = this.buffer.subarray(0, idx + 1);
+
                 this.buffer = this.buffer.subarray(idx + 1);
+
                 return result;
             }
+
             if (this.eof) {
-                if (this.buffer.length === 0) return null;
+                if (this.buffer.length === 0) {
+                    return null;
+                }
+
                 const result = this.buffer;
+
                 this.buffer = new Uint8Array(0);
+
                 return result;
             }
+
             // Need more data - fill at least one more chunk
             const prevLen = this.buffer.length;
+
             await this.fill(prevLen + 1);
             // If no progress, we hit EOF
             if (this.buffer.length === prevLen) {
-                if (this.buffer.length === 0) return null;
+                if (this.buffer.length === 0) {
+                    return null;
+                }
+
                 const result = this.buffer;
+
                 this.buffer = new Uint8Array(0);
+
                 return result;
             }
         }
@@ -150,7 +181,10 @@ export class ByteReader {
      */
     async readLine(): Promise<string | null> {
         const bytes = await this.readUntil(0x0a); // LF
-        if (bytes === null) return null;
+
+        if (bytes === null) {
+            return null;
+        }
 
         let end = bytes.length;
 
@@ -158,6 +192,7 @@ export class ByteReader {
         if (end > 0 && bytes[end - 1] === 0x0a) {
             end--;
         }
+
         // Strip trailing CR (for CRLF)
         if (end > 0 && bytes[end - 1] === 0x0d) {
             end--;
@@ -255,7 +290,8 @@ export class ByteWriter implements AsyncIterable<Uint8Array> {
         if (!this.full) {
             return Promise.resolve();
         }
-        return new Promise((resolve) => {
+
+        return new Promise(resolve => {
             this.drainWaiters.push(resolve);
         });
     }
@@ -274,6 +310,7 @@ export class ByteWriter implements AsyncIterable<Uint8Array> {
         // Flush complete chunks
         while (this.buffer.length >= this.chunkSize) {
             const chunk = this.buffer.subarray(0, this.chunkSize);
+
             this.buffer = this.buffer.subarray(this.chunkSize);
             this.emit(new Uint8Array(chunk)); // Copy to avoid shared buffer issues
         }
@@ -301,7 +338,10 @@ export class ByteWriter implements AsyncIterable<Uint8Array> {
      * Flushes any remaining buffer and completes the stream.
      */
     end(): void {
-        if (this.ended) return;
+        if (this.ended) {
+            return;
+        }
+
         this.flush();
         this.ended = true;
 
@@ -309,6 +349,7 @@ export class ByteWriter implements AsyncIterable<Uint8Array> {
         for (const waiter of this.waiting) {
             waiter.resolve({ done: true, value: undefined });
         }
+
         this.waiting = [];
     }
 
@@ -323,6 +364,7 @@ export class ByteWriter implements AsyncIterable<Uint8Array> {
         for (const waiter of this.waiting) {
             waiter.reject(error);
         }
+
         this.waiting = [];
     }
 
@@ -332,8 +374,10 @@ export class ByteWriter implements AsyncIterable<Uint8Array> {
     private emit(chunk: Uint8Array): void {
         if (this.waiting.length > 0) {
             const waiter = this.waiting.shift()!;
+
             waiter.resolve({ done: false, value: chunk });
-        } else {
+        }
+        else {
             this.chunks.push(chunk);
             this.queuedBytes += chunk.length;
         }
@@ -345,6 +389,7 @@ export class ByteWriter implements AsyncIterable<Uint8Array> {
     private notifyDrain(): void {
         if (!this.full && this.drainWaiters.length > 0) {
             const waiters = this.drainWaiters;
+
             this.drainWaiters = [];
             for (const resolve of waiters) {
                 resolve();
@@ -366,8 +411,10 @@ export class ByteWriter implements AsyncIterable<Uint8Array> {
                 // Return queued chunk if available
                 if (this.chunks.length > 0) {
                     const chunk = this.chunks.shift()!;
+
                     this.queuedBytes -= chunk.length;
                     this.notifyDrain();
+
                     return { done: false, value: chunk };
                 }
 

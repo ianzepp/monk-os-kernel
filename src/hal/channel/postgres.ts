@@ -201,6 +201,7 @@ export class BunPostgresChannel implements Channel {
         // RACE FIX: Check closed at method entry, before any async operations
         if (this._closed) {
             yield respond.error('EBADF', 'Channel closed');
+
             return;
         }
 
@@ -218,6 +219,7 @@ export class BunPostgresChannel implements Channel {
                     for (const row of rows) {
                         yield respond.item(row);
                     }
+
                     // WHY: done signals end of result set. Kernel knows stream is complete.
                     yield respond.done();
                     break;
@@ -250,9 +252,10 @@ export class BunPostgresChannel implements Channel {
                     // WHY: sql.begin() takes an async callback with a scoped transaction.
                     // All queries within the callback use the same connection and transaction.
                     // Any exception triggers automatic ROLLBACK.
-                    await this.sql.begin(async (tx) => {
+                    await this.sql.begin(async tx => {
                         for (const stmt of statements) {
                             const result = await tx.unsafe(stmt.sql, stmt.params ?? []);
+
                             results.push(result.count);
                         }
                     });
@@ -265,11 +268,13 @@ export class BunPostgresChannel implements Channel {
                     // WHY: Unknown operations fail fast. Helps catch bugs in syscall layer.
                     yield respond.error('EINVAL', `Unknown op: ${msg.op}`);
             }
-        } catch (err) {
+        }
+        catch (err) {
             // WHY: PostgreSQL errors include code property (23505 for unique violation, etc.)
             // Include code in error message for caller to parse if needed.
             const pgErr = err as Error & { code?: string };
             const code = pgErr.code ?? '';
+
             // WHY: Use EIO (generic I/O error) for database errors. Could use EPROTO
             // for protocol errors, but EIO is more generic and expected for DB failures.
             yield respond.error('EIO', `${code}: ${pgErr.message}`);

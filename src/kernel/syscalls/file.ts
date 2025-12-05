@@ -110,7 +110,7 @@ export function createFileSyscalls(
     _hal: HAL,
     getHandle: (proc: Process, fd: number) => Handle | undefined,
     openFile: (proc: Process, path: string, flags: OpenFlags) => Promise<number>,
-    closeHandle: (proc: Process, fd: number) => Promise<void>
+    closeHandle: (proc: Process, fd: number) => Promise<void>,
 ): SyscallRegistry {
     return {
         // =====================================================================
@@ -137,6 +137,7 @@ export function createFileSyscalls(
         async *'file:open'(proc: Process, path: unknown, flags: unknown): AsyncIterable<Response> {
             if (typeof path !== 'string') {
                 yield respond.error('EINVAL', 'path must be a string');
+
                 return;
             }
 
@@ -147,6 +148,7 @@ export function createFileSyscalls(
                 : { read: true };
 
             const fd = await openFile(proc, path, openFlags);
+
             yield respond.ok(fd);
         },
 
@@ -162,6 +164,7 @@ export function createFileSyscalls(
         async *'file:close'(proc: Process, fd: unknown): AsyncIterable<Response> {
             if (typeof fd !== 'number') {
                 yield respond.error('EINVAL', 'fd must be a number');
+
                 return;
             }
 
@@ -192,12 +195,15 @@ export function createFileSyscalls(
         async *'file:read'(proc: Process, fd: unknown, chunkSize?: unknown): AsyncIterable<Response> {
             if (typeof fd !== 'number') {
                 yield respond.error('EINVAL', 'fd must be a number');
+
                 return;
             }
 
             const handle = getHandle(proc, fd);
+
             if (!handle) {
                 yield respond.error('EBADF', `Bad file descriptor: ${fd}`);
+
                 return;
             }
 
@@ -221,12 +227,15 @@ export function createFileSyscalls(
         async *'file:write'(proc: Process, fd: unknown, data: unknown): AsyncIterable<Response> {
             if (typeof fd !== 'number') {
                 yield respond.error('EINVAL', 'fd must be a number');
+
                 return;
             }
 
             const handle = getHandle(proc, fd);
+
             if (!handle) {
                 yield respond.error('EBADF', `Bad file descriptor: ${fd}`);
+
                 return;
             }
 
@@ -252,12 +261,15 @@ export function createFileSyscalls(
         async *'file:seek'(proc: Process, fd: unknown, offset: unknown, whence: unknown): AsyncIterable<Response> {
             if (typeof fd !== 'number') {
                 yield respond.error('EINVAL', 'fd must be a number');
+
                 return;
             }
 
             const handle = getHandle(proc, fd);
+
             if (!handle) {
                 yield respond.error('EBADF', `Bad file descriptor: ${fd}`);
+
                 return;
             }
 
@@ -265,6 +277,7 @@ export function createFileSyscalls(
             // WHY: Prevents confusing errors from seeking on sockets/pipes
             if (handle.type !== 'file') {
                 yield respond.error('EINVAL', 'Illegal seek on socket');
+
                 return;
             }
 
@@ -286,10 +299,12 @@ export function createFileSyscalls(
         async *'file:stat'(proc: Process, path: unknown): AsyncIterable<Response> {
             if (typeof path !== 'string') {
                 yield respond.error('EINVAL', 'path must be a string');
+
                 return;
             }
 
             const statResult = await vfs.stat(path, proc.id);
+
             yield respond.ok(statResult);
         },
 
@@ -309,12 +324,15 @@ export function createFileSyscalls(
         async *'file:fstat'(proc: Process, fd: unknown): AsyncIterable<Response> {
             if (typeof fd !== 'number') {
                 yield respond.error('EINVAL', 'fd must be a number');
+
                 return;
             }
 
             const handle = getHandle(proc, fd);
+
             if (!handle) {
                 yield respond.error('EBADF', `Bad file descriptor: ${fd}`);
+
                 return;
             }
 
@@ -322,12 +340,14 @@ export function createFileSyscalls(
             // WHY: Sockets don't have filesystem paths
             if (handle.type !== 'file') {
                 yield respond.error('EINVAL', 'fstat not supported on sockets');
+
                 return;
             }
 
             // Use handle's description as path
             // WHY: Description contains the resolved path from open()
             const statResult = await vfs.stat(handle.description, proc.id);
+
             yield respond.ok(statResult);
         },
 
@@ -346,10 +366,12 @@ export function createFileSyscalls(
         async *'file:mkdir'(proc: Process, path: unknown, opts?: unknown): AsyncIterable<Response> {
             if (typeof path !== 'string') {
                 yield respond.error('EINVAL', 'path must be a string');
+
                 return;
             }
 
             const options = opts as MkdirOptions | undefined;
+
             await vfs.mkdir(path, proc.id, options);
             yield respond.ok();
         },
@@ -366,6 +388,7 @@ export function createFileSyscalls(
         async *'file:unlink'(proc: Process, path: unknown): AsyncIterable<Response> {
             if (typeof path !== 'string') {
                 yield respond.error('EINVAL', 'path must be a string');
+
                 return;
             }
 
@@ -388,6 +411,7 @@ export function createFileSyscalls(
         async *'file:rmdir'(proc: Process, path: unknown): AsyncIterable<Response> {
             if (typeof path !== 'string') {
                 yield respond.error('EINVAL', 'path must be a string');
+
                 return;
             }
 
@@ -414,10 +438,12 @@ export function createFileSyscalls(
         async *'file:readdir'(proc: Process, path: unknown): AsyncIterable<Response> {
             if (typeof path !== 'string') {
                 yield respond.error('EINVAL', 'path must be a string');
+
                 return;
             }
 
             let count = 0;
+
             try {
                 for await (const entry of vfs.readdir(path, proc.id)) {
                     count++;
@@ -425,12 +451,16 @@ export function createFileSyscalls(
                     // WHY: Prevents unbounded memory growth from huge directories
                     if (count > MAX_STREAM_ENTRIES) {
                         yield respond.error('EFBIG', `Directory listing exceeded ${MAX_STREAM_ENTRIES} entries`);
+
                         return;
                     }
+
                     yield respond.item(entry.name);
                 }
+
                 yield respond.done();
-            } catch (err) {
+            }
+            catch (err) {
                 yield respond.error('ENOENT', (err as Error).message);
             }
         },
@@ -448,6 +478,7 @@ export function createFileSyscalls(
         async *'file:rename'(_proc: Process, oldPath: unknown, newPath: unknown): AsyncIterable<Response> {
             if (typeof oldPath !== 'string' || typeof newPath !== 'string') {
                 yield respond.error('EINVAL', 'paths must be strings');
+
                 return;
             }
 
@@ -472,10 +503,13 @@ export function createFileSyscalls(
         async *'file:symlink'(proc: Process, target: unknown, linkPath: unknown): AsyncIterable<Response> {
             if (typeof target !== 'string') {
                 yield respond.error('EINVAL', 'target must be a string');
+
                 return;
             }
+
             if (typeof linkPath !== 'string') {
                 yield respond.error('EINVAL', 'linkPath must be a string');
+
                 return;
             }
 
@@ -502,6 +536,7 @@ export function createFileSyscalls(
         async *'file:access'(proc: Process, path: unknown, acl?: unknown): AsyncIterable<Response> {
             if (typeof path !== 'string') {
                 yield respond.error('EINVAL', 'path must be a string');
+
                 return;
             }
 
@@ -510,11 +545,13 @@ export function createFileSyscalls(
                 // WHY null is allowed: Clears ACL (back to default permissions)
                 await vfs.setAccess(path, proc.id, acl as import('@src/vfs/index.js').ACL | null);
                 yield respond.ok();
+
                 return;
             }
 
             // Get ACL
             const result = await vfs.access(path, proc.id);
+
             yield respond.ok(result);
         },
 
@@ -536,12 +573,15 @@ export function createFileSyscalls(
         async *'file:recv'(proc: Process, fd: unknown): AsyncIterable<Response> {
             if (typeof fd !== 'number') {
                 yield respond.error('EINVAL', 'fd must be a number');
+
                 return;
             }
 
             const handle = getHandle(proc, fd);
+
             if (!handle) {
                 yield respond.error('EBADF', `Bad file descriptor: ${fd}`);
+
                 return;
             }
 
@@ -563,12 +603,15 @@ export function createFileSyscalls(
         async *'file:send'(proc: Process, fd: unknown, msg: unknown): AsyncIterable<Response> {
             if (typeof fd !== 'number') {
                 yield respond.error('EINVAL', 'fd must be a number');
+
                 return;
             }
 
             const handle = getHandle(proc, fd);
+
             if (!handle) {
                 yield respond.error('EBADF', `Bad file descriptor: ${fd}`);
+
                 return;
             }
 

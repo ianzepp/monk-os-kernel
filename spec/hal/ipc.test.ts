@@ -12,6 +12,7 @@ describe('IPC Device', () => {
         describe('alloc', () => {
             it('should allocate SharedArrayBuffer', () => {
                 const buf = ipc.alloc(1024);
+
                 expect(buf).toBeInstanceOf(SharedArrayBuffer);
                 expect(buf.byteLength).toBe(1024);
             });
@@ -20,6 +21,7 @@ describe('IPC Device', () => {
         describe('port', () => {
             it('should return two connected ports', () => {
                 const { a, b } = ipc.port();
+
                 expect(a).toBeDefined();
                 expect(b).toBeDefined();
             });
@@ -28,9 +30,11 @@ describe('IPC Device', () => {
                 const { a, b } = ipc.port();
 
                 const received: unknown[] = [];
-                b.onmessage = (event) => {
+
+                b.onmessage = event => {
                     received.push(event.data);
                 };
+
                 b.start();
 
                 a.postMessage('hello');
@@ -49,6 +53,7 @@ describe('IPC Device', () => {
             it('should start unlocked', () => {
                 const buf = ipc.alloc(64);
                 const mutex = ipc.mutex(buf, 0);
+
                 expect(mutex.locked).toBe(false);
             });
 
@@ -90,6 +95,7 @@ describe('IPC Device', () => {
             it('should start with initial value', () => {
                 const buf = ipc.alloc(64);
                 const sem = ipc.semaphore(buf, 0, 3);
+
                 expect(sem.value()).toBe(3);
             });
 
@@ -161,6 +167,7 @@ describe('IPC Device', () => {
         describe('alloc', () => {
             it('should allocate SharedArrayBuffer', () => {
                 const buf = ipc.alloc(1024);
+
                 expect(buf).toBeInstanceOf(SharedArrayBuffer);
                 expect(buf.byteLength).toBe(1024);
             });
@@ -169,6 +176,7 @@ describe('IPC Device', () => {
         describe('port', () => {
             it('should create MessageChannel', () => {
                 const { a, b } = ipc.port();
+
                 expect(a).toBeDefined();
                 expect(b).toBeDefined();
             });
@@ -177,12 +185,14 @@ describe('IPC Device', () => {
         describe('mutex', () => {
             it('should require 4-byte alignment', () => {
                 const buf = ipc.alloc(64);
+
                 expect(() => ipc.mutex(buf, 1)).toThrow('4-byte aligned');
             });
 
             it('should start unlocked', () => {
                 const buf = ipc.alloc(64);
                 const mutex = ipc.mutex(buf, 0);
+
                 expect(mutex.locked).toBe(false);
             });
 
@@ -219,11 +229,13 @@ describe('IPC Device', () => {
         describe('semaphore', () => {
             it('should require 4-byte alignment', () => {
                 const buf = ipc.alloc(64);
+
                 expect(() => ipc.semaphore(buf, 3, 1)).toThrow('4-byte aligned');
             });
 
             it('should reject negative initial value', () => {
                 const buf = ipc.alloc(64);
+
                 expect(() => ipc.semaphore(buf, 0, -1)).toThrow('non-negative');
             });
 
@@ -251,6 +263,7 @@ describe('IPC Device', () => {
         describe('condvar', () => {
             it('should require 4-byte alignment', () => {
                 const buf = ipc.alloc(64);
+
                 expect(() => ipc.condvar(buf, 2)).toThrow('4-byte aligned');
             });
 

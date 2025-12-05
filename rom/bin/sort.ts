@@ -59,7 +59,7 @@ const argSpecs = {
     stable: { short: 's', desc: 'Stable sort' },
 };
 
-type SortOptions = {
+interface SortOptions {
     reverse: boolean;
     numeric: boolean;
     unique: boolean;
@@ -72,7 +72,7 @@ type SortOptions = {
     output: string | null;
     check: boolean;
     stable: boolean;
-};
+}
 
 async function main(): Promise<void> {
     const args = await getargs();
@@ -82,11 +82,13 @@ async function main(): Promise<void> {
         for (const err of parsed.errors) {
             await eprintln(`sort: ${err}`);
         }
+
         await exit(1);
     }
 
     // Parse key specification
     let key: { start: number; end: number | null } | null = null;
+
     if (typeof parsed.flags.key === 'string') {
         key = parseKeySpec(parsed.flags.key);
         if (!key) {
@@ -121,19 +123,27 @@ async function main(): Promise<void> {
         for await (const msg of recv(0)) {
             if (msg.op === 'item') {
                 const text = ((msg.data as { text: string }).text ?? '').replace(/\n$/, '');
+
                 items.push({ msg, text });
             }
         }
-    } else {
+    }
+    else {
         // Files: read bytes, convert to items
         for (const file of files) {
             const content = await readFileContent(cwd, file);
+
             if (content === null) {
                 return await exit(1);
             }
+
             const lines = content.split('\n');
             const lastLine = lines[lines.length - 1];
-            if (lastLine !== undefined && lastLine === '') lines.pop();
+
+            if (lastLine !== undefined && lastLine === '') {
+                lines.pop();
+            }
+
             for (const text of lines) {
                 items.push({ msg: respond.item({ text: text + '\n' }), text });
             }
@@ -143,9 +153,11 @@ async function main(): Promise<void> {
     // Check mode
     if (options.check) {
         const lines = items.map(i => i.text);
+
         if (checkSorted(lines, options)) {
             await exit(0);
         }
+
         await eprintln('sort: input is not sorted');
         await exit(1);
     }
@@ -153,22 +165,31 @@ async function main(): Promise<void> {
     // Sort
     if (options.stable) {
         const indexed = items.map((item, i) => ({ item, index: i }));
+
         indexed.sort((a, b) => {
             const cmp = compareLines(a.item.text, b.item.text, options);
+
             return cmp !== 0 ? cmp : a.index - b.index;
         });
         items = indexed.map(x => x.item);
-    } else {
+    }
+    else {
         items.sort((a, b) => compareLines(a.text, b.text, options));
     }
 
     // Unique
     if (options.unique) {
         const seen = new Set<string>();
+
         items = items.filter(item => {
             const key = options.ignoreCase ? item.text.toLowerCase() : item.text;
-            if (seen.has(key)) return false;
+
+            if (seen.has(key)) {
+                return false;
+            }
+
             seen.add(key);
+
             return true;
         });
     }
@@ -176,20 +197,27 @@ async function main(): Promise<void> {
     // Output
     if (options.output) {
         const outPath = resolvePath(cwd, options.output);
+
         try {
             const fd = await open(outPath, { write: true, create: true, truncate: true });
+
             try {
                 const output = items.map(i => i.text + '\n').join('');
+
                 await write(fd, new TextEncoder().encode(output));
-            } finally {
+            }
+            finally {
                 await close(fd);
             }
-        } catch (err) {
+        }
+        catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
+
             await eprintln(`sort: ${options.output}: ${msg}`);
             await exit(1);
         }
-    } else {
+    }
+    else {
         for (const item of items) {
             await send(1, item.msg);
         }
@@ -200,18 +228,26 @@ async function main(): Promise<void> {
 
 async function readFileContent(cwd: string, file: string): Promise<string | null> {
     const path = resolvePath(cwd, file);
+
     try {
         return await readFile(path);
-    } catch (err) {
+    }
+    catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         await eprintln(`sort: ${file}: ${msg}`);
+
         return null;
     }
 }
 
 function parseKeySpec(spec: string): { start: number; end: number | null } | null {
     const match = spec.match(/^(\d+)(?:,(\d+))?$/);
-    if (!match || match[1] === undefined) return null;
+
+    if (!match || match[1] === undefined) {
+        return null;
+    }
+
     return {
         start: parseInt(match[1], 10),
         end: match[2] !== undefined ? parseInt(match[2], 10) : null,
@@ -220,7 +256,10 @@ function parseKeySpec(spec: string): { start: number; end: number | null } | nul
 
 function parseHumanSize(str: string): number {
     const match = str.match(/^([\d.]+)\s*([KMGTPE])?i?[Bb]?$/i);
-    if (!match || match[1] === undefined) return parseFloat(str) || 0;
+
+    if (!match || match[1] === undefined) {
+        return parseFloat(str) || 0;
+    }
 
     const num = parseFloat(match[1]);
     const unit = (match[2] || '').toUpperCase();
@@ -238,14 +277,18 @@ function parseHumanSize(str: string): number {
 }
 
 function extractKey(line: string, options: SortOptions): string {
-    if (!options.key) return line;
+    if (!options.key) {
+        return line;
+    }
 
     const sep = options.separator || /\s+/;
     const fields = line.split(sep);
     const start = options.key.start - 1;
     const end = options.key.end !== null ? options.key.end : start + 1;
 
-    if (start < 0 || start >= fields.length) return '';
+    if (start < 0 || start >= fields.length) {
+        return '';
+    }
 
     return fields.slice(start, end).join(' ');
 }
@@ -278,9 +321,11 @@ function compareLines(a: string, b: string, options: SortOptions): number {
 
     if (options.human) {
         result = parseHumanSize(normA) - parseHumanSize(normB);
-    } else if (options.numeric) {
+    }
+    else if (options.numeric) {
         result = (parseFloat(normA) || 0) - (parseFloat(normB) || 0);
-    } else {
+    }
+    else {
         result = normA.localeCompare(normB);
     }
 
@@ -291,14 +336,16 @@ function checkSorted(lines: string[], options: SortOptions): boolean {
     for (let i = 1; i < lines.length; i++) {
         const prev = lines[i - 1];
         const curr = lines[i];
+
         if (prev !== undefined && curr !== undefined && compareLines(prev, curr, options) > 0) {
             return false;
         }
     }
+
     return true;
 }
 
-main().catch(async (err) => {
+main().catch(async err => {
     await eprintln(`sort: ${err.message}`);
     await exit(1);
 });

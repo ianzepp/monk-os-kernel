@@ -35,7 +35,9 @@ function createMockDb(queryResults: Record<string, unknown[][]> = {}): DatabaseC
             // Return results based on query pattern or empty array
             const results = queryResults[sql] || queryResults['*'] || [];
             const result = results[queryCounter] || [];
+
             queryCounter++;
+
             return result as T[];
         },
         async queryOne<T>(_sql: string, _params?: unknown[]): Promise<T | null> {
@@ -43,6 +45,7 @@ function createMockDb(queryResults: Record<string, unknown[][]> = {}): DatabaseC
         },
         async execute(sql: string, params?: unknown[]): Promise<number> {
             calls.push({ method: 'execute', sql, params });
+
             return 1;
         },
         async exec(sql: string): Promise<void> {
@@ -63,7 +66,9 @@ describe('collect', () => {
             yield 2;
             yield 3;
         }
+
         const result = await collect(gen());
+
         expect(result).toEqual([1, 2, 3]);
     });
 
@@ -71,7 +76,9 @@ describe('collect', () => {
         async function* gen(): AsyncGenerator<number> {
             // empty
         }
+
         const result = await collect(gen());
+
         expect(result).toEqual([]);
     });
 });
@@ -182,10 +189,11 @@ describe('DatabaseOps', () => {
             dbOps = new DatabaseOps(mockDb);
 
             await collect(
-                dbOps.selectFrom('test_table', { where: { status: 'active' } })
+                dbOps.selectFrom('test_table', { where: { status: 'active' } }),
             );
 
             const call = mockDb.calls[0]!;
+
             expect(call.sql).toContain('WHERE');
             expect(call.sql).toContain('status');
         });
@@ -211,6 +219,7 @@ describe('DatabaseOps', () => {
 
             expect(rows).toHaveLength(2);
             const call = mockDb.calls[0]!;
+
             expect(call.sql).toContain('id');
             expect(call.sql).toContain('IN');
         });
@@ -232,6 +241,7 @@ describe('DatabaseOps', () => {
             }
 
             const rows = await collect(dbOps.selectIds('test', idSource()));
+
             expect(rows).toHaveLength(1);
         });
     });
@@ -261,6 +271,7 @@ describe('DatabaseOps', () => {
 
             expect(mockDb.calls).toHaveLength(1);
             const call = mockDb.calls[0]!;
+
             expect(call.method).toBe('execute');
             expect(call.sql).toContain('INSERT INTO users');
             expect(call.sql).toContain('id');
@@ -273,6 +284,7 @@ describe('DatabaseOps', () => {
             await collect(dbOps.insertInto('items', records));
 
             const call = mockDb.calls[0]!;
+
             expect(call.params).toContain(null);
         });
 
@@ -283,6 +295,7 @@ describe('DatabaseOps', () => {
             }
 
             const inserted = await collect(dbOps.insertInto('data', source()));
+
             expect(inserted).toHaveLength(2);
         });
     });
@@ -304,6 +317,7 @@ describe('DatabaseOps', () => {
             expect(updated).toHaveLength(1);
             // First call is UPDATE, second is SELECT to re-read
             const updateCall = mockDb.calls[0]!;
+
             expect(updateCall.method).toBe('execute');
             expect(updateCall.sql).toContain('UPDATE users');
             expect(updateCall.sql).toContain('SET');
@@ -325,9 +339,11 @@ describe('DatabaseOps', () => {
             await collect(dbOps.updateIn('users', [{ id: 'abc', changes: { x: 1 } }]));
 
             const updateCall = mockDb.calls[0]!;
+
             expect(updateCall.sql).toContain('WHERE id = ?');
             // id should be last param
             const params = updateCall.params || [];
+
             expect(params[params.length - 1]).toBe('abc');
         });
     });
@@ -348,6 +364,7 @@ describe('DatabaseOps', () => {
             await collect(dbOps.deleteFrom('users', ['abc']));
 
             const call = mockDb.calls[0]!;
+
             expect(call.method).toBe('execute');
             expect(call.sql).toBe('DELETE FROM users WHERE id = ?');
             expect(call.params).toEqual(['abc']);
@@ -360,6 +377,7 @@ describe('DatabaseOps', () => {
             }
 
             const deleted = await collect(dbOps.deleteFrom('items', ids()));
+
             expect(deleted).toEqual(['x', 'y']);
         });
     });

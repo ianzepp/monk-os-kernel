@@ -32,29 +32,39 @@ async function main(): Promise<void> {
     if (!target) {
         // No argument: go to HOME or /
         const home = await getenv('HOME');
+
         path = home ?? '/';
-    } else if (target === '-') {
+    }
+    else if (target === '-') {
         // cd - : go to OLDPWD
         const oldpwd = await getenv('OLDPWD');
+
         if (!oldpwd) {
             await eprintln('cd: OLDPWD not set');
+
             return exit(1);
         }
+
         path = oldpwd;
-    } else {
+    }
+    else {
         const cwd = await getcwd();
+
         path = resolvePath(cwd, target);
     }
 
     // Verify path exists and is a directory
     try {
         const info = await stat(path);
+
         if (info.model !== 'folder') {
             await eprintln(`cd: ${target}: Not a directory`);
             await exit(1);
         }
-    } catch (err) {
+    }
+    catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         await eprintln(`cd: ${target}: ${msg}`);
         await exit(1);
     }
@@ -68,7 +78,7 @@ async function main(): Promise<void> {
     await exit(0);
 }
 
-main().catch(async (err) => {
+main().catch(async err => {
     await eprintln(`cd: ${err.message}`);
     await exit(1);
 });

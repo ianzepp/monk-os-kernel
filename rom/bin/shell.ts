@@ -127,6 +127,7 @@ function getStdinReader(): ByteReader {
     if (!stdinReader) {
         stdinReader = new ByteReader(read(0));
     }
+
     return stdinReader;
 }
 
@@ -138,6 +139,7 @@ function getStdinReader(): ByteReader {
  */
 async function readline(): Promise<string | null> {
     const reader = getStdinReader();
+
     return reader.readLine();
 }
 
@@ -150,6 +152,7 @@ async function printPrompt(state: ShellState): Promise<void> {
     const host = 'monk';
     const cwd = state.cwd === state.env['HOME'] ? '~' : state.cwd;
     const prompt = `${user}@${host}:${cwd}$ `;
+
     await print(prompt);
 }
 
@@ -164,19 +167,23 @@ async function readdirForGlob(path: string): Promise<GlobEntry[]> {
 
         for (const name of names) {
             const fullPath = path === '/' ? `/${name}` : `${path}/${name}`;
+
             try {
                 const info = await stat(fullPath);
+
                 entries.push({
                     name,
                     isDirectory: info.model === 'folder',
                 });
-            } catch {
+            }
+            catch {
                 entries.push({ name, isDirectory: false });
             }
         }
 
         return entries;
-    } catch {
+    }
+    catch {
         return [];
     }
 }
@@ -190,13 +197,17 @@ async function builtinCd(state: ShellState, args: string[]): Promise<number> {
 
     if (args.length === 0) {
         target = state.env['HOME'] ?? '/';
-    } else {
+    }
+    else {
         const arg0 = args[0];
+
         if (!arg0) {
             target = state.env['HOME'] ?? '/';
-        } else if (arg0 === '-') {
+        }
+        else if (arg0 === '-') {
             target = state.env['OLDPWD'] ?? state.cwd;
-        } else {
+        }
+        else {
             target = resolvePath(state.cwd, arg0);
         }
     }
@@ -204,13 +215,18 @@ async function builtinCd(state: ShellState, args: string[]): Promise<number> {
     // Verify directory exists
     try {
         const info = await stat(target);
+
         if (info.model !== 'folder') {
             await eprintln(`cd: ${args[0] ?? target}: Not a directory`);
+
             return 1;
         }
-    } catch (err) {
+    }
+    catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         await eprintln(`cd: ${args[0] ?? target}: ${msg}`);
+
         return 1;
     }
 
@@ -231,11 +247,13 @@ async function builtinExport(state: ShellState, args: string[]): Promise<number>
         for (const [key, value] of Object.entries(state.env)) {
             await println(`export ${key}="${value}"`);
         }
+
         return 0;
     }
 
     for (const arg of args) {
         const eqIndex = arg.indexOf('=');
+
         if (eqIndex === -1) {
             // Just name - mark for export (no-op in our implementation)
             continue;
@@ -243,6 +261,7 @@ async function builtinExport(state: ShellState, args: string[]): Promise<number>
 
         const name = arg.slice(0, eqIndex);
         const value = arg.slice(eqIndex + 1);
+
         state.env[name] = value;
         await setenv(name, value);
     }
@@ -253,15 +272,17 @@ async function builtinExport(state: ShellState, args: string[]): Promise<number>
 async function builtinExit(state: ShellState, args: string[]): Promise<number> {
     const arg0 = args[0];
     const code = arg0 ? parseInt(arg0, 10) : state.lastExitCode;
+
     state.shouldExit = true;
     state.exitCode = isNaN(code) ? 0 : code;
+
     return state.exitCode;
 }
 
 async function executeBuiltin(
     state: ShellState,
     command: string,
-    args: string[]
+    args: string[],
 ): Promise<number> {
     // Only commands that MUST modify shell state belong here.
     // Everything else (echo, pwd, history) should be external commands
@@ -295,20 +316,26 @@ async function findCommand(command: string, cwd: string): Promise<string | null>
     // Absolute or relative path (in VFS)
     if (command.startsWith('/') || command.startsWith('./') || command.startsWith('../')) {
         const path = command.startsWith('/') ? command : resolvePath(cwd, command);
+
         try {
             await stat(path);
+
             return path;
-        } catch {
+        }
+        catch {
             return null;
         }
     }
 
     // Search in VFS /bin directory
     const binPath = `${VFS_BIN_PATH}/${command}.ts`;
+
     try {
         await stat(binPath);
+
         return binPath;
-    } catch {
+    }
+    catch {
         return null;
     }
 }
@@ -332,12 +359,13 @@ async function spawnExternal(
     command: string,
     args: string[],
     stdin?: number,
-    stdout?: number
+    stdout?: number,
 ): Promise<number> {
     const cmdPath = await findCommand(command, state.cwd);
 
     if (!cmdPath) {
         await eprintln(`${command}: command not found`);
+
         return -1; // Error indicator
     }
 
@@ -349,10 +377,14 @@ async function spawnExternal(
             stdin,
             stdout,
         });
+
         return pid;
-    } catch (err) {
+    }
+    catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         await eprintln(`${command}: ${msg}`);
+
         return -1;
     }
 }
@@ -366,12 +398,16 @@ async function executeExternal(
     command: string,
     args: string[],
     stdin?: number,
-    stdout?: number
+    stdout?: number,
 ): Promise<number> {
     const pid = await spawnExternal(state, command, args, stdin, stdout);
-    if (pid < 0) return 126;
+
+    if (pid < 0) {
+        return 126;
+    }
 
     const status = await wait(pid);
+
     return status.code;
 }
 
@@ -392,7 +428,7 @@ async function executeSingleCommand(
     state: ShellState,
     cmd: ParsedCommand,
     pipeStdin?: number,
-    pipeStdout?: number
+    pipeStdout?: number,
 ): Promise<number> {
     // Expand globs in arguments
     const expandedArgs = await expandGlobs(cmd.args, state.cwd, readdirForGlob);
@@ -409,13 +445,18 @@ async function executeSingleCommand(
         // Input redirect overrides pipe stdin
         if (cmd.inputRedirect) {
             const inputPath = resolvePath(state.cwd, cmd.inputRedirect);
+
             try {
                 const fd = await open(inputPath, { read: true });
+
                 fdsToClose.push(fd);
                 stdin = fd;
-            } catch (err) {
+            }
+            catch (err) {
                 const msg = err instanceof Error ? err.message : String(err);
+
                 await eprintln(`${cmd.command}: ${cmd.inputRedirect}: ${msg}`);
+
                 return 1;
             }
         }
@@ -424,24 +465,35 @@ async function executeSingleCommand(
         // Output redirect overrides pipe stdout
         if (cmd.outputRedirect) {
             const outputPath = resolvePath(state.cwd, cmd.outputRedirect);
+
             try {
                 const fd = await open(outputPath, { write: true, create: true, truncate: true });
+
                 fdsToClose.push(fd);
                 stdout = fd;
-            } catch (err) {
+            }
+            catch (err) {
                 const msg = err instanceof Error ? err.message : String(err);
+
                 await eprintln(`${cmd.command}: ${cmd.outputRedirect}: ${msg}`);
+
                 return 1;
             }
-        } else if (cmd.appendRedirect) {
+        }
+        else if (cmd.appendRedirect) {
             const appendPath = resolvePath(state.cwd, cmd.appendRedirect);
+
             try {
                 const fd = await open(appendPath, { write: true, create: true, append: true });
+
                 fdsToClose.push(fd);
                 stdout = fd;
-            } catch (err) {
+            }
+            catch (err) {
                 const msg = err instanceof Error ? err.message : String(err);
+
                 await eprintln(`${cmd.command}: ${cmd.appendRedirect}: ${msg}`);
+
                 return 1;
             }
         }
@@ -454,17 +506,20 @@ async function executeSingleCommand(
             if (stdout !== undefined) {
                 restoreFns.push(await redirect(1, stdout));
             }
+
             if (stdin !== undefined) {
                 restoreFns.push(await redirect(0, stdin));
             }
 
             try {
                 return await executeBuiltin(state, cmd.command, expandedArgs);
-            } finally {
+            }
+            finally {
                 // Restore original fds
                 for (const restore of restoreFns) {
                     await restore();
                 }
+
                 // For pipeline builtins: close the pipe stdout to signal EOF to reader.
                 // This is safe because restore already reverted fd 1 to original.
                 if (pipeStdout !== undefined) {
@@ -475,7 +530,8 @@ async function executeSingleCommand(
 
         // External command
         return await executeExternal(state, cmd.command, expandedArgs, stdin, stdout);
-    } finally {
+    }
+    finally {
         // Close any fds we opened for redirects
         for (const fd of fdsToClose) {
             await close(fd).catch(() => {});
@@ -511,14 +567,20 @@ async function executeSingleCommand(
  */
 async function executePipeline(
     state: ShellState,
-    pipeline: ParsedCommand[]
+    pipeline: ParsedCommand[],
 ): Promise<number> {
-    if (pipeline.length === 0) return 0;
+    if (pipeline.length === 0) {
+        return 0;
+    }
 
     // Single command - no pipes needed
     if (pipeline.length === 1) {
         const cmd = pipeline[0];
-        if (!cmd) return 0;
+
+        if (!cmd) {
+            return 0;
+        }
+
         return executeSingleCommand(state, cmd);
     }
 
@@ -542,6 +604,7 @@ async function executePipeline(
     try {
         for (let i = 0; i < pipeline.length - 1; i++) {
             const [readFd, writeFd] = await pipe();
+
             pipes.push([readFd, writeFd]);
             fdsToClose.push(readFd, writeFd);
         }
@@ -571,7 +634,10 @@ async function executePipeline(
 
         for (let i = 0; i < pipeline.length; i++) {
             const cmd = pipeline[i];
-            if (!cmd) continue;
+
+            if (!cmd) {
+                continue;
+            }
 
             const isFirst = i === 0;
             const isLast = i === pipeline.length - 1;
@@ -592,14 +658,17 @@ async function executePipeline(
                 // We await the entire builtin so redirect/restore completes
                 // before the next command spawns.
                 const exitCode = await executeSingleCommand(state, cmd, stdinFd, stdoutFd);
+
                 exitCodes.push(exitCode);
                 spawnedPids.push(-1); // Placeholder for uniform indexing
-            } else {
+            }
+            else {
                 // =============================================================
                 // External: expand globs, then spawn (but don't wait yet)
                 // =============================================================
                 const expandedArgs = await expandGlobs(cmd.args, state.cwd, readdirForGlob);
                 const pid = await spawnExternal(state, cmd.command, expandedArgs, stdinFd, stdoutFd);
+
                 spawnedPids.push(pid);
                 exitCodes.push(pid < 0 ? 126 : -1); // -1 means "need to wait"
             }
@@ -619,6 +688,7 @@ async function executePipeline(
         for (const fd of fdsToClose) {
             await close(fd).catch(() => {});
         }
+
         fdsToClose.length = 0;
 
         // =====================================================================
@@ -632,15 +702,17 @@ async function executePipeline(
 
         for (let i = 0; i < spawnedPids.length; i++) {
             const pid = spawnedPids[i];
+
             if (pid !== undefined && pid > 0) {
                 // This is an external command that needs waiting
                 const idx = i; // Capture for closure
+
                 waitPromises.push(
                     wait(pid).then(status => {
                         exitCodes[idx] = status.code;
                     }).catch(() => {
                         exitCodes[idx] = 126;
-                    })
+                    }),
                 );
             }
         }
@@ -655,9 +727,10 @@ async function executePipeline(
         // This is standard shell behavior.
 
         const lastExitCode = exitCodes[exitCodes.length - 1];
-        return lastExitCode ?? 0;
 
-    } finally {
+        return lastExitCode ?? 0;
+    }
+    finally {
         // Cleanup on error - close any remaining pipe fds
         for (const fd of fdsToClose) {
             await close(fd).catch(() => {});
@@ -670,7 +743,7 @@ async function executePipeline(
  */
 async function executeChain(
     state: ShellState,
-    cmd: ParsedCommand
+    cmd: ParsedCommand,
 ): Promise<number> {
     // Expand variables
     expandCommandVariables(cmd, state.env);
@@ -713,6 +786,7 @@ async function executeLine(state: ShellState, line: string): Promise<number> {
     if (state.history[state.history.length - 1] !== trimmed) {
         state.history.push(trimmed);
         const histSize = parseInt(state.env['HISTSIZE'] ?? String(HISTSIZE_DEFAULT), 10);
+
         if (state.history.length > histSize) {
             state.history = state.history.slice(-histSize);
         }
@@ -720,6 +794,7 @@ async function executeLine(state: ShellState, line: string): Promise<number> {
 
     // Parse command
     const parsed = parseCommand(trimmed);
+
     if (!parsed) {
         return 0;
     }
@@ -727,6 +802,7 @@ async function executeLine(state: ShellState, line: string): Promise<number> {
     // Handle background execution
     if (parsed.background) {
         await eprintln('shell: background execution not yet implemented');
+
         return 1;
     }
 
@@ -742,11 +818,15 @@ async function executeScript(state: ShellState, scriptPath: string): Promise<num
     const path = resolvePath(state.cwd, scriptPath);
 
     let fd: number;
+
     try {
         fd = await open(path, { read: true });
-    } catch (err) {
+    }
+    catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         await eprintln(`shell: ${scriptPath}: ${msg}`);
+
         return 127;
     }
 
@@ -756,13 +836,18 @@ async function executeScript(state: ShellState, scriptPath: string): Promise<num
         const lines = script.split('\n');
 
         let lastExitCode = 0;
+
         for (const line of lines) {
-            if (state.shouldExit) break;
+            if (state.shouldExit) {
+                break;
+            }
+
             lastExitCode = await executeLine(state, line);
         }
 
         return lastExitCode;
-    } finally {
+    }
+    finally {
         await close(fd);
     }
 }
@@ -802,17 +887,21 @@ async function main(): Promise<void> {
     // -c "command"
     if (parsed.flags.command) {
         const cmd = String(parsed.flags.command);
+
         state.interactive = false;
         const code = await executeLine(state, cmd);
+
         await exit(code);
     }
 
     // Script file
     if (parsed.positional.length > 0) {
         const scriptPath = parsed.positional[0];
+
         if (scriptPath) {
             state.interactive = false;
             const code = await executeScript(state, scriptPath);
+
             await exit(code);
         }
     }
@@ -830,6 +919,7 @@ async function main(): Promise<void> {
         await printPrompt(state);
 
         const line = await readline();
+
         if (line === null) {
             // EOF
             await println('');
@@ -842,7 +932,7 @@ async function main(): Promise<void> {
     await exit(state.exitCode);
 }
 
-main().catch(async (err) => {
+main().catch(async err => {
     await eprintln(`shell: ${err.message}`);
     await exit(1);
 });

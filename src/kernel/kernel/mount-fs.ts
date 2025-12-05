@@ -56,12 +56,13 @@ export async function mountFs(
     proc: Process,
     source: string,
     target: string,
-    opts?: Record<string, unknown>
+    opts?: Record<string, unknown>,
 ): Promise<void> {
     const caller = proc.id;
 
     // Step 1: Find matching policy rule
     const rule = findMountPolicyRule(self, caller, source, target);
+
     if (!rule) {
         printk(self, 'mount', `DENIED: ${caller.slice(0, 8)} mount ${source} -> ${target}`);
         throw new EPERM(`Mount policy denies: ${source} -> ${target}`);
@@ -76,11 +77,14 @@ export async function mountFs(
             // TODO: This only verifies read access. We need a proper VFS.checkAccess
             // API that accepts specific grant names (e.g., 'mount', 'write').
             await self.vfs.stat(target, caller);
-        } catch (err) {
+        }
+        catch (err) {
             const error = err as Error & { code?: string };
+
             if (error.code === 'ENOENT') {
                 // Target doesn't exist yet - acceptable, mount will create it
-            } else if (error.code === 'EACCES') {
+            }
+            else if (error.code === 'EACCES') {
                 // Caller lacks required grant on target
                 throw new EACCES(`Mount requires '${rule.requireGrant}' grant on ${target}`);
             }
@@ -92,14 +96,17 @@ export async function mountFs(
     if (source.startsWith('host:')) {
         // Host filesystem mount
         const hostPath = source.slice(5); // Remove 'host:' prefix
+
         self.vfs.mountHost(target, hostPath, opts as import('../../vfs/mounts/host.js').HostMountOptions);
         printk(self, 'mount', `Mounted host:${hostPath} -> ${target}`);
-    } else if (source === 'tmpfs') {
+    }
+    else if (source === 'tmpfs') {
         // tmpfs is not yet supported via syscall
         // WHY: VFS doesn't expose getModel() to external callers. Users should
         // create directories in /tmp instead, which is already tmpfs.
         throw new ENOTSUP('tmpfs mounts not yet supported via syscall');
-    } else {
+    }
+    else {
         // Future: s3://, gcs://, etc.
         throw new EINVAL(`Unknown mount source type: ${source}`);
     }

@@ -151,7 +151,7 @@ export async function openChannel(
     proc: Process,
     proto: string,
     url: string,
-    opts?: ChannelOpts
+    opts?: ChannelOpts,
 ): Promise<number> {
     // Open channel connection (ASYNC - process could die here)
     const channel = await self.hal.channel.open(proto, url, opts);
@@ -164,7 +164,7 @@ export async function openChannel(
     const adapter = new ChannelHandleAdapter(
         channel.id,
         channel,
-        `${channel.proto}:${channel.description}`
+        `${channel.proto}:${channel.description}`,
     );
 
     // Allocate fd and register in kernel table
@@ -177,7 +177,7 @@ export async function openChannel(
     printk(
         self,
         'channel',
-        `opened ${channel.proto}:${channel.description} as fd ${h}`
+        `opened ${channel.proto}:${channel.description} as fd ${h}`,
     );
 
     return h;

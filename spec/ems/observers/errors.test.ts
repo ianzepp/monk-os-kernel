@@ -18,6 +18,7 @@ describe('Observer Errors', () => {
     describe('ObserverError base class', () => {
         it('should have correct code and errno', () => {
             const err = new ObserverError('TEST', 9999, 'test message');
+
             expect(err.code).toBe('TEST');
             expect(err.errno).toBe(9999);
             expect(err.message).toBe('test message');
@@ -26,6 +27,7 @@ describe('Observer Errors', () => {
 
         it('should be instanceof Error', () => {
             const err = new ObserverError('TEST', 9999, 'test');
+
             expect(err).toBeInstanceOf(Error);
             expect(err).toBeInstanceOf(ObserverError);
         });
@@ -34,6 +36,7 @@ describe('Observer Errors', () => {
     describe('EOBSINVALID', () => {
         it('should have correct code 1001', () => {
             const err = new EOBSINVALID();
+
             expect(err.code).toBe('EOBSINVALID');
             expect(err.errno).toBe(1001);
             expect(err.name).toBe('EOBSINVALID');
@@ -42,16 +45,19 @@ describe('Observer Errors', () => {
 
         it('should accept custom message', () => {
             const err = new EOBSINVALID('Name is required');
+
             expect(err.message).toBe('Name is required');
         });
 
         it('should accept field parameter', () => {
             const err = new EOBSINVALID('Name is required', 'name');
+
             expect(err.field).toBe('name');
         });
 
         it('should have undefined field by default', () => {
             const err = new EOBSINVALID();
+
             expect(err.field).toBeUndefined();
         });
     });
@@ -59,6 +65,7 @@ describe('Observer Errors', () => {
     describe('EOBSFROZEN', () => {
         it('should have correct code 1002', () => {
             const err = new EOBSFROZEN();
+
             expect(err.code).toBe('EOBSFROZEN');
             expect(err.errno).toBe(1002);
             expect(err.name).toBe('EOBSFROZEN');
@@ -67,6 +74,7 @@ describe('Observer Errors', () => {
 
         it('should accept custom message', () => {
             const err = new EOBSFROZEN("Model 'users' is frozen");
+
             expect(err.message).toBe("Model 'users' is frozen");
         });
     });
@@ -74,6 +82,7 @@ describe('Observer Errors', () => {
     describe('EOBSIMMUT', () => {
         it('should have correct code 1003', () => {
             const err = new EOBSIMMUT();
+
             expect(err.code).toBe('EOBSIMMUT');
             expect(err.errno).toBe(1003);
             expect(err.name).toBe('EOBSIMMUT');
@@ -82,6 +91,7 @@ describe('Observer Errors', () => {
 
         it('should accept field parameter', () => {
             const err = new EOBSIMMUT('Cannot change created_at', 'created_at');
+
             expect(err.field).toBe('created_at');
             expect(err.message).toBe('Cannot change created_at');
         });
@@ -90,6 +100,7 @@ describe('Observer Errors', () => {
     describe('EOBSSEC', () => {
         it('should have correct code 1010', () => {
             const err = new EOBSSEC();
+
             expect(err.code).toBe('EOBSSEC');
             expect(err.errno).toBe(1010);
             expect(err.name).toBe('EOBSSEC');
@@ -98,6 +109,7 @@ describe('Observer Errors', () => {
 
         it('should accept custom message', () => {
             const err = new EOBSSEC('Sudo required for model operations');
+
             expect(err.message).toBe('Sudo required for model operations');
         });
     });
@@ -105,6 +117,7 @@ describe('Observer Errors', () => {
     describe('EOBSBUS', () => {
         it('should have correct code 1020', () => {
             const err = new EOBSBUS();
+
             expect(err.code).toBe('EOBSBUS');
             expect(err.errno).toBe(1020);
             expect(err.name).toBe('EOBSBUS');
@@ -113,6 +126,7 @@ describe('Observer Errors', () => {
 
         it('should accept custom message', () => {
             const err = new EOBSBUS('Insufficient balance');
+
             expect(err.message).toBe('Insufficient balance');
         });
     });
@@ -120,6 +134,7 @@ describe('Observer Errors', () => {
     describe('EOBSSYS', () => {
         it('should have correct code 1030', () => {
             const err = new EOBSSYS();
+
             expect(err.code).toBe('EOBSSYS');
             expect(err.errno).toBe(1030);
             expect(err.name).toBe('EOBSSYS');
@@ -128,6 +143,7 @@ describe('Observer Errors', () => {
 
         it('should accept custom message', () => {
             const err = new EOBSSYS('Database connection lost');
+
             expect(err.message).toBe('Database connection lost');
         });
     });
@@ -135,6 +151,7 @@ describe('Observer Errors', () => {
     describe('EOBSTIMEOUT', () => {
         it('should have correct code 1031', () => {
             const err = new EOBSTIMEOUT();
+
             expect(err.code).toBe('EOBSTIMEOUT');
             expect(err.errno).toBe(1031);
             expect(err.name).toBe('EOBSTIMEOUT');
@@ -143,6 +160,7 @@ describe('Observer Errors', () => {
 
         it('should accept custom message', () => {
             const err = new EOBSTIMEOUT('DataValidator timed out after 5000ms');
+
             expect(err.message).toBe('DataValidator timed out after 5000ms');
         });
     });
@@ -150,6 +168,7 @@ describe('Observer Errors', () => {
     describe('EOBSERVER', () => {
         it('should have correct code 1032', () => {
             const err = new EOBSERVER();
+
             expect(err.code).toBe('EOBSERVER');
             expect(err.errno).toBe(1032);
             expect(err.name).toBe('EOBSERVER');
@@ -158,6 +177,7 @@ describe('Observer Errors', () => {
 
         it('should accept custom message', () => {
             const err = new EOBSERVER('Unknown error in SqlCreate');
+
             expect(err.message).toBe('Unknown error in SqlCreate');
         });
     });
@@ -233,8 +253,9 @@ describe('Observer Errors', () => {
                 new EOBSERVER(),
             ];
 
-            const errnos = errors.map((e) => e.errno);
+            const errnos = errors.map(e => e.errno);
             const uniqueErrnos = new Set(errnos);
+
             expect(uniqueErrnos.size).toBe(errors.length);
         });
 

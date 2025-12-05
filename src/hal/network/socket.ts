@@ -125,7 +125,7 @@ export class BunSocket implements Socket {
         _getDataResolve: () => ((data: Uint8Array) => void) | null,
         private setDataResolve: (r: ((data: Uint8Array) => void) | null) => void,
         private isClosed: () => boolean,
-        private setClosed: (c: boolean) => void
+        private setClosed: (c: boolean) => void,
     ) {}
 
     // =========================================================================
@@ -214,8 +214,11 @@ export class BunSocket implements Socket {
              * because multiple pending reads is unusual and would indicate caller
              * logic error.
              */
-            this.setDataResolve((data) => {
-                if (timeoutId) clearTimeout(timeoutId);
+            this.setDataResolve(data => {
+                if (timeoutId) {
+                    clearTimeout(timeoutId);
+                }
+
                 resolve(data);
             });
         });

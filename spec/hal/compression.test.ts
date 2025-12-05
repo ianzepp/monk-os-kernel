@@ -110,6 +110,7 @@ describe('BunCompressionDevice', () => {
     describe('large data', () => {
         it('should handle 1MB of data', () => {
             const data = new Uint8Array(1024 * 1024);
+
             for (let i = 0; i < data.length; i++) {
                 data[i] = i % 256;
             }

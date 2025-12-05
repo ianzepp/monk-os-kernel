@@ -134,7 +134,7 @@ export function createChannelSyscalls(
     _hal: HAL,
     openChannel: OpenChannelFn,
     getChannel: GetChannelFn,
-    closeHandle: CloseHandleFn
+    closeHandle: CloseHandleFn,
 ): SyscallRegistry {
     return {
         // =====================================================================
@@ -164,6 +164,7 @@ export function createChannelSyscalls(
             // WHY: Protocol routing requires string identifier
             if (typeof proto !== 'string') {
                 yield respond.error('EINVAL', 'proto must be a string');
+
                 return;
             }
 
@@ -171,12 +172,14 @@ export function createChannelSyscalls(
             // WHY: URL parsing and connection establishment require string
             if (typeof url !== 'string') {
                 yield respond.error('EINVAL', 'url must be a string');
+
                 return;
             }
 
             // Delegate to kernel's channel opening logic
             // WHY: Kernel manages handle table and protocol routing
             const ch = await openChannel(proc, proto, url, opts as ChannelOpts | undefined);
+
             yield respond.ok(ch);
         },
 
@@ -201,6 +204,7 @@ export function createChannelSyscalls(
             // WHY: Handle descriptors are integers in handle table
             if (typeof ch !== 'number') {
                 yield respond.error('EINVAL', 'ch must be a number');
+
                 return;
             }
 
@@ -243,14 +247,17 @@ export function createChannelSyscalls(
             // Input validation: ch must be number
             if (typeof ch !== 'number') {
                 yield respond.error('EINVAL', 'ch must be a number');
+
                 return;
             }
 
             // Look up channel from handle table
             // RACE FIX: Check validity before async operations
             const channel = getChannel(proc, ch);
+
             if (!channel) {
                 yield respond.error('EBADF', `Bad channel: ${ch}`);
+
                 return;
             }
 
@@ -299,14 +306,17 @@ export function createChannelSyscalls(
             // Input validation: ch must be number
             if (typeof ch !== 'number') {
                 yield respond.error('EINVAL', 'ch must be a number');
+
                 return;
             }
 
             // Look up channel from handle table
             // RACE FIX: Check validity before async operations
             const channel = getChannel(proc, ch);
+
             if (!channel) {
                 yield respond.error('EBADF', `Bad channel: ${ch}`);
+
                 return;
             }
 
@@ -341,13 +351,16 @@ export function createChannelSyscalls(
             // Input validation: ch must be number
             if (typeof ch !== 'number') {
                 yield respond.error('EINVAL', 'ch must be a number');
+
                 return;
             }
 
             // Look up channel from handle table
             const channel = getChannel(proc, ch);
+
             if (!channel) {
                 yield respond.error('EBADF', `Bad channel: ${ch}`);
+
                 return;
             }
 
@@ -381,19 +394,23 @@ export function createChannelSyscalls(
             // Input validation: ch must be number
             if (typeof ch !== 'number') {
                 yield respond.error('EINVAL', 'ch must be a number');
+
                 return;
             }
 
             // Look up channel from handle table
             const channel = getChannel(proc, ch);
+
             if (!channel) {
                 yield respond.error('EBADF', `Bad channel: ${ch}`);
+
                 return;
             }
 
             // Await response from channel
             // WHY: Blocks until response available or channel closes
             const msg = await channel.recv();
+
             yield respond.ok(msg);
         },
     };

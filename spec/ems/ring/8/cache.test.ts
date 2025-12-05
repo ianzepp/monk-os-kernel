@@ -45,6 +45,7 @@ function createMockDatabase(): DatabaseAdapter {
  */
 function createMockCache(): ModelCacheAdapter & { invalidatedModels: string[] } {
     const invalidatedModels: string[] = [];
+
     return {
         invalidatedModels,
         invalidate(modelName: string): void {
@@ -75,7 +76,7 @@ function createMockModel(name: string): Model {
  */
 function createMockRecord(
     oldData: Record<string, unknown> = {},
-    newData: Record<string, unknown> = {}
+    newData: Record<string, unknown> = {},
 ): ModelRecord {
     const merged = { ...oldData, ...newData };
     const changedFields = Object.keys(newData);
@@ -94,19 +95,26 @@ function createMockRecord(
         toChanges: () => ({ ...newData }),
         getDiff: () => {
             const diff: Record<string, { old: unknown; new: unknown }> = {};
+
             for (const field of changedFields) {
                 diff[field] = { old: oldData[field], new: newData[field] };
             }
+
             return diff;
         },
         getDiffForFields: (fields: Set<string>) => {
             const diff: Record<string, { old: unknown; new: unknown }> = {};
+
             for (const field of changedFields) {
-                if (!fields.has(field)) continue;
+                if (!fields.has(field)) {
+                    continue;
+                }
+
                 if (oldData[field] !== newData[field]) {
                     diff[field] = { old: oldData[field], new: newData[field] };
                 }
             }
+
             return diff;
         },
     };
@@ -119,7 +127,7 @@ function createContext(
     operation: 'create' | 'update' | 'delete',
     modelName: string,
     record: ModelRecord,
-    cache: ModelCacheAdapter
+    cache: ModelCacheAdapter,
 ): ObserverContext {
     return {
         system: {
@@ -193,11 +201,13 @@ describe('Cache', () => {
             // The get() method returns merged, so model_name is available
             const mergedRecord = createMockRecord(
                 { id: 'model-123', model_name: 'invoices', frozen: 0 },
-                { frozen: 1 }
+                { frozen: 1 },
             );
+
             // Override get to return from merged
             (mergedRecord as unknown as { get: (f: string) => unknown }).get = (field: string) => {
                 const merged = { id: 'model-123', model_name: 'invoices', frozen: 1 };
+
                 return merged[field as keyof typeof merged];
             };
 
@@ -211,12 +221,19 @@ describe('Cache', () => {
         it('should invalidate cache on model delete', async () => {
             const record = createMockRecord(
                 { id: 'model-123', model_name: 'old_table' },
-                { trashed_at: new Date().toISOString() }
+                { trashed_at: new Date().toISOString() },
             );
+
             // Override get for merged access
             (record as unknown as { get: (f: string) => unknown }).get = (field: string) => {
-                if (field === 'model_name') return 'old_table';
-                if (field === 'trashed_at') return new Date().toISOString();
+                if (field === 'model_name') {
+                    return 'old_table';
+                }
+
+                if (field === 'trashed_at') {
+                    return new Date().toISOString();
+                }
+
                 return undefined;
             };
 
@@ -248,11 +265,15 @@ describe('Cache', () => {
         it('should invalidate parent model cache on field update', async () => {
             const record = createMockRecord(
                 { id: 'field-123', model_name: 'products', field_name: 'price' },
-                { required: 1 }
+                { required: 1 },
             );
+
             // Override get for merged access
             (record as unknown as { get: (f: string) => unknown }).get = (field: string) => {
-                if (field === 'model_name') return 'products';
+                if (field === 'model_name') {
+                    return 'products';
+                }
+
                 return undefined;
             };
 
@@ -266,11 +287,15 @@ describe('Cache', () => {
         it('should invalidate parent model cache on field delete', async () => {
             const record = createMockRecord(
                 { id: 'field-123', model_name: 'customers', field_name: 'obsolete_field' },
-                { trashed_at: new Date().toISOString() }
+                { trashed_at: new Date().toISOString() },
             );
+
             // Override get for merged access
             (record as unknown as { get: (f: string) => unknown }).get = (field: string) => {
-                if (field === 'model_name') return 'customers';
+                if (field === 'model_name') {
+                    return 'customers';
+                }
+
                 return undefined;
             };
 
@@ -329,6 +354,7 @@ describe('Cache', () => {
                     field_name: `field_${i}`,
                 });
                 const ctx = createContext('create', 'fields', record, mockCache);
+
                 await observer.execute(ctx);
             }
 
@@ -345,6 +371,7 @@ describe('Cache', () => {
 describe('Ring 8 Integration', () => {
     it('should export Cache from index', async () => {
         const exports = await import('@src/ems/ring/8/index.js');
+
         expect(exports.Cache).toBeDefined();
     });
 
@@ -357,9 +384,9 @@ describe('Ring 8 Integration', () => {
         expect(runner).toBeDefined();
     });
 
-    it('should have correct ring ordering (Ring 8 > Ring 6 > Ring 5)', () => {
+    it('should have correct ring ordering (Ring 8 > Ring 6 > Ring 5)', async () => {
         // Verify ring enum values enforce correct ordering
-        const { ObserverRing } = require('@src/ems/observers/index.js');
+        const { ObserverRing } = await import('@src/ems/observers/index.js');
 
         // Ring 8 (Integration) should be greater than Ring 6 (PostDatabase)
         expect(ObserverRing.Integration).toBeGreaterThan(ObserverRing.PostDatabase);
@@ -385,15 +412,23 @@ describe('Cache invalidation proof', () => {
         // Simulate updating a model's frozen flag
         const record = createMockRecord(
             { id: 'model-1', model_name: 'invoices', frozen: 0 },
-            { frozen: 1 }
+            { frozen: 1 },
         );
+
         (record as unknown as { get: (f: string) => unknown }).get = (field: string) => {
-            if (field === 'model_name') return 'invoices';
-            if (field === 'frozen') return 1;
+            if (field === 'model_name') {
+                return 'invoices';
+            }
+
+            if (field === 'frozen') {
+                return 1;
+            }
+
             return undefined;
         };
 
         const ctx = createContext('update', 'models', record, cache);
+
         await observer.execute(ctx);
 
         // The 'invoices' model should be invalidated
@@ -417,6 +452,7 @@ describe('Cache invalidation proof', () => {
         });
 
         const ctx = createContext('create', 'fields', record, cache);
+
         await observer.execute(ctx);
 
         // The 'products' model should be invalidated (not 'fields')

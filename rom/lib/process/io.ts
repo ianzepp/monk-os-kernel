@@ -16,9 +16,11 @@ const DEFAULT_MAX_READ = 10 * 1024 * 1024; // 10MB
  */
 export async function readFile(path: string, maxSize: number = DEFAULT_MAX_READ): Promise<string> {
     const fd = await open(path, { read: true });
+
     try {
         return await readText(fd, maxSize);
-    } finally {
+    }
+    finally {
         await close(fd);
     }
 }
@@ -31,9 +33,11 @@ export async function readFile(path: string, maxSize: number = DEFAULT_MAX_READ)
  */
 export async function readFileBytes(path: string, maxSize: number = DEFAULT_MAX_READ): Promise<Uint8Array> {
     const fd = await open(path, { read: true });
+
     try {
         return await readAll(fd, maxSize);
-    } finally {
+    }
+    finally {
         await close(fd);
     }
 }
@@ -43,9 +47,11 @@ export async function readFileBytes(path: string, maxSize: number = DEFAULT_MAX_
  */
 export async function writeFile(path: string, content: string): Promise<void> {
     const fd = await open(path, { write: true, create: true, truncate: true });
+
     try {
         await write(fd, new TextEncoder().encode(content));
-    } finally {
+    }
+    finally {
         await close(fd);
     }
 }
@@ -58,10 +64,12 @@ export async function writeFile(path: string, content: string): Promise<void> {
  */
 export async function copy(srcFd: number, dstFd: number): Promise<number> {
     let total = 0;
+
     for await (const chunk of read(srcFd)) {
         await write(dstFd, chunk);
         total += chunk.length;
     }
+
     return total;
 }
 
@@ -73,14 +81,18 @@ export async function copy(srcFd: number, dstFd: number): Promise<number> {
  */
 export async function copyFile(srcPath: string, dstPath: string): Promise<number> {
     const src = await open(srcPath, { read: true });
+
     try {
         const dst = await open(dstPath, { write: true, create: true, truncate: true });
+
         try {
             return await copy(src, dst);
-        } finally {
+        }
+        finally {
             await close(dst);
         }
-    } finally {
+    }
+    finally {
         await close(src);
     }
 }

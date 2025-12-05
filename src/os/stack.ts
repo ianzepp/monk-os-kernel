@@ -188,7 +188,10 @@ export async function createOsStack(opts: OsStackOptions = {}): Promise<OsStack>
 
     // Shutdown function (created early so it can be called on error)
     const shutdown = async (): Promise<void> => {
-        if (isShutdown) return;
+        if (isShutdown) {
+            return;
+        }
+
         isShutdown = true;
 
         // Shutdown in reverse order
@@ -214,9 +217,11 @@ export async function createOsStack(opts: OsStackOptions = {}): Promise<OsStack>
                 // Use existing HAL (don't shutdown)
                 hal = opts.hal;
                 ownsHal = false;
-            } else {
+            }
+            else {
                 // Create new HAL
                 const config = isHALConfig(opts.hal) ? opts.hal : undefined;
+
                 hal = new BunHAL(config);
                 await hal.init();
                 ownsHal = true;
@@ -255,7 +260,8 @@ export async function createOsStack(opts: OsStackOptions = {}): Promise<OsStack>
             kernel,
             shutdown,
         };
-    } catch (error) {
+    }
+    catch (error) {
         // Clean up on error
         await shutdown();
         throw error;

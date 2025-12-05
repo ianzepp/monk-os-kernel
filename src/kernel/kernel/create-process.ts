@@ -88,7 +88,7 @@ export function createProcess(
         cwd?: string;
         env?: Record<string, string>;
         args?: string[];
-    }
+    },
 ): Process {
     return {
         // =====================================================================

@@ -28,6 +28,7 @@ export async function head(fd: number, size: number): Promise<Uint8Array> {
             total = size;
             break;
         }
+
         chunks.push(chunk);
         total += chunk.length;
     }
@@ -40,10 +41,12 @@ export async function head(fd: number, size: number): Promise<Uint8Array> {
     // Concatenate chunks
     const result = new Uint8Array(total);
     let offset = 0;
+
     for (const chunk of chunks) {
         result.set(chunk, offset);
         offset += chunk.length;
     }
+
     return result;
 }
 
@@ -55,13 +58,18 @@ export async function head(fd: number, size: number): Promise<Uint8Array> {
  * @param count - Maximum number of lines to read
  */
 export async function* headLines(fd: number, count: number): AsyncIterable<string> {
-    if (count <= 0) return;
+    if (count <= 0) {
+        return;
+    }
 
     let n = 0;
+
     for await (const line of readLines(fd)) {
         yield line;
         n++;
-        if (n >= count) break;
+        if (n >= count) {
+            break;
+        }
     }
 }
 
@@ -74,9 +82,11 @@ export async function* headLines(fd: number, count: number): AsyncIterable<strin
  */
 export async function headFile(path: string, size: number): Promise<Uint8Array> {
     const fd = await open(path, { read: true });
+
     try {
         return await head(fd, size);
-    } finally {
+    }
+    finally {
         await close(fd);
     }
 }
@@ -90,13 +100,17 @@ export async function headFile(path: string, size: number): Promise<Uint8Array> 
  */
 export async function headFileLines(path: string, count: number): Promise<string[]> {
     const fd = await open(path, { read: true });
+
     try {
         const lines: string[] = [];
+
         for await (const line of headLines(fd, count)) {
             lines.push(line);
         }
+
         return lines;
-    } finally {
+    }
+    finally {
         await close(fd);
     }
 }

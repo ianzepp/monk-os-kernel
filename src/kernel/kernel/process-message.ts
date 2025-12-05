@@ -46,7 +46,7 @@ import { handleStreamCancel } from './on-stream-cancel.js';
 export async function handleMessage(
     self: Kernel,
     proc: Process,
-    msg: KernelMessage
+    msg: KernelMessage,
 ): Promise<void> {
     // RACE FIX: Check process state before handling
     // WHY: A zombie process may still have messages in flight from before

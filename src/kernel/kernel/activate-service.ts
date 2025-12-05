@@ -96,7 +96,7 @@ import { printk } from './printk.js';
 export async function activateService(
     self: Kernel,
     name: string,
-    def: ServiceDef
+    def: ServiceDef,
 ): Promise<void> {
     const activation = def.activate;
 
@@ -110,9 +110,9 @@ export async function activateService(
             await spawnServiceHandler(self, name, def);
             break;
 
-        // =====================================================================
-        // TCP SOCKET ACTIVATION
-        // =====================================================================
+            // =====================================================================
+            // TCP SOCKET ACTIVATION
+            // =====================================================================
 
         case 'tcp:listen': {
             // WHY: Listen on specified port/host, spawn handler per connection
@@ -128,14 +128,17 @@ export async function activateService(
             self.activationPorts.set(name, port);
 
             const abort = new AbortController();
+
             self.activationAborts.set(name, abort);
 
             // Start activation loop (spawns handler per connection)
             // WHY: Transform extracts socket and builds activation message
-            runActivationLoop(self, name, def, port, abort.signal, (msg) => {
+            runActivationLoop(self, name, def, port, abort.signal, msg => {
                 if (msg.socket) {
                     const stat = msg.socket.stat();
+
                     printk(self, 'tcp', `${name}: accepted from ${stat.remoteAddr}:${stat.remotePort}`);
+
                     return {
                         socket: msg.socket,
                         activation: {
@@ -149,6 +152,7 @@ export async function activateService(
                         },
                     };
                 }
+
                 return null;
             });
             break;
@@ -183,10 +187,11 @@ export async function activateService(
             self.activationPorts.set(name, port);
 
             const abort = new AbortController();
+
             self.activationAborts.set(name, abort);
 
             // Start activation loop (spawns handler per message)
-            runActivationLoop(self, name, def, port, abort.signal, (msg) => ({
+            runActivationLoop(self, name, def, port, abort.signal, msg => ({
                 activation: {
                     op: 'pubsub:subscribe',
                     data: { topic: msg.from, payload: msg.data },
@@ -215,10 +220,11 @@ export async function activateService(
             self.activationPorts.set(name, port);
 
             const abort = new AbortController();
+
             self.activationAborts.set(name, abort);
 
             // Start activation loop (spawns handler per event)
-            runActivationLoop(self, name, def, port, abort.signal, (msg) => ({
+            runActivationLoop(self, name, def, port, abort.signal, msg => ({
                 activation: {
                     op: 'fs:watch',
                     data: { path: msg.from, event: msg.meta?.op, content: msg.data },
@@ -242,10 +248,11 @@ export async function activateService(
             self.activationPorts.set(name, port);
 
             const abort = new AbortController();
+
             self.activationAborts.set(name, abort);
 
             // Start activation loop (spawns handler per datagram)
-            runActivationLoop(self, name, def, port, abort.signal, (msg) => ({
+            runActivationLoop(self, name, def, port, abort.signal, msg => ({
                 activation: {
                     op: 'udp:bind',
                     data: { from: msg.from, payload: msg.data },

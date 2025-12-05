@@ -183,8 +183,13 @@ export class PostgresStorageEngine implements StorageEngine {
      */
     async get(key: string): Promise<Uint8Array | null> {
         const rows = await this.sql.unsafe('SELECT value FROM storage WHERE key = $1', [key]);
-        if (rows.length === 0) return null;
+
+        if (rows.length === 0) {
+            return null;
+        }
+
         const value = rows[0].value;
+
         // Bun.SQL returns Buffer for BYTEA, convert to Uint8Array
         return value instanceof Uint8Array ? value : new Uint8Array(value);
     }
@@ -205,10 +210,11 @@ export class PostgresStorageEngine implements StorageEngine {
      */
     async put(key: string, value: Uint8Array): Promise<void> {
         const mtime = Date.now();
+
         await this.sql.unsafe(
             `INSERT INTO storage (key, value, mtime) VALUES ($1, $2, $3)
              ON CONFLICT (key) DO UPDATE SET value = $2, mtime = $3`,
-            [key, value, mtime]
+            [key, value, mtime],
         );
         // Notify watchers after successful write
         this.emit({ key, op: 'put', value, timestamp: mtime });
@@ -250,8 +256,9 @@ export class PostgresStorageEngine implements StorageEngine {
         const pattern = prefix + '%';
         const rows = await this.sql.unsafe(
             'SELECT key FROM storage WHERE key LIKE $1 ORDER BY key',
-            [pattern]
+            [pattern],
         );
+
         for (const row of rows) {
             yield row.key;
         }
@@ -267,6 +274,7 @@ export class PostgresStorageEngine implements StorageEngine {
      */
     async exists(key: string): Promise<boolean> {
         const rows = await this.sql.unsafe('SELECT 1 FROM storage WHERE key = $1', [key]);
+
         return rows.length > 0;
     }
 
@@ -281,9 +289,13 @@ export class PostgresStorageEngine implements StorageEngine {
     async stat(key: string): Promise<StorageStat | null> {
         const rows = await this.sql.unsafe(
             'SELECT octet_length(value) as size, mtime FROM storage WHERE key = $1',
-            [key]
+            [key],
         );
-        if (rows.length === 0) return null;
+
+        if (rows.length === 0) {
+            return null;
+        }
+
         return { size: Number(rows[0].size), mtime: Number(rows[0].mtime) };
     }
 
@@ -311,7 +323,9 @@ export class PostgresStorageEngine implements StorageEngine {
         // WHY: Bun.SQL requires reserving a connection for transactions
         // to prevent connection pool issues with BEGIN/COMMIT across connections
         const reserved = await this.sql.reserve();
+
         await reserved.unsafe('BEGIN');
+
         return new PostgresTransaction(reserved, this);
     }
 
@@ -363,6 +377,7 @@ export class PostgresStorageEngine implements StorageEngine {
         if (!this.watchers.has(key)) {
             this.watchers.set(key, new Set());
         }
+
         this.watchers.get(key)!.add(callback);
 
         try {
@@ -370,14 +385,16 @@ export class PostgresStorageEngine implements StorageEngine {
                 if (queue.length > 0) {
                     // Yield next event from queue
                     yield queue.shift()!;
-                } else {
+                }
+                else {
                     // Wait for next event
-                    await new Promise<void>((r) => {
+                    await new Promise<void>(r => {
                         resolve = r;
                     });
                 }
             }
-        } finally {
+        }
+        finally {
             // Cleanup on break/return
             // WHY: Prevents memory leak from abandoned watchers
             this.watchers.get(key)?.delete(callback);
@@ -436,6 +453,7 @@ export class PostgresStorageEngine implements StorageEngine {
             .replace(/\*\*/g, '<<<DOUBLESTAR>>>')
             .replace(/\*/g, '[^/]*')
             .replace(/<<<DOUBLESTAR>>>/g, '.*');
+
         return new RegExp(`^${regex}$`).test(key);
     }
 
@@ -538,7 +556,7 @@ class PostgresTransaction implements Transaction {
      */
     constructor(
         private reserved: ReservedSQL,
-        private engine: PostgresStorageEngine
+        private engine: PostgresStorageEngine,
     ) {}
 
     /**
@@ -574,8 +592,13 @@ class PostgresTransaction implements Transaction {
      */
     async get(key: string): Promise<Uint8Array | null> {
         const rows = await this.reserved.unsafe('SELECT value FROM storage WHERE key = $1', [key]);
-        if (rows.length === 0) return null;
+
+        if (rows.length === 0) {
+            return null;
+        }
+
         const value = rows[0].value;
+
         return value instanceof Uint8Array ? value : new Uint8Array(value);
     }
 
@@ -593,10 +616,11 @@ class PostgresTransaction implements Transaction {
      */
     async put(key: string, value: Uint8Array): Promise<void> {
         const mtime = Date.now();
+
         await this.reserved.unsafe(
             `INSERT INTO storage (key, value, mtime) VALUES ($1, $2, $3)
              ON CONFLICT (key) DO UPDATE SET value = $2, mtime = $3`,
-            [key, value, mtime]
+            [key, value, mtime],
         );
         // Buffer event for emission after commit
         this.events.push({ key, op: 'put', value, timestamp: mtime });
@@ -637,7 +661,10 @@ class PostgresTransaction implements Transaction {
      * @returns Promise that resolves when commit is complete
      */
     async commit(): Promise<void> {
-        if (this.committed) return;
+        if (this.committed) {
+            return;
+        }
+
         this.committed = true;
         await this.reserved.unsafe('COMMIT');
         // Release connection back to pool
@@ -663,7 +690,10 @@ class PostgresTransaction implements Transaction {
      * @returns Promise that resolves when rollback is complete
      */
     async rollback(): Promise<void> {
-        if (this.committed || this.rolledBack) return;
+        if (this.committed || this.rolledBack) {
+            return;
+        }
+
         this.rolledBack = true;
         await this.reserved.unsafe('ROLLBACK');
         // Release connection back to pool

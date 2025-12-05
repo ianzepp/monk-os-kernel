@@ -21,12 +21,14 @@ describe('Database Channels', () => {
             it('should return empty result for table with no rows', async () => {
                 // Create table
                 const createResponses: unknown[] = [];
+
                 for await (const r of channel.handle({
                     op: 'execute',
                     data: { sql: 'CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT)' },
                 })) {
                     createResponses.push(r);
                 }
+
                 expect(createResponses[0]).toHaveProperty('op', 'ok');
 
                 // Query empty table
@@ -34,8 +36,9 @@ describe('Database Channels', () => {
                     channel.handle({
                         op: 'query',
                         data: { sql: 'SELECT * FROM test' },
-                    })
+                    }),
                 );
+
                 expect(rows).toEqual([]);
             });
 
@@ -63,7 +66,7 @@ describe('Database Channels', () => {
                     channel.handle({
                         op: 'query',
                         data: { sql: 'SELECT * FROM users ORDER BY id' },
-                    })
+                    }),
                 );
 
                 expect(rows).toHaveLength(3);
@@ -94,15 +97,16 @@ describe('Database Channels', () => {
                     channel.handle({
                         op: 'query',
                         data: { sql: 'SELECT * FROM items WHERE value > ?', params: [15] },
-                    })
+                    }),
                 );
 
                 expect(rows).toHaveLength(2);
-                expect(rows.map((r) => r.value).sort()).toEqual([20, 30]);
+                expect(rows.map(r => r.value).sort()).toEqual([20, 30]);
             });
 
             it('should return error for invalid SQL', async () => {
                 const responses: unknown[] = [];
+
                 for await (const r of channel.handle({
                     op: 'query',
                     data: { sql: 'SELECT * FROM nonexistent_table' },
@@ -126,6 +130,7 @@ describe('Database Channels', () => {
                 }
 
                 const responses: unknown[] = [];
+
                 for await (const r of channel.handle({
                     op: 'execute',
                     data: {
@@ -159,6 +164,7 @@ describe('Database Channels', () => {
                 }
 
                 const responses: unknown[] = [];
+
                 for await (const r of channel.handle({
                     op: 'execute',
                     data: {
@@ -187,6 +193,7 @@ describe('Database Channels', () => {
                 }
 
                 const responses: unknown[] = [];
+
                 for await (const r of channel.handle({
                     op: 'execute',
                     data: { sql: 'DELETE FROM test WHERE id > 1' },
@@ -209,6 +216,7 @@ describe('Database Channels', () => {
                 await channel.close();
 
                 const responses: unknown[] = [];
+
                 for await (const r of channel.handle({
                     op: 'query',
                     data: { sql: 'SELECT 1' },
@@ -224,6 +232,7 @@ describe('Database Channels', () => {
         describe('unknown op', () => {
             it('should return error for unknown op', async () => {
                 const responses: unknown[] = [];
+
                 for await (const r of channel.handle({
                     op: 'unknown',
                     data: {},
@@ -274,7 +283,7 @@ describe('Database Channels', () => {
                     channel.handle({
                         op: 'query',
                         data: { sql: 'SELECT value FROM test' },
-                    })
+                    }),
                 );
 
                 expect(rows).toHaveLength(1);
@@ -326,7 +335,7 @@ describe('Database Channels', () => {
                     channel.handle({
                         op: 'query',
                         data: { sql: 'SELECT value FROM test' },
-                    })
+                    }),
                 );
 
                 expect(rows).toHaveLength(1);
@@ -351,13 +360,13 @@ describe('Database Channels', () => {
         describe('push/recv not supported', () => {
             it('should throw on push', async () => {
                 await expect(channel.push({ op: 'ok' })).rejects.toThrow(
-                    'SQLite channels do not support push'
+                    'SQLite channels do not support push',
                 );
             });
 
             it('should throw on recv', async () => {
                 await expect(channel.recv()).rejects.toThrow(
-                    'SQLite channels do not support recv'
+                    'SQLite channels do not support recv',
                 );
             });
         });
@@ -378,6 +387,7 @@ describe('Database Channels', () => {
             // This test just verifies the channel can be created
             // Actual connection requires a running PostgreSQL instance
             const channel = await device.open('postgres', 'postgresql://localhost/test');
+
             expect(channel.proto).toBe('postgres');
 
             // Close immediately (connection will fail without database)
@@ -386,8 +396,9 @@ describe('Database Channels', () => {
 
         it('should throw for unsupported protocol', async () => {
             const device = new BunChannelDevice();
+
             await expect(device.open('redis', 'redis://localhost')).rejects.toThrow(
-                'Unsupported protocol: redis'
+                'Unsupported protocol: redis',
             );
         });
     });

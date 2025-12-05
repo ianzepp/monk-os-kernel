@@ -68,7 +68,7 @@ async function main(): Promise<void> {
     await exit(0);
 }
 
-main().catch(async (err) => {
+main().catch(async err => {
     await eprintln(`dirname: ${err.message}`);
     await exit(1);
 });

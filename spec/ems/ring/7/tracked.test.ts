@@ -34,6 +34,7 @@ function createMockDatabase(): DatabaseAdapter & {
         nextChangeId: 1, // configurable for tests
         async execute(sql: string, params?: unknown[]): Promise<number> {
             executedQueries.push({ sql, params });
+
             return 1;
         },
         async query<T>(sql: string, params?: unknown[]): Promise<T[]> {
@@ -42,6 +43,7 @@ function createMockDatabase(): DatabaseAdapter & {
             if (sql.includes('COALESCE(MAX(change_id)')) {
                 return [{ next_id: this.nextChangeId }] as T[];
             }
+
             return [] as T[];
         },
         async exec(_sql: string): Promise<void> {
@@ -69,7 +71,7 @@ function createMockCache(): ModelCacheAdapter {
  */
 function createMockModel(
     name: string,
-    trackedFields: Set<string> = new Set()
+    trackedFields: Set<string> = new Set(),
 ): Model {
     return {
         modelName: name,
@@ -89,7 +91,7 @@ function createMockModel(
  */
 function createMockRecord(
     oldData: Record<string, unknown> = {},
-    newData: Record<string, unknown> = {}
+    newData: Record<string, unknown> = {},
 ): ModelRecord {
     const merged = { ...oldData, ...newData };
     const changedFields = Object.keys(newData);
@@ -108,21 +110,28 @@ function createMockRecord(
         toChanges: () => ({ ...newData }),
         getDiff: () => {
             const diff: Record<string, { old: unknown; new: unknown }> = {};
+
             for (const field of changedFields) {
                 if (oldData[field] !== newData[field]) {
                     diff[field] = { old: oldData[field], new: newData[field] };
                 }
             }
+
             return diff;
         },
         getDiffForFields: (fields: Set<string>) => {
             const diff: Record<string, { old: unknown; new: unknown }> = {};
+
             for (const field of changedFields) {
-                if (!fields.has(field)) continue;
+                if (!fields.has(field)) {
+                    continue;
+                }
+
                 if (oldData[field] !== newData[field]) {
                     diff[field] = { old: oldData[field], new: newData[field] };
                 }
             }
+
             return diff;
         },
     };
@@ -136,7 +145,7 @@ function createContext(
     modelName: string,
     record: ModelRecord,
     db: DatabaseAdapter,
-    trackedFields: Set<string> = new Set()
+    trackedFields: Set<string> = new Set(),
 ): ObserverContext {
     return {
         system: {
@@ -194,7 +203,7 @@ describe('Tracked', () => {
         it('should skip when model has no tracked fields', async () => {
             const record = createMockRecord(
                 { id: 'abc123', name: 'Old' },
-                { name: 'New' }
+                { name: 'New' },
             );
             const ctx = createContext('update', 'invoices', record, mockDb, new Set());
 
@@ -208,7 +217,7 @@ describe('Tracked', () => {
             const trackedFields = new Set(['amount']); // track 'amount', not 'name'
             const record = createMockRecord(
                 { id: 'abc123', name: 'Old', amount: 100 },
-                { name: 'New' } // only 'name' changed, not 'amount'
+                { name: 'New' }, // only 'name' changed, not 'amount'
             );
             const ctx = createContext('update', 'invoices', record, mockDb, trackedFields);
 
@@ -216,8 +225,9 @@ describe('Tracked', () => {
 
             // No insert should happen (only the change_id query would be skipped too)
             const inserts = mockDb.executedQueries.filter(q =>
-                q.sql.includes('INSERT INTO tracked')
+                q.sql.includes('INSERT INTO tracked'),
             );
+
             expect(inserts).toHaveLength(0);
         });
 
@@ -225,15 +235,16 @@ describe('Tracked', () => {
             const trackedFields = new Set(['name']);
             const record = createMockRecord(
                 { name: 'Old' }, // no id
-                { name: 'New' }
+                { name: 'New' },
             );
             const ctx = createContext('update', 'invoices', record, mockDb, trackedFields);
 
             await observer.execute(ctx);
 
             const inserts = mockDb.executedQueries.filter(q =>
-                q.sql.includes('INSERT INTO tracked')
+                q.sql.includes('INSERT INTO tracked'),
             );
+
             expect(inserts).toHaveLength(0);
         });
     });
@@ -243,7 +254,7 @@ describe('Tracked', () => {
             const trackedFields = new Set(['amount', 'status']);
             const record = createMockRecord(
                 {}, // new record
-                { id: 'inv-123', amount: 100, status: 'pending', notes: 'test' }
+                { id: 'inv-123', amount: 100, status: 'pending', notes: 'test' },
             );
             const ctx = createContext('create', 'invoices', record, mockDb, trackedFields);
 
@@ -253,8 +264,9 @@ describe('Tracked', () => {
             expect(mockDb.executedQueries).toHaveLength(2);
 
             const insert = mockDb.executedQueries.find(q =>
-                q.sql.includes('INSERT INTO tracked')
+                q.sql.includes('INSERT INTO tracked'),
             );
+
             expect(insert).toBeDefined();
             expect(insert!.params).toContain('invoices');
             expect(insert!.params).toContain('inv-123');
@@ -263,6 +275,7 @@ describe('Tracked', () => {
             // Changes should only include tracked fields
             const changesJson = insert!.params![5] as string;
             const changes = JSON.parse(changesJson);
+
             expect(changes).toHaveProperty('amount');
             expect(changes).toHaveProperty('status');
             expect(changes).not.toHaveProperty('notes'); // not tracked
@@ -274,20 +287,22 @@ describe('Tracked', () => {
             const trackedFields = new Set(['amount']);
             const record = createMockRecord(
                 { id: 'inv-123', amount: 100, name: 'Invoice 1' },
-                { amount: 200 }
+                { amount: 200 },
             );
             const ctx = createContext('update', 'invoices', record, mockDb, trackedFields);
 
             await observer.execute(ctx);
 
             const insert = mockDb.executedQueries.find(q =>
-                q.sql.includes('INSERT INTO tracked')
+                q.sql.includes('INSERT INTO tracked'),
             );
+
             expect(insert).toBeDefined();
             expect(insert!.params).toContain('update');
 
             const changesJson = insert!.params![5] as string;
             const changes = JSON.parse(changesJson);
+
             expect(changes.amount).toEqual({ old: 100, new: 200 });
         });
 
@@ -295,14 +310,14 @@ describe('Tracked', () => {
             const trackedFields = new Set(['amount', 'status']);
             const record = createMockRecord(
                 { id: 'inv-123', amount: 100, status: 'pending' },
-                { amount: 200 } // only amount changed, not status
+                { amount: 200 }, // only amount changed, not status
             );
             const ctx = createContext('update', 'invoices', record, mockDb, trackedFields);
 
             await observer.execute(ctx);
 
             const insert = mockDb.executedQueries.find(q =>
-                q.sql.includes('INSERT INTO tracked')
+                q.sql.includes('INSERT INTO tracked'),
             );
             const changesJson = insert!.params![5] as string;
             const changes = JSON.parse(changesJson);
@@ -316,7 +331,7 @@ describe('Tracked', () => {
         it('should record final state on delete', async () => {
             const record = createMockRecord(
                 { id: 'inv-123', amount: 100 },
-                { trashed_at: '2025-01-01T00:00:00.000Z' }
+                { trashed_at: '2025-01-01T00:00:00.000Z' },
             );
             // For delete, we track the trashed_at or other changes
             const ctx = createContext('delete', 'invoices', record, mockDb, new Set(['trashed_at']));
@@ -324,8 +339,9 @@ describe('Tracked', () => {
             await observer.execute(ctx);
 
             const insert = mockDb.executedQueries.find(q =>
-                q.sql.includes('INSERT INTO tracked')
+                q.sql.includes('INSERT INTO tracked'),
             );
+
             expect(insert).toBeDefined();
             expect(insert!.params).toContain('delete');
         });
@@ -336,7 +352,7 @@ describe('Tracked', () => {
             const trackedFields = new Set(['amount']);
             const record = createMockRecord(
                 { id: 'inv-123', amount: 100 },
-                { amount: 200 }
+                { amount: 200 },
             );
             const ctx = createContext('update', 'invoices', record, mockDb, trackedFields);
 
@@ -346,8 +362,9 @@ describe('Tracked', () => {
             await observer.execute(ctx);
 
             const insert = mockDb.executedQueries.find(q =>
-                q.sql.includes('INSERT INTO tracked')
+                q.sql.includes('INSERT INTO tracked'),
             );
+
             // change_id should be 5 (second parameter after id)
             expect(insert!.params![1]).toBe(5);
         });
@@ -356,7 +373,7 @@ describe('Tracked', () => {
             const trackedFields = new Set(['amount']);
             const record = createMockRecord(
                 { id: 'inv-new', amount: 100 },
-                { amount: 200 }
+                { amount: 200 },
             );
             const ctx = createContext('update', 'invoices', record, mockDb, trackedFields);
 
@@ -365,8 +382,9 @@ describe('Tracked', () => {
             await observer.execute(ctx);
 
             const insert = mockDb.executedQueries.find(q =>
-                q.sql.includes('INSERT INTO tracked')
+                q.sql.includes('INSERT INTO tracked'),
             );
+
             expect(insert!.params![1]).toBe(1);
         });
     });
@@ -378,11 +396,11 @@ describe('Tracked', () => {
             // Create two records
             const record1 = createMockRecord(
                 { id: 'inv-1', amount: 100 },
-                { amount: 200 }
+                { amount: 200 },
             );
             const record2 = createMockRecord(
                 { id: 'inv-2', amount: 300 },
-                { amount: 400 }
+                { amount: 400 },
             );
 
             const ctx1 = createContext('update', 'invoices', record1, mockDb, trackedFields);
@@ -392,12 +410,13 @@ describe('Tracked', () => {
             await observer.execute(ctx2);
 
             const inserts = mockDb.executedQueries.filter(q =>
-                q.sql.includes('INSERT INTO tracked')
+                q.sql.includes('INSERT INTO tracked'),
             );
 
             // IDs should be different (first param)
             const id1 = inserts[0]!.params![0] as string;
             const id2 = inserts[1]!.params![0] as string;
+
             expect(id1).not.toBe(id2);
         });
 
@@ -405,16 +424,17 @@ describe('Tracked', () => {
             const trackedFields = new Set(['amount']);
             const record = createMockRecord(
                 { id: 'inv-123', amount: 100 },
-                { amount: 200 }
+                { amount: 200 },
             );
             const ctx = createContext('update', 'invoices', record, mockDb, trackedFields);
 
             await observer.execute(ctx);
 
             const insert = mockDb.executedQueries.find(q =>
-                q.sql.includes('INSERT INTO tracked')
+                q.sql.includes('INSERT INTO tracked'),
             );
             const id = insert!.params![0] as string;
+
             expect(id).not.toContain('-');
             expect(id).toHaveLength(32); // UUID without hyphens
         });
@@ -425,17 +445,18 @@ describe('Tracked', () => {
             const trackedFields = new Set(['amount']);
             const record = createMockRecord(
                 { id: 'inv-123', amount: null },
-                { amount: 100 }
+                { amount: 100 },
             );
             const ctx = createContext('update', 'invoices', record, mockDb, trackedFields);
 
             await observer.execute(ctx);
 
             const insert = mockDb.executedQueries.find(q =>
-                q.sql.includes('INSERT INTO tracked')
+                q.sql.includes('INSERT INTO tracked'),
             );
             const changesJson = insert!.params![5] as string;
             const changes = JSON.parse(changesJson);
+
             expect(changes.amount).toEqual({ old: null, new: 100 });
         });
 
@@ -443,17 +464,18 @@ describe('Tracked', () => {
             const trackedFields = new Set(['amount']);
             const record = createMockRecord(
                 { id: 'inv-123', amount: 100 },
-                { amount: null }
+                { amount: null },
             );
             const ctx = createContext('update', 'invoices', record, mockDb, trackedFields);
 
             await observer.execute(ctx);
 
             const insert = mockDb.executedQueries.find(q =>
-                q.sql.includes('INSERT INTO tracked')
+                q.sql.includes('INSERT INTO tracked'),
             );
             const changesJson = insert!.params![5] as string;
             const changes = JSON.parse(changesJson);
+
             expect(changes.amount).toEqual({ old: 100, new: null });
         });
 
@@ -461,14 +483,14 @@ describe('Tracked', () => {
             const trackedFields = new Set(['amount', 'status', 'priority']);
             const record = createMockRecord(
                 { id: 'inv-123', amount: 100, status: 'pending', priority: 1 },
-                { amount: 200, status: 'paid', priority: 2 }
+                { amount: 200, status: 'paid', priority: 2 },
             );
             const ctx = createContext('update', 'invoices', record, mockDb, trackedFields);
 
             await observer.execute(ctx);
 
             const insert = mockDb.executedQueries.find(q =>
-                q.sql.includes('INSERT INTO tracked')
+                q.sql.includes('INSERT INTO tracked'),
             );
             const changesJson = insert!.params![5] as string;
             const changes = JSON.parse(changesJson);
@@ -488,6 +510,7 @@ describe('Tracked', () => {
 describe('Ring 7 Integration', () => {
     it('should export Tracked from index', async () => {
         const exports = await import('@src/ems/ring/7/index.js');
+
         expect(exports.Tracked).toBeDefined();
     });
 
@@ -499,9 +522,9 @@ describe('Ring 7 Integration', () => {
         expect(runner).toBeDefined();
     });
 
-    it('should have correct ring ordering (Ring 7 > Ring 6 > Ring 5)', () => {
+    it('should have correct ring ordering (Ring 7 > Ring 6 > Ring 5)', async () => {
         // Verify ring enum values enforce correct ordering
-        const { ObserverRing } = require('@src/ems/observers/index.js');
+        const { ObserverRing } = await import('@src/ems/observers/index.js');
 
         // Ring 7 (Audit) should be greater than Ring 6 (PostDatabase)
         expect(ObserverRing.Audit).toBeGreaterThan(ObserverRing.PostDatabase);
@@ -535,13 +558,15 @@ describe('Audit proof', () => {
             mockDb.nextChangeId++;
             const record = createMockRecord(update.old, update.new);
             const ctx = createContext('update', 'invoices', record, mockDb, trackedFields);
+
             await observer.execute(ctx);
         }
 
         // Should have 3 inserts (6 queries total: 3 selects + 3 inserts)
         const inserts = mockDb.executedQueries.filter(q =>
-            q.sql.includes('INSERT INTO tracked')
+            q.sql.includes('INSERT INTO tracked'),
         );
+
         expect(inserts).toHaveLength(3);
 
         // Each insert should have the correct operation

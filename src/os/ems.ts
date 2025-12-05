@@ -39,8 +39,9 @@
  * - upsert*  - create or update (through pipeline)
  */
 
+import type {
+    EntityOps } from '@src/ems/entity-ops.js';
 import {
-    EntityOps,
     collect,
     type EntityRecord,
 } from '@src/ems/entity-ops.js';
@@ -111,7 +112,7 @@ export class EntityAPI {
     async selectAny<T extends EntityRecord>(
         modelName: string,
         filterData: FilterData = {},
-        options: SelectOptions = {}
+        options: SelectOptions = {},
     ): Promise<T[]> {
         return collect(this.ops.selectAny<T>(modelName, filterData, options));
     }
@@ -122,15 +123,16 @@ export class EntityAPI {
     async selectOne<T extends EntityRecord>(
         modelName: string,
         filterData: FilterData,
-        options: SelectOptions = {}
+        options: SelectOptions = {},
     ): Promise<T | null> {
         for await (const record of this.ops.selectAny<T>(
             modelName,
             { ...filterData, limit: 1 },
-            options
+            options,
         )) {
             return record;
         }
+
         return null;
     }
 
@@ -141,12 +143,14 @@ export class EntityAPI {
         modelName: string,
         filterData: FilterData,
         message?: string,
-        options: SelectOptions = {}
+        options: SelectOptions = {},
     ): Promise<T> {
         const result = await this.selectOne<T>(modelName, filterData, options);
+
         if (!result) {
             throw new ENOENT(message || `Record not found in ${modelName}`);
         }
+
         return result;
     }
 
@@ -156,7 +160,7 @@ export class EntityAPI {
     async selectIds<T extends EntityRecord>(
         modelName: string,
         ids: string[],
-        options: SelectOptions = {}
+        options: SelectOptions = {},
     ): Promise<T[]> {
         return collect(this.ops.selectIds<T>(modelName, ids, options));
     }
@@ -165,7 +169,8 @@ export class EntityAPI {
      * Re-select records (refresh from database by their IDs).
      */
     async selectAll<T extends EntityRecord>(modelName: string, records: T[]): Promise<T[]> {
-        const ids = records.map((r) => r.id);
+        const ids = records.map(r => r.id);
+
         return this.selectIds<T>(modelName, ids);
     }
 
@@ -175,12 +180,14 @@ export class EntityAPI {
     async count(
         modelName: string,
         filterData: FilterData = {},
-        options: SelectOptions = {}
+        options: SelectOptions = {},
     ): Promise<number> {
         let count = 0;
+
         for await (const _ of this.ops.selectAny(modelName, filterData, options)) {
             count++;
         }
+
         return count;
     }
 
@@ -193,7 +200,7 @@ export class EntityAPI {
      */
     async createAll<T extends EntityRecord>(
         modelName: string,
-        records: CreateInput<T>[]
+        records: CreateInput<T>[],
     ): Promise<T[]> {
         return collect(this.ops.createAll<T>(modelName, records));
     }
@@ -203,11 +210,12 @@ export class EntityAPI {
      */
     async createOne<T extends EntityRecord>(
         modelName: string,
-        data: CreateInput<T>
+        data: CreateInput<T>,
     ): Promise<T> {
         for await (const created of this.ops.createAll<T>(modelName, [data])) {
             return created;
         }
+
         throw new EIO('Create failed');
     }
 
@@ -220,7 +228,7 @@ export class EntityAPI {
      */
     async updateAll<T extends EntityRecord>(
         modelName: string,
-        updates: UpdateInput<T>[]
+        updates: UpdateInput<T>[],
     ): Promise<T[]> {
         return collect(this.ops.updateAll<T>(modelName, updates));
     }
@@ -231,11 +239,12 @@ export class EntityAPI {
     async updateOne<T extends EntityRecord>(
         modelName: string,
         id: string,
-        changes: Partial<T>
+        changes: Partial<T>,
     ): Promise<T> {
         for await (const updated of this.ops.updateAll<T>(modelName, [{ id, changes }])) {
             return updated;
         }
+
         throw new EIO('Update failed');
     }
 
@@ -245,7 +254,7 @@ export class EntityAPI {
     async updateIds<T extends EntityRecord>(
         modelName: string,
         ids: string[],
-        changes: Partial<T>
+        changes: Partial<T>,
     ): Promise<T[]> {
         return collect(this.ops.updateIds<T>(modelName, ids, changes));
     }
@@ -256,7 +265,7 @@ export class EntityAPI {
     async updateAny<T extends EntityRecord>(
         modelName: string,
         filterData: FilterData,
-        changes: Partial<T>
+        changes: Partial<T>,
     ): Promise<T[]> {
         return collect(this.ops.updateAny<T>(modelName, filterData, changes));
     }
@@ -268,7 +277,7 @@ export class EntityAPI {
         modelName: string,
         filterData: FilterData,
         changes: Partial<T>,
-        message?: string
+        message?: string,
     ): Promise<T> {
         const limitedFilter = { ...filterData, limit: 1 };
         const results = await this.updateAny<T>(modelName, limitedFilter, changes);
@@ -277,6 +286,7 @@ export class EntityAPI {
         if (!result) {
             throw new ENOENT(message || `Record not found in ${modelName}`);
         }
+
         return result;
     }
 
@@ -289,7 +299,7 @@ export class EntityAPI {
      */
     async deleteAll<T extends EntityRecord>(
         modelName: string,
-        deletes: DeleteInput[]
+        deletes: DeleteInput[],
     ): Promise<T[]> {
         return collect(this.ops.deleteAll<T>(modelName, deletes));
     }
@@ -301,6 +311,7 @@ export class EntityAPI {
         for await (const deleted of this.ops.deleteAll<T>(modelName, [{ id }])) {
             return deleted;
         }
+
         throw new EIO('Delete failed');
     }
 
@@ -316,7 +327,7 @@ export class EntityAPI {
      */
     async deleteAny<T extends EntityRecord>(
         modelName: string,
-        filterData: FilterData
+        filterData: FilterData,
     ): Promise<T[]> {
         return collect(this.ops.deleteAny<T>(modelName, filterData));
     }
@@ -327,7 +338,7 @@ export class EntityAPI {
     async delete404<T extends EntityRecord>(
         modelName: string,
         filterData: FilterData,
-        message?: string
+        message?: string,
     ): Promise<T> {
         const limitedFilter = { ...filterData, limit: 1 };
         const results = await this.deleteAny<T>(modelName, limitedFilter);
@@ -336,6 +347,7 @@ export class EntityAPI {
         if (!result) {
             throw new ENOENT(message || `Record not found in ${modelName}`);
         }
+
         return result;
     }
 
@@ -348,7 +360,7 @@ export class EntityAPI {
      */
     async revertAll<T extends EntityRecord>(
         modelName: string,
-        reverts: RevertInput[]
+        reverts: RevertInput[],
     ): Promise<T[]> {
         return collect(this.ops.revertAll<T>(modelName, reverts));
     }
@@ -360,6 +372,7 @@ export class EntityAPI {
         for await (const reverted of this.ops.revertAll<T>(modelName, [{ id }])) {
             return reverted;
         }
+
         throw new EIO('Revert failed');
     }
 
@@ -368,7 +381,7 @@ export class EntityAPI {
      */
     async revertAny<T extends EntityRecord>(
         modelName: string,
-        filterData: FilterData = {}
+        filterData: FilterData = {},
     ): Promise<T[]> {
         return collect(this.ops.revertAny<T>(modelName, filterData));
     }
@@ -382,7 +395,7 @@ export class EntityAPI {
      */
     async expireAll<T extends EntityRecord>(
         modelName: string,
-        expires: DeleteInput[]
+        expires: DeleteInput[],
     ): Promise<T[]> {
         return collect(this.ops.expireAll<T>(modelName, expires));
     }
@@ -394,6 +407,7 @@ export class EntityAPI {
         for await (const expired of this.ops.expireAll<T>(modelName, [{ id }])) {
             return expired;
         }
+
         throw new EIO('Expire failed');
     }
 
@@ -406,7 +420,7 @@ export class EntityAPI {
      */
     async upsertAll<T extends EntityRecord>(
         modelName: string,
-        records: (CreateInput<T> | UpdateInput<T>)[]
+        records: (CreateInput<T> | UpdateInput<T>)[],
     ): Promise<T[]> {
         return collect(this.ops.upsertAll<T>(modelName, records));
     }
@@ -416,11 +430,12 @@ export class EntityAPI {
      */
     async upsertOne<T extends EntityRecord>(
         modelName: string,
-        data: CreateInput<T> | UpdateInput<T>
+        data: CreateInput<T> | UpdateInput<T>,
     ): Promise<T> {
         for await (const upserted of this.ops.upsertAll<T>(modelName, [data])) {
             return upserted;
         }
+
         throw new EIO('Upsert failed');
     }
 }

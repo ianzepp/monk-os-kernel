@@ -43,12 +43,15 @@ async function main(): Promise<void> {
     for (const arg of argv) {
         if (arg === '-d') {
             deleteMode = true;
-        } else if (arg === '-s') {
+        }
+        else if (arg === '-s') {
             squeezeMode = true;
-        } else if (arg === '-ds' || arg === '-sd') {
+        }
+        else if (arg === '-ds' || arg === '-sd') {
             deleteMode = true;
             squeezeMode = true;
-        } else if (!arg.startsWith('-')) {
+        }
+        else if (!arg.startsWith('-')) {
             positional.push(arg);
         }
     }
@@ -60,8 +63,10 @@ async function main(): Promise<void> {
     }
 
     const set1Arg = positional[0];
+
     if (set1Arg === undefined) {
         await eprintln('tr: missing operand');
+
         return await exit(1);
     }
 
@@ -84,9 +89,11 @@ async function main(): Promise<void> {
                 if (squeezeMode && set2) {
                     output = squeezeChars(output, set2);
                 }
-            } else if (squeezeMode) {
+            }
+            else if (squeezeMode) {
                 output = squeezeChars(input, set1);
-            } else {
+            }
+            else {
                 output = translateChars(input, set1, set2);
             }
 
@@ -116,8 +123,10 @@ function expandSet(set: string): string {
                     result += String.fromCharCode(c);
                 }
             }
+
             i += 3;
-        } else {
+        }
+        else {
             // Handle escape sequences
             if (set[i] === '\\' && i + 1 < set.length) {
                 switch (set[i + 1]) {
@@ -127,8 +136,10 @@ function expandSet(set: string): string {
                     case '\\': result += '\\'; break;
                     default: result += set[i + 1];
                 }
+
                 i += 2;
-            } else {
+            }
+            else {
                 result += set[i];
                 i++;
             }
@@ -146,12 +157,15 @@ function translateChars(input: string, set1: string, set2: string): string {
 
     for (const char of input) {
         const idx = set1.indexOf(char);
+
         if (idx !== -1 && idx < set2.length) {
             result += set2[idx];
-        } else if (idx !== -1) {
+        }
+        else if (idx !== -1) {
             // If set2 is shorter, use last character of set2
             result += set2[set2.length - 1] || char;
-        } else {
+        }
+        else {
             result += char;
         }
     }
@@ -188,6 +202,7 @@ function squeezeChars(input: string, set: string): string {
         if (setChars.has(char) && char === prevChar) {
             continue;
         }
+
         result += char;
         prevChar = char;
     }
@@ -195,7 +210,7 @@ function squeezeChars(input: string, set: string): string {
     return result;
 }
 
-main().catch(async (err) => {
+main().catch(async err => {
     await eprintln(`tr: ${err.message}`);
     await exit(1);
 });

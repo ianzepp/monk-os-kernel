@@ -58,7 +58,9 @@ export class Lexer {
 
     private scanToken(): void {
         this.skipWhitespaceAndComments();
-        if (this.isAtEnd()) return;
+        if (this.isAtEnd()) {
+            return;
+        }
 
         const start = this.pos;
         const startLine = this.line;
@@ -71,36 +73,42 @@ export class Lexer {
             if (this.isSignificantNewline()) {
                 this.addToken('NEWLINE', '\n', startLine, startColumn);
             }
+
             return;
         }
 
         // String literal
         if (c === '"') {
             this.string(startLine, startColumn);
+
             return;
         }
 
         // Regex literal - only in certain contexts
         if (c === '/' && this.canStartRegex()) {
             this.regex(startLine, startColumn);
+
             return;
         }
 
         // Number
         if (this.isDigit(c) || (c === '.' && this.isDigit(this.peek()))) {
             this.number(start, startLine, startColumn);
+
             return;
         }
 
         // Identifier or keyword
         if (this.isAlpha(c) || c === '_') {
             this.identifier(start, startLine, startColumn);
+
             return;
         }
 
         // Field reference $
         if (c === '$') {
             this.field(startLine, startColumn);
+
             return;
         }
 
@@ -109,104 +117,131 @@ export class Lexer {
             case '+':
                 if (this.match('+')) {
                     this.addToken('INCREMENT', '++', startLine, startColumn);
-                } else if (this.match('=')) {
+                }
+                else if (this.match('=')) {
                     this.addToken('PLUS_ASSIGN', '+=', startLine, startColumn);
-                } else {
+                }
+                else {
                     this.addToken('PLUS', '+', startLine, startColumn);
                 }
+
                 break;
 
             case '-':
                 if (this.match('-')) {
                     this.addToken('DECREMENT', '--', startLine, startColumn);
-                } else if (this.match('=')) {
+                }
+                else if (this.match('=')) {
                     this.addToken('MINUS_ASSIGN', '-=', startLine, startColumn);
-                } else {
+                }
+                else {
                     this.addToken('MINUS', '-', startLine, startColumn);
                 }
+
                 break;
 
             case '*':
                 if (this.match('=')) {
                     this.addToken('STAR_ASSIGN', '*=', startLine, startColumn);
-                } else {
+                }
+                else {
                     this.addToken('STAR', '*', startLine, startColumn);
                 }
+
                 break;
 
             case '/':
                 if (this.match('=')) {
                     this.addToken('SLASH_ASSIGN', '/=', startLine, startColumn);
-                } else {
+                }
+                else {
                     this.addToken('SLASH', '/', startLine, startColumn);
                 }
+
                 break;
 
             case '%':
                 if (this.match('=')) {
                     this.addToken('PERCENT_ASSIGN', '%=', startLine, startColumn);
-                } else {
+                }
+                else {
                     this.addToken('PERCENT', '%', startLine, startColumn);
                 }
+
                 break;
 
             case '^':
                 if (this.match('=')) {
                     this.addToken('CARET_ASSIGN', '^=', startLine, startColumn);
-                } else {
+                }
+                else {
                     this.addToken('CARET', '^', startLine, startColumn);
                 }
+
                 break;
 
             case '=':
                 if (this.match('=')) {
                     this.addToken('EQ', '==', startLine, startColumn);
-                } else {
+                }
+                else {
                     this.addToken('ASSIGN', '=', startLine, startColumn);
                 }
+
                 break;
 
             case '!':
                 if (this.match('=')) {
                     this.addToken('NE', '!=', startLine, startColumn);
-                } else if (this.match('~')) {
+                }
+                else if (this.match('~')) {
                     this.addToken('NOT_MATCH', '!~', startLine, startColumn);
-                } else {
+                }
+                else {
                     this.addToken('NOT', '!', startLine, startColumn);
                 }
+
                 break;
 
             case '<':
                 if (this.match('=')) {
                     this.addToken('LE', '<=', startLine, startColumn);
-                } else {
+                }
+                else {
                     this.addToken('LT', '<', startLine, startColumn);
                 }
+
                 break;
 
             case '>':
                 if (this.match('=')) {
                     this.addToken('GE', '>=', startLine, startColumn);
-                } else if (this.match('>')) {
+                }
+                else if (this.match('>')) {
                     this.addToken('APPEND', '>>', startLine, startColumn);
-                } else {
+                }
+                else {
                     this.addToken('GT', '>', startLine, startColumn);
                 }
+
                 break;
 
             case '&':
                 if (this.match('&')) {
                     this.addToken('AND', '&&', startLine, startColumn);
                 }
+
                 // Single & not used in AWK
                 break;
 
             case '|':
                 if (this.match('|')) {
                     this.addToken('OR', '||', startLine, startColumn);
-                } else {
+                }
+                else {
                     this.addToken('PIPE', '|', startLine, startColumn);
                 }
+
                 break;
 
             case '~':
@@ -268,9 +303,12 @@ export class Lexer {
 
             if (this.peek() === '\\') {
                 this.advance();
-                if (this.isAtEnd()) break;
+                if (this.isAtEnd()) {
+                    break;
+                }
 
                 const escaped = this.advance();
+
                 switch (escaped) {
                     case 'n': value += '\n'; break;
                     case 't': value += '\t'; break;
@@ -282,7 +320,8 @@ export class Lexer {
                     case 'f': value += '\f'; break;
                     default: value += escaped;
                 }
-            } else {
+            }
+            else {
                 value += this.advance();
             }
         }
@@ -308,7 +347,8 @@ export class Lexer {
                 if (!this.isAtEnd()) {
                     pattern += this.advance();
                 }
-            } else {
+            }
+            else {
                 pattern += this.advance();
             }
         }
@@ -344,12 +384,14 @@ export class Lexer {
             if (this.peek() === '+' || this.peek() === '-') {
                 this.advance();
             }
+
             while (this.isDigit(this.peek())) {
                 this.advance();
             }
         }
 
         const value = this.source.slice(start, this.pos);
+
         this.addToken('NUMBER', value, startLine, startColumn);
     }
 
@@ -360,6 +402,7 @@ export class Lexer {
 
         const text = this.source.slice(start, this.pos);
         const type = KEYWORDS[text] || 'IDENTIFIER';
+
         this.addToken(type, text, startLine, startColumn);
     }
 
@@ -368,16 +411,19 @@ export class Lexer {
         if (this.peek() === '(') {
             // $(expr) - handled as FIELD token, parser handles the expression
             this.addToken('FIELD', '$', startLine, startColumn);
+
             return;
         }
 
         // $0, $1, $NF, $var
         let fieldSpec = '';
+
         if (this.isDigit(this.peek())) {
             while (this.isDigit(this.peek())) {
                 fieldSpec += this.advance();
             }
-        } else if (this.isAlpha(this.peek()) || this.peek() === '_') {
+        }
+        else if (this.isAlpha(this.peek()) || this.peek() === '_') {
             while (this.isAlphaNumeric(this.peek())) {
                 fieldSpec += this.advance();
             }
@@ -392,16 +438,19 @@ export class Lexer {
 
             if (c === ' ' || c === '\t' || c === '\r') {
                 this.advance();
-            } else if (c === '#') {
+            }
+            else if (c === '#') {
                 // Comment until end of line
                 while (!this.isAtEnd() && this.peek() !== '\n') {
                     this.advance();
                 }
-            } else if (c === '\\' && this.peekNext() === '\n') {
+            }
+            else if (c === '\\' && this.peekNext() === '\n') {
                 // Line continuation
                 this.advance(); // backslash
                 this.advance(); // newline
-            } else {
+            }
+            else {
                 break;
             }
         }
@@ -414,7 +463,9 @@ export class Lexer {
         // - Keywords: if while for do
         // - Beginning of pattern
 
-        if (this.lastTokenType === null) return true;
+        if (this.lastTokenType === null) {
+            return true;
+        }
 
         const regexPrecedingTokens: TokenType[] = [
             'MATCH', 'NOT_MATCH', 'COMMA', 'SEMICOLON', 'NEWLINE',
@@ -431,7 +482,9 @@ export class Lexer {
     private isSignificantNewline(): boolean {
         // Newlines are significant for statement termination
         // but not after certain tokens
-        if (this.lastTokenType === null) return false;
+        if (this.lastTokenType === null) {
+            return false;
+        }
 
         const insignificantAfter: TokenType[] = [
             'COMMA', 'LBRACE', 'LPAREN', 'LBRACKET',
@@ -454,33 +507,50 @@ export class Lexer {
 
     private advance(): string {
         const c = this.source[this.pos++];
+
         if (c === undefined) {
             return '\0';
         }
+
         if (c === '\n') {
             this.line++;
             this.column = 1;
-        } else {
+        }
+        else {
             this.column++;
         }
+
         return c;
     }
 
     private match(expected: string): boolean {
-        if (this.isAtEnd()) return false;
-        if (this.source[this.pos] !== expected) return false;
+        if (this.isAtEnd()) {
+            return false;
+        }
+
+        if (this.source[this.pos] !== expected) {
+            return false;
+        }
+
         this.pos++;
         this.column++;
+
         return true;
     }
 
     private peek(): string {
-        if (this.isAtEnd()) return '\0';
+        if (this.isAtEnd()) {
+            return '\0';
+        }
+
         return this.source[this.pos] ?? '\0';
     }
 
     private peekNext(): string {
-        if (this.pos + 1 >= this.source.length) return '\0';
+        if (this.pos + 1 >= this.source.length) {
+            return '\0';
+        }
+
         return this.source[this.pos + 1] ?? '\0';
     }
 

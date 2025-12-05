@@ -153,7 +153,7 @@ export interface ParsedArgs {
  */
 export function parseArgs(
     args: string[],
-    specs: Record<string, ArgSpec> = {}
+    specs: Record<string, ArgSpec> = {},
 ): ParsedArgs {
     const result: ParsedArgs = {
         flags: {},
@@ -173,9 +173,11 @@ export function parseArgs(
         if (spec.short !== undefined) {
             shortMap.set(spec.short, key);
         }
+
         if (spec.long !== undefined) {
             longMap.set(spec.long, key);
         }
+
         // Apply default values
         if (spec.default !== undefined) {
             result.flags[key] = spec.default;
@@ -190,6 +192,7 @@ export function parseArgs(
 
     while (i < args.length) {
         const arg = args[i];
+
         if (arg === undefined) {
             // SAFETY: With noUncheckedIndexedAccess, args[i] might be undefined
             // This should never happen since we check i < args.length, but TypeScript
@@ -224,12 +227,14 @@ export function parseArgs(
                 // --flag=value syntax
                 flagName = arg.slice(2, eqIndex);
                 flagValue = arg.slice(eqIndex + 1);
-            } else {
+            }
+            else {
                 // --flag syntax
                 flagName = arg.slice(2);
             }
 
             const specKey = longMap.get(flagName);
+
             if (specKey === undefined) {
                 // Unknown flag - collect but don't error
                 result.unknown.push(arg);
@@ -238,6 +243,7 @@ export function parseArgs(
             }
 
             const spec = specs[specKey];
+
             if (spec === undefined) {
                 // SAFETY: This should never happen since we got specKey from the map
                 i++;
@@ -249,23 +255,29 @@ export function parseArgs(
                 if (flagValue !== undefined) {
                     // Value from --flag=value
                     result.flags[specKey] = flagValue;
-                } else {
+                }
+                else {
                     // Value from next arg: --flag value
                     const nextArg = args[i + 1];
+
                     if (nextArg !== undefined && !nextArg.startsWith('-')) {
                         result.flags[specKey] = nextArg;
                         i++;
-                    } else if (spec.required === true) {
+                    }
+                    else if (spec.required === true) {
                         result.errors.push(`--${flagName} requires a value`);
-                    } else {
+                    }
+                    else {
                         // Optional value not provided, treat as boolean
                         result.flags[specKey] = true;
                     }
                 }
-            } else {
+            }
+            else {
                 // Boolean flag
                 result.flags[specKey] = true;
             }
+
             i++;
             continue;
         }
@@ -278,12 +290,14 @@ export function parseArgs(
 
         while (j < shortFlags.length) {
             const char = shortFlags[j];
+
             if (char === undefined) {
                 // SAFETY: Handle undefined from noUncheckedIndexedAccess
                 break;
             }
 
             const specKey = shortMap.get(char);
+
             if (specKey === undefined) {
                 // Unknown short flag
                 result.unknown.push(`-${char}`);
@@ -292,6 +306,7 @@ export function parseArgs(
             }
 
             const spec = specs[specKey];
+
             if (spec === undefined) {
                 // SAFETY: This should never happen
                 j++;
@@ -302,30 +317,38 @@ export function parseArgs(
                 // Flag expects a value
                 // Rest of this arg is the value (-n10), or next arg is the value (-n 10)
                 const rest = shortFlags.slice(j + 1);
+
                 if (rest.length > 0) {
                     // -n10 style
                     result.flags[specKey] = rest;
                     break; // Consumed rest of this arg
-                } else {
+                }
+                else {
                     // -n 10 style
                     const nextArg = args[i + 1];
+
                     if (nextArg !== undefined && !nextArg.startsWith('-')) {
                         result.flags[specKey] = nextArg;
                         i++;
-                    } else if (spec.required === true) {
+                    }
+                    else if (spec.required === true) {
                         result.errors.push(`-${char} requires a value`);
-                    } else {
+                    }
+                    else {
                         // Optional value not provided
                         result.flags[specKey] = true;
                     }
                 }
+
                 j++;
-            } else {
+            }
+            else {
                 // Boolean flag
                 result.flags[specKey] = true;
                 j++;
             }
         }
+
         i++;
     }
 
@@ -352,17 +375,20 @@ export function parseArgs(
 export function parseDuration(str: string): number | null {
     // Match: number (integer or decimal) + optional unit
     const match = str.match(/^(\d+(?:\.\d+)?)(ms|s|m|h)?$/);
+
     if (match === null) {
         return null;
     }
 
     // SAFETY: Handle undefined from noUncheckedIndexedAccess
     const valueStr = match[1];
+
     if (valueStr === undefined) {
         return null;
     }
 
     const value = parseFloat(valueStr);
+
     if (isNaN(value)) {
         return null;
     }

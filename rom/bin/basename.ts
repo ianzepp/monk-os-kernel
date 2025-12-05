@@ -27,7 +27,7 @@ import { getargs, println, eprintln, exit } from '@rom/lib/process';
  */
 function getBasename(path: string, suffix: string): string {
     // Remove trailing slashes
-    let p = path.replace(/\/+$/, '');
+    const p = path.replace(/\/+$/, '');
 
     // Handle empty or root
     if (!p || p === '/') {
@@ -62,16 +62,25 @@ async function main(): Promise<void> {
 
     for (let i = 0; i < argv.length; i++) {
         const arg = argv[i];
-        if (arg === undefined) continue;
+
+        if (arg === undefined) {
+            continue;
+        }
 
         if (arg === '-a') {
             multiMode = true;
-        } else if (arg === '-s' && argv[i + 1]) {
+        }
+        else if (arg === '-s' && argv[i + 1]) {
             const val = argv[++i];
-            if (val === undefined) continue;
+
+            if (val === undefined) {
+                continue;
+            }
+
             suffix = val;
             multiMode = true;
-        } else if (!arg.startsWith('-')) {
+        }
+        else if (!arg.startsWith('-')) {
             paths.push(arg);
         }
     }
@@ -84,11 +93,15 @@ async function main(): Promise<void> {
     // Single path mode (traditional)
     if (!multiMode && paths.length <= 2) {
         const path = paths[0];
+
         if (path === undefined) {
             await eprintln('basename: missing operand');
+
             return await exit(1);
         }
+
         const suf = paths[1] || suffix;
+
         await println(getBasename(path, suf));
         await exit(0);
     }
@@ -101,7 +114,7 @@ async function main(): Promise<void> {
     await exit(0);
 }
 
-main().catch(async (err) => {
+main().catch(async err => {
     await eprintln(`basename: ${err.message}`);
     await exit(1);
 });

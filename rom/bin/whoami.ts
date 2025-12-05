@@ -14,6 +14,7 @@ import { getenv, println, exit } from '@rom/lib/process';
 
 async function main(): Promise<void> {
     const user = await getenv('USER') || 'unknown';
+
     await println(user);
     await exit(0);
 }

@@ -108,7 +108,7 @@ describe('tokenize', () => {
 
         it('should handle complex quoting', () => {
             expect(tokenize('cmd "arg with spaces" \'literal\' plain')).toEqual([
-                'cmd', 'arg with spaces', 'literal', 'plain'
+                'cmd', 'arg with spaces', 'literal', 'plain',
             ]);
         });
     });
@@ -240,11 +240,13 @@ describe('findUnquotedChar', () => {
 describe('findUnquotedOperator', () => {
     it('should find && operator', () => {
         const result = findUnquotedOperator('a && b');
+
         expect(result).toEqual({ index: 2, operator: '&&' });
     });
 
     it('should find || operator', () => {
         const result = findUnquotedOperator('a || b');
+
         expect(result).toEqual({ index: 2, operator: '||' });
     });
 
@@ -255,6 +257,7 @@ describe('findUnquotedOperator', () => {
 
     it('should find first operator', () => {
         const result = findUnquotedOperator('a && b || c');
+
         expect(result).toEqual({ index: 2, operator: '&&' });
     });
 
@@ -272,6 +275,7 @@ describe('parseCommand', () => {
     describe('simple commands', () => {
         it('should parse simple command', () => {
             const result = parseCommand('ls');
+
             expect(result).toEqual({
                 command: 'ls',
                 args: [],
@@ -281,6 +285,7 @@ describe('parseCommand', () => {
 
         it('should parse command with arguments', () => {
             const result = parseCommand('ls -la /tmp');
+
             expect(result).toEqual({
                 command: 'ls',
                 args: ['-la', '/tmp'],
@@ -290,6 +295,7 @@ describe('parseCommand', () => {
 
         it('should parse command with quoted arguments', () => {
             const result = parseCommand('echo "hello world"');
+
             expect(result).toEqual({
                 command: 'echo',
                 args: ['hello world'],
@@ -315,27 +321,32 @@ describe('parseCommand', () => {
     describe('redirects', () => {
         it('should parse input redirect', () => {
             const result = parseCommand('cat < input.txt');
+
             expect(result?.inputRedirect).toBe('input.txt');
         });
 
         it('should parse output redirect', () => {
             const result = parseCommand('ls > output.txt');
+
             expect(result?.outputRedirect).toBe('output.txt');
         });
 
         it('should parse append redirect', () => {
             const result = parseCommand('echo hi >> log.txt');
+
             expect(result?.appendRedirect).toBe('log.txt');
         });
 
         it('should parse attached redirects', () => {
             const result = parseCommand('cat <input.txt >output.txt');
+
             expect(result?.inputRedirect).toBe('input.txt');
             expect(result?.outputRedirect).toBe('output.txt');
         });
 
         it('should parse multiple redirects', () => {
             const result = parseCommand('cmd < in > out');
+
             expect(result?.inputRedirect).toBe('in');
             expect(result?.outputRedirect).toBe('out');
         });
@@ -344,6 +355,7 @@ describe('parseCommand', () => {
     describe('pipes', () => {
         it('should parse simple pipe', () => {
             const result = parseCommand('cat file | grep pattern');
+
             expect(result?.command).toBe('cat');
             expect(result?.args).toEqual(['file']);
             expect(result?.pipe?.command).toBe('grep');
@@ -352,6 +364,7 @@ describe('parseCommand', () => {
 
         it('should parse multi-stage pipe', () => {
             const result = parseCommand('cat file | grep pattern | wc -l');
+
             expect(result?.command).toBe('cat');
             expect(result?.pipe?.command).toBe('grep');
             expect(result?.pipe?.pipe?.command).toBe('wc');
@@ -360,6 +373,7 @@ describe('parseCommand', () => {
 
         it('should not parse pipe in quotes', () => {
             const result = parseCommand('echo "hello | world"');
+
             expect(result?.command).toBe('echo');
             expect(result?.args).toEqual(['hello | world']);
             expect(result?.pipe).toBeUndefined();
@@ -369,6 +383,7 @@ describe('parseCommand', () => {
     describe('chaining (&&, ||)', () => {
         it('should parse && chain', () => {
             const result = parseCommand('mkdir dir && cd dir');
+
             expect(result?.command).toBe('mkdir');
             expect(result?.args).toEqual(['dir']);
             expect(result?.andThen?.command).toBe('cd');
@@ -377,6 +392,7 @@ describe('parseCommand', () => {
 
         it('should parse || chain', () => {
             const result = parseCommand('test -f file || echo missing');
+
             expect(result?.command).toBe('test');
             expect(result?.orElse?.command).toBe('echo');
             expect(result?.orElse?.args).toEqual(['missing']);
@@ -384,6 +400,7 @@ describe('parseCommand', () => {
 
         it('should parse mixed chain', () => {
             const result = parseCommand('a && b || c');
+
             expect(result?.command).toBe('a');
             expect(result?.andThen?.command).toBe('b');
             expect(result?.andThen?.orElse?.command).toBe('c');
@@ -393,6 +410,7 @@ describe('parseCommand', () => {
     describe('background (&)', () => {
         it('should parse background command', () => {
             const result = parseCommand('sleep 10 &');
+
             expect(result?.command).toBe('sleep');
             expect(result?.args).toEqual(['10']);
             expect(result?.background).toBe(true);
@@ -400,11 +418,13 @@ describe('parseCommand', () => {
 
         it('should not confuse && with background', () => {
             const result = parseCommand('a && b');
+
             expect(result?.background).toBe(false);
         });
 
         it('should apply background to entire chain', () => {
             const result = parseCommand('a && b &');
+
             expect(result?.background).toBe(true);
         });
     });
@@ -415,12 +435,14 @@ describe('expandCommandVariables', () => {
 
     it('should expand variables in args', () => {
         const cmd = parseCommand('cat $FILE')!;
+
         expandCommandVariables(cmd, env);
         expect(cmd.args).toEqual(['test.txt']);
     });
 
     it('should expand variables in redirects', () => {
         const cmd = parseCommand('cat < $FILE > $HOME/out')!;
+
         expandCommandVariables(cmd, env);
         expect(cmd.inputRedirect).toBe('test.txt');
         expect(cmd.outputRedirect).toBe('/home/user/out');
@@ -428,6 +450,7 @@ describe('expandCommandVariables', () => {
 
     it('should expand variables in pipe chain', () => {
         const cmd = parseCommand('cat $FILE | grep $HOME')!;
+
         expandCommandVariables(cmd, env);
         expect(cmd.args).toEqual(['test.txt']);
         expect(cmd.pipe?.args).toEqual(['/home/user']);
@@ -435,6 +458,7 @@ describe('expandCommandVariables', () => {
 
     it('should expand variables in && chain', () => {
         const cmd = parseCommand('echo $HOME && ls $FILE')!;
+
         expandCommandVariables(cmd, env);
         expect(cmd.args).toEqual(['/home/user']);
         expect(cmd.andThen?.args).toEqual(['test.txt']);
@@ -445,6 +469,7 @@ describe('flattenPipeline', () => {
     it('should flatten single command', () => {
         const cmd = parseCommand('ls')!;
         const pipeline = flattenPipeline(cmd);
+
         expect(pipeline.length).toBe(1);
         expect(pipeline[0]!.command).toBe('ls');
     });
@@ -452,6 +477,7 @@ describe('flattenPipeline', () => {
     it('should flatten two-stage pipe', () => {
         const cmd = parseCommand('cat file | grep pattern')!;
         const pipeline = flattenPipeline(cmd);
+
         expect(pipeline.length).toBe(2);
         expect(pipeline[0]!.command).toBe('cat');
         expect(pipeline[1]!.command).toBe('grep');
@@ -460,6 +486,7 @@ describe('flattenPipeline', () => {
     it('should flatten multi-stage pipe', () => {
         const cmd = parseCommand('a | b | c | d')!;
         const pipeline = flattenPipeline(cmd);
+
         expect(pipeline.length).toBe(4);
         expect(pipeline.map(c => c.command)).toEqual(['a', 'b', 'c', 'd']);
     });
@@ -467,6 +494,7 @@ describe('flattenPipeline', () => {
     it('should not include && chain in pipeline', () => {
         const cmd = parseCommand('a | b && c')!;
         const pipeline = flattenPipeline(cmd);
+
         expect(pipeline.length).toBe(2);
         expect(pipeline.map(c => c.command)).toEqual(['a', 'b']);
     });

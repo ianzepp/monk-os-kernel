@@ -131,7 +131,7 @@ const BLOB_URL_REVOKE_DELAY_MS = 1000;
 export async function spawnWorker(
     self: Kernel,
     proc: Process,
-    entry: string
+    entry: string,
 ): Promise<Worker> {
     // =========================================================================
     // STEP 1: Bundle entry point from VFS
@@ -180,9 +180,10 @@ export async function spawnWorker(
     // WHY FORCE EXIT: Worker errors indicate unrecoverable state
     // EXIT CODE 1: Standard failure exit code
     // CLEANUP: forceExit ensures handles closed, waiters notified, zombie reaped
-    worker.onerror = (error) => {
+    worker.onerror = error => {
         // Log error to kernel console (not process console)
         const msg = `Process ${proc.cmd} error: ${error.message}\n`;
+
         self.hal.console.error(new TextEncoder().encode(msg));
 
         // Force exit with failure code

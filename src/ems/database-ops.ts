@@ -98,9 +98,11 @@ async function* normalize<T>(source: Source<T>): AsyncGenerator<T> {
  */
 export async function collect<T>(source: AsyncIterable<T>): Promise<T[]> {
     const results: T[] = [];
+
     for await (const item of source) {
         results.push(item);
     }
+
     return results;
 }
 
@@ -140,9 +142,10 @@ export class DatabaseOps {
      */
     async *query<T = Record<string, unknown>>(
         sql: string,
-        params?: unknown[]
+        params?: unknown[],
     ): AsyncGenerator<T> {
         const rows = await this.db.query<T>(sql, params);
+
         for (const row of rows) {
             yield row;
         }
@@ -182,10 +185,11 @@ export class DatabaseOps {
     async *selectFrom<T extends DbRecord>(
         table: string,
         filterData: FilterData = {},
-        options: SelectOptions = {}
+        options: SelectOptions = {},
     ): AsyncGenerator<T> {
         const filter = Filter.from(table, filterData, options);
         const { sql, params } = filter.toSQL();
+
         yield* this.query<T>(sql, params);
     }
 
@@ -199,10 +203,13 @@ export class DatabaseOps {
     async *selectIds<T extends DbRecord>(
         table: string,
         ids: Source<string>,
-        options: SelectOptions = {}
+        options: SelectOptions = {},
     ): AsyncGenerator<T> {
         const idArray = await collect(normalize(ids));
-        if (idArray.length === 0) return;
+
+        if (idArray.length === 0) {
+            return;
+        }
 
         yield* this.selectFrom<T>(table, { where: { id: { $in: idArray } } }, options);
     }
@@ -219,14 +226,15 @@ export class DatabaseOps {
      */
     async *insertInto<T extends DbRecord>(
         table: string,
-        source: Source<T>
+        source: Source<T>,
     ): AsyncGenerator<T> {
         for await (const record of normalize(source)) {
             const columns = Object.keys(record);
             const placeholders = columns.map(() => '?').join(', ');
-            const values = columns.map((col) => record[col]);
+            const values = columns.map(col => record[col]);
 
             const sql = `INSERT INTO ${table} (${columns.join(', ')}) VALUES (${placeholders})`;
+
             await this.db.execute(sql, values);
 
             yield record;
@@ -245,7 +253,7 @@ export class DatabaseOps {
      */
     async *updateIn<T extends DbRecord>(
         table: string,
-        source: Source<UpdateRecord<T>>
+        source: Source<UpdateRecord<T>>,
     ): AsyncGenerator<T> {
         for await (const update of normalize(source)) {
             const { id, changes } = update;
@@ -257,10 +265,13 @@ export class DatabaseOps {
                 values.push(value);
             }
 
-            if (setClauses.length === 0) continue;
+            if (setClauses.length === 0) {
+                continue;
+            }
 
             values.push(id);
             const sql = `UPDATE ${table} SET ${setClauses.join(', ')} WHERE id = ?`;
+
             await this.db.execute(sql, values);
 
             // Re-read to get full record
@@ -282,10 +293,11 @@ export class DatabaseOps {
      */
     async *deleteFrom(
         table: string,
-        ids: Source<string>
+        ids: Source<string>,
     ): AsyncGenerator<string> {
         for await (const id of normalize(ids)) {
             const sql = `DELETE FROM ${table} WHERE id = ?`;
+
             await this.db.execute(sql, [id]);
             yield id;
         }

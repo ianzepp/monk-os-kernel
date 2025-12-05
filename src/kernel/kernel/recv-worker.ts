@@ -38,7 +38,7 @@ import { getLeasedWorker } from './get-leased-worker.js';
 export async function workerRecv(
     self: Kernel,
     proc: Process,
-    workerId: string
+    workerId: string,
 ): Promise<unknown> {
     // Step 1: Validate ownership and get worker
     const worker = getLeasedWorker(self, proc, workerId);

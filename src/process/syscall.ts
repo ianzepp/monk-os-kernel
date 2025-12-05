@@ -245,14 +245,17 @@ let initialized = false;
  * WHY auto-initialize: Simplifies userland code - no explicit init needed.
  */
 export function initTransport(): void {
-    if (initialized) return;
+    if (initialized) {
+        return;
+    }
 
     self.onmessage = (event: MessageEvent) => {
         const msg = event.data;
 
         if (msg.type === 'response') {
             handleResponse(msg as SyscallResponse);
-        } else if (msg.type === 'signal') {
+        }
+        else if (msg.type === 'signal') {
             handleSignal(msg as SignalMessage);
         }
     };
@@ -279,13 +282,16 @@ export function initTransport(): void {
 function handleResponse(msg: SyscallResponse): void {
     // Check for streaming request first
     const stream = pendingStreams.get(msg.id);
+
     if (stream) {
         handleStreamResponse(stream, msg);
+
         return;
     }
 
     // Single-response request
     const req = pending.get(msg.id);
+
     if (!req) {
         // Response for unknown request - ignore
         // WHY ignore: Could be late response for cancelled/timed-out request
@@ -297,7 +303,8 @@ function handleResponse(msg: SyscallResponse): void {
     if (msg.error) {
         // Create typed HAL error from response error code
         req.reject(fromCode(msg.error.code, msg.error.message));
-    } else {
+    }
+    else {
         req.resolve(msg.result);
     }
 }
@@ -319,9 +326,11 @@ function handleStreamResponse(stream: PendingStream, msg: SyscallResponse): void
         // Kernel-level error (transport failure, not application error)
         stream.error = fromCode(msg.error.code, msg.error.message);
         stream.ended = true;
-    } else {
+    }
+    else {
         // Queue the response for consumer
         const response = msg.result as Response;
+
         stream.queue.push(response);
 
         // Check for terminal ops that end the stream
@@ -354,7 +363,8 @@ function handleStreamResponse(stream: PendingStream, msg: SyscallResponse): void
 function handleSignal(msg: SignalMessage): void {
     if (signalHandler) {
         signalHandler(msg.signal);
-    } else {
+    }
+    else {
         // Default behavior: exit on SIGTERM
         if (msg.signal === SIGTERM) {
             // Can't call exit() here without circular dep, so post directly
@@ -484,6 +494,7 @@ export async function* syscallStream(name: string, ...args: unknown[]): AsyncIte
         ended: false,
         error: null,
     };
+
     pendingStreams.set(id, stream);
 
     // Send the syscall request
@@ -493,6 +504,7 @@ export async function* syscallStream(name: string, ...args: unknown[]): AsyncIte
         name,
         args,
     };
+
     self.postMessage(request);
 
     let itemsProcessed = 0;
@@ -501,7 +513,7 @@ export async function* syscallStream(name: string, ...args: unknown[]): AsyncIte
         while (true) {
             // Wait for responses if queue is empty
             while (stream.queue.length === 0 && !stream.ended && !stream.error) {
-                await new Promise<void>((resolve) => {
+                await new Promise<void>(resolve => {
                     stream.wakeup = resolve;
                 });
             }
@@ -514,6 +526,7 @@ export async function* syscallStream(name: string, ...args: unknown[]): AsyncIte
             // Drain the queue
             while (stream.queue.length > 0) {
                 const response = stream.queue.shift()!;
+
                 itemsProcessed++;
 
                 // Ping kernel periodically for backpressure feedback
@@ -523,6 +536,7 @@ export async function* syscallStream(name: string, ...args: unknown[]): AsyncIte
                         id,
                         processed: itemsProcessed,
                     };
+
                     self.postMessage(ping);
                 }
 
@@ -539,7 +553,8 @@ export async function* syscallStream(name: string, ...args: unknown[]): AsyncIte
                 return;
             }
         }
-    } finally {
+    }
+    finally {
         // RC-3: Cleanup in finally ensures map cleanup even on exception
         pendingStreams.delete(id);
 
@@ -549,6 +564,7 @@ export async function* syscallStream(name: string, ...args: unknown[]): AsyncIte
             id,
             processed: itemsProcessed,
         };
+
         self.postMessage(ping);
     }
 }
@@ -566,6 +582,7 @@ export function cancelStream(id: string): void {
         type: 'stream_cancel',
         id,
     };
+
     self.postMessage(cancel);
     pendingStreams.delete(id);
 }

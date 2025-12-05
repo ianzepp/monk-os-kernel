@@ -167,7 +167,7 @@ export function createNetworkSyscalls(
     createPort: CreatePortFn,
     getPort: GetPortFn,
     recvPort: RecvPortFn,
-    closeHandle: CloseHandleFn
+    closeHandle: CloseHandleFn,
 ): SyscallRegistry {
     return {
         // =====================================================================
@@ -204,6 +204,7 @@ export function createNetworkSyscalls(
             // WHY: Protocol routing requires string identifier
             if (typeof proto !== 'string') {
                 yield respond.error('EINVAL', 'proto must be a string');
+
                 return;
             }
 
@@ -211,6 +212,7 @@ export function createNetworkSyscalls(
             // WHY: DNS resolution and path lookup require string
             if (typeof host !== 'string') {
                 yield respond.error('EINVAL', 'host must be a string');
+
                 return;
             }
 
@@ -221,15 +223,19 @@ export function createNetworkSyscalls(
                     // WHY: Port numbers are 16-bit integers (0-65535)
                     if (typeof port !== 'number') {
                         yield respond.error('EINVAL', 'port must be a number');
+
                         return;
                     }
+
                     yield respond.ok(await connectTcp(proc, host, port));
+
                     return;
 
                 case 'unix':
                     // Unix sockets use filesystem path (host) instead of port
                     // WHY: Unix domain sockets are identified by paths
                     yield respond.ok(await connectTcp(proc, host, 0));
+
                     return;
 
                 default:
@@ -265,12 +271,14 @@ export function createNetworkSyscalls(
             // WHY: Port type routing requires string identifier
             if (typeof type !== 'string') {
                 yield respond.error('EINVAL', 'type must be a string');
+
                 return;
             }
 
             // Delegate to kernel's port creation logic
             // WHY: Kernel manages handle table and port type routing
             const portId = await createPort(proc, type, opts);
+
             yield respond.ok(portId);
         },
 
@@ -295,6 +303,7 @@ export function createNetworkSyscalls(
             // WHY: Handle descriptors are integers in handle table
             if (typeof portId !== 'number') {
                 yield respond.error('EINVAL', 'portId must be a number');
+
                 return;
             }
 
@@ -340,20 +349,24 @@ export function createNetworkSyscalls(
             // Input validation: portId must be number
             if (typeof portId !== 'number') {
                 yield respond.error('EINVAL', 'portId must be a number');
+
                 return;
             }
 
             // Look up port from handle table
             // RACE FIX: Check validity before async operations
             const port = getPort(proc, portId);
+
             if (!port) {
                 yield respond.error('EBADF', `Bad port: ${portId}`);
+
                 return;
             }
 
             // Await message from port with auto-handle allocation
             // WHY: Blocks until message available or port closes
             const msg = await recvPort(proc, portId);
+
             yield respond.ok(msg);
         },
 
@@ -384,6 +397,7 @@ export function createNetworkSyscalls(
             // Input validation: portId must be number
             if (typeof portId !== 'number') {
                 yield respond.error('EINVAL', 'portId must be a number');
+
                 return;
             }
 
@@ -391,6 +405,7 @@ export function createNetworkSyscalls(
             // WHY: Recipient addresses are string identifiers
             if (typeof to !== 'string') {
                 yield respond.error('EINVAL', 'to must be a string');
+
                 return;
             }
 
@@ -398,13 +413,16 @@ export function createNetworkSyscalls(
             // WHY: Network transmission requires binary data
             if (!(data instanceof Uint8Array)) {
                 yield respond.error('EINVAL', 'data must be Uint8Array');
+
                 return;
             }
 
             // Look up port from handle table
             const port = getPort(proc, portId);
+
             if (!port) {
                 yield respond.error('EBADF', `Bad port: ${portId}`);
+
                 return;
             }
 

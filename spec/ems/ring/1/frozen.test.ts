@@ -72,7 +72,7 @@ function createMockModel(name = 'test_model', frozen = false): Model {
  */
 function createMockRecord(
     oldData: Record<string, unknown> = {},
-    newData: Record<string, unknown> = {}
+    newData: Record<string, unknown> = {},
 ): ModelRecord {
     const merged = { ...oldData, ...newData };
     const changedFields = Object.keys(newData);
@@ -91,19 +91,26 @@ function createMockRecord(
         toChanges: () => ({ ...newData }),
         getDiff: () => {
             const diff: Record<string, { old: unknown; new: unknown }> = {};
+
             for (const field of changedFields) {
                 diff[field] = { old: oldData[field], new: newData[field] };
             }
+
             return diff;
         },
         getDiffForFields: (fields: Set<string>) => {
             const diff: Record<string, { old: unknown; new: unknown }> = {};
+
             for (const field of changedFields) {
-                if (!fields.has(field)) continue;
+                if (!fields.has(field)) {
+                    continue;
+                }
+
                 if (oldData[field] !== newData[field]) {
                     diff[field] = { old: oldData[field], new: newData[field] };
                 }
             }
+
             return diff;
         },
     };
@@ -115,7 +122,7 @@ function createMockRecord(
 function createContext(
     operation: 'create' | 'update' | 'delete',
     model: Model,
-    record?: ModelRecord
+    record?: ModelRecord,
 ): ObserverContext {
     return {
         system: {
@@ -216,7 +223,8 @@ describe('Frozen', () => {
             try {
                 await observer.execute(ctx);
                 expect.unreachable('Should have thrown');
-            } catch (err) {
+            }
+            catch (err) {
                 expect(err).toBeInstanceOf(EOBSFROZEN);
                 expect((err as EOBSFROZEN).message).toContain('historical_data');
                 expect((err as EOBSFROZEN).message).toContain('frozen');
@@ -230,7 +238,8 @@ describe('Frozen', () => {
             try {
                 await observer.execute(ctx);
                 expect.unreachable('Should have thrown');
-            } catch (err) {
+            }
+            catch (err) {
                 expect(err).toBeInstanceOf(EOBSFROZEN);
                 expect((err as EOBSFROZEN).code).toBe('EOBSFROZEN');
                 expect((err as EOBSFROZEN).errno).toBe(1002);

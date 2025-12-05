@@ -48,12 +48,21 @@ async function main(): Promise<void> {
     for (const arg of argv) {
         if (arg.startsWith('-') && arg !== '-') {
             for (const char of arg.slice(1)) {
-                if (char === 'c') showCount = true;
-                else if (char === 'd') duplicatesOnly = true;
-                else if (char === 'u') uniqueOnly = true;
-                else if (char === 'i') ignoreCase = true;
+                if (char === 'c') {
+                    showCount = true;
+                }
+                else if (char === 'd') {
+                    duplicatesOnly = true;
+                }
+                else if (char === 'u') {
+                    uniqueOnly = true;
+                }
+                else if (char === 'i') {
+                    ignoreCase = true;
+                }
             }
-        } else {
+        }
+        else {
             file = arg;
         }
     }
@@ -64,20 +73,28 @@ async function main(): Promise<void> {
         const path = resolvePath(cwd, file);
 
         let content: string;
+
         try {
             content = await readFile(path);
-        } catch (err) {
+        }
+        catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
+
             await eprintln(`uniq: ${file}: ${msg}`);
+
             return await exit(1);
         }
 
         const lines = content.split('\n');
         const lastLine = lines[lines.length - 1];
-        if (lastLine !== undefined && lastLine === '') lines.pop();
+
+        if (lastLine !== undefined && lastLine === '') {
+            lines.pop();
+        }
 
         await processLines(lines, { showCount, duplicatesOnly, uniqueOnly, ignoreCase });
-    } else {
+    }
+    else {
         // Stdin mode: stream message items
         await processStdin({ showCount, duplicatesOnly, uniqueOnly, ignoreCase });
     }
@@ -100,14 +117,21 @@ async function processStdin(options: UniqOptions): Promise<void> {
     let count = 0;
 
     const outputItem = async (msg: Response, cnt: number) => {
-        if (duplicatesOnly && cnt === 1) return;
-        if (uniqueOnly && cnt > 1) return;
+        if (duplicatesOnly && cnt === 1) {
+            return;
+        }
+
+        if (uniqueOnly && cnt > 1) {
+            return;
+        }
 
         if (showCount) {
             const text = (msg.data as { text: string }).text ?? '';
             const line = text.replace(/\n$/, '');
+
             await println(`${String(cnt).padStart(7)} ${line}`);
-        } else {
+        }
+        else {
             await send(1, msg);
         }
     };
@@ -119,10 +143,12 @@ async function processStdin(options: UniqOptions): Promise<void> {
 
             if (key === prevKey) {
                 count++;
-            } else {
+            }
+            else {
                 if (prevMsg) {
                     await outputItem(prevMsg, count);
                 }
+
                 prevMsg = msg;
                 prevKey = key;
                 count = 1;
@@ -147,28 +173,36 @@ async function processLines(lines: string[], options: UniqOptions): Promise<void
 
         if (key === prevKey && results.length > 0) {
             const lastResult = results[results.length - 1];
+
             if (lastResult !== undefined) {
                 lastResult.count++;
             }
-        } else {
+        }
+        else {
             results.push({ line, count: 1 });
             prevKey = key;
         }
     }
 
     for (const { line, count } of results) {
-        if (duplicatesOnly && count === 1) continue;
-        if (uniqueOnly && count > 1) continue;
+        if (duplicatesOnly && count === 1) {
+            continue;
+        }
+
+        if (uniqueOnly && count > 1) {
+            continue;
+        }
 
         if (showCount) {
             await println(`${String(count).padStart(7)} ${line}`);
-        } else {
+        }
+        else {
             await println(line);
         }
     }
 }
 
-main().catch(async (err) => {
+main().catch(async err => {
     await eprintln(`uniq: ${err.message}`);
     await exit(1);
 });

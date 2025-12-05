@@ -46,7 +46,7 @@
 import type { Kernel } from '../kernel.js';
 import type { Process } from '../types.js';
 import type { Port } from '../resource.js';
-import { PortHandleAdapter } from '../handle.js';
+import type { PortHandleAdapter } from '../handle.js';
 import { getHandle } from './get-handle.js';
 
 /**
@@ -92,7 +92,7 @@ import { getHandle } from './get-handle.js';
 export function getPortFromHandle(
     self: Kernel,
     proc: Process,
-    h: number
+    h: number,
 ): Port | undefined {
     // Lookup handle (returns undefined if fd doesn't exist)
     const handle = getHandle(self, proc, h);

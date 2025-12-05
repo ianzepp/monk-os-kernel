@@ -40,6 +40,7 @@ export class FilesystemAPI {
     mount(hostPath: string, osPath: string, opts?: MountOpts): void {
         const vfs = this.host.getVFS();
         const resolvedPath = this.host.resolvePath(osPath);
+
         vfs.mountHost(resolvedPath, hostPath, {
             readonly: opts?.readonly,
         });
@@ -53,6 +54,7 @@ export class FilesystemAPI {
     unmount(osPath: string): void {
         const vfs = this.host.getVFS();
         const resolvedPath = this.host.resolvePath(osPath);
+
         vfs.unmountHost(resolvedPath);
     }
 
@@ -66,11 +68,14 @@ export class FilesystemAPI {
         const vfs = this.host.getVFS();
         const resolvedPath = this.host.resolvePath(path);
         const handle = await vfs.open(resolvedPath, { read: true }, 'kernel');
+
         try {
             // Read entire file - get size from stat first
             const stat = await vfs.stat(resolvedPath, 'kernel');
+
             return await handle.read(stat.size || 4096);
-        } finally {
+        }
+        finally {
             await handle.close();
         }
     }
@@ -83,6 +88,7 @@ export class FilesystemAPI {
      */
     async readText(path: string): Promise<string> {
         const data = await this.read(path);
+
         return new TextDecoder().decode(data);
     }
 
@@ -99,9 +105,11 @@ export class FilesystemAPI {
             ? new TextEncoder().encode(data)
             : data;
         const handle = await vfs.open(resolvedPath, { write: true, create: true, truncate: true }, 'kernel');
+
         try {
             await handle.write(bytes);
-        } finally {
+        }
+        finally {
             await handle.close();
         }
     }
@@ -116,6 +124,7 @@ export class FilesystemAPI {
         const vfs = this.host.getVFS();
         const resolvedPath = this.host.resolvePath(path);
         const modelStat = await vfs.stat(resolvedPath, 'kernel');
+
         return this.toStat(modelStat);
     }
 
@@ -129,9 +138,11 @@ export class FilesystemAPI {
         const vfs = this.host.getVFS();
         const resolvedPath = this.host.resolvePath(path);
         const names: string[] = [];
+
         for await (const entry of vfs.readdir(resolvedPath, 'kernel')) {
             names.push(entry.name);
         }
+
         return names;
     }
 
@@ -145,9 +156,11 @@ export class FilesystemAPI {
         const vfs = this.host.getVFS();
         const resolvedPath = this.host.resolvePath(path);
         const stats: Stat[] = [];
+
         for await (const entry of vfs.readdir(resolvedPath, 'kernel')) {
             stats.push(this.toStat(entry));
         }
+
         return stats;
     }
 
@@ -160,6 +173,7 @@ export class FilesystemAPI {
     async mkdir(path: string, opts?: { recursive?: boolean }): Promise<void> {
         const vfs = this.host.getVFS();
         const resolvedPath = this.host.resolvePath(path);
+
         await vfs.mkdir(resolvedPath, 'kernel', opts);
     }
 
@@ -171,6 +185,7 @@ export class FilesystemAPI {
     async unlink(path: string): Promise<void> {
         const vfs = this.host.getVFS();
         const resolvedPath = this.host.resolvePath(path);
+
         await vfs.unlink(resolvedPath, 'kernel');
     }
 
@@ -183,8 +198,10 @@ export class FilesystemAPI {
     async exists(path: string): Promise<boolean> {
         try {
             await this.stat(path);
+
             return true;
-        } catch {
+        }
+        catch {
             return false;
         }
     }

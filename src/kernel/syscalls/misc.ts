@@ -100,11 +100,13 @@ function resolvePath(cwd: string, path: string): string {
         if (part === '.' || part === '') {
             // Current directory - no-op
             continue;
-        } else if (part === '..') {
+        }
+        else if (part === '..') {
             // Parent directory - remove last component from base
             // WHY: If baseParts is empty, pop() is a no-op (can't go above root)
             baseParts.pop();
-        } else {
+        }
+        else {
             // Regular name - append to path
             baseParts.push(part);
         }
@@ -193,6 +195,7 @@ export function createMiscSyscalls(vfs: VFS): SyscallRegistry {
             // Validate argument type
             if (typeof path !== 'string') {
                 yield respond.error('EINVAL', 'path must be a string');
+
                 return;
             }
 
@@ -207,14 +210,18 @@ export function createMiscSyscalls(vfs: VFS): SyscallRegistry {
                 // Directory check ensures proc.cwd always points to valid directory
                 if (stat.model !== 'folder') {
                     yield respond.error('ENOTDIR', `Not a directory: ${path}`);
+
                     return;
                 }
-            } catch (err) {
+            }
+            catch (err) {
                 // Path doesn't exist or access denied
                 // Extract error code and message, defaulting if not present
                 const code = (err as { code?: string }).code ?? 'ENOENT';
                 const message = (err as Error).message ?? `No such directory: ${path}`;
+
                 yield respond.error(code, message);
+
                 return;
             }
 
@@ -244,6 +251,7 @@ export function createMiscSyscalls(vfs: VFS): SyscallRegistry {
             // Validate argument type
             if (typeof name !== 'string') {
                 yield respond.error('EINVAL', 'name must be a string');
+
                 return;
             }
 
@@ -268,10 +276,13 @@ export function createMiscSyscalls(vfs: VFS): SyscallRegistry {
             // Validate argument types
             if (typeof name !== 'string') {
                 yield respond.error('EINVAL', 'name must be a string');
+
                 return;
             }
+
             if (typeof value !== 'string') {
                 yield respond.error('EINVAL', 'value must be a string');
+
                 return;
             }
 

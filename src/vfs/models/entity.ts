@@ -57,6 +57,7 @@ async function first<T>(gen: AsyncIterable<T>): Promise<T | null> {
     for await (const item of gen) {
         return item;
     }
+
     return null;
 }
 
@@ -185,18 +186,20 @@ export class EntityModel extends PosixModel {
         ctx: ModelContext,
         id: string,
         flags: OpenFlags,
-        opts?: OpenOptions
+        opts?: OpenOptions,
     ): Promise<FileHandle> {
         // Get entity from cache
         const entity = this.cache.getEntity(id);
+
         if (!entity) {
             throw new ENOENT(`Entity not found: ${id}`);
         }
 
         // Load detail from model's table
         const detail = await first(
-            this.db.selectAny<EntityRecord>(entity.model, { where: { id } })
+            this.db.selectAny<EntityRecord>(entity.model, { where: { id } }),
         );
+
         if (!detail) {
             throw new ENOENT(`Detail not found for entity: ${id}`);
         }
@@ -213,8 +216,10 @@ export class EntityModel extends PosixModel {
 
         // Load blob content if this is a file-like entity
         let content: Uint8Array = new Uint8Array(0);
+
         if ('data' in detail && detail.data) {
             const blobData = await ctx.hal.storage.get(`${DATA_PREFIX}${detail.data}`);
+
             content = blobData ? new Uint8Array(blobData) : new Uint8Array(0);
         }
 
@@ -242,14 +247,16 @@ export class EntityModel extends PosixModel {
     async stat(_ctx: ModelContext, id: string): Promise<ModelStat> {
         // Get entity from cache
         const entity = this.cache.getEntity(id);
+
         if (!entity) {
             throw new ENOENT(`Entity not found: ${id}`);
         }
 
         // Query detail table
         const detail = await first(
-            this.db.selectAny<EntityRecord>(entity.model, { where: { id } })
+            this.db.selectAny<EntityRecord>(entity.model, { where: { id } }),
         );
+
         if (!detail) {
             throw new ENOENT(`Detail not found for entity: ${id}`);
         }
@@ -290,6 +297,7 @@ export class EntityModel extends PosixModel {
      */
     async setstat(_ctx: ModelContext, id: string, fields: Partial<ModelStat>): Promise<void> {
         const entity = this.cache.getEntity(id);
+
         if (!entity) {
             throw new ENOENT(`Entity not found: ${id}`);
         }
@@ -297,6 +305,7 @@ export class EntityModel extends PosixModel {
         // Map VFS fields to EMS fields
         // VFS uses 'name', EMS uses 'pathname'
         const emsFields: Record<string, unknown> = { ...fields };
+
         if ('name' in emsFields) {
             emsFields.pathname = emsFields.name;
             delete emsFields.name;
@@ -335,9 +344,10 @@ export class EntityModel extends PosixModel {
         ctx: ModelContext,
         parent: string,
         pathname: string,
-        fields?: Partial<ModelStat>
+        fields?: Partial<ModelStat>,
     ): Promise<string> {
         const model = fields?.model;
+
         if (!model) {
             throw new EINVAL('EntityModel.create requires fields.model');
         }
@@ -368,6 +378,7 @@ export class EntityModel extends PosixModel {
      */
     async unlink(_ctx: ModelContext, id: string): Promise<void> {
         const entity = this.cache.getEntity(id);
+
         if (!entity) {
             throw new ENOENT(`Entity not found: ${id}`);
         }
@@ -390,6 +401,7 @@ export class EntityModel extends PosixModel {
      */
     async *list(_ctx: ModelContext, id: string): AsyncIterable<string> {
         const children = this.cache.listChildren(id);
+
         for (const childId of children) {
             yield childId;
         }
@@ -407,7 +419,7 @@ export class EntityModel extends PosixModel {
     override async *watch(
         _ctx: ModelContext,
         _id: string,
-        _pattern?: string
+        _pattern?: string,
     ): AsyncIterable<WatchEvent> {
         throw new ENOSYS('EntityModel.watch not yet implemented');
     }
@@ -461,7 +473,7 @@ class EntityHandleImpl implements FileHandle {
         stat: ModelStat,
         content: Uint8Array,
         flags: OpenFlags,
-        _opts?: OpenOptions
+        _opts?: OpenOptions,
     ) {
         this.id = ctx.hal.entropy.uuid();
         this.ctx = ctx;
@@ -492,6 +504,7 @@ class EntityHandleImpl implements FileHandle {
         if (this._closed) {
             throw new EBADF('Handle closed');
         }
+
         if (!this.flags.read) {
             throw new EACCES('Handle not opened for reading');
         }
@@ -504,7 +517,9 @@ class EntityHandleImpl implements FileHandle {
         }
 
         const result = this.content.slice(this.position, this.position + toRead);
+
         this.position += toRead;
+
         return result;
     }
 
@@ -516,6 +531,7 @@ class EntityHandleImpl implements FileHandle {
         if (this._closed) {
             throw new EBADF('Handle closed');
         }
+
         if (!this.flags.write) {
             throw new EACCES('Handle not opened for writing');
         }
@@ -525,8 +541,10 @@ class EntityHandleImpl implements FileHandle {
         }
 
         const endPos = this.position + data.length;
+
         if (endPos > this.content.length) {
             const newContent = new Uint8Array(endPos);
+
             newContent.set(this.content);
             this.content = newContent;
         }
@@ -548,6 +566,7 @@ class EntityHandleImpl implements FileHandle {
         }
 
         let newPos: number;
+
         switch (whence) {
             case 'start':
                 newPos = offset;
@@ -567,6 +586,7 @@ class EntityHandleImpl implements FileHandle {
         }
 
         this.position = newPos;
+
         return this.position;
     }
 

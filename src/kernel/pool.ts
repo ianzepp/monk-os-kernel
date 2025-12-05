@@ -216,9 +216,9 @@ function createDefaultDeps(): PoolDeps {
     return {
         now: () => Date.now(),
         setInterval: (cb, ms) => setInterval(cb, ms),
-        clearInterval: (id) => clearInterval(id),
+        clearInterval: id => clearInterval(id),
         setTimeout: (cb, ms) => setTimeout(cb, ms),
-        clearTimeout: (id) => clearTimeout(id),
+        clearTimeout: id => clearTimeout(id),
     };
 }
 
@@ -344,12 +344,14 @@ export class WorkerPool {
             // Fast path: use idle worker
             // RACE FIX: Pop is atomic (no await between check and pop)
             pooled = this.idle.pop()!;
-        } else if (this.total < this.config.max) {
+        }
+        else if (this.total < this.config.max) {
             // Spawn new worker
             pooled = await this.spawn();
-        } else {
+        }
+        else {
             // Backpressure: wait for a worker to be released
-            pooled = await new Promise<PooledWorker>((resolve) => {
+            pooled = await new Promise<PooledWorker>(resolve => {
                 this.waiters.push(resolve);
             });
         }
@@ -385,7 +387,9 @@ export class WorkerPool {
         // This is more efficient than idle -> lease cycle
         if (this.waiters.length > 0) {
             const waiter = this.waiters.shift()!;
+
             waiter(pooled);
+
             return;
         }
 
@@ -401,6 +405,7 @@ export class WorkerPool {
     async warmup(): Promise<void> {
         while (this.total < this.config.min) {
             const worker = await this.spawn();
+
             this.idle.push(worker);
         }
     }
@@ -441,6 +446,7 @@ export class WorkerPool {
             // Actually, better to just leave them hanging than give bad worker
             // They should implement timeouts
         }
+
         this.waiters.length = 0;
     }
 
@@ -488,21 +494,23 @@ export class WorkerPool {
         };
 
         // Wire up message handling
-        worker.onmessage = (e) => {
+        worker.onmessage = e => {
             // RACE FIX: Check for null before calling
             // Resolver may have been cleared by timeout or error
             if (pooled.messageResolve) {
                 const resolve = pooled.messageResolve;
+
                 pooled.messageResolve = null;
                 pooled.messageReject = null;
                 resolve(e.data);
             }
         };
 
-        worker.onerror = (e) => {
+        worker.onerror = e => {
             // RACE FIX: Check for null before calling
             if (pooled.messageReject) {
                 const reject = pooled.messageReject;
+
                 pooled.messageResolve = null;
                 pooled.messageReject = null;
                 reject(new EIO(e.message));
@@ -555,9 +563,11 @@ export class WorkerPool {
                     pooled.messageResolve = (msg: unknown) => {
                         self.deps.clearTimeout(timeoutId);
                         const m = msg as { type: string; error?: string };
+
                         if (m.type === 'loaded') {
                             resolve();
-                        } else {
+                        }
+                        else {
                             reject(new EIO(m.error ?? 'Load failed'));
                         }
                     };
@@ -623,13 +633,17 @@ export class WorkerPool {
 
         while (this.idle.length > this.config.min) {
             const oldest = this.idle[0];
-            if (!oldest) break;
+
+            if (!oldest) {
+                break;
+            }
 
             if (now - oldest.idleSince > this.config.idleTimeout) {
                 // Remove from idle and terminate
                 this.idle.shift();
                 oldest.worker.terminate();
-            } else {
+            }
+            else {
                 // Remaining workers are newer, stop checking
                 break;
             }
@@ -702,10 +716,14 @@ export class PoolManager {
      *
      * @param vfs - VFS interface for reading config file
      */
-    async loadConfig(vfs: { open: Function; stat: Function }): Promise<void> {
+    async loadConfig(vfs: {
+        open: (path: string, flags: { read: boolean }, actor: string) => Promise<{ read: () => Promise<Uint8Array>; close: () => Promise<void> }>;
+        stat: (path: string, caller: string) => Promise<unknown>;
+    }): Promise<void> {
         try {
             const handle = await vfs.open('/etc/pools.json', { read: true }, 'kernel');
             const data = await handle.read();
+
             await handle.close();
 
             const userConfig = JSON.parse(new TextDecoder().decode(data)) as Record<string, Partial<PoolConfig>>;
@@ -718,7 +736,8 @@ export class PoolManager {
                     idleTimeout: cfg.idleTimeout ?? 15000,
                 };
             }
-        } catch {
+        }
+        catch {
             // No config file or read error - use defaults
             // This is fine, freelance pool covers most use cases
         }
@@ -748,8 +767,10 @@ export class PoolManager {
 
         // Create pool lazily
         let pool = this.pools.get(name);
+
         if (!pool) {
             const config = this.config[name];
+
             if (!config) {
                 throw new ENOENT(`Pool configuration not found: ${name}`);
             }
@@ -770,7 +791,7 @@ export class PoolManager {
      * @returns Array of pool stats
      */
     stats(): Array<ReturnType<WorkerPool['stats']>> {
-        return Array.from(this.pools.values()).map((p) => p.stats());
+        return Array.from(this.pools.values()).map(p => p.stats());
     }
 
     /**
@@ -782,6 +803,7 @@ export class PoolManager {
         for (const pool of this.pools.values()) {
             pool.shutdown();
         }
+
         this.pools.clear();
     }
 

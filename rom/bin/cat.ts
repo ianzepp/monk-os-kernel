@@ -199,12 +199,15 @@ function parseOptions(args: string[]): Options {
             // Handle combined short flags: -h
             for (let j = 1; j < arg.length; j++) {
                 const flag = arg[j];
+
                 if (flag === 'h') {
                     opts.help = true;
-                } else {
+                }
+                else {
                     throw new Error(`unknown option: -${flag}`);
                 }
             }
+
             i++;
             continue;
         }
@@ -254,6 +257,7 @@ async function catFile(path: string): Promise<void> {
 
             // EDGE: Keep last element (possibly empty) as buffer
             const remaining = lines.pop();
+
             buffer = remaining !== undefined ? remaining : '';
 
             for (const line of lines) {
@@ -266,7 +270,8 @@ async function catFile(path: string): Promise<void> {
         if (buffer.length > 0) {
             await println(buffer);
         }
-    } finally {
+    }
+    finally {
         // POSIX: Always close file descriptor
         await close(fd);
     }
@@ -318,12 +323,16 @@ export default async function main(args: string[]): Promise<void> {
     // Argument Parsing
     // -------------------------------------------------------------------------
     let opts: Options;
+
     try {
         opts = parseOptions(args);
-    } catch (err) {
+    }
+    catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         await eprintln(`cat: ${msg}`);
         await eprintln(`Try 'cat --help' for more information.`);
+
         return exit(EXIT_USAGE);
     }
 
@@ -332,6 +341,7 @@ export default async function main(args: string[]): Promise<void> {
     // -------------------------------------------------------------------------
     if (opts.help) {
         await println(HELP_TEXT);
+
         return exit(EXIT_SUCCESS);
     }
 
@@ -341,6 +351,7 @@ export default async function main(args: string[]): Promise<void> {
     // POSIX: No files means read from stdin
     if (opts.files.length === 0) {
         await passthroughStdin();
+
         return exit(EXIT_SUCCESS);
     }
 
@@ -360,10 +371,13 @@ export default async function main(args: string[]): Promise<void> {
         try {
             // Resolve relative paths against cwd
             const path = resolvePath(cwd, file);
+
             await catFile(path);
-        } catch (err) {
+        }
+        catch (err) {
             // GNU: Format errors as "cat: filename: message"
             const msg = err instanceof Error ? err.message : String(err);
+
             await eprintln(`cat: ${file}: ${msg}`);
             hadError = true;
             // GNU: Continue processing remaining files

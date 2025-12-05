@@ -200,6 +200,7 @@ export class PortHandleAdapter implements Handle {
         // RACE FIX: Check closure before starting operation
         if (this._closed) {
             yield respond.error('EBADF', 'Handle closed');
+
             return;
         }
 
@@ -219,7 +220,7 @@ export class PortHandleAdapter implements Handle {
                 yield* this.portSend(
                     data?.to as string,
                     data?.data as Uint8Array | undefined,
-                    data?.meta as Record<string, unknown> | undefined
+                    data?.meta as Record<string, unknown> | undefined,
                 );
                 break;
 
@@ -263,8 +264,10 @@ export class PortHandleAdapter implements Handle {
     private async *recv(): AsyncIterable<Response> {
         try {
             const msg = await this.port.recv();
+
             yield respond.item(msg);
-        } catch (err) {
+        }
+        catch (err) {
             // RACE FIX: Port closed during recv() - translate to EIO
             yield respond.error('EIO', (err as Error).message);
         }
@@ -290,17 +293,19 @@ export class PortHandleAdapter implements Handle {
     private async *portSend(
         to: string,
         data?: Uint8Array,
-        meta?: Record<string, unknown>
+        meta?: Record<string, unknown>,
     ): AsyncIterable<Response> {
         if (typeof to !== 'string') {
             yield respond.error('EINVAL', 'to must be a string');
+
             return;
         }
 
         try {
             await this.port.send(to, data, meta);
             yield respond.ok();
-        } catch (err) {
+        }
+        catch (err) {
             yield respond.error('EIO', (err as Error).message);
         }
     }
@@ -324,7 +329,9 @@ export class PortHandleAdapter implements Handle {
      * Safe to call multiple times - subsequent calls are no-ops.
      */
     async close(): Promise<void> {
-        if (this._closed) return;
+        if (this._closed) {
+            return;
+        }
 
         // RACE FIX: Set closed flag before calling port.close()
         // to prevent new operations from starting

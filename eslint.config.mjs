@@ -93,9 +93,30 @@ export default tseslint.config(
             '@typescript-eslint/no-unused-vars': ['error', {
                 argsIgnorePattern: '^_',
                 varsIgnorePattern: '^_',
+                caughtErrorsIgnorePattern: '^_',
             }],
 
-            // HACK: Disable some rules that conflict with Monk OS patterns
+            // -----------------------------------------------------------------
+            // Monk OS Pattern Adjustments
+            // -----------------------------------------------------------------
+
+            // WHY: Allow `const self = this` in generators where context is needed
+            '@typescript-eslint/no-this-alias': ['error', {
+                allowedNames: ['self'],
+            }],
+
+            // WHY: Allow namespaces for respond.ok(), respond.error() pattern
+            '@typescript-eslint/no-namespace': 'off',
+
+            // WHY: Stub generators implementing interfaces don't need yield
+            'require-yield': 'off',
+
+            // WHY: Allow dynamic import() in type positions for lazy loading
+            '@typescript-eslint/consistent-type-imports': ['error', {
+                prefer: 'type-imports',
+                disallowTypeAnnotations: false,
+            }],
+
             '@typescript-eslint/no-explicit-any': 'warn',
             '@typescript-eslint/no-empty-object-type': 'off',
         },

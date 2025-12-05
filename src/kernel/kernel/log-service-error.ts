@@ -30,11 +30,11 @@ export function logServiceError(
     self: Kernel,
     service: string,
     context: string,
-    err: unknown
+    err: unknown,
 ): void {
     // WHY: Format as "service {name}: {context}: {error}"
     //      Consistent format makes parsing logs easier
     self.hal.console.error(
-        new TextEncoder().encode(`service ${service}: ${context}: ${formatError(err)}\n`)
+        new TextEncoder().encode(`service ${service}: ${context}: ${formatError(err)}\n`),
     );
 }

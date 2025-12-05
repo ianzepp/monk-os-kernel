@@ -22,6 +22,7 @@ describe('VFS', () => {
     describe('init', () => {
         it('should create root folder', async () => {
             const stat = await stack.vfs!.stat('/', caller);
+
             expect(stat.model).toBe('folder');
             expect(stat.name).toBe('');
             expect(stat.parent).toBeNull();
@@ -31,6 +32,7 @@ describe('VFS', () => {
             await stack.vfs!.init();
             await stack.vfs!.init();
             const stat = await stack.vfs!.stat('/', caller);
+
             expect(stat.model).toBe('folder');
         });
     });
@@ -38,9 +40,11 @@ describe('VFS', () => {
     describe('mkdir', () => {
         it('should create directory', async () => {
             const id = await stack.vfs!.mkdir('/test', caller);
+
             expect(id).toBeDefined();
 
             const stat = await stack.vfs!.stat('/test', caller);
+
             expect(stat.model).toBe('folder');
             expect(stat.name).toBe('test');
         });
@@ -51,6 +55,7 @@ describe('VFS', () => {
             await stack.vfs!.mkdir('/a/b/c', caller);
 
             const stat = await stack.vfs!.stat('/a/b/c', caller);
+
             expect(stat.model).toBe('folder');
             expect(stat.name).toBe('c');
         });
@@ -67,6 +72,7 @@ describe('VFS', () => {
         it('should set owner to caller', async () => {
             await stack.vfs!.mkdir('/test', caller);
             const stat = await stack.vfs!.stat('/test', caller);
+
             expect(stat.owner).toBe(caller);
         });
     });
@@ -74,10 +80,12 @@ describe('VFS', () => {
     describe('open', () => {
         it('should create file with create flag', async () => {
             const handle = await stack.vfs!.open('/newfile.txt', { read: true, write: true, create: true }, caller);
+
             expect(handle).toBeDefined();
             await handle.close();
 
             const stat = await stack.vfs!.stat('/newfile.txt', caller);
+
             expect(stat.model).toBe('file');
         });
 
@@ -87,11 +95,13 @@ describe('VFS', () => {
 
         it('should open existing file', async () => {
             const h1 = await stack.vfs!.open('/file.txt', { write: true, create: true }, caller);
+
             await h1.write(new TextEncoder().encode('hello'));
             await h1.close();
 
             const h2 = await stack.vfs!.open('/file.txt', { read: true }, caller);
             const data = await h2.read();
+
             await h2.close();
 
             expect(new TextDecoder().decode(data)).toBe('hello');
@@ -99,16 +109,19 @@ describe('VFS', () => {
 
         it('should truncate with truncate flag', async () => {
             const h1 = await stack.vfs!.open('/file.txt', { write: true, create: true }, caller);
+
             await h1.write(new TextEncoder().encode('hello world'));
             await h1.close();
 
             // Truncate and write new content
             const h2 = await stack.vfs!.open('/file.txt', { write: true, truncate: true }, caller);
+
             await h2.write(new TextEncoder().encode('new')); // Write to trigger flush
             await h2.close();
 
             const h3 = await stack.vfs!.open('/file.txt', { read: true }, caller);
             const data = await h3.read();
+
             await h3.close();
 
             expect(new TextDecoder().decode(data)).toBe('new');
@@ -123,10 +136,12 @@ describe('VFS', () => {
     describe('stat', () => {
         it('should return file metadata', async () => {
             const h = await stack.vfs!.open('/file.txt', { write: true, create: true }, caller);
+
             await h.write(new TextEncoder().encode('content'));
             await h.close();
 
             const stat = await stack.vfs!.stat('/file.txt', caller);
+
             expect(stat.model).toBe('file');
             expect(stat.name).toBe('file.txt');
             expect(stat.size).toBe(7);
@@ -135,6 +150,7 @@ describe('VFS', () => {
         it('should return folder metadata', async () => {
             await stack.vfs!.mkdir('/folder', caller);
             const stat = await stack.vfs!.stat('/folder', caller);
+
             expect(stat.model).toBe('folder');
             expect(stat.size).toBe(0);
         });
@@ -147,6 +163,7 @@ describe('VFS', () => {
     describe('setstat', () => {
         it('should update file name', async () => {
             const h = await stack.vfs!.open('/file.txt', { write: true, create: true }, caller);
+
             await h.close();
 
             await stack.vfs!.setstat('/file.txt', caller, { name: 'renamed.txt' });
@@ -157,6 +174,7 @@ describe('VFS', () => {
 
         it('should update mtime', async () => {
             const h = await stack.vfs!.open('/file.txt', { write: true, create: true }, caller);
+
             await h.close();
 
             const stat1 = await stack.vfs!.stat('/file.txt', caller);
@@ -167,6 +185,7 @@ describe('VFS', () => {
             await stack.vfs!.setstat('/file.txt', caller, {});
 
             const stat2 = await stack.vfs!.stat('/file.txt', caller);
+
             expect(stat2.mtime).toBeGreaterThanOrEqual(stat1.mtime);
         });
     });
@@ -174,6 +193,7 @@ describe('VFS', () => {
     describe('unlink', () => {
         it('should delete file', async () => {
             const h = await stack.vfs!.open('/file.txt', { write: true, create: true }, caller);
+
             await h.close();
 
             await stack.vfs!.unlink('/file.txt', caller);
@@ -191,6 +211,7 @@ describe('VFS', () => {
         it('should fail to delete non-empty folder', async () => {
             await stack.vfs!.mkdir('/folder', caller);
             const h = await stack.vfs!.open('/folder/file.txt', { write: true, create: true }, caller);
+
             await h.close();
 
             // Will fail because folder has children
@@ -210,12 +231,15 @@ describe('VFS', () => {
         it('should list directory contents', async () => {
             await stack.vfs!.mkdir('/dir', caller);
             const h1 = await stack.vfs!.open('/dir/a.txt', { write: true, create: true }, caller);
+
             await h1.close();
             const h2 = await stack.vfs!.open('/dir/b.txt', { write: true, create: true }, caller);
+
             await h2.close();
             await stack.vfs!.mkdir('/dir/subdir', caller);
 
             const entries: string[] = [];
+
             for await (const entry of stack.vfs!.readdir('/dir', caller)) {
                 entries.push(entry.name);
             }
@@ -227,6 +251,7 @@ describe('VFS', () => {
             await stack.vfs!.mkdir('/empty', caller);
 
             const entries: string[] = [];
+
             for await (const entry of stack.vfs!.readdir('/empty', caller)) {
                 entries.push(entry.name);
             }
@@ -244,6 +269,7 @@ describe('VFS', () => {
 
         it('should fail for file (not directory)', async () => {
             const h = await stack.vfs!.open('/file.txt', { write: true, create: true }, caller);
+
             await h.close();
 
             await expect(async () => {
@@ -257,9 +283,11 @@ describe('VFS', () => {
     describe('access', () => {
         it('should return ACL for path', async () => {
             const h = await stack.vfs!.open('/file.txt', { write: true, create: true }, caller);
+
             await h.close();
 
             const acl = await stack.vfs!.access('/file.txt', caller);
+
             expect(acl.grants.length).toBeGreaterThan(0);
         });
     });
@@ -267,6 +295,7 @@ describe('VFS', () => {
     describe('setAccess', () => {
         it('should set ACL for path', async () => {
             const h = await stack.vfs!.open('/file.txt', { write: true, create: true }, caller);
+
             await h.close();
 
             await stack.vfs!.setAccess('/file.txt', caller, {
@@ -278,16 +307,19 @@ describe('VFS', () => {
             });
 
             const acl = await stack.vfs!.access('/file.txt', caller);
+
             expect(acl.grants.length).toBe(2);
         });
 
         it('should reset ACL with null', async () => {
             const h = await stack.vfs!.open('/file.txt', { write: true, create: true }, caller);
+
             await h.close();
 
             await stack.vfs!.setAccess('/file.txt', caller, null);
 
             const acl = await stack.vfs!.access('/file.txt', caller);
+
             // Should be default ACL (owner + world-readable)
             expect(acl.grants.length).toBe(2);
             expect(acl.grants[0]!.to).toBe(caller);
@@ -324,15 +356,18 @@ describe('VFS', () => {
 
         it('should support append mode', async () => {
             const h1 = await stack.vfs!.open('/test.txt', { write: true, create: true }, caller);
+
             await h1.write(new TextEncoder().encode('hello'));
             await h1.close();
 
             const h2 = await stack.vfs!.open('/test.txt', { write: true, append: true }, caller);
+
             await h2.write(new TextEncoder().encode(' world'));
             await h2.close();
 
             const h3 = await stack.vfs!.open('/test.txt', { read: true }, caller);
             const data = await h3.read();
+
             await h3.close();
 
             expect(new TextDecoder().decode(data)).toBe('hello world');
@@ -340,12 +375,14 @@ describe('VFS', () => {
 
         it('should persist data on close', async () => {
             const h1 = await stack.vfs!.open('/test.txt', { write: true, create: true }, caller);
+
             await h1.write(new TextEncoder().encode('content'));
             await h1.close();
 
             // Reopen and verify
             const h2 = await stack.vfs!.open('/test.txt', { read: true }, caller);
             const data = await h2.read();
+
             await h2.close();
 
             expect(new TextDecoder().decode(data)).toBe('content');
@@ -353,6 +390,7 @@ describe('VFS', () => {
 
         it('should support sync', async () => {
             const handle = await stack.vfs!.open('/test.txt', { write: true, create: true }, caller);
+
             await handle.write(new TextEncoder().encode('data'));
             await handle.sync();
             await handle.close();
@@ -360,12 +398,14 @@ describe('VFS', () => {
 
         it('should be closeable multiple times', async () => {
             const handle = await stack.vfs!.open('/test.txt', { write: true, create: true }, caller);
+
             await handle.close();
             await handle.close(); // Should not throw
         });
 
         it('should throw on read after close', async () => {
             const handle = await stack.vfs!.open('/test.txt', { read: true, write: true, create: true }, caller);
+
             await handle.close();
 
             await expect(handle.read()).rejects.toThrow();
@@ -373,6 +413,7 @@ describe('VFS', () => {
 
         it('should throw on write after close', async () => {
             const handle = await stack.vfs!.open('/test.txt', { write: true, create: true }, caller);
+
             await handle.close();
 
             await expect(handle.write(new Uint8Array([1]))).rejects.toThrow();
@@ -383,18 +424,21 @@ describe('VFS', () => {
         it('should handle trailing slashes', async () => {
             await stack.vfs!.mkdir('/folder', caller);
             const stat = await stack.vfs!.stat('/folder/', caller);
+
             expect(stat.name).toBe('folder');
         });
 
         it('should handle multiple slashes', async () => {
             await stack.vfs!.mkdir('/folder', caller);
             const stat = await stack.vfs!.stat('//folder//', caller);
+
             expect(stat.name).toBe('folder');
         });
 
         it('should handle root variations', async () => {
             const stat1 = await stack.vfs!.stat('/', caller);
             const stat2 = await stack.vfs!.stat('//', caller);
+
             expect(stat1.id).toBe(stat2.id);
         });
     });

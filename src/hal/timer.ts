@@ -289,6 +289,7 @@ export class BunTimerDevice implements TimerDevice {
         // FAST PATH: No signal, just sleep
         if (!signal) {
             await Bun.sleep(ms);
+
             return;
         }
 
@@ -320,7 +321,9 @@ export class BunTimerDevice implements TimerDevice {
     interval(ms: number, fn: () => void): TimerHandle {
         const id = this.nextId++;
         const handle = setInterval(fn, ms);
+
         this.timers.set(id, handle);
+
         return { id, type: 'interval' };
     }
 
@@ -335,6 +338,7 @@ export class BunTimerDevice implements TimerDevice {
         }, ms);
 
         this.timers.set(id, handle);
+
         return { id, type: 'timeout' };
     }
 
@@ -344,15 +348,20 @@ export class BunTimerDevice implements TimerDevice {
 
     cancel(handle: TimerHandle): void {
         const timer = this.timers.get(handle.id);
-        if (!timer) return; // Already cancelled or fired
+
+        if (!timer) {
+            return;
+        } // Already cancelled or fired
 
         // WHY: clearInterval and clearTimeout are type-specific. Using wrong
         // one is a no-op (timer continues running).
         if (handle.type === 'interval') {
             clearInterval(timer);
-        } else {
+        }
+        else {
             clearTimeout(timer);
         }
+
         this.timers.delete(handle.id);
     }
 
@@ -364,6 +373,7 @@ export class BunTimerDevice implements TimerDevice {
             clearTimeout(timer as ReturnType<typeof setTimeout>);
             clearInterval(timer as ReturnType<typeof setInterval>);
         }
+
         this.timers.clear();
     }
 }
@@ -493,6 +503,7 @@ export class MockTimerDevice implements TimerDevice {
                     nextEventTime = timer.triggerAt;
                 }
             }
+
             for (const sleeper of this.sleepResolvers) {
                 if (sleeper.resolveAt < nextEventTime) {
                     nextEventTime = sleeper.resolveAt;
@@ -503,23 +514,27 @@ export class MockTimerDevice implements TimerDevice {
             this.currentTime = nextEventTime;
 
             // Fire timers at current time
-            const toFire = this.pendingTimers.filter((t) => t.triggerAt <= this.currentTime);
+            const toFire = this.pendingTimers.filter(t => t.triggerAt <= this.currentTime);
+
             for (const timer of toFire) {
                 timer.fn();
                 // WHY: Intervals reschedule, timeouts are removed
                 if (timer.type === 'interval' && timer.interval) {
                     timer.triggerAt += timer.interval;
-                } else {
-                    this.pendingTimers = this.pendingTimers.filter((t) => t.id !== timer.id);
+                }
+                else {
+                    this.pendingTimers = this.pendingTimers.filter(t => t.id !== timer.id);
                 }
             }
 
             // Resolve sleepers at current time
-            const toResolve = this.sleepResolvers.filter((s) => s.resolveAt <= this.currentTime);
+            const toResolve = this.sleepResolvers.filter(s => s.resolveAt <= this.currentTime);
+
             for (const sleeper of toResolve) {
                 sleeper.resolve();
             }
-            this.sleepResolvers = this.sleepResolvers.filter((s) => s.resolveAt > this.currentTime);
+
+            this.sleepResolvers = this.sleepResolvers.filter(s => s.resolveAt > this.currentTime);
         }
     }
 
@@ -558,10 +573,10 @@ export class MockTimerDevice implements TimerDevice {
                 signal.addEventListener(
                     'abort',
                     () => {
-                        this.sleepResolvers = this.sleepResolvers.filter((s) => s !== entry);
+                        this.sleepResolvers = this.sleepResolvers.filter(s => s !== entry);
                         reject(new DOMException('Aborted', 'AbortError'));
                     },
-                    { once: true }
+                    { once: true },
                 );
             }
 
@@ -575,6 +590,7 @@ export class MockTimerDevice implements TimerDevice {
 
     interval(ms: number, fn: () => void): TimerHandle {
         const id = this.nextId++;
+
         this.pendingTimers.push({
             id,
             type: 'interval',
@@ -582,17 +598,20 @@ export class MockTimerDevice implements TimerDevice {
             interval: ms,
             fn,
         });
+
         return { id, type: 'interval' };
     }
 
     timeout(ms: number, fn: () => void): TimerHandle {
         const id = this.nextId++;
+
         this.pendingTimers.push({
             id,
             type: 'timeout',
             triggerAt: this.currentTime + ms,
             fn,
         });
+
         return { id, type: 'timeout' };
     }
 
@@ -601,7 +620,7 @@ export class MockTimerDevice implements TimerDevice {
     // =========================================================================
 
     cancel(handle: TimerHandle): void {
-        this.pendingTimers = this.pendingTimers.filter((t) => t.id !== handle.id);
+        this.pendingTimers = this.pendingTimers.filter(t => t.id !== handle.id);
     }
 
     cancelAll(): void {
@@ -610,6 +629,7 @@ export class MockTimerDevice implements TimerDevice {
         for (const sleeper of this.sleepResolvers) {
             sleeper.reject(new DOMException('Cancelled', 'AbortError'));
         }
+
         this.sleepResolvers = [];
     }
 }

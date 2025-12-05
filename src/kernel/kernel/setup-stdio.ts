@@ -128,7 +128,7 @@ export function setupStdio(
     self: Kernel,
     proc: Process,
     parent: Process,
-    opts?: SpawnOpts
+    opts?: SpawnOpts,
 ): void {
     // Determine which parent fds to inherit from (default: 0/1/2)
     // NOTE: SpawnOpts allows overriding stdio, e.g., redirect stdout to different fd
@@ -188,7 +188,7 @@ function setupStdioFd(
     parent: Process,
     childFd: number,
     parentFd: number,
-    name: string
+    name: string,
 ): void {
     // Look up parent's handle for this fd
     const handleId = parent.handles.get(parentFd);
@@ -197,14 +197,15 @@ function setupStdioFd(
         // SUCCESS PATH: Parent has handle, inherit it
         proc.handles.set(childFd, handleId);
         refHandle(self, handleId); // Increment reference count
-    } else {
+    }
+    else {
         // ERROR PATH: Parent missing handle (shouldn't happen)
         // WHY LOG: This indicates kernel state corruption or init spawn bug
         // WHY CONTINUE: Child can still run, just missing this stdio fd
         printk(
             self,
             'warn',
-            `Parent ${parent.cmd} missing ${name} handle at fd ${parentFd}, child ${proc.cmd} will have no ${name}`
+            `Parent ${parent.cmd} missing ${name} handle at fd ${parentFd}, child ${proc.cmd} will have no ${name}`,
         );
     }
 }

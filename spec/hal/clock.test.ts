@@ -21,8 +21,10 @@ describe('Clock Device', () => {
 
             it('should increase over time', async () => {
                 const t1 = clock.now();
+
                 await Bun.sleep(10);
                 const t2 = clock.now();
+
                 expect(t2).toBeGreaterThan(t1);
             });
         });
@@ -30,14 +32,17 @@ describe('Clock Device', () => {
         describe('monotonic', () => {
             it('should return bigint', () => {
                 const mono = clock.monotonic();
+
                 expect(typeof mono).toBe('bigint');
             });
 
             it('should never go backward', () => {
                 const values: bigint[] = [];
+
                 for (let i = 0; i < 100; i++) {
                     values.push(clock.monotonic());
                 }
+
                 for (let i = 1; i < values.length; i++) {
                     expect(values[i]!).toBeGreaterThanOrEqual(values[i - 1]!);
                 }
@@ -45,8 +50,10 @@ describe('Clock Device', () => {
 
             it('should increase over time', async () => {
                 const m1 = clock.monotonic();
+
                 await Bun.sleep(10);
                 const m2 = clock.monotonic();
+
                 expect(m2).toBeGreaterThan(m1);
             });
         });
@@ -58,15 +65,19 @@ describe('Clock Device', () => {
 
             it('should increase over time', async () => {
                 const u1 = clock.uptime();
+
                 await Bun.sleep(50);
                 const u2 = clock.uptime();
+
                 expect(u2).toBeGreaterThan(u1);
             });
 
             it('should roughly match elapsed time', async () => {
                 const clock2 = new BunClockDevice();
+
                 await Bun.sleep(100);
                 const uptime = clock2.uptime();
+
                 // Should be roughly 100ms, allow some tolerance
                 expect(uptime).toBeGreaterThanOrEqual(90);
                 expect(uptime).toBeLessThanOrEqual(200);

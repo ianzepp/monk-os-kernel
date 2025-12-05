@@ -73,7 +73,7 @@ function createMockModel(name = 'test_model'): Model {
  */
 function createMockRecord(
     oldData: Record<string, unknown> = {},
-    newData: Record<string, unknown> = {}
+    newData: Record<string, unknown> = {},
 ): ModelRecord & { _newData: Record<string, unknown> } {
     const _newData = { ...newData };
     const merged = { ...oldData, ..._newData };
@@ -93,19 +93,26 @@ function createMockRecord(
         toChanges: () => ({ ..._newData }),
         getDiff: () => {
             const diff: Record<string, { old: unknown; new: unknown }> = {};
+
             for (const field of Object.keys(_newData)) {
                 diff[field] = { old: oldData[field], new: _newData[field] };
             }
+
             return diff;
         },
         getDiffForFields: (fields: Set<string>) => {
             const diff: Record<string, { old: unknown; new: unknown }> = {};
+
             for (const field of Object.keys(_newData)) {
-                if (!fields.has(field)) continue;
+                if (!fields.has(field)) {
+                    continue;
+                }
+
                 if (oldData[field] !== _newData[field]) {
                     diff[field] = { old: oldData[field], new: _newData[field] };
                 }
             }
+
             return diff;
         },
     };
@@ -117,7 +124,7 @@ function createMockRecord(
 function createContext(
     operation: 'create' | 'update' | 'delete',
     record: ModelRecord,
-    modelName = 'test_model'
+    modelName = 'test_model',
 ): ObserverContext {
     return {
         system: {
@@ -171,7 +178,7 @@ describe('UpdateMerger', () => {
         it('should set updated_at when not provided', async () => {
             const record = createMockRecord(
                 { id: 'abc123', name: 'Old' },
-                { name: 'New' }
+                { name: 'New' },
             );
             const ctx = createContext('update', record);
 
@@ -186,7 +193,7 @@ describe('UpdateMerger', () => {
             const explicitTimestamp = '2025-01-01T00:00:00.000Z';
             const record = createMockRecord(
                 { id: 'abc123', name: 'Old' },
-                { name: 'New', updated_at: explicitTimestamp }
+                { name: 'New', updated_at: explicitTimestamp },
             );
             const ctx = createContext('update', record);
 
@@ -199,13 +206,14 @@ describe('UpdateMerger', () => {
         it('should set updated_at as ISO 8601 string', async () => {
             const record = createMockRecord(
                 { id: 'abc123', name: 'Old' },
-                { name: 'New' }
+                { name: 'New' },
             );
             const ctx = createContext('update', record);
 
             await observer.execute(ctx);
 
             const updatedAt = record.get('updated_at') as string;
+
             // ISO 8601 format: 2024-01-15T10:30:00.000Z
             expect(updatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
         });
@@ -215,7 +223,7 @@ describe('UpdateMerger', () => {
 
             const record = createMockRecord(
                 { id: 'abc123', name: 'Old' },
-                { name: 'New' }
+                { name: 'New' },
             );
             const ctx = createContext('update', record);
 
@@ -234,7 +242,7 @@ describe('UpdateMerger', () => {
         it('should handle record with no changes', async () => {
             const record = createMockRecord(
                 { id: 'abc123', name: 'Same' },
-                {} // No changes
+                {}, // No changes
             );
             const ctx = createContext('update', record);
 
@@ -248,7 +256,7 @@ describe('UpdateMerger', () => {
         it('should handle record with only id', async () => {
             const record = createMockRecord(
                 { id: 'abc123' },
-                {}
+                {},
             );
             const ctx = createContext('update', record);
 
@@ -259,12 +267,13 @@ describe('UpdateMerger', () => {
         it('should work with any model', async () => {
             const record = createMockRecord(
                 { id: 'abc123', data: 'test' },
-                { data: 'updated' }
+                { data: 'updated' },
             );
 
             // Test with different model names
             for (const modelName of ['users', 'invoices', 'products', 'models', 'fields']) {
                 const ctx = createContext('update', record, modelName);
+
                 await expect(observer.execute(ctx)).resolves.toBeUndefined();
             }
         });
@@ -278,6 +287,7 @@ describe('UpdateMerger', () => {
 describe('Ring 0 Integration', () => {
     it('should export UpdateMerger from index', async () => {
         const exports = await import('@src/ems/ring/0/index.js');
+
         expect(exports.UpdateMerger).toBeDefined();
     });
 

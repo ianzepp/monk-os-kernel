@@ -123,7 +123,10 @@ export class Constraints extends BaseObserver {
         const { model, record, operation } = context;
 
         const validationFields = model.getValidationFields();
-        if (validationFields.length === 0) return;
+
+        if (validationFields.length === 0) {
+            return;
+        }
 
         const errors: ValidationError[] = [];
 
@@ -134,11 +137,13 @@ export class Constraints extends BaseObserver {
             }
 
             const value = record.get(field.field_name);
+
             this.validateField(field, value, operation, errors);
         }
 
         if (errors.length > 0) {
-            const summary = errors.map((e) => `${e.field}: ${e.message}`).join('; ');
+            const summary = errors.map(e => `${e.field}: ${e.message}`).join('; ');
+
             throw new EOBSINVALID(`Validation failed: ${summary}`, errors[0]!.field);
         }
     }
@@ -154,7 +159,7 @@ export class Constraints extends BaseObserver {
         field: FieldRow,
         value: unknown,
         operation: string,
-        errors: ValidationError[]
+        errors: ValidationError[],
     ): void {
         // Required check
         if (field.required && (value === null || value === undefined)) {
@@ -165,20 +170,25 @@ export class Constraints extends BaseObserver {
                     code: 'REQUIRED',
                 });
             }
+
             return; // Skip other validations if null
         }
 
         // Skip further validation for null/undefined values
-        if (value === null || value === undefined) return;
+        if (value === null || value === undefined) {
+            return;
+        }
 
         // Type check
         const typeError = this.validateType(value, field.type, field.is_array);
+
         if (typeError) {
             errors.push({
                 field: field.field_name,
                 message: typeError,
                 code: 'INVALID_TYPE',
             });
+
             return; // Skip constraint checks if wrong type
         }
 
@@ -192,6 +202,7 @@ export class Constraints extends BaseObserver {
                 });
             }
         }
+
         if (field.maximum !== null && field.maximum !== undefined && typeof value === 'number') {
             if (value > field.maximum) {
                 errors.push({
@@ -205,6 +216,7 @@ export class Constraints extends BaseObserver {
         // Pattern for strings
         if (field.pattern && typeof value === 'string') {
             const regex = new RegExp(field.pattern);
+
             if (!regex.test(value)) {
                 errors.push({
                     field: field.field_name,
@@ -217,6 +229,7 @@ export class Constraints extends BaseObserver {
         // Enum values
         if (field.enum_values) {
             const allowed = JSON.parse(field.enum_values) as string[];
+
             if (!allowed.includes(String(value))) {
                 errors.push({
                     field: field.field_name,
@@ -241,11 +254,16 @@ export class Constraints extends BaseObserver {
             if (!Array.isArray(value)) {
                 return `expected array, got ${typeof value}`;
             }
+
             // Validate array elements
             for (const item of value) {
                 const itemError = this.validateScalarType(item, type);
-                if (itemError) return `array element ${itemError}`;
+
+                if (itemError) {
+                    return `array element ${itemError}`;
+                }
             }
+
             return null;
         }
 
@@ -266,24 +284,28 @@ export class Constraints extends BaseObserver {
                 if (typeof value !== 'string') {
                     return `expected string, got ${typeof value}`;
                 }
+
                 break;
 
             case 'integer':
                 if (typeof value !== 'number' || !Number.isInteger(value)) {
                     return `expected integer, got ${typeof value}${typeof value === 'number' ? ' (decimal)' : ''}`;
                 }
+
                 break;
 
             case 'numeric':
                 if (typeof value !== 'number') {
                     return `expected number, got ${typeof value}`;
                 }
+
                 break;
 
             case 'boolean':
                 if (typeof value !== 'boolean') {
                     return `expected boolean, got ${typeof value}`;
                 }
+
                 break;
 
             case 'jsonb':

@@ -484,6 +484,7 @@ export class BunHAL implements HAL {
         // WHY: Storage engine is where VFS stores metadata (filenames, UUIDs, etc.).
         // Choice of engine affects performance, durability, and scalability.
         const storageConfig = config?.storage ?? { type: 'memory' };
+
         switch (storageConfig.type) {
             case 'memory':
                 this.storage = new MemoryStorageEngine();
@@ -536,7 +537,10 @@ export class BunHAL implements HAL {
      * has effect (initialized flag prevents double-init).
      */
     async init(): Promise<void> {
-        if (this.initialized) return;
+        if (this.initialized) {
+            return;
+        }
+
         this.initialized = true;
         // WHY: PostgresStorageEngine requires async schema initialization
         // SQLite and Memory engines initialize synchronously in constructor
@@ -572,7 +576,8 @@ export class BunHAL implements HAL {
         // This is synchronous - timers are cancelled immediately before any await.
         try {
             (this.timer as BunTimerDevice).cancelAll();
-        } catch (err) {
+        }
+        catch (err) {
             errors.push(new EIO(`Timer cleanup failed: ${err instanceof Error ? err.message : String(err)}`));
         }
 
@@ -580,7 +585,8 @@ export class BunHAL implements HAL {
         // Timer callbacks could reference storage, so cancel them first.
         try {
             await this.storage.close();
-        } catch (err) {
+        }
+        catch (err) {
             errors.push(new EIO(`Storage close failed: ${err instanceof Error ? err.message : String(err)}`));
         }
 
@@ -590,7 +596,8 @@ export class BunHAL implements HAL {
 
         // Report errors if any occurred during shutdown
         if (errors.length > 0) {
-            const message = errors.map((e) => e.message).join('; ');
+            const message = errors.map(e => e.message).join('; ');
+
             throw new EIO(`HAL shutdown encountered errors: ${message}`);
         }
     }
@@ -621,6 +628,8 @@ export class BunHAL implements HAL {
  */
 export async function createBunHAL(config?: HALConfig): Promise<HAL> {
     const hal = new BunHAL(config);
+
     await hal.init();
+
     return hal;
 }

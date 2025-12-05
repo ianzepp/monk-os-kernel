@@ -71,7 +71,8 @@ export function deliverSignal(self: Kernel, proc: Process, signal: number): void
     // Attempt delivery (best-effort)
     try {
         proc.worker.postMessage(msg);
-    } catch (err) {
+    }
+    catch (err) {
         // Log failure but don't throw
         // WHY: Worker may be terminating, this is expected
         printk(self, 'warn', `Failed to deliver signal to ${proc.cmd}: ${formatError(err)}`);

@@ -89,7 +89,7 @@ export class FileModel extends EntityModel {
         ctx: ModelContext,
         parent: string,
         pathname: string,
-        fields?: Partial<ModelStat>
+        fields?: Partial<ModelStat>,
     ): Promise<string> {
         // Generate data blob UUID for file content
         const dataId = ctx.hal.entropy.uuid();

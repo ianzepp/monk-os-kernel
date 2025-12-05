@@ -24,6 +24,7 @@ import type {
  */
 function createMockDatabase(): DatabaseAdapter & { execCalls: string[]; shouldFail: boolean } {
     const execCalls: string[] = [];
+
     return {
         execCalls,
         shouldFail: false,
@@ -67,7 +68,7 @@ function createMockModel(name = 'models'): Model {
 
 function createMockRecord(
     oldData: Record<string, unknown> = {},
-    newData: Record<string, unknown> = {}
+    newData: Record<string, unknown> = {},
 ): ModelRecord {
     const merged = { ...oldData, ...newData };
     const changedFields = Object.keys(newData);
@@ -86,19 +87,26 @@ function createMockRecord(
         toChanges: () => ({ ...newData }),
         getDiff: () => {
             const diff: Record<string, { old: unknown; new: unknown }> = {};
+
             for (const field of changedFields) {
                 diff[field] = { old: oldData[field], new: newData[field] };
             }
+
             return diff;
         },
         getDiffForFields: (fields: Set<string>) => {
             const diff: Record<string, { old: unknown; new: unknown }> = {};
+
             for (const field of changedFields) {
-                if (!fields.has(field)) continue;
+                if (!fields.has(field)) {
+                    continue;
+                }
+
                 if (oldData[field] !== newData[field]) {
                     diff[field] = { old: oldData[field], new: newData[field] };
                 }
             }
+
             return diff;
         },
     };
@@ -108,7 +116,7 @@ function createContext(
     operation: 'create' | 'update' | 'delete',
     record: ModelRecord,
     db: DatabaseAdapter & { execCalls: string[] },
-    modelName = 'models'
+    modelName = 'models',
 ): ObserverContext {
     return {
         system: {
@@ -264,7 +272,8 @@ describe('DdlCreateModel', () => {
             try {
                 await observer.execute(ctx);
                 expect.unreachable('Should have thrown');
-            } catch (err) {
+            }
+            catch (err) {
                 expect(err).toBeInstanceOf(EOBSSYS);
                 expect((err as EOBSSYS).message).toContain('failed_model');
             }
@@ -278,7 +287,8 @@ describe('DdlCreateModel', () => {
             try {
                 await observer.execute(ctx);
                 expect.unreachable('Should have thrown');
-            } catch (err) {
+            }
+            catch (err) {
                 expect(err).toBeInstanceOf(EOBSSYS);
                 expect((err as EOBSSYS).code).toBe('EOBSSYS');
                 expect((err as EOBSSYS).errno).toBe(1030);

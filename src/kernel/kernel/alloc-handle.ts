@@ -84,6 +84,7 @@ export function allocHandle(self: Kernel, proc: Process, handle: Handle): number
         // If handle already exists, caller should use refHandle() instead
         throw new Error(`Handle ${handle.id} already exists in kernel table`);
     }
+
     self.handles.set(handle.id, handle);
     self.handleRefs.set(handle.id, 1);
 
@@ -91,6 +92,7 @@ export function allocHandle(self: Kernel, proc: Process, handle: Handle): number
     // WHY monotonic counter: Simple, no fd reuse until wraparound
     // nextHandle wraps naturally at 2^53 (JavaScript number limit)
     const h = proc.nextHandle++;
+
     proc.handles.set(h, handle.id);
 
     return h;

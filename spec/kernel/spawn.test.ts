@@ -27,6 +27,7 @@ describe.skip('Spawn Errors', () => {
 describe('Wait Syscall Errors', () => {
     it('should have ETIMEDOUT error for wait timeout', () => {
         const error = new ETIMEDOUT('wait() timed out after 1000ms');
+
         expect(error).toBeInstanceOf(Error);
         expect(error.name).toBe('ETIMEDOUT');
         expect(error.message).toContain('timed out');
@@ -34,12 +35,14 @@ describe('Wait Syscall Errors', () => {
 
     it('should have ESRCH error for non-existent process', () => {
         const error = new ESRCH('No such process: 999');
+
         expect(error).toBeInstanceOf(Error);
         expect(error.name).toBe('ESRCH');
     });
 
     it('should have ECHILD error for non-child process', () => {
         const error = new ECHILD('Process 5 is not a child');
+
         expect(error).toBeInstanceOf(Error);
         expect(error.name).toBe('ECHILD');
     });

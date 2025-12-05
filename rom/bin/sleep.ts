@@ -23,15 +23,19 @@ async function main(): Promise<void> {
     const args = await getargs();
 
     const durationArg = args[1];
+
     if (durationArg === undefined) {
         await eprintln('sleep: missing operand');
         await eprintln('Usage: sleep DURATION');
+
         return await exit(1);
     }
 
     const duration = parseDuration(durationArg);
+
     if (duration === null) {
         await eprintln(`sleep: invalid time interval '${durationArg}'`);
+
         return await exit(1);
     }
 
@@ -39,7 +43,8 @@ async function main(): Promise<void> {
     const capped = Math.min(duration, 60 * 60 * 1000);
 
     let interrupted = false;
-    onSignal((signal) => {
+
+    onSignal(signal => {
         if (signal === SIGTERM) {
             interrupted = true;
         }
@@ -51,6 +56,7 @@ async function main(): Promise<void> {
 
     while (remaining > 0 && !interrupted) {
         const sleepTime = Math.min(interval, remaining);
+
         await sleep(sleepTime);
         remaining -= sleepTime;
     }
@@ -62,7 +68,7 @@ async function main(): Promise<void> {
     await exit(0);
 }
 
-main().catch(async (err) => {
+main().catch(async err => {
     await eprintln(`sleep: ${err.message}`);
     await exit(1);
 });

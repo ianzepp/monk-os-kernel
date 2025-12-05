@@ -41,12 +41,14 @@ export async function readAll(fd: number, maxSize: number = DEFAULT_MAX_READ): P
         if (total > maxSize) {
             throw new SyscallError('EFBIG', `Read exceeded ${maxSize} bytes`);
         }
+
         chunks.push(chunk);
     }
 
     // Fast path: single chunk
     if (chunks.length === 1) {
         const firstChunk = chunks[0];
+
         if (firstChunk !== undefined) {
             return firstChunk;
         }
@@ -60,10 +62,12 @@ export async function readAll(fd: number, maxSize: number = DEFAULT_MAX_READ): P
     // Concatenate chunks
     const result = new Uint8Array(total);
     let offset = 0;
+
     for (const chunk of chunks) {
         result.set(chunk, offset);
         offset += chunk.length;
     }
+
     return result;
 }
 
@@ -78,6 +82,7 @@ export async function* readLines(fd: number): AsyncIterable<string> {
     for await (const chunk of read(fd)) {
         buffer += decoder.decode(chunk, { stream: true });
         const lines = buffer.split('\n');
+
         buffer = lines.pop()!; // Keep incomplete line in buffer
 
         for (const line of lines) {
@@ -100,6 +105,7 @@ export async function* readLines(fd: number): AsyncIterable<string> {
  */
 export async function readText(fd: number, maxSize: number = DEFAULT_MAX_READ): Promise<string> {
     const data = await readAll(fd, maxSize);
+
     return new TextDecoder().decode(data);
 }
 

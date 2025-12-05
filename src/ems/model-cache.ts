@@ -231,27 +231,33 @@ export class ModelCache {
     async get(modelName: string): Promise<Model | undefined> {
         // Check cache first
         const cached = this.models.get(modelName);
+
         if (cached) {
             return cached;
         }
 
         // Check if already loading (dedupe concurrent requests)
         const pendingRequest = this.pending.get(modelName);
+
         if (pendingRequest) {
             return pendingRequest;
         }
 
         // Start new load
         const loadPromise = this.loadModel(modelName);
+
         this.pending.set(modelName, loadPromise);
 
         try {
             const model = await loadPromise;
+
             if (model) {
                 this.models.set(modelName, model);
             }
+
             return model;
-        } finally {
+        }
+        finally {
             // Always remove from pending, even on error
             this.pending.delete(modelName);
         }
@@ -270,9 +276,11 @@ export class ModelCache {
      */
     async require(modelName: string, message?: string): Promise<Model> {
         const model = await this.get(modelName);
+
         if (!model) {
             throw new ENOENT(message || `Model '${modelName}' not found`);
         }
+
         return model;
     }
 
@@ -284,6 +292,7 @@ export class ModelCache {
      */
     async has(modelName: string): Promise<boolean> {
         const model = await this.get(modelName);
+
         return model !== undefined;
     }
 
@@ -320,7 +329,7 @@ export class ModelCache {
      * @param modelNames - Array of model names to preload
      */
     async preload(modelNames: string[]): Promise<void> {
-        await Promise.all(modelNames.map((name) => this.get(name)));
+        await Promise.all(modelNames.map(name => this.get(name)));
     }
 
     /**
@@ -357,6 +366,7 @@ export class ModelCache {
     private async loadModel(modelName: string): Promise<Model | undefined> {
         // Load model row
         const modelRow = await this.db.queryOne<ModelQueryResult>(MODEL_QUERY, [modelName]);
+
         if (!modelRow) {
             return undefined;
         }

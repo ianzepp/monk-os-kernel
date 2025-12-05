@@ -207,7 +207,9 @@ export class BunEntropyDevice implements EntropyDevice {
         }
 
         const buffer = new Uint8Array(size);
+
         crypto.getRandomValues(buffer);
+
         return buffer;
     }
 
@@ -276,6 +278,7 @@ export class BunEntropyDevice implements EntropyDevice {
  */
 function uuidv7(): string {
     const bytes = new Uint8Array(16);
+
     crypto.getRandomValues(bytes);
 
     // Get current timestamp in milliseconds (48 bits)
@@ -306,7 +309,7 @@ function uuidv7(): string {
     // WHY map to hex: Standard UUID format is hexadecimal
     // WHY padStart(2, '0'): Ensures each byte is 2 hex digits (leading zeros)
     const hex = Array.from(bytes)
-        .map((b) => b.toString(16).padStart(2, '0'))
+        .map(b => b.toString(16).padStart(2, '0'))
         .join('');
 
     // WHY 8-4-4-4-12 format: RFC 9562 standard UUID string format
@@ -427,10 +430,13 @@ export class SeededEntropyDevice implements EntropyDevice {
         const next = () => {
             s = (s + 0x9e3779b97f4a7c15n) & 0xffffffffffffffffn;
             let z = s;
+
             z = ((z ^ (z >> 30n)) * 0xbf58476d1ce4e5b9n) & 0xffffffffffffffffn;
             z = ((z ^ (z >> 27n)) * 0x94d049bb133111ebn) & 0xffffffffffffffffn;
+
             return z ^ (z >> 31n);
         };
+
         return [next(), next()];
     }
 
@@ -485,7 +491,8 @@ export class SeededEntropyDevice implements EntropyDevice {
      */
     private next(): bigint {
         // xorshift128+
-        let [s0, s1] = this.state;
+        const [s0, initialS1] = this.state;
+        let s1 = initialS1;
         const result = (s0 + s1) & 0xffffffffffffffffn;
 
         s1 ^= s0;
@@ -529,6 +536,7 @@ export class SeededEntropyDevice implements EntropyDevice {
 
         for (let i = 0; i < size; i += 8) {
             const value = this.next();
+
             // Extract bytes (little-endian)
             for (let j = 0; j < 8 && i + j < size; j++) {
                 buffer[i + j] = Number((value >> BigInt(j * 8)) & 0xffn);
@@ -583,7 +591,7 @@ export class SeededEntropyDevice implements EntropyDevice {
         bytes[8] = (bytes[8]! & 0x3f) | 0x80;
 
         const hex = Array.from(bytes)
-            .map((b) => b.toString(16).padStart(2, '0'))
+            .map(b => b.toString(16).padStart(2, '0'))
             .join('');
 
         return [

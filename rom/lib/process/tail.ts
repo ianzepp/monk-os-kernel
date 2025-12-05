@@ -28,6 +28,7 @@ export async function tail(fd: number, size: number): Promise<Uint8Array> {
 
     // Seek to position
     const seekPos = Math.max(0, fileSize - size);
+
     await seek(fd, seekPos, 'start');
 
     // Read remaining
@@ -54,7 +55,8 @@ export async function tailLines(fd: number, count: number): Promise<string[]> {
     for await (const line of readLines(fd)) {
         if (buffer.length < count) {
             buffer.push(line);
-        } else {
+        }
+        else {
             buffer[writeIndex] = line;
             writeIndex = (writeIndex + 1) % count;
             filled = true;
@@ -67,12 +69,15 @@ export async function tailLines(fd: number, count: number): Promise<string[]> {
 
     // Reorder circular buffer to linear array
     const result: string[] = [];
+
     for (let i = 0; i < count; i++) {
         const item = buffer[(writeIndex + i) % count];
+
         if (item !== undefined) {
             result.push(item);
         }
     }
+
     return result;
 }
 
@@ -85,9 +90,11 @@ export async function tailLines(fd: number, count: number): Promise<string[]> {
  */
 export async function tailFile(path: string, size: number): Promise<Uint8Array> {
     const fd = await open(path, { read: true });
+
     try {
         return await tail(fd, size);
-    } finally {
+    }
+    finally {
         await close(fd);
     }
 }
@@ -101,9 +108,11 @@ export async function tailFile(path: string, size: number): Promise<Uint8Array> 
  */
 export async function tailFileLines(path: string, count: number): Promise<string[]> {
     const fd = await open(path, { read: true });
+
     try {
         return await tailLines(fd, count);
-    } finally {
+    }
+    finally {
         await close(fd);
     }
 }

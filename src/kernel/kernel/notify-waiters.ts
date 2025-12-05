@@ -65,6 +65,7 @@ import type { Process, ExitStatus } from '../types.js';
 export function notifyWaiters(self: Kernel, proc: Process): void {
     // Lookup waiters for this process (keyed by UUID)
     const waiters = self.waiters.get(proc.id);
+
     if (!waiters) {
         // No one waiting, nothing to do
         return;

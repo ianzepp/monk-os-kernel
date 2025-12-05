@@ -57,6 +57,7 @@ import type { Handle } from '../handle.js';
 export function getHandle(self: Kernel, proc: Process, h: number): Handle | undefined {
     // Step 1: Process-local lookup (fd → handle ID)
     const handleId = proc.handles.get(h);
+
     if (!handleId) {
         // Normal case: fd doesn't exist in this process
         return undefined;
@@ -72,7 +73,7 @@ export function getHandle(self: Kernel, proc: Process, h: number): Handle | unde
         // still has the fd mapping. This is a refcount accounting error.
         throw new Error(
             `Invariant violation: Process ${proc.id} has fd ${h} → ${handleId} ` +
-            `but kernel has no such handle. This indicates a refcount bug.`
+            `but kernel has no such handle. This indicates a refcount bug.`,
         );
     }
 

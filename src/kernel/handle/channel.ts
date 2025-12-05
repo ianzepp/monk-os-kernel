@@ -196,6 +196,7 @@ export class ChannelHandleAdapter implements Handle {
         // RACE FIX: Check closure before starting operation
         if (this._closed) {
             yield respond.error('EBADF', 'Handle closed');
+
             return;
         }
 
@@ -213,6 +214,7 @@ export class ChannelHandleAdapter implements Handle {
                         return;
                     }
                 }
+
                 // Channel closed without terminal response - protocol violation
                 yield respond.error('EIO', 'No response from channel');
                 break;
@@ -229,9 +231,11 @@ export class ChannelHandleAdapter implements Handle {
                 try {
                     await this.channel.push(data?.response as Response);
                     yield respond.ok();
-                } catch (err) {
+                }
+                catch (err) {
                     yield respond.error('EIO', (err as Error).message);
                 }
+
                 break;
 
             case 'recv':
@@ -239,10 +243,13 @@ export class ChannelHandleAdapter implements Handle {
                 // Used by servers to receive client requests on listen channels.
                 try {
                     const recvMsg = await this.channel.recv();
+
                     yield respond.item(recvMsg);
-                } catch (err) {
+                }
+                catch (err) {
                     yield respond.error('EIO', (err as Error).message);
                 }
+
                 break;
 
             default:
@@ -271,7 +278,9 @@ export class ChannelHandleAdapter implements Handle {
      * Safe to call multiple times - subsequent calls are no-ops.
      */
     async close(): Promise<void> {
-        if (this._closed) return;
+        if (this._closed) {
+            return;
+        }
 
         // RACE FIX: Set closed flag before calling channel.close()
         // to prevent new operations from starting

@@ -523,6 +523,7 @@ export class BunIPCDevice implements IPCDevice {
      */
     port(): { a: MessagePort; b: MessagePort } {
         const channel = new MessageChannel();
+
         return { a: channel.port1, b: channel.port2 };
     }
 
@@ -631,6 +632,7 @@ class AtomicMutex implements Mutex {
         if (offset % 4 !== 0) {
             throw new Error('Mutex offset must be 4-byte aligned');
         }
+
         this.view = new Int32Array(buf);
         this.index = offset / 4;
 
@@ -672,6 +674,7 @@ class AtomicMutex implements Mutex {
 
         // Spin-wait with exponential backoff, then block
         let spins = 0;
+
         while (true) {
             // Try to acquire
             if (Atomics.compareExchange(this.view, this.index, 0, 1) === 0) {
@@ -681,6 +684,7 @@ class AtomicMutex implements Mutex {
             // Check timeout
             if (opts?.timeout) {
                 const elapsed = Date.now() - startTime;
+
                 if (elapsed >= opts.timeout) {
                     throw new Error('ETIMEDOUT: Lock timeout');
                 }
@@ -700,19 +704,23 @@ class AtomicMutex implements Mutex {
                     ? Math.max(1, opts.timeout - (Date.now() - startTime))
                     : undefined;
                 const result = Atomics.wait(this.view, this.index, 1, waitTimeout);
+
                 if (result === 'timed-out') {
                     throw new Error('ETIMEDOUT: Lock timeout');
                 }
-            } catch (e) {
+            }
+            catch (e) {
                 if (e instanceof Error && e.message.startsWith('ETIMEDOUT')) {
                     throw e;
                 }
+
                 // Atomics.wait() throws in main thread
                 throw new Error(
                     'Mutex.lock() cannot block on main thread. ' +
-                    'Use trylock() or call from a Worker.'
+                    'Use trylock() or call from a Worker.',
                 );
             }
+
             spins = 0;
         }
     }
@@ -824,9 +832,11 @@ class AtomicSemaphore implements Semaphore {
         if (offset % 4 !== 0) {
             throw new Error('Semaphore offset must be 4-byte aligned');
         }
+
         if (initial < 0) {
             throw new Error('Semaphore initial value must be non-negative');
         }
+
         this.view = new Int32Array(buf);
         this.index = offset / 4;
         Atomics.store(this.view, this.index, initial);
@@ -860,11 +870,13 @@ class AtomicSemaphore implements Semaphore {
     wait(): void {
         while (true) {
             const current = Atomics.load(this.view, this.index);
+
             if (current > 0) {
                 // Try to decrement
                 if (Atomics.compareExchange(this.view, this.index, current, current - 1) === current) {
                     return; // Successfully decremented
                 }
+
                 // CAS failed, retry
                 // WHY: Another worker changed value (post or wait)
                 continue;
@@ -873,10 +885,11 @@ class AtomicSemaphore implements Semaphore {
             // Count is zero, wait for post
             try {
                 Atomics.wait(this.view, this.index, 0);
-            } catch (e) {
+            }
+            catch (_e) {
                 throw new Error(
                     'Semaphore.wait() cannot block on main thread. ' +
-                    'Use trywait() or call from a Worker.'
+                    'Use trywait() or call from a Worker.',
                 );
             }
         }
@@ -902,9 +915,11 @@ class AtomicSemaphore implements Semaphore {
     trywait(): boolean {
         while (true) {
             const current = Atomics.load(this.view, this.index);
+
             if (current <= 0) {
                 return false;
             }
+
             if (Atomics.compareExchange(this.view, this.index, current, current - 1) === current) {
                 return true;
             }
@@ -1000,6 +1015,7 @@ class AtomicCondVar implements CondVar {
         if (offset % 4 !== 0) {
             throw new Error('CondVar offset must be 4-byte aligned');
         }
+
         this.view = new Int32Array(buf);
         this.index = offset / 4;
         Atomics.store(this.view, this.index, 0);
@@ -1034,17 +1050,20 @@ class AtomicCondVar implements CondVar {
      */
     wait(mutex: Mutex): void {
         const seq = Atomics.load(this.view, this.index);
+
         mutex.unlock();
         try {
             try {
                 Atomics.wait(this.view, this.index, seq);
-            } catch (e) {
+            }
+            catch (_e) {
                 throw new Error(
                     'CondVar.wait() cannot block on main thread. ' +
-                    'Call from a Worker.'
+                    'Call from a Worker.',
                 );
             }
-        } finally {
+        }
+        finally {
             // RACE FIX: Always reacquire mutex, even if wait throws
             mutex.lock();
         }
@@ -1066,19 +1085,24 @@ class AtomicCondVar implements CondVar {
      */
     timedwait(mutex: Mutex, ms: number): boolean {
         const seq = Atomics.load(this.view, this.index);
+
         mutex.unlock();
         try {
             let result: 'ok' | 'not-equal' | 'timed-out';
+
             try {
                 result = Atomics.wait(this.view, this.index, seq, ms);
-            } catch (e) {
+            }
+            catch (_e) {
                 throw new Error(
                     'CondVar.timedwait() cannot block on main thread. ' +
-                    'Call from a Worker.'
+                    'Call from a Worker.',
                 );
             }
+
             return result !== 'timed-out';
-        } finally {
+        }
+        finally {
             // RACE FIX: Always reacquire mutex, even if wait throws
             mutex.lock();
         }
@@ -1167,6 +1191,7 @@ export class MockIPCDevice implements IPCDevice {
      */
     port(): { a: MessagePort; b: MessagePort } {
         const channel = new MessageChannel();
+
         return { a: channel.port1, b: channel.port2 };
     }
 
@@ -1210,12 +1235,17 @@ class MockMutex implements Mutex {
         if (this._locked) {
             throw new Error('MockMutex: would block (already locked)');
         }
+
         this._locked = true;
     }
 
     trylock(): boolean {
-        if (this._locked) return false;
+        if (this._locked) {
+            return false;
+        }
+
         this._locked = true;
+
         return true;
     }
 
@@ -1244,12 +1274,17 @@ class MockSemaphore implements Semaphore {
         if (this.count <= 0) {
             throw new Error('MockSemaphore: would block (count is zero)');
         }
+
         this.count--;
     }
 
     trywait(): boolean {
-        if (this.count <= 0) return false;
+        if (this.count <= 0) {
+            return false;
+        }
+
         this.count--;
+
         return true;
     }
 

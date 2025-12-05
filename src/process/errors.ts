@@ -121,8 +121,9 @@ export {
 // IMPORTS (for local use)
 // =============================================================================
 
+import type {
+    HALError } from '@src/hal/errors.js';
 import {
-    HALError,
     EACCES,
     EAGAIN,
     EBADF,
@@ -305,7 +306,8 @@ export function reconstructError(error: Error & { code?: string }): Error {
 export async function withTypedErrors<T>(promise: Promise<T>): Promise<T> {
     try {
         return await promise;
-    } catch (error) {
+    }
+    catch (error) {
         throw reconstructError(error as Error & { code?: string });
     }
 }

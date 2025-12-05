@@ -169,8 +169,8 @@ export class SyscallDispatcher {
                     op: 'error',
                     data: {
                         code: 'ENOSYS',
-                        message: `Function not implemented: ${name}`
-                    }
+                        message: `Function not implemented: ${name}`,
+                    },
                 } as Response;
             })();
         }

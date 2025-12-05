@@ -106,7 +106,7 @@ export async function spawnServiceHandler(
     name: string,
     def: ServiceDef,
     socket?: Socket,
-    activation?: Message
+    activation?: Message,
 ): Promise<void> {
     // -------------------------------------------------------------------------
     // Resolve handler path
@@ -150,8 +150,8 @@ export async function spawnServiceHandler(
         proc.handles.set(0, adapter.id);
         proc.handles.set(1, adapter.id);
         proc.handles.set(2, adapter.id);
-
-    } else if (def.io) {
+    }
+    else if (def.io) {
         // =====================================================================
         // CONFIGURED I/O MODE
         // =====================================================================
@@ -159,8 +159,8 @@ export async function spawnServiceHandler(
         // WHY: Service definition specifies I/O sources (stdin) and targets (stdout/stderr)
         //      Examples: pubsub subscribe, file write, console, null device
         await setupServiceIO(self, proc, def);
-
-    } else {
+    }
+    else {
         // =====================================================================
         // DEFAULT STDIO MODE
         // =====================================================================

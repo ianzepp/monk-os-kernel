@@ -184,7 +184,7 @@ export class PubsubPort implements Port {
         topic: string,
         data: Uint8Array | undefined,
         meta: Record<string, unknown> | undefined,
-        sourcePortId: string
+        sourcePortId: string,
     ) => void;
 
     /**
@@ -215,10 +215,10 @@ export class PubsubPort implements Port {
             topic: string,
             data: Uint8Array | undefined,
             meta: Record<string, unknown> | undefined,
-            sourcePortId: string
+            sourcePortId: string,
         ) => void,
         unsubscribeFn: () => void,
-        description: string
+        description: string,
     ) {
         this.id = id;
         this.patterns = patterns;
@@ -289,8 +289,10 @@ export class PubsubPort implements Port {
         if (this.waiters.length > 0) {
             // WHY shift() - delivers to first waiter in FIFO order
             const waiter = this.waiters.shift()!;
+
             waiter(msg);
-        } else {
+        }
+        else {
             // Queue for later recv()
             this.messageQueue.push(msg);
         }
@@ -335,7 +337,7 @@ export class PubsubPort implements Port {
         // WHY we don't implement timeout here:
         // Timeout policy varies by use case. Callers should use Promise.race()
         // with their own timeout logic if needed.
-        return new Promise((resolve) => {
+        return new Promise(resolve => {
             this.waiters.push(resolve);
         });
     }

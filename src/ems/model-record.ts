@@ -129,7 +129,7 @@ export class ModelRecord {
      */
     constructor(
         originalData: RecordData = {},
-        inputData: RecordData = {}
+        inputData: RecordData = {},
     ) {
         // WHY shallow clone: Prevents external mutation of original.
         // Deep clone not needed - field values should be primitives.
@@ -198,6 +198,7 @@ export class ModelRecord {
         if (this.changes.has(field)) {
             return this.changes.get(field);
         }
+
         return this.original[field];
     }
 
@@ -279,9 +280,11 @@ export class ModelRecord {
      */
     getAllFields(): string[] {
         const fields = new Set<string>(Object.keys(this.original));
+
         for (const key of this.changes.keys()) {
             fields.add(key);
         }
+
         return Array.from(fields);
     }
 
@@ -294,9 +297,11 @@ export class ModelRecord {
      */
     toRecord(): RecordData {
         const result = { ...this.original };
+
         for (const [key, value] of this.changes) {
             result[key] = value;
         }
+
         return result;
     }
 
@@ -309,9 +314,11 @@ export class ModelRecord {
      */
     toChanges(): RecordData {
         const result: RecordData = {};
+
         for (const [key, value] of this.changes) {
             result[key] = value;
         }
+
         return result;
     }
 
@@ -329,13 +336,16 @@ export class ModelRecord {
      */
     getDiff(): RecordDiff {
         const diff: RecordDiff = {};
+
         for (const [key, newValue] of this.changes) {
             const oldValue = this.original[key];
+
             // WHY strict inequality: Treat null/undefined differences as changes
             if (oldValue !== newValue) {
                 diff[key] = { old: oldValue, new: newValue };
             }
         }
+
         return diff;
     }
 
@@ -349,13 +359,19 @@ export class ModelRecord {
      */
     getDiffForFields(fields: Set<string>): RecordDiff {
         const diff: RecordDiff = {};
+
         for (const [key, newValue] of this.changes) {
-            if (!fields.has(key)) continue;
+            if (!fields.has(key)) {
+                continue;
+            }
+
             const oldValue = this.original[key];
+
             if (oldValue !== newValue) {
                 diff[key] = { old: oldValue, new: newValue };
             }
         }
+
         return diff;
     }
 

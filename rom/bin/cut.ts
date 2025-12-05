@@ -43,29 +43,39 @@ async function main(): Promise<void> {
 
     for (let i = 0; i < argv.length; i++) {
         const arg = argv[i];
-        if (!arg) continue;
+
+        if (!arg) {
+            continue;
+        }
 
         if (arg.startsWith('-d')) {
             // Delimiter: -d, or -d ,
             if (arg.length > 2) {
                 delimiter = arg.slice(2);
-            } else {
+            }
+            else {
                 const nextArg = argv[++i];
+
                 delimiter = nextArg || '\t';
             }
-        } else if (arg.startsWith('-f')) {
+        }
+        else if (arg.startsWith('-f')) {
             // Fields: -f1,2,3 or -f 1,2,3
             const fieldStr = arg.length > 2 ? arg.slice(2) : argv[++i];
+
             if (fieldStr) {
                 fields = parseRanges(fieldStr);
             }
-        } else if (arg.startsWith('-c')) {
+        }
+        else if (arg.startsWith('-c')) {
             // Characters: -c1-10 or -c 1-10
             const charStr = arg.length > 2 ? arg.slice(2) : argv[++i];
+
             if (charStr) {
                 chars = parseCharRanges(charStr);
             }
-        } else if (!arg.startsWith('-')) {
+        }
+        else if (!arg.startsWith('-')) {
             file = arg;
         }
     }
@@ -83,25 +93,34 @@ async function main(): Promise<void> {
         const path = resolvePath(cwd, file);
 
         let content: string;
+
         try {
             content = await readFile(path);
-        } catch (err) {
+        }
+        catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
+
             await eprintln(`cut: ${file}: ${msg}`);
             await exit(1);
+
             return;
         }
 
         const lines = content.split('\n');
-        if (lines[lines.length - 1] === '') lines.pop();
+
+        if (lines[lines.length - 1] === '') {
+            lines.pop();
+        }
 
         for (const line of lines) {
             const output = chars.length > 0
                 ? extractChars(line, chars)
                 : extractFields(line, delimiter, fields);
+
             await println(output);
         }
-    } else {
+    }
+    else {
         // Stdin mode: stream message items
         for await (const msg of recv(0)) {
             if (msg.op === 'item') {
@@ -110,6 +129,7 @@ async function main(): Promise<void> {
                 const output = chars.length > 0
                     ? extractChars(line, chars)
                     : extractFields(line, delimiter, fields);
+
                 await send(1, respond.item({ text: output + '\n' }));
             }
         }
@@ -129,12 +149,14 @@ function parseRanges(str: string): number[] {
             const parts = part.split('-');
             const start = parts[0] ? parseInt(parts[0], 10) : NaN;
             const end = parts[1] ? parseInt(parts[1], 10) : NaN;
+
             if (!isNaN(start) && !isNaN(end)) {
                 for (let i = start; i <= end; i++) {
                     result.push(i);
                 }
             }
-        } else {
+        }
+        else {
             result.push(parseInt(part, 10));
         }
     }
@@ -153,11 +175,14 @@ function parseCharRanges(str: string): { start: number; end: number }[] {
             const parts = part.split('-');
             const start = parts[0] ? parseInt(parts[0], 10) : NaN;
             const end = parts[1] ? parseInt(parts[1], 10) : NaN;
+
             if (!isNaN(start) && !isNaN(end)) {
                 result.push({ start: start - 1, end: end }); // Convert to 0-indexed
             }
-        } else {
+        }
+        else {
             const n = parseInt(part, 10);
+
             if (!isNaN(n)) {
                 result.push({ start: n - 1, end: n });
             }
@@ -172,9 +197,11 @@ function parseCharRanges(str: string): { start: number; end: number }[] {
  */
 function extractChars(line: string, ranges: { start: number; end: number }[]): string {
     let result = '';
+
     for (const range of ranges) {
         result += line.slice(range.start, range.end);
     }
+
     return result;
 }
 
@@ -187,6 +214,7 @@ function extractFields(line: string, delimiter: string, fields: number[]): strin
 
     for (const f of fields) {
         const part = parts[f - 1];
+
         if (part !== undefined) {
             selected.push(part);
         }
@@ -195,7 +223,7 @@ function extractFields(line: string, delimiter: string, fields: number[]): strin
     return selected.join(delimiter);
 }
 
-main().catch(async (err) => {
+main().catch(async err => {
     await eprintln(`cut: ${err.message}`);
     await exit(1);
 });

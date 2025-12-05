@@ -146,7 +146,7 @@ const STDERR_FD = 2;
 export async function setupServiceIO(
     self: Kernel,
     proc: Process,
-    def: ServiceDef
+    def: ServiceDef,
 ): Promise<void> {
     // Get I/O config from service definition (may be undefined)
     const io = def.io ?? {};
@@ -163,7 +163,7 @@ export async function setupServiceIO(
     const stdinHandle = new ProcessIOHandle(
         self.hal.entropy.uuid(),
         `stdin:${proc.cmd}`,           // Human-readable description
-        { source: stdinSource }        // Read-only (no target)
+        { source: stdinSource },        // Read-only (no target)
     );
 
     // Register in kernel table and map to process fd 0
@@ -183,7 +183,7 @@ export async function setupServiceIO(
     const stdoutHandle = new ProcessIOHandle(
         self.hal.entropy.uuid(),
         `stdout:${proc.cmd}`,
-        { target: stdoutTarget }       // Write-only (no source)
+        { target: stdoutTarget },       // Write-only (no source)
     );
 
     // Register in kernel table and map to process fd 1
@@ -203,7 +203,7 @@ export async function setupServiceIO(
     const stderrHandle = new ProcessIOHandle(
         self.hal.entropy.uuid(),
         `stderr:${proc.cmd}`,
-        { target: stderrTarget }
+        { target: stderrTarget },
     );
 
     // Register in kernel table and map to process fd 2

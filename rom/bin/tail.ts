@@ -40,25 +40,38 @@ async function main(): Promise<void> {
 
     for (let i = 0; i < argv.length; i++) {
         const arg = argv[i];
-        if (arg === undefined) continue;
+
+        if (arg === undefined) {
+            continue;
+        }
 
         if (arg === '-n' && argv[i + 1]) {
             const val = argv[++i];
-            if (val === undefined) continue;
+
+            if (val === undefined) {
+                continue;
+            }
+
             const n = parseInt(val, 10);
+
             if (isNaN(n) || n < 0) {
                 await eprintln(`tail: invalid number of lines: '${val}'`);
                 await exit(1);
             }
+
             maxLines = n;
-        } else if (arg.startsWith('-n')) {
+        }
+        else if (arg.startsWith('-n')) {
             const n = parseInt(arg.slice(2), 10);
+
             if (isNaN(n) || n < 0) {
                 await eprintln(`tail: invalid number of lines: '${arg.slice(2)}'`);
                 await exit(1);
             }
+
             maxLines = n;
-        } else if (!arg.startsWith('-') || arg === '-') {
+        }
+        else if (!arg.startsWith('-') || arg === '-') {
             files.push(arg === '-' ? '' : arg);
         }
     }
@@ -66,25 +79,36 @@ async function main(): Promise<void> {
     // Process stdin or files
     if (files.length === 0) {
         await processStdin(maxLines);
-    } else {
+    }
+    else {
         const cwd = await getcwd();
         const showHeaders = files.length > 1;
         let exitCode = 0;
 
         for (let i = 0; i < files.length; i++) {
             const file = files[i];
-            if (file === undefined) continue;
+
+            if (file === undefined) {
+                continue;
+            }
 
             if (showHeaders) {
-                if (i > 0) await println('');
+                if (i > 0) {
+                    await println('');
+                }
+
                 await println(`==> ${file || 'standard input'} <==`);
             }
 
             if (!file) {
                 await processStdin(maxLines);
-            } else {
+            }
+            else {
                 const code = await processFile(cwd, file, maxLines);
-                if (code !== 0) exitCode = code;
+
+                if (code !== 0) {
+                    exitCode = code;
+                }
             }
         }
 
@@ -101,7 +125,9 @@ async function processStdin(maxLines: number): Promise<void> {
     for await (const msg of recv(0)) {
         if (msg.op === 'item') {
             buffer.push(msg);
-            if (buffer.length > maxLines) buffer.shift();
+            if (buffer.length > maxLines) {
+                buffer.shift();
+            }
         }
     }
 
@@ -120,6 +146,7 @@ async function processFile(cwd: string, file: string, maxLines: number): Promise
 
         // Remove trailing empty line if content ends with newline
         const lastLine = allLines[allLines.length - 1];
+
         if (lastLine !== undefined && lastLine === '') {
             allLines.pop();
         }
@@ -130,15 +157,19 @@ async function processFile(cwd: string, file: string, maxLines: number): Promise
         for (const line of output) {
             await println(line);
         }
+
         return 0;
-    } catch (err) {
+    }
+    catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         await eprintln(`tail: ${file}: ${msg}`);
+
         return 1;
     }
 }
 
-main().catch(async (err) => {
+main().catch(async err => {
     await eprintln(`tail: ${err.message}`);
     await exit(1);
 });

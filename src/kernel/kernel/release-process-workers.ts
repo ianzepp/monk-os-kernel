@@ -78,6 +78,7 @@ import { formatError } from './format-error.js';
 export function releaseProcessWorkers(self: Kernel, proc: Process): void {
     // Look up workers leased by this process (keyed by UUID)
     const procWorkers = self.leasedWorkers.get(proc.id);
+
     if (!procWorkers) {
         // No workers leased, nothing to do
         return;

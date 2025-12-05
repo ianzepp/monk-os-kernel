@@ -91,8 +91,10 @@ export class BunYamlDevice implements YamlDevice {
         try {
             // Bun.YAML.parse is Bun's native YAML parser
             return Bun.YAML.parse(text);
-        } catch (err) {
+        }
+        catch (err) {
             const message = err instanceof Error ? err.message : String(err);
+
             throw new EIO(`YAML decode failed: ${message}`);
         }
     }
@@ -110,8 +112,10 @@ export class BunYamlDevice implements YamlDevice {
     encode(data: unknown): string {
         try {
             return serializeYaml(data, 0);
-        } catch (err) {
+        }
+        catch (err) {
             const message = err instanceof Error ? err.message : String(err);
+
             throw new EIO(`YAML encode failed: ${message}`);
         }
     }
@@ -146,9 +150,18 @@ function serializeYaml(data: unknown, indent: number): string {
     }
 
     if (typeof data === 'number') {
-        if (Number.isNaN(data)) return '.nan';
-        if (data === Infinity) return '.inf';
-        if (data === -Infinity) return '-.inf';
+        if (Number.isNaN(data)) {
+            return '.nan';
+        }
+
+        if (data === Infinity) {
+            return '.inf';
+        }
+
+        if (data === -Infinity) {
+            return '-.inf';
+        }
+
         return String(data);
     }
 
@@ -158,31 +171,44 @@ function serializeYaml(data: unknown, indent: number): string {
 
     // Handle arrays
     if (Array.isArray(data)) {
-        if (data.length === 0) return '[]';
+        if (data.length === 0) {
+            return '[]';
+        }
+
         const lines: string[] = [];
+
         for (const item of data) {
             const value = serializeYaml(item, indent + 1);
+
             if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
                 // Object items: put first key on same line as dash
                 const firstNewline = value.indexOf('\n');
+
                 if (firstNewline === -1) {
                     lines.push(`${prefix}- ${value}`);
-                } else {
+                }
+                else {
                     lines.push(`${prefix}- ${value}`);
                 }
-            } else {
+            }
+            else {
                 lines.push(`${prefix}- ${value}`);
             }
         }
+
         return '\n' + lines.join('\n');
     }
 
     // Handle objects
     if (typeof data === 'object') {
         const entries = Object.entries(data as Record<string, unknown>);
-        if (entries.length === 0) return '{}';
+
+        if (entries.length === 0) {
+            return '{}';
+        }
 
         const lines: string[] = [];
+
         for (const [key, value] of entries) {
             const serializedKey = serializeYamlKey(key);
             const serializedValue = serializeYaml(value, indent + 1);
@@ -190,7 +216,8 @@ function serializeYaml(data: unknown, indent: number): string {
             if (typeof value === 'object' && value !== null) {
                 // Complex value: put on next line with indent
                 lines.push(`${prefix}${serializedKey}:${serializedValue}`);
-            } else {
+            }
+            else {
                 // Simple value: put on same line
                 lines.push(`${prefix}${serializedKey}: ${serializedValue}`);
             }
@@ -210,9 +237,10 @@ function serializeYaml(data: unknown, indent: number): string {
  */
 function serializeYamlKey(key: string): string {
     // Quote keys with special characters
-    if (/[:\-#\[\]{}|>&*!?,'"@`]/.test(key) || /^\s|\s$/.test(key) || key === '') {
+    if (/[:\-#[\]{}|>&*!?,'"@`]/.test(key) || /^\s|\s$/.test(key) || key === '') {
         return `"${escapeYamlString(key)}"`;
     }
+
     return key;
 }
 
@@ -223,14 +251,16 @@ function serializeYamlKey(key: string): string {
  */
 function serializeYamlString(str: string): string {
     // Empty string
-    if (str === '') return '""';
+    if (str === '') {
+        return '""';
+    }
 
     // Check if quoting is needed
     const needsQuotes =
         // Starts/ends with whitespace
         /^\s|\s$/.test(str) ||
         // Contains special characters
-        /[:\-#\[\]{}|>&*!?,'"@`\n\r\t]/.test(str) ||
+        /[:\-#[\]{}|>&*!?,'"@`\n\r\t]/.test(str) ||
         // Looks like a number, boolean, or null
         /^(true|false|null|~|\d+\.?\d*|\.nan|\.inf|-\.inf)$/i.test(str) ||
         // Starts with special indicator
@@ -283,6 +313,7 @@ export class MockYamlDevice implements YamlDevice {
      */
     onDecode(fn: (text: string) => unknown): this {
         this._decode = fn;
+
         return this;
     }
 
@@ -291,6 +322,7 @@ export class MockYamlDevice implements YamlDevice {
      */
     onEncode(fn: (data: unknown) => string): this {
         this._encode = fn;
+
         return this;
     }
 
@@ -299,11 +331,13 @@ export class MockYamlDevice implements YamlDevice {
         if (this._decode) {
             return this._decode(text);
         }
+
         // For testing, use JSON.parse as a fallback
         // Real tests should set onDecode for proper YAML behavior
         try {
             return JSON.parse(text);
-        } catch {
+        }
+        catch {
             throw new EIO('Mock YAML decode failed - set onDecode for real YAML parsing');
         }
     }
@@ -313,6 +347,7 @@ export class MockYamlDevice implements YamlDevice {
         if (this._encode) {
             return this._encode(data);
         }
+
         // For testing, use JSON as a fallback
         return JSON.stringify(data, null, 2);
     }

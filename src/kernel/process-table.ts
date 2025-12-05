@@ -77,11 +77,13 @@ export class ProcessTable {
      */
     getChildren(parentId: string): Process[] {
         const children: Process[] = [];
+
         for (const proc of this.processes.values()) {
             if (proc.parent === parentId) {
                 children.push(proc);
             }
         }
+
         return children;
     }
 
@@ -93,9 +95,11 @@ export class ProcessTable {
      */
     resolvePid(parent: Process, pid: number): Process | undefined {
         const childId = parent.children.get(pid);
+
         if (!childId) {
             return undefined;
         }
+
         return this.processes.get(childId);
     }
 
@@ -104,11 +108,13 @@ export class ProcessTable {
      */
     getZombies(): Process[] {
         const zombies: Process[] = [];
+
         for (const proc of this.processes.values()) {
             if (proc.state === 'zombie') {
                 zombies.push(proc);
             }
         }
+
         return zombies;
     }
 
@@ -118,13 +124,16 @@ export class ProcessTable {
      * Called when a process exits to reparent its children.
      */
     reparentOrphans(deadParentId: string): void {
-        if (!this.initProcess) return;
+        if (!this.initProcess) {
+            return;
+        }
 
         for (const proc of this.processes.values()) {
             if (proc.parent === deadParentId && proc.id !== this.initProcess.id) {
                 proc.parent = this.initProcess.id;
                 // Assign a new PID in init's namespace
                 const newPid = this.initProcess.nextPid++;
+
                 this.initProcess.children.set(newPid, proc.id);
             }
         }

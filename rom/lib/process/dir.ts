@@ -35,12 +35,15 @@ export function readdir(path: string): AsyncIterable<string> {
  */
 export async function readdirAll(path: string, maxEntries: number = DEFAULT_MAX_ENTRIES): Promise<string[]> {
     const entries: string[] = [];
+
     for await (const entry of readdir(path)) {
         if (entries.length >= maxEntries) {
             throw new SyscallError('EFBIG', `Directory listing exceeded ${maxEntries} entries`);
         }
+
         entries.push(entry);
     }
+
     return entries;
 }
 

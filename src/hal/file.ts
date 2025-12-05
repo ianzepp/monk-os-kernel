@@ -195,13 +195,17 @@ export class BunFileDevice implements FileDevice {
 
         try {
             const buffer = await file.arrayBuffer();
+
             return new Uint8Array(buffer);
-        } catch (err) {
+        }
+        catch (err) {
             // Provide clear error message for common case
             const message = err instanceof Error ? err.message : String(err);
+
             if (message.includes('ENOENT') || message.includes('No such file')) {
                 throw new ENOENT(`File not found: ${path}`);
             }
+
             throw new EIO(`Failed to read file ${path}: ${message}`);
         }
     }
@@ -229,11 +233,14 @@ export class BunFileDevice implements FileDevice {
 
         try {
             return await file.text();
-        } catch (err) {
+        }
+        catch (err) {
             const message = err instanceof Error ? err.message : String(err);
+
             if (message.includes('ENOENT') || message.includes('No such file')) {
                 throw new ENOENT(`File not found: ${path}`);
             }
+
             throw new EIO(`Failed to read file ${path}: ${message}`);
         }
     }
@@ -336,20 +343,24 @@ export class MockFileDevice implements FileDevice {
 
     async read(path: string): Promise<Uint8Array> {
         const content = this.files.get(path);
+
         if (!content) {
             throw new ENOENT(`File not found: ${path}`);
         }
+
         // WHY copy: Prevents test mutation of internal state
         return new Uint8Array(content);
     }
 
     async readText(path: string): Promise<string> {
         const bytes = await this.read(path);
+
         return new TextDecoder().decode(bytes);
     }
 
     async stat(path: string): Promise<FileStat> {
         const content = this.files.get(path);
+
         return {
             exists: content !== undefined,
             size: content?.length ?? 0,

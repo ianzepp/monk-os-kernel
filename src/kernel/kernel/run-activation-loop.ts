@@ -109,7 +109,7 @@ export async function runActivationLoop(
     transform: (msg: PortMessage) => {
         socket?: Socket;
         activation?: Message;
-    } | null
+    } | null,
 ): Promise<void> {
     try {
         // -------------------------------------------------------------------------
@@ -124,10 +124,11 @@ export async function runActivationLoop(
             if (signal.aborted) {
                 // WHY: Cleanup socket if present - service is stopping
                 if (msg.socket) {
-                    await msg.socket.close().catch((err) => {
+                    await msg.socket.close().catch(err => {
                         printk(self, 'cleanup', `socket close on abort: ${formatError(err)}`);
                     });
                 }
+
                 break;
             }
 
@@ -138,6 +139,7 @@ export async function runActivationLoop(
             // WHY: Transform extracts socket and builds activation message
             //      Returns null for invalid/filtered events
             const input = transform(msg);
+
             if (input) {
                 // -------------------------------------------------------------------------
                 // Spawn handler (async, fire-and-forget)
@@ -145,19 +147,20 @@ export async function runActivationLoop(
 
                 // WHY: Don't await spawn - allows concurrent handlers for same service
                 //      Catch spawn errors to prevent loop crash
-                spawnServiceHandler(self, name, def, input.socket, input.activation).catch((err) => {
+                spawnServiceHandler(self, name, def, input.socket, input.activation).catch(err => {
                     logServiceError(self, name, 'spawn failed', err);
 
                     // RACE FIX: Close socket on spawn failure (prevent leak)
                     if (input.socket) {
-                        input.socket.close().catch((closeErr) => {
+                        input.socket.close().catch(closeErr => {
                             printk(self, 'cleanup', `socket close on error: ${formatError(closeErr)}`);
                         });
                     }
                 });
             }
         }
-    } catch (err) {
+    }
+    catch (err) {
         // -------------------------------------------------------------------------
         // Port error handling
         // -------------------------------------------------------------------------

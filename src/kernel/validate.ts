@@ -108,7 +108,9 @@ export function optionalString(value: unknown, name: string): string | undefined
     if (value === undefined || value === null) {
         return undefined;
     }
+
     assertString(value, name);
+
     return value;
 }
 
@@ -119,7 +121,9 @@ export function optionalNonNegativeInt(value: unknown, name: string): number | u
     if (value === undefined || value === null) {
         return undefined;
     }
+
     assertNonNegativeInt(value, name);
+
     return value;
 }
 
@@ -130,7 +134,9 @@ export function optionalPositiveInt(value: unknown, name: string): number | unde
     if (value === undefined || value === null) {
         return undefined;
     }
+
     assertPositiveInt(value, name);
+
     return value;
 }
 
@@ -141,7 +147,9 @@ export function optionalBoolean(value: unknown, name: string): boolean | undefin
     if (value === undefined || value === null) {
         return undefined;
     }
+
     assertBoolean(value, name);
+
     return value;
 }
 
@@ -189,10 +197,12 @@ export function validateSeekWhence(value: unknown): SeekWhence {
     if (value === undefined || value === null) {
         return 'start';
     }
+
     assertString(value, 'whence');
     if (value !== 'start' && value !== 'current' && value !== 'end') {
         throw new EINVAL(`whence must be 'start', 'current', or 'end', got '${value}'`);
     }
+
     return value;
 }
 
@@ -208,7 +218,9 @@ export function getMessageData(msg: { data?: unknown }): Record<string, unknown>
     if (msg.data === undefined || msg.data === null) {
         return {};
     }
+
     assertObject(msg.data, 'msg.data');
+
     return msg.data;
 }
 
@@ -217,19 +229,25 @@ export function getMessageData(msg: { data?: unknown }): Record<string, unknown>
  */
 export function getDataString(data: Record<string, unknown>, key: string): string {
     const value = data[key];
+
     assertString(value, `data.${key}`);
+
     return value;
 }
 
 export function getDataNumber(data: Record<string, unknown>, key: string): number {
     const value = data[key];
+
     assertNumber(value, `data.${key}`);
+
     return value;
 }
 
 export function getDataUint8Array(data: Record<string, unknown>, key: string): Uint8Array {
     const value = data[key];
+
     assertUint8Array(value, `data.${key}`);
+
     return value;
 }
 
@@ -239,10 +257,13 @@ export function getOptionalDataString(data: Record<string, unknown>, key: string
 
 export function getOptionalDataNumber(data: Record<string, unknown>, key: string): number | undefined {
     const value = data[key];
+
     if (value === undefined || value === null) {
         return undefined;
     }
+
     assertNumber(value, `data.${key}`);
+
     return value;
 }
 
@@ -259,11 +280,12 @@ export function getOptionalDataPositiveInt(data: Record<string, unknown>, key: s
  */
 export function assertResourceOpen<T extends { closed: boolean }>(
     resource: T | undefined,
-    fd: number
+    fd: number,
 ): asserts resource is T {
     if (!resource) {
         throw new EBADF(`Bad file descriptor: ${fd}`);
     }
+
     if (resource.closed) {
         throw new EBADF(`File descriptor closed: ${fd}`);
     }
@@ -286,6 +308,7 @@ export function unwrap<T>(value: T | undefined, message: string): T {
     if (value === undefined) {
         throw new EINVAL(message);
     }
+
     return value;
 }
 

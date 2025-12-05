@@ -42,12 +42,15 @@ function createMockModel(name = 'test_model'): Model {
  */
 function createMockRecord(): ModelRecord {
     const data: Record<string, unknown> = { id: 'test-id' };
+
     return {
         isNew: () => true,
         old: () => undefined,
         get: (field: string) => data[field],
         has: (field: string) => field in data,
-        set: (field: string, value: unknown) => { data[field] = value; },
+        set: (field: string, value: unknown) => {
+            data[field] = value;
+        },
         getChangedFields: () => Object.keys(data),
         toRecord: () => ({ ...data }),
         toChanges: () => ({ ...data }),
@@ -61,7 +64,7 @@ function createMockRecord(): ModelRecord {
  */
 function createMockContext(
     operation: OperationType = 'create',
-    modelName = 'test_model'
+    modelName = 'test_model',
 ): ObserverContext {
     return {
         system: { db: null as unknown as DatabaseAdapter, cache: null as unknown as ModelCacheAdapter },
@@ -83,7 +86,7 @@ function createTestObserver(
     priority: number,
     operations: readonly OperationType[] = ['create', 'update', 'delete'],
     models?: readonly string[],
-    executeFn?: (ctx: ObserverContext) => Promise<void>
+    executeFn?: (ctx: ObserverContext) => Promise<void>,
 ): Observer {
     return {
         name,
@@ -130,6 +133,7 @@ describe('ObserverRunner', () => {
             runner.register(createTestObserver('B', ObserverRing.InputValidation, 20));
 
             const names = runner.getObserverNamesForRing(ObserverRing.InputValidation);
+
             expect(names).toEqual(['A', 'B', 'C']);
         });
 
@@ -152,13 +156,19 @@ describe('ObserverRunner', () => {
             const order: string[] = [];
 
             runner.register(createTestObserver('Ring5', ObserverRing.Database, 50, ['create'], undefined,
-                async () => { order.push('Ring5'); }
+                async () => {
+                    order.push('Ring5');
+                },
             ));
             runner.register(createTestObserver('Ring1', ObserverRing.InputValidation, 50, ['create'], undefined,
-                async () => { order.push('Ring1'); }
+                async () => {
+                    order.push('Ring1');
+                },
             ));
             runner.register(createTestObserver('Ring7', ObserverRing.Audit, 50, ['create'], undefined,
-                async () => { order.push('Ring7'); }
+                async () => {
+                    order.push('Ring7');
+                },
             ));
 
             await runner.run(createMockContext('create'));
@@ -171,13 +181,19 @@ describe('ObserverRunner', () => {
             const order: string[] = [];
 
             runner.register(createTestObserver('P30', ObserverRing.InputValidation, 30, ['create'], undefined,
-                async () => { order.push('P30'); }
+                async () => {
+                    order.push('P30');
+                },
             ));
             runner.register(createTestObserver('P10', ObserverRing.InputValidation, 10, ['create'], undefined,
-                async () => { order.push('P10'); }
+                async () => {
+                    order.push('P10');
+                },
             ));
             runner.register(createTestObserver('P20', ObserverRing.InputValidation, 20, ['create'], undefined,
-                async () => { order.push('P20'); }
+                async () => {
+                    order.push('P20');
+                },
             ));
 
             await runner.run(createMockContext('create'));
@@ -192,13 +208,19 @@ describe('ObserverRunner', () => {
             const executed: string[] = [];
 
             runner.register(createTestObserver('CreateOnly', ObserverRing.InputValidation, 10, ['create'], undefined,
-                async () => { executed.push('CreateOnly'); }
+                async () => {
+                    executed.push('CreateOnly');
+                },
             ));
             runner.register(createTestObserver('UpdateOnly', ObserverRing.InputValidation, 20, ['update'], undefined,
-                async () => { executed.push('UpdateOnly'); }
+                async () => {
+                    executed.push('UpdateOnly');
+                },
             ));
             runner.register(createTestObserver('DeleteOnly', ObserverRing.InputValidation, 30, ['delete'], undefined,
-                async () => { executed.push('DeleteOnly'); }
+                async () => {
+                    executed.push('DeleteOnly');
+                },
             ));
 
             await runner.run(createMockContext('create'));
@@ -216,13 +238,19 @@ describe('ObserverRunner', () => {
             const executed: string[] = [];
 
             runner.register(createTestObserver('AllModels', ObserverRing.InputValidation, 10, ['create'], undefined,
-                async () => { executed.push('AllModels'); }
+                async () => {
+                    executed.push('AllModels');
+                },
             ));
             runner.register(createTestObserver('UsersOnly', ObserverRing.InputValidation, 20, ['create'], ['users'],
-                async () => { executed.push('UsersOnly'); }
+                async () => {
+                    executed.push('UsersOnly');
+                },
             ));
             runner.register(createTestObserver('InvoicesOnly', ObserverRing.InputValidation, 30, ['create'], ['invoices'],
-                async () => { executed.push('InvoicesOnly'); }
+                async () => {
+                    executed.push('InvoicesOnly');
+                },
             ));
 
             await runner.run(createMockContext('create', 'users'));
@@ -234,7 +262,9 @@ describe('ObserverRunner', () => {
             const executed: string[] = [];
 
             runner.register(createTestObserver('EmptyModels', ObserverRing.InputValidation, 10, ['create'], [],
-                async () => { executed.push('EmptyModels'); }
+                async () => {
+                    executed.push('EmptyModels');
+                },
             ));
 
             // Empty models array is treated same as undefined (runs for all)
@@ -248,13 +278,17 @@ describe('ObserverRunner', () => {
             const runner = new ObserverRunner();
 
             runner.register(createTestObserver('V1', ObserverRing.InputValidation, 10, ['create'], undefined,
-                async () => { throw new EOBSINVALID('Error 1', 'field1'); }
+                async () => {
+                    throw new EOBSINVALID('Error 1', 'field1');
+                },
             ));
             runner.register(createTestObserver('V2', ObserverRing.InputValidation, 20, ['create'], undefined,
-                async () => { throw new EOBSINVALID('Error 2', 'field2'); }
+                async () => {
+                    throw new EOBSINVALID('Error 2', 'field2');
+                },
             ));
             runner.register(createTestObserver('V3', ObserverRing.InputValidation, 30, ['create'], undefined,
-                async () => { /* no error */ }
+                async () => { /* no error */ },
             ));
 
             const ctx = createMockContext('create');
@@ -262,9 +296,11 @@ describe('ObserverRunner', () => {
             try {
                 await runner.run(ctx);
                 expect(true).toBe(false); // Should not reach here
-            } catch (err) {
+            }
+            catch (err) {
                 expect(err).toBeInstanceOf(AggregateError);
                 const aggErr = err as AggregateError;
+
                 expect(aggErr.errors.length).toBe(2);
                 expect(ctx.errors.length).toBe(2);
             }
@@ -274,7 +310,9 @@ describe('ObserverRunner', () => {
             const runner = new ObserverRunner();
 
             runner.register(createTestObserver('V1', ObserverRing.InputValidation, 10, ['create'], undefined,
-                async () => { throw new Error('Generic error'); }
+                async () => {
+                    throw new Error('Generic error');
+                },
             ));
 
             const ctx = createMockContext('create');
@@ -282,7 +320,8 @@ describe('ObserverRunner', () => {
             try {
                 await runner.run(ctx);
                 expect(true).toBe(false);
-            } catch (err) {
+            }
+            catch (err) {
                 expect(err).toBeInstanceOf(AggregateError);
                 expect(ctx.errors[0]).toBeInstanceOf(EOBSINVALID);
                 expect(ctx.errors[0]!.message).toBe('Generic error');
@@ -299,16 +338,19 @@ describe('ObserverRunner', () => {
                 async () => {
                     executed.push('S1');
                     throw new EOBSSEC('Access denied');
-                }
+                },
             ));
             runner.register(createTestObserver('S2', ObserverRing.Security, 20, ['create'], undefined,
-                async () => { executed.push('S2'); }
+                async () => {
+                    executed.push('S2');
+                },
             ));
 
             try {
                 await runner.run(createMockContext('create'));
                 expect(true).toBe(false);
-            } catch (err) {
+            }
+            catch (err) {
                 expect(err).toBeInstanceOf(EOBSSEC);
                 expect(executed).toEqual(['S1']); // S2 should not run
             }
@@ -318,13 +360,16 @@ describe('ObserverRunner', () => {
             const runner = new ObserverRunner();
 
             runner.register(createTestObserver('DB', ObserverRing.Database, 50, ['create'], undefined,
-                async () => { throw new EOBSSYS('SQL error'); }
+                async () => {
+                    throw new EOBSSYS('SQL error');
+                },
             ));
 
             try {
                 await runner.run(createMockContext('create'));
                 expect(true).toBe(false);
-            } catch (err) {
+            }
+            catch (err) {
                 expect(err).toBeInstanceOf(EOBSSYS);
             }
         });
@@ -350,7 +395,9 @@ describe('ObserverRunner', () => {
             const runner = new ObserverRunner();
 
             runner.register(createTestObserver('Slow', ObserverRing.InputValidation, 10, ['create'], undefined,
-                async () => { await new Promise((r) => setTimeout(r, 50)); }
+                async () => {
+                    await new Promise(r => setTimeout(r, 50));
+                },
             ));
 
             const results = await runner.run(createMockContext('create'));
@@ -362,12 +409,15 @@ describe('ObserverRunner', () => {
             const runner = new ObserverRunner();
 
             runner.register(createTestObserver('Fail', ObserverRing.InputValidation, 10, ['create'], undefined,
-                async () => { throw new EOBSINVALID('test error'); }
+                async () => {
+                    throw new EOBSINVALID('test error');
+                },
             ));
 
             try {
                 await runner.run(createMockContext('create'));
-            } catch {
+            }
+            catch {
                 // Expected
             }
 
@@ -379,14 +429,17 @@ describe('ObserverRunner', () => {
         it('should handle run with no observers', async () => {
             const runner = new ObserverRunner();
             const results = await runner.run(createMockContext('create'));
+
             expect(results).toEqual([]);
         });
 
         it('should handle run when no observers match', async () => {
             const runner = new ObserverRunner();
+
             runner.register(createTestObserver('UpdateOnly', ObserverRing.InputValidation, 10, ['update']));
 
             const results = await runner.run(createMockContext('create'));
+
             expect(results).toEqual([]);
         });
     });

@@ -229,6 +229,7 @@ export class BunClockDevice implements ClockDevice {
      */
     uptime(): number {
         const elapsed = Bun.nanoseconds() - this.bootMono;
+
         return Math.floor(elapsed / 1_000_000);
     }
 }

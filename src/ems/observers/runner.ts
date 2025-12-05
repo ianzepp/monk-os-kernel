@@ -129,6 +129,7 @@ export class ObserverRunner {
         }
 
         const ringObservers = this.observers.get(ring)!;
+
         ringObservers.push(observer);
 
         // Sort by priority (lower = first)
@@ -211,26 +212,30 @@ export class ObserverRunner {
                         ring: observer.ring,
                         duration: Date.now() - start,
                     });
-                } catch (error) {
+                }
+                catch (error) {
                     const result: ObserverResult = {
                         observer: observer.name,
                         ring: observer.ring,
                         duration: Date.now() - start,
                         error: error as Error,
                     };
+
                     results.push(result);
 
                     // Ring 1 (validation) accumulates errors
                     if (ring === VALIDATION_RING) {
                         if (error instanceof EOBSINVALID) {
                             context.errors.push(error);
-                        } else {
+                        }
+                        else {
                             // Non-validation error in validation ring - wrap it
                             context.errors.push(
-                                new EOBSINVALID((error as Error).message)
+                                new EOBSINVALID((error as Error).message),
                             );
                         }
-                    } else {
+                    }
+                    else {
                         // Other rings fail-fast
                         throw error;
                     }
@@ -241,7 +246,7 @@ export class ObserverRunner {
             if (ring === VALIDATION_RING && context.errors.length > 0) {
                 throw new AggregateError(
                     context.errors,
-                    `Validation failed with ${context.errors.length} error(s)`
+                    `Validation failed with ${context.errors.length} error(s)`,
                 );
             }
         }
@@ -262,9 +267,11 @@ export class ObserverRunner {
      */
     getObserverCount(): number {
         let count = 0;
+
         for (const observers of this.observers.values()) {
             count += observers.length;
         }
+
         return count;
     }
 
@@ -289,6 +296,6 @@ export class ObserverRunner {
      * @returns Observer names in execution order
      */
     getObserverNamesForRing(ring: ObserverRing): string[] {
-        return (this.observers.get(ring) || []).map((o) => o.name);
+        return (this.observers.get(ring) || []).map(o => o.name);
     }
 }

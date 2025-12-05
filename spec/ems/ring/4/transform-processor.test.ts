@@ -56,7 +56,7 @@ function createMockCache(): ModelCacheAdapter {
  */
 function createMockModel(
     name: string,
-    transforms: Map<string, string> = new Map()
+    transforms: Map<string, string> = new Map(),
 ): Model {
     return {
         modelName: name,
@@ -76,7 +76,7 @@ function createMockModel(
  */
 function createMockRecord(
     oldData: Record<string, unknown> = {},
-    newData: Record<string, unknown> = {}
+    newData: Record<string, unknown> = {},
 ): ModelRecord & { _newData: Record<string, unknown> } {
     const _newData = { ...newData };
     const merged = { ...oldData, ..._newData };
@@ -96,17 +96,24 @@ function createMockRecord(
         toChanges: () => ({ ..._newData }),
         getDiff: () => {
             const diff: Record<string, { old: unknown; new: unknown }> = {};
+
             for (const field of Object.keys(_newData)) {
                 diff[field] = { old: oldData[field], new: _newData[field] };
             }
+
             return diff;
         },
         getDiffForFields: (fields: Set<string>) => {
             const diff: Record<string, { old: unknown; new: unknown }> = {};
+
             for (const field of Object.keys(_newData)) {
-                if (!fields.has(field)) continue;
+                if (!fields.has(field)) {
+                    continue;
+                }
+
                 diff[field] = { old: oldData[field], new: _newData[field] };
             }
+
             return diff;
         },
     };
@@ -119,7 +126,7 @@ function createContext(
     operation: 'create' | 'update' | 'delete',
     modelName: string,
     record: ModelRecord,
-    transforms: Map<string, string> = new Map()
+    transforms: Map<string, string> = new Map(),
 ): ObserverContext {
     return {
         system: {
@@ -436,7 +443,7 @@ describe('TransformProcessor', () => {
             // Only name is in changes
             const record = createMockRecord(
                 { code: 'old_value' },
-                { name: 'HELLO' }
+                { name: 'HELLO' },
             );
             const ctx = createContext('update', 'test', record, transforms);
 
@@ -516,6 +523,7 @@ describe('TransformProcessor', () => {
 describe('Ring 4 Integration', () => {
     it('should export TransformProcessor from index', async () => {
         const exports = await import('@src/ems/ring/4/index.js');
+
         expect(exports.TransformProcessor).toBeDefined();
     });
 
@@ -527,9 +535,9 @@ describe('Ring 4 Integration', () => {
         expect(runner).toBeDefined();
     });
 
-    it('should have correct ring ordering (Ring 4 > Ring 1, Ring 4 < Ring 5)', () => {
+    it('should have correct ring ordering (Ring 4 > Ring 1, Ring 4 < Ring 5)', async () => {
         // Verify ring enum values enforce correct ordering
-        const { ObserverRing } = require('@src/ems/observers/index.js');
+        const { ObserverRing } = await import('@src/ems/observers/index.js');
 
         // Ring 4 (Enrichment) should be greater than Ring 1 (InputValidation)
         expect(ObserverRing.Enrichment).toBeGreaterThan(ObserverRing.InputValidation);
@@ -582,7 +590,7 @@ describe('Transform proof', () => {
         // User only updating phone, not email
         const record = createMockRecord(
             { id: 'user-123', email: 'existing@example.com', phone: '+11111111111' },
-            { phone: '+1 (222) 333-4444' }
+            { phone: '+1 (222) 333-4444' },
         );
         const ctx = createContext('update', 'users', record, transforms);
 

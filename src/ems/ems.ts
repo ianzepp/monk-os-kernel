@@ -125,7 +125,7 @@ export class EMS {
         this._db = await createDatabase(
             this.hal.channel,
             this.hal.file,
-            this.config.path
+            this.config.path,
         );
 
         // 2. Create model metadata cache
@@ -186,6 +186,7 @@ export class EMS {
         if (!this._db) {
             throw new EINVAL('EMS not initialized');
         }
+
         return this._db;
     }
 
@@ -198,6 +199,7 @@ export class EMS {
         if (!this._ops) {
             throw new EINVAL('EMS not initialized');
         }
+
         return this._ops;
     }
 
@@ -210,6 +212,7 @@ export class EMS {
         if (!this._cache) {
             throw new EINVAL('EMS not initialized');
         }
+
         return this._cache;
     }
 
@@ -222,6 +225,7 @@ export class EMS {
         if (!this._models) {
             throw new EINVAL('EMS not initialized');
         }
+
         return this._models;
     }
 
@@ -234,6 +238,7 @@ export class EMS {
         if (!this._runner) {
             throw new EINVAL('EMS not initialized');
         }
+
         return this._runner;
     }
 }

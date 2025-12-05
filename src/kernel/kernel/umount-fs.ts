@@ -49,7 +49,7 @@ import { printk } from './printk.js';
 export async function umountFs(
     self: Kernel,
     proc: Process,
-    target: string
+    target: string,
 ): Promise<void> {
     const caller = proc.id;
 
@@ -57,6 +57,7 @@ export async function umountFs(
     // WHY: If you can mount, you can unmount. We don't track original source,
     // so we use '*' as a wildcard that matches any source pattern.
     const rule = findMountPolicyRule(self, caller, '*', target);
+
     if (!rule) {
         printk(self, 'mount', `DENIED: ${caller.slice(0, 8)} umount ${target}`);
         throw new EPERM(`Mount policy denies umount: ${target}`);

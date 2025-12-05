@@ -106,7 +106,7 @@ const CONSOLE_PATH = '/dev/console';
 export async function setupServiceStdio(
     self: Kernel,
     proc: Process,
-    h: number
+    h: number,
 ): Promise<void> {
     // Determine open flags based on fd number
     // fd 0 (stdin) = read, fd 1/2 (stdout/stderr) = write

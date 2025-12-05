@@ -120,6 +120,7 @@ export class SqlUpdate extends BaseObserver {
         // Meta-models don't use entities table
         if (META_MODELS.has(model.modelName)) {
             await this.updateDirect(system.db, model.modelName, id, changes);
+
             return;
         }
 
@@ -130,7 +131,8 @@ export class SqlUpdate extends BaseObserver {
         for (const [key, value] of Object.entries(changes)) {
             if (ENTITY_FIELDS.has(key)) {
                 entityChanges[key] = value;
-            } else {
+            }
+            else {
                 detailChanges[key] = value;
             }
         }
@@ -146,17 +148,22 @@ export class SqlUpdate extends BaseObserver {
                     await this.updateTable(system.db, 'entities', id, entityChanges);
                     await this.updateTable(system.db, model.modelName, id, detailChanges);
                     await system.db.execute('COMMIT');
-                } catch (err) {
+                }
+                catch (err) {
                     await system.db.execute('ROLLBACK');
                     throw err;
                 }
-            } catch (err) {
+            }
+            catch (err) {
                 const message = err instanceof Error ? err.message : String(err);
+
                 throw new EOBSSYS(`UPDATE failed for ${model.modelName}[${id}]: ${message}`);
             }
-        } else if (hasEntityChanges) {
+        }
+        else if (hasEntityChanges) {
             await this.updateTable(system.db, 'entities', id, entityChanges);
-        } else if (hasDetailChanges) {
+        }
+        else if (hasDetailChanges) {
             await this.updateTable(system.db, model.modelName, id, detailChanges);
         }
     }
@@ -168,7 +175,7 @@ export class SqlUpdate extends BaseObserver {
         db: ObserverContext['system']['db'],
         tableName: string,
         id: string,
-        changes: Record<string, unknown>
+        changes: Record<string, unknown>,
     ): Promise<void> {
         await this.updateTable(db, tableName, id, changes);
     }
@@ -180,21 +187,27 @@ export class SqlUpdate extends BaseObserver {
         db: ObserverContext['system']['db'],
         tableName: string,
         id: string,
-        changes: Record<string, unknown>
+        changes: Record<string, unknown>,
     ): Promise<void> {
         const columns = Object.keys(changes);
-        if (columns.length === 0) return;
 
-        const setClauses = columns.map((col) => `${col} = ?`).join(', ');
-        const values = columns.map((col) => changes[col]);
+        if (columns.length === 0) {
+            return;
+        }
+
+        const setClauses = columns.map(col => `${col} = ?`).join(', ');
+        const values = columns.map(col => changes[col]);
+
         values.push(id);
 
         const sql = `UPDATE ${tableName} SET ${setClauses} WHERE id = ?`;
 
         try {
             await db.execute(sql, values);
-        } catch (err) {
+        }
+        catch (err) {
             const message = err instanceof Error ? err.message : String(err);
+
             throw new EOBSSYS(`UPDATE failed for ${tableName}[${id}]: ${message}`);
         }
     }

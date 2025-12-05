@@ -25,13 +25,13 @@ import {
 } from '@rom/lib/process';
 import { resolvePath } from '@rom/lib/shell';
 
-type DfOptions = {
+interface DfOptions {
     human: boolean;
     showType: boolean;
     total: boolean;
-};
+}
 
-type FsInfo = {
+interface FsInfo {
     filesystem: string;
     type: string;
     size: number;
@@ -39,7 +39,7 @@ type FsInfo = {
     available: number;
     usePercent: number;
     mountpoint: string;
-};
+}
 
 async function main(): Promise<void> {
     const args = await getargs();
@@ -48,6 +48,7 @@ async function main(): Promise<void> {
     if (argv[0] === '-h' && argv.length === 1) {
         // -h alone means human-readable, not help
     }
+
     if (argv[0] === '--help') {
         await println('Usage: df [options] [file...]');
         await println('Options: -h (human-readable), -T (show type), --total');
@@ -63,19 +64,29 @@ async function main(): Promise<void> {
     const targets: string[] = [];
 
     for (const arg of argv) {
-        if (arg === '-h') options.human = true;
-        else if (arg === '-T') options.showType = true;
-        else if (arg === '--total') options.total = true;
-        else if (!arg.startsWith('-')) targets.push(arg);
+        if (arg === '-h') {
+            options.human = true;
+        }
+        else if (arg === '-T') {
+            options.showType = true;
+        }
+        else if (arg === '--total') {
+            options.total = true;
+        }
+        else if (!arg.startsWith('-')) {
+            targets.push(arg);
+        }
     }
 
     const cwd = await getcwd();
 
     // Determine mounts to show
     let mounts: string[];
+
     if (targets.length > 0) {
         mounts = targets.map(t => resolvePath(cwd, t));
-    } else {
+    }
+    else {
         mounts = ['/', '/home', '/tmp', '/dev', '/proc'];
     }
 
@@ -85,14 +96,22 @@ async function main(): Promise<void> {
     // Remove duplicates
     const seen = new Set<string>();
     const filtered = infos.filter(i => {
-        if (seen.has(i.mountpoint)) return false;
+        if (seen.has(i.mountpoint)) {
+            return false;
+        }
+
         seen.add(i.mountpoint);
+
         return true;
     });
 
     // Build header
     const headers: string[] = ['Filesystem'];
-    if (options.showType) headers.push('Type');
+
+    if (options.showType) {
+        headers.push('Type');
+    }
+
     headers.push(options.human ? 'Size' : '1K-blocks', 'Used', 'Avail', 'Use%', 'Mounted on');
 
     // Calculate widths
@@ -104,13 +123,17 @@ async function main(): Promise<void> {
 
     for (const info of filtered) {
         const row: string[] = [info.filesystem];
-        if (options.showType) row.push(info.type);
+
+        if (options.showType) {
+            row.push(info.type);
+        }
+
         row.push(
             formatSize(info.size, options),
             formatSize(info.used, options),
             formatSize(info.available, options),
             info.usePercent + '%',
-            info.mountpoint
+            info.mountpoint,
         );
         rows.push(row);
 
@@ -121,6 +144,7 @@ async function main(): Promise<void> {
         for (let i = 0; i < row.length; i++) {
             const cell = row[i];
             const currentWidth = widths[i];
+
             if (cell && currentWidth !== undefined) {
                 widths[i] = Math.max(currentWidth, cell.length);
             }
@@ -130,18 +154,23 @@ async function main(): Promise<void> {
     // Add total row
     if (options.total) {
         const totalRow: string[] = ['total'];
-        if (options.showType) totalRow.push('-');
+
+        if (options.showType) {
+            totalRow.push('-');
+        }
+
         totalRow.push(
             formatSize(totalSize, options),
             formatSize(totalUsed, options),
             formatSize(totalAvail, options),
             totalSize > 0 ? Math.round((totalUsed / totalSize) * 100) + '%' : '0%',
-            '-'
+            '-',
         );
         rows.push(totalRow);
         for (let i = 0; i < totalRow.length; i++) {
             const cell = totalRow[i];
             const currentWidth = widths[i];
+
             if (cell && currentWidth !== undefined) {
                 widths[i] = Math.max(currentWidth, cell.length);
             }
@@ -151,11 +180,13 @@ async function main(): Promise<void> {
     // Output
     await println(headers.map((h, i) => {
         const w = widths[i];
+
         return w ? h.padEnd(w) : h;
     }).join('  '));
     for (const row of rows) {
         await println(row.map((c, i) => {
             const w = widths[i];
+
             return w ? c.padEnd(w) : c;
         }).join('  '));
     }
@@ -174,6 +205,7 @@ function getFilesystemInfo(path: string): FsInfo {
     };
 
     let bestMatch = '/';
+
     for (const mount of Object.keys(fsMap)) {
         if (path.startsWith(mount) && mount.length > bestMatch.length) {
             bestMatch = mount;
@@ -181,10 +213,12 @@ function getFilesystemInfo(path: string): FsInfo {
     }
 
     const info = fsMap[bestMatch];
+
     if (!info) {
         const defaultInfo = fsMap['/'];
         const defaultSize = defaultInfo?.size || 10 * 1024 * 1024 * 1024;
         const defaultUsed = defaultInfo?.used || 0;
+
         return {
             filesystem: defaultInfo?.filesystem || 'vfs',
             type: defaultInfo?.type || 'vfs',
@@ -225,10 +259,11 @@ function formatSize(bytes: number, options: DfOptions): string {
     }
 
     const formatted = unitIndex === 0 ? String(Math.round(size)) : size.toFixed(size < 10 ? 1 : 0);
+
     return formatted + units[unitIndex];
 }
 
-main().catch(async (err) => {
+main().catch(async err => {
     await eprintln(`df: ${err.message}`);
     await exit(1);
 });

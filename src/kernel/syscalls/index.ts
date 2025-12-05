@@ -223,6 +223,7 @@ export function registerSyscalls(kernel: Kernel): void {
     const wrapSyscall = <T>(fn: (proc: Process, ...args: unknown[]) => Promise<T> | T) => {
         return async function* (proc: Process, ...args: unknown[]): AsyncIterable<Response> {
             const result = await fn(proc, ...args);
+
             yield respond.ok(result);
         };
     };
@@ -241,6 +242,7 @@ export function registerSyscalls(kernel: Kernel): void {
          */
         'proc:spawn': wrapSyscall((proc, entry, opts) => {
             assertString(entry, 'entry');
+
             return spawn(kernel, proc, entry, opts as SpawnOpts);
         }),
 
@@ -252,6 +254,7 @@ export function registerSyscalls(kernel: Kernel): void {
          */
         'proc:exit': wrapSyscall((proc, code) => {
             assertNonNegativeInt(code, 'code');
+
             return exit(kernel, proc, code);
         }),
 
@@ -264,6 +267,7 @@ export function registerSyscalls(kernel: Kernel): void {
         'proc:kill': wrapSyscall((proc, pid, signal) => {
             assertPositiveInt(pid, 'pid');
             const sig = optionalPositiveInt(signal, 'signal');
+
             return kill(kernel, proc, pid, sig);
         }),
 
@@ -276,6 +280,7 @@ export function registerSyscalls(kernel: Kernel): void {
         'proc:wait': wrapSyscall((proc, pid, timeout) => {
             assertPositiveInt(pid, 'pid');
             const ms = optionalPositiveInt(timeout, 'timeout');
+
             return wait(kernel, proc, pid, ms);
         }),
 
@@ -284,14 +289,14 @@ export function registerSyscalls(kernel: Kernel): void {
          *
          * Get the PID of the calling process (in parent's namespace).
          */
-        'proc:getpid': wrapSyscall((proc) => getpid(kernel, proc)),
+        'proc:getpid': wrapSyscall(proc => getpid(kernel, proc)),
 
         /**
          * proc:getppid() -> pid
          *
          * Get the PID of the parent process (in grandparent's namespace).
          */
-        'proc:getppid': wrapSyscall((proc) => getppid(kernel, proc)),
+        'proc:getppid': wrapSyscall(proc => getppid(kernel, proc)),
     });
 
     // -------------------------------------------------------------------------
@@ -305,8 +310,8 @@ export function registerSyscalls(kernel: Kernel): void {
             kernel.hal,
             (proc, fd) => getHandle(kernel, proc, fd),
             (proc, path, flags) => openFile(kernel, proc, path, flags),
-            (proc, fd) => closeHandle(kernel, proc, fd)
-        )
+            (proc, fd) => closeHandle(kernel, proc, fd),
+        ),
     );
 
     // -------------------------------------------------------------------------
@@ -332,6 +337,7 @@ export function registerSyscalls(kernel: Kernel): void {
         'fs:mount': wrapSyscall(async (proc, source, target, opts) => {
             assertString(source, 'source');
             assertString(target, 'target');
+
             return mountFs(kernel, proc, source, target, opts as Record<string, unknown> | undefined);
         }),
 
@@ -346,6 +352,7 @@ export function registerSyscalls(kernel: Kernel): void {
          */
         'fs:umount': wrapSyscall(async (proc, target) => {
             assertString(target, 'target');
+
             return umountFs(kernel, proc, target);
         }),
     });
@@ -362,8 +369,8 @@ export function registerSyscalls(kernel: Kernel): void {
             (proc, type, opts) => createPort(kernel, proc, type, opts),
             (proc, h) => getPortFromHandle(kernel, proc, h),
             (proc, h) => recvPort(kernel, proc, h),
-            (proc, h) => closeHandle(kernel, proc, h)
-        )
+            (proc, h) => closeHandle(kernel, proc, h),
+        ),
     );
 
     // -------------------------------------------------------------------------
@@ -383,8 +390,8 @@ export function registerSyscalls(kernel: Kernel): void {
             kernel.hal,
             (proc, proto, url, opts) => openChannel(kernel, proc, proto, url, opts),
             (proc, ch) => getChannelFromHandle(kernel, proc, ch),
-            (proc, ch) => closeHandle(kernel, proc, ch)
-        )
+            (proc, ch) => closeHandle(kernel, proc, ch),
+        ),
     );
 
     // -------------------------------------------------------------------------
@@ -401,7 +408,7 @@ export function registerSyscalls(kernel: Kernel): void {
     // Inter-process communication primitives
     // -------------------------------------------------------------------------
 
-    kernel.syscalls.register('ipc:pipe', wrapSyscall((proc) => createPipe(kernel, proc)));
+    kernel.syscalls.register('ipc:pipe', wrapSyscall(proc => createPipe(kernel, proc)));
 
     // -------------------------------------------------------------------------
     // HANDLE REDIRECTION SYSCALLS
@@ -412,6 +419,7 @@ export function registerSyscalls(kernel: Kernel): void {
         assertObject(args, 'args');
         assertNonNegativeInt(args['target'], 'target');
         assertNonNegativeInt(args['source'], 'source');
+
         return redirectHandle(kernel, proc, args['target'] as number, args['source'] as number);
     }));
 
@@ -419,6 +427,7 @@ export function registerSyscalls(kernel: Kernel): void {
         assertObject(args, 'args');
         assertNonNegativeInt(args['target'], 'target');
         assertString(args['saved'], 'saved');
+
         return restoreHandle(kernel, proc, args['target'] as number, args['saved'] as string);
     }));
 
@@ -429,6 +438,7 @@ export function registerSyscalls(kernel: Kernel): void {
 
     kernel.syscalls.register('pool:lease', wrapSyscall((proc, pool) => {
         const poolName = optionalString(pool, 'pool');
+
         return leaseWorker(kernel, proc, poolName);
     }));
 
@@ -436,27 +446,32 @@ export function registerSyscalls(kernel: Kernel): void {
         assertObject(args, 'args');
         assertString(args['workerId'], 'workerId');
         assertString(args['path'], 'path');
+
         return workerLoad(kernel, proc, args['workerId'] as string, args['path'] as string);
     }));
 
     kernel.syscalls.register('worker:send', wrapSyscall((proc, args) => {
         assertObject(args, 'args');
         assertString(args['workerId'], 'workerId');
+
         return workerSend(kernel, proc, args['workerId'] as string, args['msg']);
     }));
 
     kernel.syscalls.register('worker:recv', wrapSyscall((proc, workerId) => {
         assertString(workerId, 'workerId');
+
         return workerRecv(kernel, proc, workerId);
     }));
 
     kernel.syscalls.register('worker:release', wrapSyscall((proc, workerId) => {
         assertString(workerId, 'workerId');
+
         return workerRelease(kernel, proc, workerId);
     }));
 
     // Pool stats doesn't need a process context
     const poolManager = kernel.poolManager;
+
     kernel.syscalls.register('pool:stats', async function* (): AsyncIterable<Response> {
         yield respond.ok(poolManager.stats());
     });
@@ -475,23 +490,27 @@ export function registerSyscalls(kernel: Kernel): void {
     kernel.syscalls.register('handle:send', async function* (
         proc: Process,
         h: unknown,
-        msg: unknown
+        msg: unknown,
     ): AsyncIterable<Response> {
         // Validate handle argument
         if (typeof h !== 'number') {
             yield respond.error('EINVAL', 'handle must be a number');
+
             return;
         }
 
         // RACE FIX: Check process state before operation
         if (proc.state !== 'running') {
             yield respond.error('ESRCH', 'Process is not running');
+
             return;
         }
 
         const handle = getHandle(kernel, proc, h);
+
         if (!handle) {
             yield respond.error('EBADF', `Bad handle: ${h}`);
+
             return;
         }
 
@@ -505,7 +524,7 @@ export function registerSyscalls(kernel: Kernel): void {
      * when last reference is released.
      */
     kernel.syscalls.register('handle:close', wrapSyscall((proc, h) =>
-        closeHandle(kernel, proc, h as number)
+        closeHandle(kernel, proc, h as number),
     ));
 
     // -------------------------------------------------------------------------
@@ -513,5 +532,5 @@ export function registerSyscalls(kernel: Kernel): void {
     // Allows service handlers to retrieve their activation message
     // -------------------------------------------------------------------------
 
-    kernel.syscalls.register('activation:get', wrapSyscall((proc) => proc.activationMessage ?? null));
+    kernel.syscalls.register('activation:get', wrapSyscall(proc => proc.activationMessage ?? null));
 }

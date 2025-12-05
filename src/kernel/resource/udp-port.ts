@@ -244,7 +244,7 @@ export class UdpPort implements Port {
 
         // Slow path: wait for next datagram to arrive
         // WHY no timeout: UDP recv() blocks until data or close()
-        return new Promise((resolve) => {
+        return new Promise(resolve => {
             this.waiters.push(resolve);
         });
     }
@@ -285,6 +285,7 @@ export class UdpPort implements Port {
         // Parse "host:port" format
         // WHY lastIndexOf: supports IPv6 addresses like [::1]:8080
         const lastColon = to.lastIndexOf(':');
+
         if (lastColon === -1) {
             throw new EINVAL('Invalid address format, expected host:port');
         }
@@ -387,8 +388,10 @@ export class UdpPort implements Port {
                     // Fast path: deliver to waiting recv() call
                     if (self.waiters.length > 0) {
                         const waiter = self.waiters.shift()!;
+
                         waiter(message);
-                    } else {
+                    }
+                    else {
                         // Slow path: queue for later recv() call
                         self.messageQueue.push(message);
                     }

@@ -51,10 +51,12 @@ const PROC_FILE_OWNER = 'kernel';
 
 /** Files directly under /proc/{uuid}/ */
 const PROC_FILES = ['stat', 'env', 'cwd', 'cmdline'] as const;
+
 type ProcFileName = typeof PROC_FILES[number];
 
 /** Directories under /proc/{uuid}/ */
 const PROC_DIRS = ['path', 'fd'] as const;
+
 type ProcDirName = typeof PROC_DIRS[number];
 
 // =============================================================================
@@ -88,6 +90,7 @@ interface ParsedProcPath {
 
 export function createProcMount(vfsPath: string, processTable: ProcessTable): ProcMount {
     const normalizedPath = vfsPath.replace(/\/+$/, '') || '/proc';
+
     return { vfsPath: normalizedPath, processTable };
 }
 
@@ -96,7 +99,10 @@ export function createProcMount(vfsPath: string, processTable: ProcessTable): Pr
 // =============================================================================
 
 export function isUnderProcMount(mount: ProcMount, vfsPath: string): boolean {
-    if (vfsPath === mount.vfsPath) return true;
+    if (vfsPath === mount.vfsPath) {
+        return true;
+    }
+
     return vfsPath.startsWith(mount.vfsPath + '/');
 }
 
@@ -106,13 +112,15 @@ export function isUnderProcMount(mount: ProcMount, vfsPath: string): boolean {
 function resolveProcessId(
     mount: ProcMount,
     id: string,
-    caller: string
+    caller: string,
 ): string | null {
     if (id === 'self') {
         // Resolve to caller's UUID
         const proc = mount.processTable.get(caller);
+
         return proc ? proc.id : null;
     }
+
     return mount.processTable.has(id) ? id : null;
 }
 
@@ -122,13 +130,14 @@ function resolveProcessId(
 function parseProcPath(
     mount: ProcMount,
     vfsPath: string,
-    caller: string
+    caller: string,
 ): ParsedProcPath | null {
     if (vfsPath === mount.vfsPath) {
         return { type: 'root' };
     }
 
     const prefix = mount.vfsPath + '/';
+
     if (!vfsPath.startsWith(prefix)) {
         return null;
     }
@@ -143,11 +152,13 @@ function parseProcPath(
     // Resolve 'self' to actual process ID
     const firstPart = parts[0]!;
     const processId = resolveProcessId(mount, firstPart, caller);
+
     if (!processId) {
         // Keep 'self' for error messages if caller not found
         if (firstPart === 'self') {
             return { type: 'self' };
         }
+
         return null;
     }
 
@@ -162,6 +173,7 @@ function parseProcPath(
         if (parts.length === 2) {
             return { type: 'file', processId, fileName: secondPart as ProcFileName };
         }
+
         return null; // Too many components
     }
 
@@ -170,6 +182,7 @@ function parseProcPath(
         if (parts.length === 2) {
             return { type: 'subdir', processId, dirName: secondPart as ProcDirName };
         }
+
         if (parts.length === 3) {
             return {
                 type: 'subdir_entry',
@@ -178,6 +191,7 @@ function parseProcPath(
                 entryName: parts[2],
             };
         }
+
         return null; // Too many components
     }
 
@@ -191,9 +205,10 @@ function parseProcPath(
 export async function procStat(
     mount: ProcMount,
     vfsPath: string,
-    caller: string = 'kernel'
+    caller: string = 'kernel',
 ): Promise<ModelStat> {
     const parsed = parseProcPath(mount, vfsPath, caller);
+
     if (!parsed) {
         throw new ENOENT(`No such file: ${vfsPath}`);
     }
@@ -218,7 +233,11 @@ export async function procStat(
 
         case 'process': {
             const proc = mount.processTable.get(parsed.processId!);
-            if (!proc) throw new ENOENT(`No such process: ${parsed.processId}`);
+
+            if (!proc) {
+                throw new ENOENT(`No such process: ${parsed.processId}`);
+            }
+
             return {
                 id: `${PROC_ID_PREFIX}${proc.id}`,
                 model: 'folder',
@@ -233,7 +252,11 @@ export async function procStat(
 
         case 'file': {
             const proc = mount.processTable.get(parsed.processId!);
-            if (!proc) throw new ENOENT(`No such process: ${parsed.processId}`);
+
+            if (!proc) {
+                throw new ENOENT(`No such process: ${parsed.processId}`);
+            }
+
             return {
                 id: `${PROC_ID_PREFIX}${proc.id}/${parsed.fileName}`,
                 model: 'file',
@@ -248,7 +271,11 @@ export async function procStat(
 
         case 'subdir': {
             const proc = mount.processTable.get(parsed.processId!);
-            if (!proc) throw new ENOENT(`No such process: ${parsed.processId}`);
+
+            if (!proc) {
+                throw new ENOENT(`No such process: ${parsed.processId}`);
+            }
+
             return {
                 id: `${PROC_ID_PREFIX}${proc.id}/${parsed.dirName}`,
                 model: 'folder',
@@ -263,13 +290,17 @@ export async function procStat(
 
         case 'subdir_entry': {
             const proc = mount.processTable.get(parsed.processId!);
-            if (!proc) throw new ENOENT(`No such process: ${parsed.processId}`);
+
+            if (!proc) {
+                throw new ENOENT(`No such process: ${parsed.processId}`);
+            }
 
             // Verify entry exists
             if (parsed.dirName === 'path') {
                 if (!proc.pathDirs.has(parsed.entryName!)) {
                     throw new ENOENT(`No such PATH entry: ${parsed.entryName}`);
                 }
+
                 return {
                     id: `${PROC_ID_PREFIX}${proc.id}/path/${parsed.entryName}`,
                     model: 'link',
@@ -281,11 +312,14 @@ export async function procStat(
                     ctime: now,
                     target: proc.pathDirs.get(parsed.entryName!),
                 };
-            } else if (parsed.dirName === 'fd') {
+            }
+            else if (parsed.dirName === 'fd') {
                 const fd = parseInt(parsed.entryName!, 10);
+
                 if (isNaN(fd) || !proc.handles.has(fd)) {
                     throw new ENOENT(`No such fd: ${parsed.entryName}`);
                 }
+
                 return {
                     id: `${PROC_ID_PREFIX}${proc.id}/fd/${fd}`,
                     model: 'link',
@@ -298,6 +332,7 @@ export async function procStat(
                     target: proc.handles.get(fd),
                 };
             }
+
             throw new ENOENT(`No such file: ${vfsPath}`);
         }
     }
@@ -306,9 +341,10 @@ export async function procStat(
 export async function* procReaddir(
     mount: ProcMount,
     vfsPath: string,
-    caller: string = 'kernel'
+    caller: string = 'kernel',
 ): AsyncIterable<ModelStat> {
     const parsed = parseProcPath(mount, vfsPath, caller);
+
     if (!parsed) {
         throw new ENOENT(`No such directory: ${vfsPath}`);
     }
@@ -341,6 +377,7 @@ export async function* procReaddir(
                     ctime: now,
                 };
             }
+
             break;
 
         case 'self':
@@ -348,7 +385,10 @@ export async function* procReaddir(
 
         case 'process': {
             const proc = mount.processTable.get(parsed.processId!);
-            if (!proc) throw new ENOENT(`No such process: ${parsed.processId}`);
+
+            if (!proc) {
+                throw new ENOENT(`No such process: ${parsed.processId}`);
+            }
 
             // List files
             for (const fileName of PROC_FILES) {
@@ -363,6 +403,7 @@ export async function* procReaddir(
                     ctime: now,
                 };
             }
+
             // List directories
             for (const dirName of PROC_DIRS) {
                 yield {
@@ -376,18 +417,23 @@ export async function* procReaddir(
                     ctime: now,
                 };
             }
+
             break;
         }
 
         case 'subdir': {
             const proc = mount.processTable.get(parsed.processId!);
-            if (!proc) throw new ENOENT(`No such process: ${parsed.processId}`);
+
+            if (!proc) {
+                throw new ENOENT(`No such process: ${parsed.processId}`);
+            }
 
             if (parsed.dirName === 'path') {
                 // List PATH entries as symlinks (sorted)
                 const entries = Array.from(proc.pathDirs.entries()).sort((a, b) =>
-                    a[0].localeCompare(b[0])
+                    a[0].localeCompare(b[0]),
                 );
+
                 for (const [name, target] of entries) {
                     yield {
                         id: `${PROC_ID_PREFIX}${proc.id}/path/${name}`,
@@ -401,9 +447,11 @@ export async function* procReaddir(
                         target,
                     };
                 }
-            } else if (parsed.dirName === 'fd') {
+            }
+            else if (parsed.dirName === 'fd') {
                 // List fd entries as symlinks (sorted by fd number)
                 const entries = Array.from(proc.handles.entries()).sort((a, b) => a[0] - b[0]);
+
                 for (const [fd, handleId] of entries) {
                     yield {
                         id: `${PROC_ID_PREFIX}${proc.id}/fd/${fd}`,
@@ -418,6 +466,7 @@ export async function* procReaddir(
                     };
                 }
             }
+
             break;
         }
 
@@ -431,13 +480,14 @@ export async function procOpen(
     mount: ProcMount,
     vfsPath: string,
     flags: OpenFlags,
-    caller: string = 'kernel'
+    caller: string = 'kernel',
 ): Promise<FileHandle> {
     if (flags.write) {
         throw new EROFS(`Proc filesystem is read-only: ${vfsPath}`);
     }
 
     const parsed = parseProcPath(mount, vfsPath, caller);
+
     if (!parsed) {
         throw new ENOENT(`No such file: ${vfsPath}`);
     }
@@ -451,6 +501,7 @@ export async function procOpen(
     }
 
     const proc = mount.processTable.get(parsed.processId!);
+
     if (!proc) {
         throw new ENOENT(`No such process: ${parsed.processId}`);
     }
@@ -478,14 +529,16 @@ export async function procSymlink(
     mount: ProcMount,
     target: string,
     vfsPath: string,
-    caller: string
+    caller: string,
 ): Promise<void> {
     const parsed = parseProcPath(mount, vfsPath, caller);
+
     if (!parsed || parsed.type !== 'subdir_entry' || parsed.dirName !== 'path') {
         throw new EPERM(`Cannot create symlink here: ${vfsPath}`);
     }
 
     const proc = mount.processTable.get(parsed.processId!);
+
     if (!proc) {
         throw new ENOENT(`No such process: ${parsed.processId}`);
     }
@@ -508,14 +561,16 @@ export async function procSymlink(
 export async function procUnlink(
     mount: ProcMount,
     vfsPath: string,
-    caller: string
+    caller: string,
 ): Promise<void> {
     const parsed = parseProcPath(mount, vfsPath, caller);
+
     if (!parsed || parsed.type !== 'subdir_entry' || parsed.dirName !== 'path') {
         throw new EPERM(`Cannot unlink here: ${vfsPath}`);
     }
 
     const proc = mount.processTable.get(parsed.processId!);
+
     if (!proc) {
         throw new ENOENT(`No such process: ${parsed.processId}`);
     }
@@ -538,30 +593,37 @@ export async function procUnlink(
 export async function procReadlink(
     mount: ProcMount,
     vfsPath: string,
-    caller: string
+    caller: string,
 ): Promise<string> {
     const parsed = parseProcPath(mount, vfsPath, caller);
+
     if (!parsed || parsed.type !== 'subdir_entry') {
         throw new ENOENT(`Not a symlink: ${vfsPath}`);
     }
 
     const proc = mount.processTable.get(parsed.processId!);
+
     if (!proc) {
         throw new ENOENT(`No such process: ${parsed.processId}`);
     }
 
     if (parsed.dirName === 'path') {
         const target = proc.pathDirs.get(parsed.entryName!);
+
         if (!target) {
             throw new ENOENT(`No such PATH entry: ${parsed.entryName}`);
         }
+
         return target;
-    } else if (parsed.dirName === 'fd') {
+    }
+    else if (parsed.dirName === 'fd') {
         const fd = parseInt(parsed.entryName!, 10);
         const handleId = proc.handles.get(fd);
+
         if (!handleId) {
             throw new ENOENT(`No such fd: ${parsed.entryName}`);
         }
+
         return handleId;
     }
 
@@ -593,7 +655,7 @@ class ProcFileHandle implements FileHandle {
         vfsPath: string,
         processId: string,
         fileName: ProcFileName,
-        flags: OpenFlags
+        flags: OpenFlags,
     ) {
         this.mount = mount;
         this.processId = processId;
@@ -608,39 +670,63 @@ class ProcFileHandle implements FileHandle {
     }
 
     async read(size?: number): Promise<Uint8Array> {
-        if (this._closed) throw new EBADF('Handle is closed');
-        if (!this.flags.read) throw new EACCES('Not opened for reading');
+        if (this._closed) {
+            throw new EBADF('Handle is closed');
+        }
+
+        if (!this.flags.read) {
+            throw new EACCES('Not opened for reading');
+        }
 
         if (this._content === null) {
             this._content = this.generateContent();
         }
 
         const remaining = this._content.length - this._position;
-        if (remaining <= 0) return new Uint8Array(0);
+
+        if (remaining <= 0) {
+            return new Uint8Array(0);
+        }
 
         const toRead = size !== undefined ? Math.min(size, remaining) : remaining;
         const result = this._content.slice(this._position, this._position + toRead);
+
         this._position += toRead;
+
         return result;
     }
 
     async write(_data: Uint8Array): Promise<number> {
-        if (this._closed) throw new EBADF('Handle is closed');
+        if (this._closed) {
+            throw new EBADF('Handle is closed');
+        }
+
         throw new EROFS('Proc filesystem is read-only');
     }
 
     async seek(offset: number, whence: SeekWhence): Promise<number> {
-        if (this._closed) throw new EBADF('Handle is closed');
-        if (this._content === null) this._content = this.generateContent();
+        if (this._closed) {
+            throw new EBADF('Handle is closed');
+        }
+
+        if (this._content === null) {
+            this._content = this.generateContent();
+        }
 
         let newPosition: number;
+
         switch (whence) {
             case 'start': newPosition = offset; break;
             case 'current': newPosition = this._position + offset; break;
             case 'end': newPosition = this._content.length + offset; break;
         }
-        if (newPosition < 0) newPosition = 0;
+
+        if (newPosition < 0) {
+            newPosition = 0;
+        }
+
         this._position = newPosition;
+
         return this._position;
     }
 
@@ -661,9 +747,13 @@ class ProcFileHandle implements FileHandle {
 
     private generateContent(): Uint8Array {
         const proc = this.mount.processTable.get(this.processId);
-        if (!proc) return new TextEncoder().encode('(process not found)\n');
+
+        if (!proc) {
+            return new TextEncoder().encode('(process not found)\n');
+        }
 
         let text: string;
+
         switch (this.fileName) {
             case 'stat':
                 text = JSON.stringify({
@@ -677,18 +767,25 @@ class ProcFileHandle implements FileHandle {
                 break;
             case 'env':
                 text = Object.entries(proc.env).map(([k, v]) => `${k}=${v}`).join('\n');
-                if (text) text += '\n';
+                if (text) {
+                    text += '\n';
+                }
+
                 break;
             case 'cwd':
                 text = proc.cwd + '\n';
                 break;
             case 'cmdline':
                 text = [proc.cmd, ...proc.args].join('\0');
-                if (text) text += '\0';
+                if (text) {
+                    text += '\0';
+                }
+
                 break;
             default:
                 text = '(unknown proc file)\n';
         }
+
         return new TextEncoder().encode(text);
     }
 }
@@ -716,7 +813,7 @@ class ProcLinkHandle implements FileHandle {
         proc: Process,
         dirName: ProcDirName,
         entryName: string,
-        flags: OpenFlags
+        flags: OpenFlags,
     ) {
         this.proc = proc;
         this.dirName = dirName;
@@ -731,49 +828,75 @@ class ProcLinkHandle implements FileHandle {
     }
 
     async read(size?: number): Promise<Uint8Array> {
-        if (this._closed) throw new EBADF('Handle is closed');
-        if (!this.flags.read) throw new EACCES('Not opened for reading');
+        if (this._closed) {
+            throw new EBADF('Handle is closed');
+        }
+
+        if (!this.flags.read) {
+            throw new EACCES('Not opened for reading');
+        }
 
         if (this._content === null) {
             let target: string | undefined;
+
             if (this.dirName === 'path') {
                 target = this.proc.pathDirs.get(this.entryName);
-            } else if (this.dirName === 'fd') {
+            }
+            else if (this.dirName === 'fd') {
                 const fd = parseInt(this.entryName, 10);
+
                 target = this.proc.handles.get(fd);
             }
+
             this._content = new TextEncoder().encode((target ?? '(not found)') + '\n');
         }
 
         const remaining = this._content.length - this._position;
-        if (remaining <= 0) return new Uint8Array(0);
+
+        if (remaining <= 0) {
+            return new Uint8Array(0);
+        }
 
         const toRead = size !== undefined ? Math.min(size, remaining) : remaining;
         const result = this._content.slice(this._position, this._position + toRead);
+
         this._position += toRead;
+
         return result;
     }
 
     async write(_data: Uint8Array): Promise<number> {
-        if (this._closed) throw new EBADF('Handle is closed');
+        if (this._closed) {
+            throw new EBADF('Handle is closed');
+        }
+
         throw new EROFS('Proc filesystem is read-only');
     }
 
     async seek(offset: number, whence: SeekWhence): Promise<number> {
-        if (this._closed) throw new EBADF('Handle is closed');
+        if (this._closed) {
+            throw new EBADF('Handle is closed');
+        }
+
         if (this._content === null) {
             // Generate content to know size
             await this.read(0);
         }
 
         let newPosition: number;
+
         switch (whence) {
             case 'start': newPosition = offset; break;
             case 'current': newPosition = this._position + offset; break;
             case 'end': newPosition = (this._content?.length ?? 0) + offset; break;
         }
-        if (newPosition < 0) newPosition = 0;
+
+        if (newPosition < 0) {
+            newPosition = 0;
+        }
+
         this._position = newPosition;
+
         return this._position;
     }
 

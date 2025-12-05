@@ -58,6 +58,7 @@ async function main(): Promise<void> {
         // Collect text for file output
         if (msg.op === 'item') {
             const text = (msg.data as { text: string }).text ?? '';
+
             textParts.push(text);
         }
     }
@@ -78,24 +79,30 @@ async function main(): Promise<void> {
                 // Read existing content and append
                 try {
                     const existing = await readFileBytes(filePath);
+
                     if (existing.length > 0) {
                         finalContent = new Uint8Array(existing.length + content.length);
                         finalContent.set(existing, 0);
                         finalContent.set(content, existing.length);
                     }
-                } catch {
+                }
+                catch {
                     // File doesn't exist, that's fine
                 }
             }
 
             const fd = await open(filePath, { write: true, create: true, truncate: true });
+
             try {
                 await write(fd, finalContent);
-            } finally {
+            }
+            finally {
                 await close(fd);
             }
-        } catch (err) {
+        }
+        catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
+
             await eprintln(`tee: ${fileArg}: ${msg}`);
             exitCode = 1;
         }
@@ -104,7 +111,7 @@ async function main(): Promise<void> {
     await exit(exitCode);
 }
 
-main().catch(async (err) => {
+main().catch(async err => {
     await eprintln(`tee: ${err.message}`);
     await exit(1);
 });

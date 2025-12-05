@@ -167,6 +167,7 @@ export class Tracked extends BaseObserver {
         // STEP 4: Early return if no tracked fields changed
         // WHY check keys: Update might only change non-tracked fields
         const changedFields = Object.keys(diff);
+
         if (changedFields.length === 0) {
             return;
         }
@@ -174,6 +175,7 @@ export class Tracked extends BaseObserver {
         // STEP 5: Get record ID
         // WHY get('id'): For new records, id was set in earlier ring
         const recordId = record.get('id') as string;
+
         if (!recordId) {
             // DEFENSIVE: Should never happen if pipeline is correct
             return;
@@ -189,7 +191,7 @@ export class Tracked extends BaseObserver {
         `;
         const changeIdResult = await system.db.query<{ next_id: number }>(
             changeIdSql,
-            [model.modelName, recordId]
+            [model.modelName, recordId],
         );
         const changeId = changeIdResult[0]?.next_id ?? 1;
 

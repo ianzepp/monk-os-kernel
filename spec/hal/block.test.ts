@@ -13,19 +13,22 @@ describe('Block Device', () => {
         describe('read', () => {
             it('should return zeros for unwritten data', async () => {
                 const data = await block.read(0, 100);
+
                 expect(data.length).toBe(100);
-                expect(data.every((b) => b === 0)).toBe(true);
+                expect(data.every(b => b === 0)).toBe(true);
             });
 
             it('should return empty at end of buffer', async () => {
                 const stat = await block.stat();
                 const data = await block.read(stat.size, 100);
+
                 expect(data.length).toBe(0);
             });
 
             it('should clamp to buffer bounds', async () => {
                 const stat = await block.stat();
                 const data = await block.read(stat.size - 10, 100);
+
                 expect(data.length).toBe(10);
             });
         });
@@ -33,9 +36,11 @@ describe('Block Device', () => {
         describe('write', () => {
             it('should write data at offset', async () => {
                 const data = new Uint8Array([1, 2, 3, 4, 5]);
+
                 await block.write(100, data);
 
                 const result = await block.read(100, 5);
+
                 expect(result).toEqual(data);
             });
 
@@ -44,12 +49,15 @@ describe('Block Device', () => {
                 const initialSize = stat1.size;
 
                 const data = new Uint8Array([1, 2, 3, 4, 5]);
+
                 await block.write(initialSize + 100, data);
 
                 const stat2 = await block.stat();
+
                 expect(stat2.size).toBeGreaterThan(initialSize);
 
                 const result = await block.read(initialSize + 100, 5);
+
                 expect(result).toEqual(data);
             });
 
@@ -74,6 +82,7 @@ describe('Block Device', () => {
         describe('stat', () => {
             it('should return correct initial size', async () => {
                 const stat = await block.stat();
+
                 expect(stat.size).toBe(4096);
                 expect(stat.blocksize).toBe(4096);
                 expect(stat.readonly).toBe(false);
@@ -83,6 +92,7 @@ describe('Block Device', () => {
         describe('writelock', () => {
             it('should return lock with correct offset and size', async () => {
                 const lock = await block.writelock(0, 100);
+
                 expect(lock.offset).toBe(0);
                 expect(lock.size).toBe(100);
                 lock.release();
@@ -90,14 +100,17 @@ describe('Block Device', () => {
 
             it('should be releasable', async () => {
                 const lock = await block.writelock(0, 100);
+
                 lock.release();
                 // Should be able to acquire again
                 const lock2 = await block.writelock(0, 100);
+
                 lock2.release();
             });
 
             it('should support Symbol.dispose', async () => {
                 const lock = await block.writelock(0, 100);
+
                 expect(lock[Symbol.dispose]).toBeDefined();
                 lock[Symbol.dispose]();
             });
@@ -106,8 +119,9 @@ describe('Block Device', () => {
                 const lock1 = await block.writelock(0, 100);
 
                 let acquired = false;
-                const lock2Promise = block.writelock(50, 100).then((lock) => {
+                const lock2Promise = block.writelock(50, 100).then(lock => {
                     acquired = true;
+
                     return lock;
                 });
 
@@ -117,6 +131,7 @@ describe('Block Device', () => {
 
                 lock1.release();
                 const lock2 = await lock2Promise;
+
                 expect(acquired).toBe(true);
                 lock2.release();
             });
@@ -136,7 +151,8 @@ describe('Block Device', () => {
                 block.reset();
 
                 const data = await block.read(0, 5);
-                expect(data.every((b) => b === 0)).toBe(true);
+
+                expect(data.every(b => b === 0)).toBe(true);
             });
         });
     });
@@ -150,7 +166,8 @@ describe('Block Device', () => {
             // Ensure clean state
             try {
                 await unlink(testPath);
-            } catch {
+            }
+            catch {
                 // File may not exist
             }
         });
@@ -158,7 +175,8 @@ describe('Block Device', () => {
         afterEach(async () => {
             try {
                 await unlink(testPath);
-            } catch {
+            }
+            catch {
                 // Ignore cleanup errors
             }
         });
@@ -166,20 +184,24 @@ describe('Block Device', () => {
         describe('read', () => {
             it('should return empty for non-existent file', async () => {
                 const data = await block.read(0, 100);
+
                 expect(data.length).toBe(0);
             });
 
             it('should return written data', async () => {
                 const input = new Uint8Array([1, 2, 3, 4, 5]);
+
                 await block.write(0, input);
 
                 const data = await block.read(0, 5);
+
                 expect(data).toEqual(input);
             });
 
             it('should return empty past end of file', async () => {
                 await block.write(0, new Uint8Array([1, 2, 3]));
                 const data = await block.read(100, 10);
+
                 expect(data.length).toBe(0);
             });
         });
@@ -188,6 +210,7 @@ describe('Block Device', () => {
             it('should create file on first write', async () => {
                 await block.write(0, new Uint8Array([1, 2, 3]));
                 const stat = await block.stat();
+
                 expect(stat.size).toBe(3);
             });
 
@@ -202,29 +225,34 @@ describe('Block Device', () => {
             it('should extend file with zeros', async () => {
                 await block.write(10, new Uint8Array([1, 2, 3]));
                 const data = await block.read(0, 10);
-                expect(data.every((b) => b === 0)).toBe(true);
+
+                expect(data.every(b => b === 0)).toBe(true);
             });
         });
 
         describe('stat', () => {
             it('should return size 0 for non-existent file', async () => {
                 const stat = await block.stat();
+
                 expect(stat.size).toBe(0);
             });
 
             it('should return correct size after write', async () => {
                 await block.write(0, new Uint8Array(100));
                 const stat = await block.stat();
+
                 expect(stat.size).toBe(100);
             });
 
             it('should have blocksize 4096', async () => {
                 const stat = await block.stat();
+
                 expect(stat.blocksize).toBe(4096);
             });
 
             it('should not be readonly', async () => {
                 const stat = await block.stat();
+
                 expect(stat.readonly).toBe(false);
             });
         });
@@ -232,6 +260,7 @@ describe('Block Device', () => {
         describe('writelock', () => {
             it('should work same as MemoryBlockDevice', async () => {
                 const lock = await block.writelock(0, 100);
+
                 expect(lock.offset).toBe(0);
                 expect(lock.size).toBe(100);
                 lock.release();

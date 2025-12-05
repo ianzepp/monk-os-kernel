@@ -104,10 +104,11 @@ export function restoreHandle(
     self: Kernel,
     proc: Process,
     targetH: number,
-    savedHandleId: string
+    savedHandleId: string,
 ): void {
     // Validate target fd exists
     const currentHandleId = proc.handles.get(targetH);
+
     if (!currentHandleId) {
         throw new EBADF(`Bad file descriptor: ${targetH}`);
     }
@@ -123,20 +124,22 @@ export function restoreHandle(
     if (refs > 0) {
         // Still referenced elsewhere, just update count
         self.handleRefs.set(currentHandleId, refs);
-    } else if (refs === 0) {
+    }
+    else if (refs === 0) {
         // Last reference, remove from refcount table
         // Note: We don't close the handle here because:
         // 1. Handle might still be in use by another process
         // 2. Process cleanup will handle closing if needed
         // 3. Keeps restore fast and synchronous
         self.handleRefs.delete(currentHandleId);
-    } else {
+    }
+    else {
         // INVARIANT VIOLATION: Refcount went negative
         // This indicates more unrefs than refs (double-restore or missing redirect)
         self.handleRefs.delete(currentHandleId);
         throw new Error(
             `Handle ${currentHandleId} refcount went negative during restore. ` +
-            `This indicates double-restore or restore without redirect.`
+            `This indicates double-restore or restore without redirect.`,
         );
     }
 }

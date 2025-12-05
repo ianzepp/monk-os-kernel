@@ -36,13 +36,17 @@ export class Parser {
         while (!this.isAtEnd()) {
             if (this.check('BEGIN')) {
                 program.begin.push(this.beginBlock());
-            } else if (this.check('END')) {
+            }
+            else if (this.check('END')) {
                 program.end.push(this.endBlock());
-            } else if (this.check('FUNCTION')) {
+            }
+            else if (this.check('FUNCTION')) {
                 program.functions.push(this.functionDef());
-            } else {
+            }
+            else {
                 program.rules.push(this.rule());
             }
+
             this.skipNewlines();
         }
 
@@ -51,15 +55,19 @@ export class Parser {
 
     private beginBlock(): BlockNode {
         const token = this.advance(); // BEGIN
+
         this.skipNewlines();
         const block = this.block();
+
         return { ...block, type: 'BeginBlock', line: token.line, column: token.column };
     }
 
     private endBlock(): BlockNode {
         const token = this.advance(); // END
+
         this.skipNewlines();
         const block = this.block();
+
         return { ...block, type: 'EndBlock', line: token.line, column: token.column };
     }
 
@@ -122,6 +130,7 @@ export class Parser {
         // Check for pattern range /start/,/end/
         if (this.match('COMMA')) {
             const end = this.expression();
+
             return {
                 type: 'PatternRange',
                 start: expr,
@@ -136,6 +145,7 @@ export class Parser {
 
     private block(): BlockNode {
         const token = this.consume('LBRACE', 'Expected {');
+
         this.skipNewlines();
 
         const statements: StmtNode[] = [];
@@ -178,16 +188,19 @@ export class Parser {
 
         if (this.check('BREAK')) {
             const token = this.advance();
+
             return { type: 'BreakStmt', line: token.line, column: token.column };
         }
 
         if (this.check('CONTINUE')) {
             const token = this.advance();
+
             return { type: 'ContinueStmt', line: token.line, column: token.column };
         }
 
         if (this.check('NEXT')) {
             const token = this.advance();
+
             return { type: 'NextStmt', line: token.line, column: token.column };
         }
 
@@ -216,8 +229,10 @@ export class Parser {
 
     private ifStatement(): IfStmtNode {
         const token = this.advance(); // if
+
         this.consume('LPAREN', 'Expected ( after if');
         const condition = this.expression();
+
         this.consume('RPAREN', 'Expected ) after condition');
         this.skipNewlines();
 
@@ -242,8 +257,10 @@ export class Parser {
 
     private whileStatement(): WhileStmtNode {
         const token = this.advance(); // while
+
         this.consume('LPAREN', 'Expected ( after while');
         const condition = this.expression();
+
         this.consume('RPAREN', 'Expected ) after condition');
         this.skipNewlines();
 
@@ -260,13 +277,16 @@ export class Parser {
 
     private doWhileStatement(): DoWhileStmtNode {
         const token = this.advance(); // do
+
         this.skipNewlines();
         const body = this.statement();
+
         this.skipNewlines();
 
         this.consume('WHILE', 'Expected while after do body');
         this.consume('LPAREN', 'Expected ( after while');
         const condition = this.expression();
+
         this.consume('RPAREN', 'Expected ) after condition');
 
         return {
@@ -280,15 +300,18 @@ export class Parser {
 
     private forStatement(): ForStmtNode | ForInStmtNode {
         const token = this.advance(); // for
+
         this.consume('LPAREN', 'Expected ( after for');
 
         // Check for for-in: for (var in array)
         if (this.check('IDENTIFIER')) {
             const varToken = this.peek();
+
             this.advance();
 
             if (this.match('IN')) {
                 const array = this.consume('IDENTIFIER', 'Expected array name').value;
+
                 this.consume('RPAREN', 'Expected ) after for-in');
                 this.skipNewlines();
                 const body = this.statement();
@@ -309,21 +332,27 @@ export class Parser {
 
         // Regular for loop
         let init: ExprNode | null = null;
+
         if (!this.check('SEMICOLON')) {
             init = this.expression();
         }
+
         this.consume('SEMICOLON', 'Expected ; after for init');
 
         let condition: ExprNode | null = null;
+
         if (!this.check('SEMICOLON')) {
             condition = this.expression();
         }
+
         this.consume('SEMICOLON', 'Expected ; after for condition');
 
         let update: ExprNode | null = null;
+
         if (!this.check('RPAREN')) {
             update = this.expression();
         }
+
         this.consume('RPAREN', 'Expected ) after for');
         this.skipNewlines();
 
@@ -377,11 +406,13 @@ export class Parser {
         const array = this.consume('IDENTIFIER', 'Expected array name').value;
 
         let index: ExprNode[] | null = null;
+
         if (this.match('LBRACKET')) {
             index = [this.expression()];
             while (this.match('COMMA')) {
                 index.push(this.expression());
             }
+
             this.consume('RBRACKET', 'Expected ]');
         }
 
@@ -402,15 +433,19 @@ export class Parser {
         // Parse arguments until redirect or terminator
         while (!this.checkTerminator() && !this.check('GT') && !this.check('APPEND') && !this.check('PIPE')) {
             args.push(this.ternary());
-            if (!this.match('COMMA')) break;
+            if (!this.match('COMMA')) {
+                break;
+            }
         }
 
         // Check for output redirect
         if (this.match('GT')) {
             output = { type: 'file', target: this.ternary() };
-        } else if (this.match('APPEND')) {
+        }
+        else if (this.match('APPEND')) {
             output = { type: 'append', target: this.ternary() };
-        } else if (this.match('PIPE')) {
+        }
+        else if (this.match('PIPE')) {
             output = { type: 'pipe', target: this.ternary() };
         }
 
@@ -430,16 +465,21 @@ export class Parser {
         let output: OutputRedirect | null = null;
 
         while (this.match('COMMA')) {
-            if (this.check('GT') || this.check('APPEND') || this.check('PIPE')) break;
+            if (this.check('GT') || this.check('APPEND') || this.check('PIPE')) {
+                break;
+            }
+
             args.push(this.ternary());
         }
 
         // Check for output redirect
         if (this.match('GT')) {
             output = { type: 'file', target: this.ternary() };
-        } else if (this.match('APPEND')) {
+        }
+        else if (this.match('APPEND')) {
             output = { type: 'append', target: this.ternary() };
-        } else if (this.match('PIPE')) {
+        }
+        else if (this.match('PIPE')) {
             output = { type: 'pipe', target: this.ternary() };
         }
 
@@ -455,6 +495,7 @@ export class Parser {
 
     private expressionStatement(): ExpressionStmtNode {
         const expr = this.expression();
+
         return {
             type: 'ExpressionStmt',
             expression: expr,
@@ -494,10 +535,11 @@ export class Parser {
     }
 
     private ternary(): ExprNode {
-        let expr = this.or();
+        const expr = this.or();
 
         if (this.match('QUESTION')) {
             const consequent = this.ternary();
+
             this.consume('COLON', 'Expected : in ternary expression');
             const alternate = this.ternary();
 
@@ -520,6 +562,7 @@ export class Parser {
         while (this.match('OR')) {
             const operator = this.previous().value;
             const right = this.and();
+
             left = {
                 type: 'Binary',
                 operator,
@@ -539,6 +582,7 @@ export class Parser {
         while (this.match('AND')) {
             const operator = this.previous().value;
             const right = this.inExpr();
+
             left = {
                 type: 'Binary',
                 operator,
@@ -553,7 +597,7 @@ export class Parser {
     }
 
     private inExpr(): ExprNode {
-        let left = this.match_();
+        const left = this.match_();
 
         // (index) in array
         if (this.match('IN')) {
@@ -561,9 +605,11 @@ export class Parser {
 
             // Left could be a single expression or parenthesized comma list
             let indices: ExprNode[];
+
             if (left.type === 'Binary' && left.operator === ',') {
                 indices = this.flattenCommaExpr(left);
-            } else {
+            }
+            else {
                 indices = [left];
             }
 
@@ -582,8 +628,10 @@ export class Parser {
     private flattenCommaExpr(expr: ExprNode): ExprNode[] {
         if (expr.type === 'Binary' && (expr as BinaryNode).operator === ',') {
             const bin = expr as BinaryNode;
+
             return [...this.flattenCommaExpr(bin.left), ...this.flattenCommaExpr(bin.right)];
         }
+
         return [expr];
     }
 
@@ -593,6 +641,7 @@ export class Parser {
         while (this.match('MATCH', 'NOT_MATCH')) {
             const operator = this.previous().value;
             const right = this.comparison();
+
             left = {
                 type: 'Binary',
                 operator,
@@ -612,6 +661,7 @@ export class Parser {
         while (this.match('LT', 'LE', 'GT', 'GE', 'EQ', 'NE')) {
             const operator = this.previous().value;
             const right = this.concat();
+
             left = {
                 type: 'Binary',
                 operator,
@@ -633,6 +683,7 @@ export class Parser {
         while (this.canStartExpr() && !this.check('COMMA') && !this.checkTerminator()) {
             // Check if next token could start an expression
             const right = this.addition();
+
             left = {
                 type: 'Binary',
                 operator: ' ',  // Concatenation
@@ -652,6 +703,7 @@ export class Parser {
         while (this.match('PLUS', 'MINUS')) {
             const operator = this.previous().value;
             const right = this.multiplication();
+
             left = {
                 type: 'Binary',
                 operator,
@@ -671,6 +723,7 @@ export class Parser {
         while (this.match('STAR', 'SLASH', 'PERCENT')) {
             const operator = this.previous().value;
             const right = this.power();
+
             left = {
                 type: 'Binary',
                 operator,
@@ -685,11 +738,12 @@ export class Parser {
     }
 
     private power(): ExprNode {
-        let left = this.unary();
+        const left = this.unary();
 
         // Right associative
         if (this.match('CARET')) {
             const right = this.power();
+
             return {
                 type: 'Binary',
                 operator: '^',
@@ -707,6 +761,7 @@ export class Parser {
         if (this.match('NOT', 'MINUS', 'PLUS')) {
             const operator = this.previous().value;
             const operand = this.unary();
+
             return {
                 type: 'Unary',
                 operator,
@@ -757,12 +812,15 @@ export class Parser {
                     line: expr.line,
                     column: expr.column,
                 };
-            } else if (this.match('LBRACKET')) {
+            }
+            else if (this.match('LBRACKET')) {
                 // Array subscript
                 const indices: ExprNode[] = [this.expression()];
+
                 while (this.match('COMMA')) {
                     indices.push(this.expression());
                 }
+
                 this.consume('RBRACKET', 'Expected ]');
 
                 if (expr.type !== 'Identifier') {
@@ -776,7 +834,8 @@ export class Parser {
                     line: expr.line,
                     column: expr.column,
                 };
-            } else {
+            }
+            else {
                 break;
             }
         }
@@ -825,7 +884,9 @@ export class Parser {
             // $(...) - computed field
             if (field === '$' && this.match('LPAREN')) {
                 const index = this.expression();
+
                 this.consume('RPAREN', 'Expected )');
+
                 return {
                     type: 'FieldAccess',
                     index,
@@ -845,7 +906,8 @@ export class Parser {
                     line: token.line,
                     column: token.column,
                 };
-            } else {
+            }
+            else {
                 index = {
                     type: 'Identifier',
                     name: spec,
@@ -903,7 +965,9 @@ export class Parser {
         // Parenthesized expression
         if (this.match('LPAREN')) {
             const expr = this.expression();
+
             this.consume('RPAREN', 'Expected )');
+
             return expr;
         }
 
@@ -946,6 +1010,7 @@ export class Parser {
             'LPAREN', 'NOT', 'MINUS', 'PLUS', 'INCREMENT', 'DECREMENT',
             'GETLINE',
         ];
+
         return exprStarters.includes(this.peek().type);
     }
 
@@ -954,14 +1019,19 @@ export class Parser {
         for (const type of types) {
             if (this.check(type)) {
                 this.advance();
+
                 return true;
             }
         }
+
         return false;
     }
 
     private check(type: TokenType): boolean {
-        if (this.isAtEnd()) return false;
+        if (this.isAtEnd()) {
+            return false;
+        }
+
         return this.peek().type === type;
     }
 
@@ -971,29 +1041,40 @@ export class Parser {
     }
 
     private advance(): Token {
-        if (!this.isAtEnd()) this.pos++;
+        if (!this.isAtEnd()) {
+            this.pos++;
+        }
+
         return this.previous();
     }
 
     private consume(type: TokenType, message: string): Token {
-        if (this.check(type)) return this.advance();
+        if (this.check(type)) {
+            return this.advance();
+        }
+
         const token = this.peek();
+
         throw new Error(`${message} at line ${token.line}, column ${token.column}`);
     }
 
     private peek(): Token {
         const token = this.tokens[this.pos];
+
         if (token === undefined) {
             return { type: 'EOF', value: '', line: 0, column: 0 };
         }
+
         return token;
     }
 
     private previous(): Token {
         const token = this.tokens[this.pos - 1];
+
         if (token === undefined) {
             return { type: 'EOF', value: '', line: 0, column: 0 };
         }
+
         return token;
     }
 

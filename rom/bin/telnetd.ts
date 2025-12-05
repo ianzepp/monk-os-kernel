@@ -43,6 +43,7 @@ async function main(): Promise<void> {
         // Send welcome banner
         const hostname = await getenv('HOSTNAME') ?? 'monk';
         const banner = `\r\nWelcome to ${hostname}\r\n\r\n`;
+
         await write(0, new TextEncoder().encode(banner));
 
         // Send telnet negotiation (optional - clients may ignore)
@@ -60,7 +61,8 @@ async function main(): Promise<void> {
         await write(0, new TextEncoder().encode('\r\nGoodbye!\r\n'));
 
         await exit(status.code);
-    } catch (err) {
+    }
+    catch (_err) {
         // Connection likely closed
         await exit(1);
     }
@@ -83,18 +85,22 @@ async function sendTelnetNegotiation(): Promise<void> {
 
     try {
         await write(0, negotiation);
-    } catch {
+    }
+    catch {
         // Ignore if client doesn't support
     }
 }
 
 // Run
-main().catch(async (err) => {
+main().catch(async err => {
     try {
         const msg = err instanceof Error ? err.message : String(err);
+
         await write(2, new TextEncoder().encode(`telnetd: ${msg}\r\n`));
-    } catch {
+    }
+    catch {
         // Ignore write errors
     }
+
     await exit(1);
 });

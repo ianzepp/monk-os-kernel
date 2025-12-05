@@ -11,5 +11,6 @@ export function access(path: string, acl?: ACL | null): Promise<ACL | void> {
     if (acl === undefined) {
         return call<ACL>('file:access', path);
     }
+
     return call<void>('file:access', path, acl);
 }

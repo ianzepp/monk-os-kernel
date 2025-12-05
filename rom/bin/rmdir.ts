@@ -33,8 +33,10 @@ async function main(): Promise<void> {
 
         try {
             await rmdir(path);
-        } catch (err) {
+        }
+        catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
+
             await eprintln(`rmdir: ${target}: ${msg}`);
             exitCode = 1;
         }
@@ -43,7 +45,7 @@ async function main(): Promise<void> {
     await exit(exitCode);
 }
 
-main().catch(async (err) => {
+main().catch(async err => {
     await eprintln(`rmdir: ${err.message}`);
     await exit(1);
 });

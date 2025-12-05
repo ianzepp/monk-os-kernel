@@ -12,12 +12,14 @@ describe('DNS Device', () => {
         describe('lookup', () => {
             it('should return empty for unknown host', async () => {
                 const addrs = await dns.lookup('unknown.invalid');
+
                 expect(addrs).toEqual([]);
             });
 
             it('should return configured addresses', async () => {
                 dns.addRecord('example.com', ['93.184.216.34', '2606:2800:220:1:248:1893:25c8:1946']);
                 const addrs = await dns.lookup('example.com');
+
                 expect(addrs).toContain('93.184.216.34');
                 expect(addrs).toContain('2606:2800:220:1:248:1893:25c8:1946');
             });
@@ -33,6 +35,7 @@ describe('DNS Device', () => {
             it('should return only IPv4 addresses', async () => {
                 dns.addRecord('example.com', ['93.184.216.34', '2606:2800:220:1:248:1893:25c8:1946']);
                 const addrs = await dns.lookup4('example.com');
+
                 expect(addrs).toEqual(['93.184.216.34']);
             });
 
@@ -47,6 +50,7 @@ describe('DNS Device', () => {
             it('should return only IPv6 addresses', async () => {
                 dns.addRecord('example.com', ['93.184.216.34', '2606:2800:220:1:248:1893:25c8:1946']);
                 const addrs = await dns.lookup6('example.com');
+
                 expect(addrs).toEqual(['2606:2800:220:1:248:1893:25c8:1946']);
             });
 
@@ -60,12 +64,14 @@ describe('DNS Device', () => {
         describe('reverse', () => {
             it('should return empty for unknown IP', async () => {
                 const hosts = await dns.reverse('1.2.3.4');
+
                 expect(hosts).toEqual([]);
             });
 
             it('should return configured hostnames', async () => {
                 dns.addReverse('93.184.216.34', ['example.com']);
                 const hosts = await dns.reverse('93.184.216.34');
+
                 expect(hosts).toEqual(['example.com']);
             });
         });
@@ -94,12 +100,14 @@ describe('DNS Device', () => {
             it('should resolve real hostname', async () => {
                 // Use a well-known hostname
                 const addrs = await dns.lookup('localhost');
+
                 // Should have at least one address (127.0.0.1 or ::1)
                 expect(addrs.length).toBeGreaterThanOrEqual(0);
             });
 
             it('should return empty for invalid hostname', async () => {
                 const addrs = await dns.lookup('this.domain.should.not.exist.invalid');
+
                 expect(addrs).toEqual([]);
             });
         });
@@ -107,6 +115,7 @@ describe('DNS Device', () => {
         describe('lookup4', () => {
             it('should resolve localhost to IPv4', async () => {
                 const addrs = await dns.lookup4('localhost');
+
                 // May be empty in some environments
                 for (const addr of addrs) {
                     expect(addr).not.toContain(':'); // No IPv6
@@ -117,6 +126,7 @@ describe('DNS Device', () => {
         describe('lookup6', () => {
             it('should return IPv6 addresses only', async () => {
                 const addrs = await dns.lookup6('localhost');
+
                 for (const addr of addrs) {
                     expect(addr).toContain(':'); // IPv6 has colons
                 }
@@ -126,6 +136,7 @@ describe('DNS Device', () => {
         describe('reverse', () => {
             it('should return empty (not implemented in Bun)', async () => {
                 const hosts = await dns.reverse('127.0.0.1');
+
                 // Currently returns empty as Bun doesn't support reverse DNS
                 expect(hosts).toEqual([]);
             });

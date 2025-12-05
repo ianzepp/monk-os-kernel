@@ -128,8 +128,9 @@ export async function setupInitStdio(self: Kernel, init: Process): Promise<void>
     const stdinAdapter = new ConsoleHandleAdapter(
         self.hal.entropy.uuid(),      // Generate globally unique handle ID
         self.hal.console,              // HAL console device
-        'stdin'                        // Read mode (host stdin → messages)
+        'stdin',                        // Read mode (host stdin → messages)
     );
+
     self.handles.set(stdinAdapter.id, stdinAdapter);  // Register in kernel table
     self.handleRefs.set(stdinAdapter.id, 1);          // Init owns this handle (refcount = 1)
     init.handles.set(STDIN_FD, stdinAdapter.id);      // Map init's fd 0 → handle UUID
@@ -140,8 +141,9 @@ export async function setupInitStdio(self: Kernel, init: Process): Promise<void>
     const stdoutAdapter = new ConsoleHandleAdapter(
         self.hal.entropy.uuid(),
         self.hal.console,
-        'stdout'                       // Write mode (messages → host stdout)
+        'stdout',                       // Write mode (messages → host stdout)
     );
+
     self.handles.set(stdoutAdapter.id, stdoutAdapter);
     self.handleRefs.set(stdoutAdapter.id, 1);
     init.handles.set(STDOUT_FD, stdoutAdapter.id);
@@ -152,8 +154,9 @@ export async function setupInitStdio(self: Kernel, init: Process): Promise<void>
     const stderrAdapter = new ConsoleHandleAdapter(
         self.hal.entropy.uuid(),
         self.hal.console,
-        'stderr'                       // Write mode (messages → host stderr)
+        'stderr',                       // Write mode (messages → host stderr)
     );
+
     self.handles.set(stderrAdapter.id, stderrAdapter);
     self.handleRefs.set(stderrAdapter.id, 1);
     init.handles.set(STDERR_FD, stderrAdapter.id);

@@ -37,7 +37,7 @@
 import type { Kernel } from '../kernel.js';
 import type { Process } from '../types.js';
 import type { Channel } from '../../hal/index.js';
-import { ChannelHandleAdapter } from '../handle.js';
+import type { ChannelHandleAdapter } from '../handle.js';
 import { getHandle } from './get-handle.js';
 
 /**
@@ -82,7 +82,7 @@ import { getHandle } from './get-handle.js';
 export function getChannelFromHandle(
     self: Kernel,
     proc: Process,
-    h: number
+    h: number,
 ): Channel | undefined {
     // Lookup handle (returns undefined if fd doesn't exist)
     const handle = getHandle(self, proc, h);

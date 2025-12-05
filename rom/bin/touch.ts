@@ -39,13 +39,17 @@ async function main(): Promise<void> {
                 await stat(path);
                 // File exists - TODO: update mtime when VFS supports it
                 // For now, just succeed silently
-            } catch {
+            }
+            catch {
                 // File doesn't exist, create it
                 const fd = await open(path, { write: true, create: true });
+
                 await close(fd);
             }
-        } catch (err) {
+        }
+        catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
+
             await eprintln(`touch: ${target}: ${msg}`);
             exitCode = 1;
         }
@@ -54,7 +58,7 @@ async function main(): Promise<void> {
     await exit(exitCode);
 }
 
-main().catch(async (err) => {
+main().catch(async err => {
     await eprintln(`touch: ${err.message}`);
     await exit(1);
 });

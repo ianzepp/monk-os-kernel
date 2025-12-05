@@ -118,10 +118,12 @@ export class DdlCreateModel extends BaseObserver {
 
         try {
             await system.db.exec(sql);
-        } catch (err) {
+        }
+        catch (err) {
             const message = err instanceof Error ? err.message : String(err);
+
             throw new EOBSSYS(
-                `CREATE TABLE failed for '${modelName}': ${message}`
+                `CREATE TABLE failed for '${modelName}': ${message}`,
             );
         }
     }

@@ -122,7 +122,7 @@ export async function spawn(
     self: Kernel,
     parent: Process,
     entry: string,
-    opts?: SpawnOpts
+    opts?: SpawnOpts,
 ): Promise<number> {
     // =========================================================================
     // STEP 1: Create process object (synchronous)
@@ -170,6 +170,7 @@ export async function spawn(
     // WHY ATOMIC: No await between incrementing and setting
     // RACE FIX: Prevents duplicate PIDs if multiple spawns occur in parallel
     const pid = parent.nextPid++;
+
     parent.children.set(pid, proc.id);
 
     // =========================================================================

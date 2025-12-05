@@ -166,7 +166,7 @@ export async function createEntityMount(
     cache: EntityCache,
     db: EntityOps,
     modelCache: ModelCache,
-    options: EntityMountOptions = {}
+    options: EntityMountOptions = {},
 ): Promise<EntityMount> {
     const normalizedPath = vfsPath.replace(/\/+$/, '') || '/entity';
     const field = options.field ?? 'id';
@@ -175,13 +175,17 @@ export async function createEntityMount(
     // Validate field uniqueness if not 'id'
     if (field !== 'id' && options.model) {
         const model = await modelCache.get(options.model);
+
         if (!model) {
             throw new EINVAL(`Model not found: ${options.model}`);
         }
+
         const fieldDef = model.getField(field);
+
         if (!fieldDef) {
             throw new EINVAL(`Field '${field}' not found on model '${options.model}'`);
         }
+
         if (!fieldDef.unique_) {
             throw new EINVAL(`Field '${field}' must be unique to use as entity key`);
         }
@@ -206,7 +210,10 @@ export async function createEntityMount(
  * Check if a path is under this entity mount.
  */
 export function isUnderEntityMount(mount: EntityMount, vfsPath: string): boolean {
-    if (vfsPath === mount.vfsPath) return true;
+    if (vfsPath === mount.vfsPath) {
+        return true;
+    }
+
     return vfsPath.startsWith(mount.vfsPath + '/');
 }
 
@@ -219,14 +226,16 @@ export function isUnderEntityMount(mount: EntityMount, vfsPath: string): boolean
 async function resolveEntityId(
     mount: EntityMount,
     model: string,
-    key: string
+    key: string,
 ): Promise<string | null> {
     if (mount.field === 'id') {
         // Key is the UUID - verify it exists
         const entity = mount.cache.getEntity(key);
+
         if (!entity || entity.model !== model) {
             return null;
         }
+
         return key;
     }
 
@@ -246,10 +255,11 @@ async function resolveEntityId(
 async function resolveRelatedEntityId(
     mount: EntityMount,
     model: string,
-    key: string
+    key: string,
 ): Promise<string | null> {
     // For relationships, always use 'id' as the key (or the mount's field if same model)
     const entity = mount.cache.getEntity(key);
+
     if (entity && entity.model === model) {
         return key;
     }
@@ -271,23 +281,27 @@ async function resolveRelatedEntityId(
  */
 async function getModelRelationships(
     mount: EntityMount,
-    modelName: string
+    modelName: string,
 ): Promise<Map<string, { relatedModel: string; fieldName: string }>> {
     const model = await mount.modelCache.get(modelName);
+
     if (!model) {
         return new Map();
     }
 
     const relationships = new Map<string, { relatedModel: string; fieldName: string }>();
+
     for (const field of model.getFields()) {
         if (field.relationship_type && field.related_model) {
             const name = field.relationship_name || field.field_name;
+
             relationships.set(name, {
                 relatedModel: field.related_model,
                 fieldName: field.field_name,
             });
         }
     }
+
     return relationships;
 }
 
@@ -298,13 +312,14 @@ async function getModelRelationships(
  */
 async function parseEntityPath(
     mount: EntityMount,
-    vfsPath: string
+    vfsPath: string,
 ): Promise<ParsedEntityPath | null> {
     if (vfsPath === mount.vfsPath) {
         return { type: 'root', entities: [], depth: 0 };
     }
 
     const prefix = mount.vfsPath + '/';
+
     if (!vfsPath.startsWith(prefix)) {
         return null;
     }
@@ -323,7 +338,8 @@ async function parseEntityPath(
     if (mount.model) {
         // Model is fixed by mount options
         currentModel = mount.model;
-    } else {
+    }
+    else {
         // First part is model name
         currentModel = parts[0]!;
         partIndex = 1;
@@ -331,9 +347,11 @@ async function parseEntityPath(
         if (parts.length === 1) {
             // Just the model name
             const model = await mount.modelCache.get(currentModel);
+
             if (!model) {
                 return null;
             }
+
             return { type: 'model', entities: [], depth: 0 };
         }
     }
@@ -351,7 +369,7 @@ async function parseEntityContents(
     partIndex: number,
     currentModel: string,
     entities: EntityContext[],
-    depth: number
+    depth: number,
 ): Promise<ParsedEntityPath | null> {
     // Check depth limit
     if (depth > mount.maxDepth) {
@@ -391,6 +409,7 @@ async function parseEntityContents(
         if (partIndex + 2 >= parts.length) {
             return { type: 'fields_dir', entities: newEntities, depth };
         }
+
         if (partIndex + 2 === parts.length - 1) {
             return {
                 type: 'field',
@@ -399,6 +418,7 @@ async function parseEntityContents(
                 fieldName: parts[partIndex + 2],
             };
         }
+
         return null; // Too many parts after field name
     }
 
@@ -406,6 +426,7 @@ async function parseEntityContents(
         if (partIndex + 2 >= parts.length) {
             return { type: 'parent', entities: newEntities, depth };
         }
+
         return null; // parent is a symlink, can't traverse into it here
     }
 
@@ -419,6 +440,7 @@ async function parseEntityContents(
         // Look up the relationship
         const relationships = await getModelRelationships(mount, currentModel);
         const rel = relationships.get(relationshipName);
+
         if (!rel) {
             return null; // Unknown relationship
         }
@@ -440,7 +462,7 @@ async function parseEntityContents(
             partIndex + 3,
             rel.relatedModel,
             newEntities,
-            depth + 1
+            depth + 1,
         );
     }
 
@@ -456,9 +478,10 @@ async function parseEntityContents(
  */
 export async function entityStat(
     mount: EntityMount,
-    vfsPath: string
+    vfsPath: string,
 ): Promise<ModelStat> {
     const parsed = await parseEntityPath(mount, vfsPath);
+
     if (!parsed) {
         throw new ENOENT(`No such file: ${vfsPath}`);
     }
@@ -517,10 +540,13 @@ export async function entityStat(
 
         case 'field': {
             const record = await getEntityRecord(mount, lastEntity!.model, lastEntity!.entityId);
+
             if (!record) {
                 throw new ENOENT(`Entity not found: ${lastEntity!.entityId}`);
             }
+
             const value = formatFieldValue(record[parsed.fieldName!]);
+
             return {
                 id: `${ENTITY_ID_PREFIX}${lastEntity!.entityId}/fields/${parsed.fieldName}`,
                 model: 'file',
@@ -535,10 +561,13 @@ export async function entityStat(
 
         case 'parent': {
             const record = await getEntityRecord(mount, lastEntity!.model, lastEntity!.entityId);
+
             if (!record) {
                 throw new ENOENT(`Entity not found: ${lastEntity!.entityId}`);
             }
+
             const parentId = record.parent as string | undefined;
+
             return {
                 id: `${ENTITY_ID_PREFIX}${lastEntity!.entityId}/parent`,
                 model: 'link',
@@ -587,9 +616,10 @@ export async function entityStat(
  */
 export async function* entityReaddir(
     mount: EntityMount,
-    vfsPath: string
+    vfsPath: string,
 ): AsyncIterable<ModelStat> {
     const parsed = await parseEntityPath(mount, vfsPath);
+
     if (!parsed) {
         throw new ENOENT(`No such directory: ${vfsPath}`);
     }
@@ -602,14 +632,17 @@ export async function* entityReaddir(
             if (mount.model) {
                 // List entities in the filtered model
                 yield* listEntities(mount, mount.model, now);
-            } else {
+            }
+            else {
                 // List all models
                 yield* listModels(mount, now);
             }
+
             break;
 
         case 'model': {
             const modelName = mount.model || vfsPath.split('/').pop()!;
+
             yield* listEntities(mount, modelName, now);
             break;
         }
@@ -649,13 +682,14 @@ export async function* entityReaddir(
 export async function entityOpen(
     mount: EntityMount,
     vfsPath: string,
-    flags: OpenFlags
+    flags: OpenFlags,
 ): Promise<FileHandle> {
     if (flags.write) {
         throw new EROFS(`Entity mount is read-only: ${vfsPath}`);
     }
 
     const parsed = await parseEntityPath(mount, vfsPath);
+
     if (!parsed) {
         throw new ENOENT(`No such file: ${vfsPath}`);
     }
@@ -666,11 +700,13 @@ export async function entityOpen(
 
     const lastEntity = parsed.entities[parsed.entities.length - 1]!;
     const record = await getEntityRecord(mount, lastEntity.model, lastEntity.entityId);
+
     if (!record) {
         throw new ENOENT(`Entity not found: ${lastEntity.entityId}`);
     }
 
     const value = formatFieldValue(record[parsed.fieldName!]);
+
     return new EntityFieldHandle(vfsPath, parsed.fieldName!, value, flags);
 }
 
@@ -684,13 +720,14 @@ export async function entityOpen(
 async function getEntityRecord(
     mount: EntityMount,
     model: string,
-    id: string
+    id: string,
 ): Promise<EntityRecord | null> {
     for await (const record of mount.db.selectAny<EntityRecord>(model, {
         where: { id },
     })) {
         return record;
     }
+
     return null;
 }
 
@@ -701,9 +738,11 @@ function formatFieldValue(value: unknown): string {
     if (value === null || value === undefined) {
         return '';
     }
+
     if (typeof value === 'object') {
         return JSON.stringify(value, null, 2) + '\n';
     }
+
     return String(value) + '\n';
 }
 
@@ -712,7 +751,7 @@ function formatFieldValue(value: unknown): string {
  */
 async function* listModels(
     mount: EntityMount,
-    now: number
+    now: number,
 ): AsyncIterable<ModelStat> {
     const modelNames = mount.modelCache.getCachedModelNames();
 
@@ -736,7 +775,7 @@ async function* listModels(
 async function* listEntities(
     mount: EntityMount,
     modelName: string,
-    now: number
+    now: number,
 ): AsyncIterable<ModelStat> {
     for await (const record of mount.db.selectAny<EntityRecord>(modelName, {})) {
         let displayName = record.id;
@@ -764,7 +803,7 @@ async function* listEntities(
 async function* listEntityContents(
     mount: EntityMount,
     entity: EntityContext,
-    now: number
+    now: number,
 ): AsyncIterable<ModelStat> {
     // fields/ directory
     yield {
@@ -781,6 +820,7 @@ async function* listEntityContents(
     // parent symlink
     const record = await getEntityRecord(mount, entity.model, entity.entityId);
     const parentId = record?.parent as string | undefined;
+
     yield {
         id: `${ENTITY_ID_PREFIX}${entity.entityId}/parent`,
         model: 'link',
@@ -812,13 +852,17 @@ async function* listEntityContents(
 async function* listFields(
     mount: EntityMount,
     entity: EntityContext,
-    now: number
+    now: number,
 ): AsyncIterable<ModelStat> {
     const record = await getEntityRecord(mount, entity.model, entity.entityId);
-    if (!record) return;
+
+    if (!record) {
+        return;
+    }
 
     for (const [fieldName, value] of Object.entries(record)) {
         const content = formatFieldValue(value);
+
         yield {
             id: `${ENTITY_ID_PREFIX}${entity.entityId}/fields/${fieldName}`,
             model: 'file',
@@ -838,7 +882,7 @@ async function* listFields(
 async function* listRelationships(
     mount: EntityMount,
     entity: EntityContext,
-    now: number
+    now: number,
 ): AsyncIterable<ModelStat> {
     const relationships = await getModelRelationships(mount, entity.model);
 
@@ -864,30 +908,43 @@ async function* listRelatedEntities(
     entity: EntityContext,
     relationshipName: string,
     relatedModel: string,
-    now: number
+    now: number,
 ): AsyncIterable<ModelStat> {
     // Get the relationship field info
     const relationships = await getModelRelationships(mount, entity.model);
     const rel = relationships.get(relationshipName);
-    if (!rel) return;
+
+    if (!rel) {
+        return;
+    }
 
     // Get the entity's record to find related IDs
     const record = await getEntityRecord(mount, entity.model, entity.entityId);
-    if (!record) return;
+
+    if (!record) {
+        return;
+    }
 
     // The field value might be a single ID or array of IDs
     const relatedValue = record[rel.fieldName];
-    if (!relatedValue) return;
+
+    if (!relatedValue) {
+        return;
+    }
 
     const relatedIds = Array.isArray(relatedValue) ? relatedValue : [relatedValue];
 
     for (const relatedId of relatedIds) {
-        if (typeof relatedId !== 'string') continue;
+        if (typeof relatedId !== 'string') {
+            continue;
+        }
 
         // Get display name for the related entity
         let displayName = relatedId;
+
         if (mount.field !== 'id') {
             const relatedRecord = await getEntityRecord(mount, relatedModel, relatedId);
+
             if (relatedRecord && relatedRecord[mount.field] !== undefined) {
                 displayName = String(relatedRecord[mount.field]);
             }
@@ -926,7 +983,7 @@ class EntityFieldHandle implements FileHandle {
         vfsPath: string,
         _fieldName: string,
         value: string,
-        flags: OpenFlags
+        flags: OpenFlags,
     ) {
         this.id = `${ENTITY_HANDLE_PREFIX}${vfsPath}:${Date.now()}`;
         this.path = vfsPath;
@@ -939,34 +996,55 @@ class EntityFieldHandle implements FileHandle {
     }
 
     async read(size?: number): Promise<Uint8Array> {
-        if (this._closed) throw new EBADF('Handle is closed');
-        if (!this.flags.read) throw new EACCES('Not opened for reading');
+        if (this._closed) {
+            throw new EBADF('Handle is closed');
+        }
+
+        if (!this.flags.read) {
+            throw new EACCES('Not opened for reading');
+        }
 
         const remaining = this._content.length - this._position;
-        if (remaining <= 0) return new Uint8Array(0);
+
+        if (remaining <= 0) {
+            return new Uint8Array(0);
+        }
 
         const toRead = size !== undefined ? Math.min(size, remaining) : remaining;
         const result = this._content.slice(this._position, this._position + toRead);
+
         this._position += toRead;
+
         return result;
     }
 
     async write(_data: Uint8Array): Promise<number> {
-        if (this._closed) throw new EBADF('Handle is closed');
+        if (this._closed) {
+            throw new EBADF('Handle is closed');
+        }
+
         throw new EROFS('Entity mount is read-only');
     }
 
     async seek(offset: number, whence: SeekWhence): Promise<number> {
-        if (this._closed) throw new EBADF('Handle is closed');
+        if (this._closed) {
+            throw new EBADF('Handle is closed');
+        }
 
         let newPosition: number;
+
         switch (whence) {
             case 'start': newPosition = offset; break;
             case 'current': newPosition = this._position + offset; break;
             case 'end': newPosition = this._content.length + offset; break;
         }
-        if (newPosition < 0) newPosition = 0;
+
+        if (newPosition < 0) {
+            newPosition = 0;
+        }
+
         this._position = newPosition;
+
         return this._position;
     }
 

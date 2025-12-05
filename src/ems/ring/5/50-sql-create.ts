@@ -134,6 +134,7 @@ export class SqlCreate extends BaseObserver {
         // Meta-models don't use entities table - single INSERT, no transaction needed
         if (META_MODELS.has(model.modelName)) {
             await this.insertDirect(system.db, model.modelName, data);
+
             return;
         }
 
@@ -144,10 +145,12 @@ export class SqlCreate extends BaseObserver {
                 this.buildEntityInsert(model.modelName, data),
                 this.buildDetailInsert(model.modelName, data),
             ]);
-        } catch (err) {
+        }
+        catch (err) {
             const message = err instanceof Error ? err.message : String(err);
+
             throw new EOBSSYS(
-                `INSERT failed for ${model.modelName}[${recordId}]: ${message}`
+                `INSERT failed for ${model.modelName}[${recordId}]: ${message}`,
             );
         }
     }
@@ -158,21 +161,23 @@ export class SqlCreate extends BaseObserver {
     private async insertDirect(
         db: ObserverContext['system']['db'],
         tableName: string,
-        data: Record<string, unknown>
+        data: Record<string, unknown>,
     ): Promise<void> {
         const columns = Object.keys(data);
         const placeholders = columns.map(() => '?').join(', ');
-        const values = columns.map((col) => data[col]);
+        const values = columns.map(col => data[col]);
 
         const sql = `INSERT INTO ${tableName} (${columns.join(', ')}) VALUES (${placeholders})`;
 
         try {
             await db.execute(sql, values);
-        } catch (err) {
+        }
+        catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             const recordId = data.id ?? 'unknown';
+
             throw new EOBSSYS(
-                `INSERT failed for ${tableName}[${recordId}]: ${message}`
+                `INSERT failed for ${tableName}[${recordId}]: ${message}`,
             );
         }
     }
@@ -184,7 +189,7 @@ export class SqlCreate extends BaseObserver {
      */
     private buildEntityInsert(
         modelName: string,
-        data: Record<string, unknown>
+        data: Record<string, unknown>,
     ): { sql: string; params: unknown[] } {
         return {
             sql: 'INSERT INTO entities (id, model, parent, pathname) VALUES (?, ?, ?, ?)',
@@ -204,7 +209,7 @@ export class SqlCreate extends BaseObserver {
      */
     private buildDetailInsert(
         tableName: string,
-        data: Record<string, unknown>
+        data: Record<string, unknown>,
     ): { sql: string; params: unknown[] } {
         // Filter out hierarchy fields (those go in entities table)
         const detailData: Record<string, unknown> = { id: data.id };
@@ -217,7 +222,7 @@ export class SqlCreate extends BaseObserver {
 
         const columns = Object.keys(detailData);
         const placeholders = columns.map(() => '?').join(', ');
-        const values = columns.map((col) => detailData[col]);
+        const values = columns.map(col => detailData[col]);
 
         return {
             sql: `INSERT INTO ${tableName} (${columns.join(', ')}) VALUES (${placeholders})`,

@@ -185,7 +185,11 @@ export class BunNetworkDevice implements NetworkDevice {
                  */
                 open(socket: any) {
                     socketRef = socket;
-                    resolve(new BunSocket(socket, dataQueue, () => dataResolve, (r) => { dataResolve = r; }, () => closed, (c) => { closed = c; }));
+                    resolve(new BunSocket(socket, dataQueue, () => dataResolve, r => {
+                        dataResolve = r;
+                    }, () => closed, c => {
+                        closed = c;
+                    }));
                 },
 
                 /**
@@ -195,11 +199,13 @@ export class BunNetworkDevice implements NetworkDevice {
                  */
                 data(_socket: any, data: any) {
                     const bytes = new Uint8Array(data);
+
                     if (dataResolve) {
                         // Pending read() call - wake it up
                         dataResolve(bytes);
                         dataResolve = null;
-                    } else {
+                    }
+                    else {
                         // No pending read - buffer it
                         dataQueue.push(bytes);
                     }
@@ -251,7 +257,8 @@ export class BunNetworkDevice implements NetworkDevice {
                     unix: host,
                     socket: socketHandlers,
                 });
-            } else {
+            }
+            else {
                 Bun.connect({
                     hostname: host,
                     port,

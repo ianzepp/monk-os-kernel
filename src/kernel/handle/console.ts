@@ -215,6 +215,7 @@ export class ConsoleHandleAdapter implements Handle {
         // RACE FIX: Check closure state before any operation
         if (this._closed) {
             yield respond.error('EBADF', 'Handle closed');
+
             return;
         }
 
@@ -263,6 +264,7 @@ export class ConsoleHandleAdapter implements Handle {
     private async *recv(): AsyncIterable<Response> {
         if (this.mode !== 'stdin') {
             yield respond.error('EBADF', 'Cannot read from stdout/stderr');
+
             return;
         }
 
@@ -316,6 +318,7 @@ export class ConsoleHandleAdapter implements Handle {
     private async *send(msg: Response): AsyncIterable<Response> {
         if (this.mode === 'stdin') {
             yield respond.error('EBADF', 'Cannot write to stdin');
+
             return;
         }
 
@@ -328,6 +331,7 @@ export class ConsoleHandleAdapter implements Handle {
         // Validate message
         if (!msg || typeof msg !== 'object') {
             yield respond.error('EINVAL', 'Invalid message');
+
             return;
         }
 
@@ -336,6 +340,7 @@ export class ConsoleHandleAdapter implements Handle {
                 // Text item - extract text field and encode to UTF-8
                 const data = msg.data as { text?: string } | undefined;
                 const text = data?.text ?? '';
+
                 writer(this.encoder.encode(text));
                 break;
             }
@@ -346,6 +351,7 @@ export class ConsoleHandleAdapter implements Handle {
                 if (msg.bytes instanceof Uint8Array) {
                     writer(msg.bytes);
                 }
+
                 break;
             }
 
@@ -354,6 +360,7 @@ export class ConsoleHandleAdapter implements Handle {
                 // WHY: Provides consistent error formatting across processes
                 const data = msg.data as { code?: string; message?: string } | undefined;
                 const text = `Error: ${data?.code ?? 'UNKNOWN'}: ${data?.message ?? 'Unknown error'}\n`;
+
                 writer(this.encoder.encode(text));
                 break;
             }

@@ -120,12 +120,14 @@ export class EntityCacheSync extends BaseObserver {
         const entityCache = (system as { entityCache?: unknown }).entityCache as
             | EntityCacheAdapter
             | undefined;
+
         if (!entityCache) {
             return;
         }
 
         // Extract entity ID
         const id = record.get('id') as string;
+
         if (!id) {
             return; // No ID (shouldn't happen after Ring 5)
         }
@@ -178,6 +180,7 @@ export class EntityCacheSync extends BaseObserver {
         if (record.has('pathname')) {
             const newPathname = record.get('pathname') as string;
             const oldPathname = record.old('pathname') as string;
+
             if (newPathname !== oldPathname) {
                 changes.pathname = newPathname;
             }
@@ -187,6 +190,7 @@ export class EntityCacheSync extends BaseObserver {
         if (record.has('parent')) {
             const newParent = record.get('parent') as string | null;
             const oldParent = record.old('parent') as string | null;
+
             if (newParent !== oldParent) {
                 changes.parent = newParent ?? null;
             }

@@ -61,7 +61,7 @@ import type { Handle } from '@src/kernel/handle.js';
 import { SyscallDispatcher, registerSyscalls } from '@src/kernel/syscalls.js';
 import { EBUSY } from '@src/kernel/errors.js';
 import type { Port } from '@src/kernel/resource.js';
-import { PubsubPort } from '@src/kernel/resource.js';
+import type { PubsubPort } from '@src/kernel/resource.js';
 import type { ServiceDef } from '@src/kernel/services.js';
 import { loadMounts } from '@src/kernel/mounts.js';
 import { copyRomToVfs } from '@src/kernel/boot.js';
@@ -76,7 +76,6 @@ import { setupInitStdio } from '@src/kernel/kernel/setup-init-stdio.js';
 import { loadServices } from '@src/kernel/kernel/load-services.js';
 import { printk } from '@src/kernel/kernel/printk.js';
 import { formatError } from '@src/kernel/kernel/format-error.js';
-
 
 // =============================================================================
 // TYPES
@@ -219,7 +218,7 @@ function createDefaultDeps(): KernelDeps {
     return {
         now: () => Date.now(),
         setTimeout: (cb, ms) => setTimeout(cb, ms),
-        clearTimeout: (id) => clearTimeout(id),
+        clearTimeout: id => clearTimeout(id),
     };
 }
 
@@ -524,6 +523,7 @@ export class Kernel {
         // ---------------------------------------------------------------------
 
         const romPath = env.romPath ?? './rom';
+
         printk(this, 'boot', `Copying ROM to VFS from: ${romPath}`);
         await copyRomToVfs({ vfs: this.vfs }, romPath);
 
@@ -548,6 +548,7 @@ export class Kernel {
             env: env.env,
             args: env.initArgs,
         });
+
         this.processes.register(init);
 
         // ---------------------------------------------------------------------
@@ -615,9 +616,11 @@ export class Kernel {
             try {
                 await this.vfs.mkdir(dir, 'kernel', { recursive: true });
                 printk(this, 'boot', `Created directory: ${dir}`);
-            } catch (err) {
+            }
+            catch (err) {
                 // EEXIST is fine - directory already exists (idempotent)
                 const error = err as Error & { code?: string };
+
                 if (error.code !== 'EEXIST') {
                     printk(this, 'warn', `Failed to create ${dir}: ${formatError(err)}`);
                 }
@@ -677,6 +680,7 @@ export class Kernel {
                         return false; // Still running
                     }
                 }
+
                 return true; // All exited
             }, { timeout: TERM_GRACE_MS });
         }
@@ -752,7 +756,7 @@ export class Kernel {
      */
     async spawnExternal(
         entry: string,
-        opts?: import('@src/kernel/types.js').ExternalSpawnOpts
+        opts?: import('@src/kernel/types.js').ExternalSpawnOpts,
     ): Promise<import('@src/kernel/types.js').ExternalProcessHandle> {
         if (!this.booted) {
             throw new EINVAL('Kernel not booted');
@@ -783,30 +787,35 @@ export class Kernel {
 
         // Create handle for caller
         const processId = proc.id;
-        const kernel = this;
+        const self = this;
 
         return {
             id: processId,
 
             async kill(signal = SIGTERM): Promise<void> {
-                const target = kernel.processes.get(processId);
+                const target = self.processes.get(processId);
+
                 if (!target || target.state === 'zombie') {
                     return; // Already dead
                 }
-                deliverSignal(kernel, target, signal);
+
+                deliverSignal(self, target, signal);
             },
 
             wait(): Promise<{ code: number }> {
-                return new Promise((resolve) => {
-                    const target = kernel.processes.get(processId);
+                return new Promise(resolve => {
+                    const target = self.processes.get(processId);
 
                     // Already dead?
                     if (!target) {
                         resolve({ code: -1 });
+
                         return;
                     }
+
                     if (target.state === 'zombie') {
                         resolve({ code: target.exitCode ?? 0 });
+
                         return;
                     }
 
@@ -816,9 +825,11 @@ export class Kernel {
                             resolve({ code: status.code });
                         },
                         cleanup: () => {
-                            const waiters = kernel.waiters.get(processId);
+                            const waiters = self.waiters.get(processId);
+
                             if (waiters) {
                                 const idx = waiters.indexOf(waiterEntry);
+
                                 if (idx !== -1) {
                                     waiters.splice(idx, 1);
                                 }
@@ -826,9 +837,10 @@ export class Kernel {
                         },
                     };
 
-                    const waiters = kernel.waiters.get(processId) ?? [];
+                    const waiters = self.waiters.get(processId) ?? [];
+
                     waiters.push(waiterEntry);
-                    kernel.waiters.set(processId, waiters);
+                    self.waiters.set(processId, waiters);
                 });
             },
         };

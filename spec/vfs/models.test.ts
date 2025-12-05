@@ -22,6 +22,7 @@ describe('FileModel', () => {
     describe('via VFS', () => {
         it('should create file with open({ create: true })', async () => {
             const handle = await stack.vfs!.open('/test.txt', { read: true, write: true, create: true }, 'kernel');
+
             expect(handle).toBeDefined();
             expect(handle.closed).toBe(false);
             await handle.close();
@@ -40,12 +41,14 @@ describe('FileModel', () => {
             const handle = await stack.vfs!.open('/test.txt', { read: true, write: true, create: true }, 'kernel');
 
             const content = new TextEncoder().encode('Hello, World!');
+
             await handle.write(content);
             await handle.close();
 
             // Re-open and read
             const handle2 = await stack.vfs!.open('/test.txt', { read: true }, 'kernel');
             const data = await handle2.read();
+
             await handle2.close();
 
             expect(data.length).toBe(13);
@@ -54,10 +57,12 @@ describe('FileModel', () => {
 
         it('should update file size after write', async () => {
             const handle = await stack.vfs!.open('/test.txt', { read: true, write: true, create: true }, 'kernel');
+
             await handle.write(new TextEncoder().encode('Hello'));
             await handle.close();
 
             const stat = await stack.vfs!.stat('/test.txt', 'kernel');
+
             expect(stat.size).toBe(5);
         });
 
@@ -88,6 +93,7 @@ describe('FolderModel', () => {
     describe('via VFS', () => {
         it('should create folder with mkdir', async () => {
             const id = await stack.vfs!.mkdir('/testdir', 'kernel');
+
             expect(id).toBeDefined();
             expect(id.length).toBeGreaterThan(0); // UUID format varies
         });
@@ -104,7 +110,7 @@ describe('FolderModel', () => {
         it('should throw EISDIR when opening folder', async () => {
             await stack.vfs!.mkdir('/testdir', 'kernel');
             await expect(
-                stack.vfs!.open('/testdir', { read: true }, 'kernel')
+                stack.vfs!.open('/testdir', { read: true }, 'kernel'),
             ).rejects.toBeInstanceOf(EISDIR);
         });
 
@@ -114,6 +120,7 @@ describe('FolderModel', () => {
             await stack.vfs!.open('/testdir/file2.txt', { write: true, create: true }, 'kernel');
 
             const children: string[] = [];
+
             for await (const child of stack.vfs!.readdir('/testdir', 'kernel')) {
                 children.push(child.name);
             }
@@ -127,6 +134,7 @@ describe('FolderModel', () => {
             await stack.vfs!.mkdir('/emptydir', 'kernel');
 
             const children: string[] = [];
+
             for await (const child of stack.vfs!.readdir('/emptydir', 'kernel')) {
                 children.push(child.name);
             }

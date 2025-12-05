@@ -238,7 +238,7 @@ export class Model {
      */
     constructor(
         public readonly row: ModelRow,
-        fields: FieldRow[]
+        fields: FieldRow[],
     ) {
         this._fields = new Map();
         for (const field of fields) {
@@ -466,15 +466,19 @@ export class Model {
             if (field.required === 1) {
                 required.add(field.field_name);
             }
+
             if (field.immutable === 1) {
                 immutable.add(field.field_name);
             }
+
             if (field.sudo === 1) {
                 sudo.add(field.field_name);
             }
+
             if (field.tracked === 1) {
                 tracked.add(field.field_name);
             }
+
             if (field.transform) {
                 transforms.set(field.field_name, field.transform);
             }
@@ -494,6 +498,7 @@ export class Model {
         }
 
         this._categories = { required, immutable, sudo, tracked, transforms, validation };
+
         return this._categories;
     }
 

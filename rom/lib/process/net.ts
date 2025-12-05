@@ -42,6 +42,7 @@ export function watch(pattern: string): Promise<number>;
 export function watch(opts: WatchOpts): Promise<number>;
 export function watch(patternOrOpts: string | WatchOpts): Promise<number> {
     const opts = typeof patternOrOpts === 'string' ? { pattern: patternOrOpts } : patternOrOpts;
+
     return call<number>('port:create', 'fs:watch', opts);
 }
 

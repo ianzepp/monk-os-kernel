@@ -54,55 +54,90 @@ async function main(): Promise<void> {
     // Parse arguments
     for (let i = 0; i < argv.length; i++) {
         const arg = argv[i];
-        if (arg === undefined) continue;
+
+        if (arg === undefined) {
+            continue;
+        }
 
         if (arg === '-b' && argv[i + 1]) {
             const val = argv[++i];
-            if (val === undefined) continue;
+
+            if (val === undefined) {
+                continue;
+            }
+
             if (val === 'a' || val === 't' || val === 'n') {
                 bodyNumbering = val;
-            } else {
+            }
+            else {
                 await eprintln(`nl: invalid body numbering style: '${val}'`);
                 await exit(1);
             }
-        } else if (arg === '-n' && argv[i + 1]) {
+        }
+        else if (arg === '-n' && argv[i + 1]) {
             const val = argv[++i];
-            if (val === undefined) continue;
+
+            if (val === undefined) {
+                continue;
+            }
+
             if (val === 'ln' || val === 'rn' || val === 'rz') {
                 numberFormat = val;
-            } else {
+            }
+            else {
                 await eprintln(`nl: invalid number format: '${val}'`);
                 await exit(1);
             }
-        } else if (arg === '-w' && argv[i + 1]) {
+        }
+        else if (arg === '-w' && argv[i + 1]) {
             const val = argv[++i];
-            if (val === undefined) continue;
+
+            if (val === undefined) {
+                continue;
+            }
+
             width = parseInt(val, 10);
             if (isNaN(width) || width < 1) {
                 await eprintln(`nl: invalid width: '${val}'`);
                 await exit(1);
             }
-        } else if (arg === '-s' && argv[i + 1]) {
+        }
+        else if (arg === '-s' && argv[i + 1]) {
             const val = argv[++i];
-            if (val === undefined) continue;
+
+            if (val === undefined) {
+                continue;
+            }
+
             separator = val;
-        } else if (arg === '-v' && argv[i + 1]) {
+        }
+        else if (arg === '-v' && argv[i + 1]) {
             const val = argv[++i];
-            if (val === undefined) continue;
+
+            if (val === undefined) {
+                continue;
+            }
+
             startNum = parseInt(val, 10);
             if (isNaN(startNum)) {
                 await eprintln(`nl: invalid starting number: '${val}'`);
                 await exit(1);
             }
-        } else if (arg === '-i' && argv[i + 1]) {
+        }
+        else if (arg === '-i' && argv[i + 1]) {
             const val = argv[++i];
-            if (val === undefined) continue;
+
+            if (val === undefined) {
+                continue;
+            }
+
             increment = parseInt(val, 10);
             if (isNaN(increment)) {
                 await eprintln(`nl: invalid increment: '${val}'`);
                 await exit(1);
             }
-        } else if (!arg.startsWith('-')) {
+        }
+        else if (!arg.startsWith('-')) {
             file = arg;
         }
     }
@@ -113,20 +148,26 @@ async function main(): Promise<void> {
         const path = resolvePath(cwd, file);
 
         let content: string;
+
         try {
             content = await readFile(path);
-        } catch (err) {
+        }
+        catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
+
             await eprintln(`nl: ${file}: ${msg}`);
+
             return await exit(1);
         }
 
         const lines = content.split('\n');
+
         if (lines.length > 0 && lines[lines.length - 1] === '' && content.endsWith('\n')) {
             lines.pop();
         }
 
         let lineNum = startNum;
+
         for (const line of lines) {
             const shouldNumber =
                 bodyNumbering === 'a' ||
@@ -134,13 +175,16 @@ async function main(): Promise<void> {
 
             if (bodyNumbering === 'n' || !shouldNumber) {
                 await println(' '.repeat(width) + separator + line);
-            } else {
+            }
+            else {
                 const numStr = formatLineNumber(lineNum, width, numberFormat);
+
                 await println(numStr + separator + line);
                 lineNum += increment;
             }
         }
-    } else {
+    }
+    else {
         // Stdin mode: stream message items
         let lineNum = startNum;
 
@@ -154,10 +198,13 @@ async function main(): Promise<void> {
                     (bodyNumbering === 't' && line.trim().length > 0);
 
                 let output: string;
+
                 if (bodyNumbering === 'n' || !shouldNumber) {
                     output = ' '.repeat(width) + separator + line;
-                } else {
+                }
+                else {
                     const numStr = formatLineNumber(lineNum, width, numberFormat);
+
                     output = numStr + separator + line;
                     lineNum += increment;
                 }
@@ -190,7 +237,7 @@ function formatLineNumber(num: number, width: number, format: NumberFormat): str
     }
 }
 
-main().catch(async (err) => {
+main().catch(async err => {
     await eprintln(`nl: ${err.message}`);
     await exit(1);
 });

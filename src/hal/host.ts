@@ -466,6 +466,7 @@ export class BunHostDevice implements HostDevice {
 
             async wait() {
                 const code = await proc.exited;
+
                 return { exitCode: code };
             },
 
@@ -483,7 +484,7 @@ export class BunHostDevice implements HostDevice {
     async exec(
         cmd: string,
         args: string[] = [],
-        opts: HostSpawnOpts = {}
+        opts: HostSpawnOpts = {},
     ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
         // WHY: Force pipe mode to capture output
         const proc = this.spawn(cmd, args, {
@@ -521,19 +522,29 @@ export class BunHostDevice implements HostDevice {
      * @returns Array of chunks
      */
     private async readStream(stream: ReadableStream<Uint8Array> | null): Promise<Uint8Array[]> {
-        if (!stream) return [];
+        if (!stream) {
+            return [];
+        }
+
         const chunks: Uint8Array[] = [];
         const reader = stream.getReader();
+
         try {
             while (true) {
                 const { done, value } = await reader.read();
-                if (done) break;
+
+                if (done) {
+                    break;
+                }
+
                 chunks.push(value);
             }
-        } finally {
+        }
+        finally {
             // WHY: Always release lock even if read() throws
             reader.releaseLock();
         }
+
         return chunks;
     }
 
@@ -550,10 +561,12 @@ export class BunHostDevice implements HostDevice {
         const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
         const result = new Uint8Array(total);
         let offset = 0;
+
         for (const chunk of chunks) {
             result.set(chunk, offset);
             offset += chunk.length;
         }
+
         return result;
     }
 
@@ -737,6 +750,7 @@ export class MockHostDevice implements HostDevice {
             }),
             async wait() {
                 waited = true;
+
                 return { exitCode: response.exitCode };
             },
             kill() {
@@ -751,12 +765,14 @@ export class MockHostDevice implements HostDevice {
     async exec(
         cmd: string,
         _args: string[] = [],
-        _opts: HostSpawnOpts = {}
+        _opts: HostSpawnOpts = {},
     ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
         const response = this.commands.get(cmd);
+
         if (response) {
             return response;
         }
+
         // WHY: Exit code 127 is POSIX convention for "command not found"
         return { exitCode: 127, stdout: '', stderr: `command not found: ${cmd}` };
     }

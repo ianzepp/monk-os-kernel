@@ -207,7 +207,7 @@ export class LinkModel extends PosixModel {
         _ctx: ModelContext,
         _id: string,
         _flags: OpenFlags,
-        _opts?: OpenOptions
+        _opts?: OpenOptions,
     ): Promise<FileHandle> {
         throw new EINVAL('Cannot open symlink directly');
     }
@@ -226,9 +226,11 @@ export class LinkModel extends PosixModel {
      */
     async stat(ctx: ModelContext, id: string): Promise<ModelStat> {
         const data = await ctx.hal.storage.get(`${ENTITY_PREFIX}${id}`);
+
         if (!data) {
             throw new ENOENT(`Link not found: ${id}`);
         }
+
         return decodeEntity<ModelStat>(data);
     }
 
@@ -252,6 +254,7 @@ export class LinkModel extends PosixModel {
      */
     async setstat(ctx: ModelContext, id: string, fields: Partial<ModelStat>): Promise<void> {
         const data = await ctx.hal.storage.get(`${ENTITY_PREFIX}${id}`);
+
         if (!data) {
             throw new ENOENT(`Link not found: ${id}`);
         }
@@ -259,9 +262,17 @@ export class LinkModel extends PosixModel {
         const entity = decodeEntity<ModelStat>(data);
 
         // Update allowed fields
-        if (fields.name !== undefined) entity.name = fields.name;
-        if (fields.parent !== undefined) entity.parent = fields.parent;
-        if (fields.target !== undefined) entity.target = fields.target;
+        if (fields.name !== undefined) {
+            entity.name = fields.name;
+        }
+
+        if (fields.parent !== undefined) {
+            entity.parent = fields.parent;
+        }
+
+        if (fields.target !== undefined) {
+            entity.target = fields.target;
+        }
 
         // Always update mtime on metadata change
         entity.mtime = ctx.hal.clock.now();
@@ -292,7 +303,7 @@ export class LinkModel extends PosixModel {
         _ctx: ModelContext,
         _parent: string,
         _name: string,
-        _fields?: Partial<ModelStat>
+        _fields?: Partial<ModelStat>,
     ): Promise<string> {
         // SECURITY: Symlinks are disabled until proper resolution is implemented
         throw new EPERM('Symbolic links are not supported');
@@ -316,6 +327,7 @@ export class LinkModel extends PosixModel {
      */
     async unlink(ctx: ModelContext, id: string): Promise<void> {
         const data = await ctx.hal.storage.get(`${ENTITY_PREFIX}${id}`);
+
         if (!data) {
             throw new ENOENT(`Link not found: ${id}`);
         }
@@ -364,6 +376,7 @@ export class LinkModel extends PosixModel {
      */
     async readlink(ctx: ModelContext, id: string): Promise<string> {
         const stat = await this.stat(ctx, id);
+
         return stat.target as string;
     }
 }

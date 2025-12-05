@@ -108,7 +108,7 @@ export class DdlCreateField extends BaseObserver {
 
         if (!modelName || !fieldName) {
             throw new EOBSSYS(
-                `Cannot add column: model_name or field_name is missing`
+                `Cannot add column: model_name or field_name is missing`,
             );
         }
 
@@ -117,7 +117,8 @@ export class DdlCreateField extends BaseObserver {
 
         try {
             await system.db.exec(sql);
-        } catch (err) {
+        }
+        catch (err) {
             const message = err instanceof Error ? err.message : String(err);
 
             // Ignore "duplicate column" errors - column already exists
@@ -127,7 +128,7 @@ export class DdlCreateField extends BaseObserver {
             }
 
             throw new EOBSSYS(
-                `ALTER TABLE ADD COLUMN failed for '${modelName}.${fieldName}': ${message}`
+                `ALTER TABLE ADD COLUMN failed for '${modelName}.${fieldName}': ${message}`,
             );
         }
     }

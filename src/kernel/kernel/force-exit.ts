@@ -178,6 +178,7 @@ export function forceExit(self: Kernel, proc: Process, code: number): void {
     for (const abort of proc.activeStreams.values()) {
         abort.abort();
     }
+
     proc.activeStreams.clear();
 
     // =========================================================================
@@ -199,6 +200,7 @@ export function forceExit(self: Kernel, proc: Process, code: number): void {
     for (const handleId of proc.handles.values()) {
         unrefHandle(self, handleId);
     }
+
     proc.handles.clear();
 
     // =========================================================================

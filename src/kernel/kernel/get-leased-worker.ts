@@ -44,10 +44,11 @@ import { EBADF } from '../errors.js';
 export function getLeasedWorker(
     self: Kernel,
     proc: Process,
-    workerId: string
+    workerId: string,
 ): LeasedWorker {
     // Step 1: Look up process's worker Map
     const procWorkers = self.leasedWorkers.get(proc.id);
+
     if (!procWorkers) {
         // Process has never leased any workers
         throw new EBADF(`No workers leased by process ${proc.id}`);
@@ -55,6 +56,7 @@ export function getLeasedWorker(
 
     // Step 2: Look up worker in process's Map
     const worker = procWorkers.get(workerId);
+
     if (!worker) {
         // Worker ID not found (may belong to another process, or already released)
         throw new EBADF(`Worker not found: ${workerId}`);

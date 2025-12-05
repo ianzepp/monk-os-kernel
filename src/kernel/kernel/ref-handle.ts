@@ -67,6 +67,7 @@ import type { Kernel } from '../kernel.js';
  */
 export function refHandle(self: Kernel, handleId: string): void {
     const refs = self.handleRefs.get(handleId) ?? 1;
+
     self.handleRefs.set(handleId, refs + 1);
 
     // INVARIANT: Handle should exist if we're refing it

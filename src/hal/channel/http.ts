@@ -225,12 +225,14 @@ export class BunHttpChannel implements Channel {
         // RACE FIX: Check closed at method entry, before any async operations
         if (this._closed) {
             yield respond.error('EBADF', 'Channel closed');
+
             return;
         }
 
         // Validate operation type
         if (msg.op !== 'request') {
             yield respond.error('EINVAL', `Unknown op: ${msg.op}`);
+
             return;
         }
 
@@ -266,6 +268,7 @@ export class BunHttpChannel implements Channel {
             // as errors rather than yielding ok() with error status.
             if (!response.ok) {
                 yield respond.error(`HTTP_${response.status}`, response.statusText);
+
                 return;
             }
 
@@ -282,15 +285,18 @@ export class BunHttpChannel implements Channel {
                         if (line.trim()) {
                             try {
                                 yield respond.item(JSON.parse(line));
-                            } catch {
+                            }
+                            catch {
                                 // WHY: Skip malformed lines instead of failing entire stream.
                                 // Servers may send comments or partial data.
                             }
                         }
                     }
                 }
+
                 yield respond.done();
-            } else if (contentType.includes('text/event-stream')) {
+            }
+            else if (contentType.includes('text/event-stream')) {
                 // STREAMING: Server-Sent Events
                 // WHY: SSE provides structured events with types and data. Used for
                 // real-time updates, notifications, live logs.
@@ -299,20 +305,26 @@ export class BunHttpChannel implements Channel {
                         yield respond.event(event.type, event.data);
                     }
                 }
+
                 yield respond.done();
-            } else {
+            }
+            else {
                 // SINGLE VALUE: JSON response
                 // WHY: Standard REST API response. Parse entire body as JSON.
                 const data = await response.json();
+
                 yield respond.ok(data);
             }
-        } catch (err) {
+        }
+        catch (err) {
             const error = err as Error;
+
             if (error.name === 'AbortError') {
                 // WHY: AbortController.abort() throws AbortError. This happens
                 // on timeout or explicit cancellation.
                 yield respond.error('ETIMEDOUT', 'Request timeout');
-            } else {
+            }
+            else {
                 // WHY: Network errors, DNS failures, connection refused, etc.
                 // Use EIO (generic I/O error) as catch-all.
                 yield respond.error('EIO', error.message);
@@ -388,6 +400,7 @@ export class BunHttpChannel implements Channel {
      */
     private buildUrl(path: string, query?: Record<string, unknown>): string {
         const url = new URL(path, this.baseUrl);
+
         if (query) {
             for (const [key, value] of Object.entries(query)) {
                 if (value !== undefined && value !== null) {
@@ -395,6 +408,7 @@ export class BunHttpChannel implements Channel {
                 }
             }
         }
+
         return url.toString();
     }
 
@@ -428,12 +442,16 @@ export class BunHttpChannel implements Channel {
         try {
             while (true) {
                 const { done, value } = await reader.read();
-                if (done) break;
+
+                if (done) {
+                    break;
+                }
 
                 // WHY: stream: true prevents decoder from flushing on every chunk.
                 // Maintains decoding state across chunks for multi-byte UTF-8.
                 buffer += decoder.decode(value, { stream: true });
                 const lines = buffer.split('\n');
+
                 // WHY: Last element might be incomplete line - keep in buffer
                 buffer = lines.pop()!;
 
@@ -446,7 +464,8 @@ export class BunHttpChannel implements Channel {
             if (buffer.trim()) {
                 yield buffer;
             }
-        } finally {
+        }
+        finally {
             // RACE FIX: Always release reader to prevent resource leak, even if
             // iterator is abandoned or throws error
             reader.releaseLock();
@@ -487,16 +506,20 @@ export class BunHttpChannel implements Channel {
                 if (dataBuffer) {
                     try {
                         yield { type: eventType, data: JSON.parse(dataBuffer) };
-                    } catch {
+                    }
+                    catch {
                         // WHY: Fallback for non-JSON data - wrap in object
                         yield { type: eventType, data: { raw: dataBuffer } };
                     }
+
                     dataBuffer = '';
                     eventType = 'message'; // Reset to default
                 }
-            } else if (line.startsWith('event:')) {
+            }
+            else if (line.startsWith('event:')) {
                 eventType = line.slice(6).trim();
-            } else if (line.startsWith('data:')) {
+            }
+            else if (line.startsWith('data:')) {
                 // WHY: Accumulate data lines (SSE allows multi-line data)
                 dataBuffer += line.slice(5).trim();
             }

@@ -226,6 +226,7 @@ export default async function main(args: string[]): Promise<void> {
     // -------------------------------------------------------------------------
     if (opts.help) {
         await println(HELP_TEXT);
+
         return exit(EXIT_SUCCESS);
     }
 
@@ -238,15 +239,19 @@ export default async function main(args: string[]): Promise<void> {
         // GNU BEHAVIOR: -n suppresses trailing newline
         if (opts.noNewline) {
             await print(text);
-        } else {
+        }
+        else {
             await println(text);
         }
 
         return exit(EXIT_SUCCESS);
-    } catch (err) {
+    }
+    catch (err) {
         // EDGE: Write failure (disk full, broken pipe, etc.)
         const message = err instanceof Error ? err.message : String(err);
+
         await eprintln(`echo: write error: ${message}`);
+
         return exit(EXIT_FAILURE);
     }
 }

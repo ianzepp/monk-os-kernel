@@ -79,6 +79,7 @@ export function getpid(self: Kernel, proc: Process): number {
     // WHY: Init is the root of the process tree, has no parent
     // CONVENTION: Init is always PID 1 in POSIX systems
     const parent = self.processes.get(proc.parent);
+
     if (!parent) {
         return 1;
     }
@@ -105,5 +106,6 @@ export function getpid(self: Kernel, proc: Process): number {
     // - May happen if parent cleanup runs before child cleanup
     // - Should be impossible with correct process lifecycle
     printk(self, 'warn', `getpid: process ${proc.id} not found in parent's children`);
+
     return -1;
 }

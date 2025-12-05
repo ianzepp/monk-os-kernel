@@ -54,16 +54,18 @@ import { EBADF } from '../errors.js';
 export async function workerRelease(
     self: Kernel,
     proc: Process,
-    workerId: string
+    workerId: string,
 ): Promise<void> {
     // Step 1: Look up process's worker Map
     const procWorkers = self.leasedWorkers.get(proc.id);
+
     if (!procWorkers) {
         throw new EBADF(`No workers leased by process ${proc.id}`);
     }
 
     // Step 2: Look up worker in Map (validates ownership)
     const worker = procWorkers.get(workerId);
+
     if (!worker) {
         throw new EBADF(`Worker not found: ${workerId}`);
     }

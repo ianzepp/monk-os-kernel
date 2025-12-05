@@ -23,6 +23,7 @@ export interface GlobOptions {
  */
 export function match(path: string, pattern: string, options: GlobOptions = {}): boolean {
     const regex = toRegex(pattern, options);
+
     return regex.test(path);
 }
 
@@ -33,6 +34,7 @@ export function match(path: string, pattern: string, options: GlobOptions = {}):
  */
 export function filter(paths: string[], pattern: string, options: GlobOptions = {}): string[] {
     const regex = toRegex(pattern, options);
+
     return paths.filter(p => regex.test(p));
 }
 
@@ -44,6 +46,7 @@ export function filter(paths: string[], pattern: string, options: GlobOptions = 
  */
 export function matcher(pattern: string, options: GlobOptions = {}): (path: string) => boolean {
     const regex = toRegex(pattern, options);
+
     return (path: string) => regex.test(path);
 }
 
@@ -77,6 +80,7 @@ export function toRegex(pattern: string, options: GlobOptions = {}): RegExp {
                 regex += '^';
                 i++;
             }
+
             i++;
             continue;
         }
@@ -92,15 +96,18 @@ export function toRegex(pattern: string, options: GlobOptions = {}): RegExp {
         if (inBracket) {
             if (char === '\\' && !noescape) {
                 const nextChar = pattern[i + 1];
+
                 if (nextChar !== undefined) {
                     regex += escapeRegex(nextChar);
                     i += 2;
                     continue;
                 }
             }
+
             if (char !== undefined) {
                 regex += char === '-' ? '-' : escapeRegex(char);
             }
+
             i++;
             continue;
         }
@@ -118,16 +125,19 @@ export function toRegex(pattern: string, options: GlobOptions = {}): RegExp {
                     // **/ - match any path prefix
                     regex += dot ? '(?:.*/)?' : '(?:(?:[^./][^/]*|\\.[^./][^/]*)/)*';
                     i += 3;
-                } else {
+                }
+                else {
                     // ** at end - match anything
                     regex += dot ? '.*' : '(?:[^./].*)?';
                     i += 2;
                 }
-            } else {
+            }
+            else {
                 // Not a proper globstar, treat as two *
                 regex += dot ? '[^/]*[^/]*' : '[^/]*[^/]*';
                 i += 2;
             }
+
             continue;
         }
 
@@ -135,15 +145,19 @@ export function toRegex(pattern: string, options: GlobOptions = {}): RegExp {
         if (char === '*') {
             if (dot) {
                 regex += '[^/]*';
-            } else {
+            }
+            else {
                 // Don't match dotfiles at start of segment
                 const prev = pattern[i - 1];
+
                 if (prev === '/' || i === 0) {
                     regex += '(?:[^./][^/]*)?';
-                } else {
+                }
+                else {
                     regex += '[^/]*';
                 }
             }
+
             i++;
             continue;
         }
@@ -152,14 +166,18 @@ export function toRegex(pattern: string, options: GlobOptions = {}): RegExp {
         if (char === '?') {
             if (dot) {
                 regex += '[^/]';
-            } else {
+            }
+            else {
                 const prev = pattern[i - 1];
+
                 if (prev === '/' || i === 0) {
                     regex += '[^./]';
-                } else {
+                }
+                else {
                     regex += '[^/]';
                 }
             }
+
             i++;
             continue;
         }
@@ -168,10 +186,12 @@ export function toRegex(pattern: string, options: GlobOptions = {}): RegExp {
         if (char !== undefined) {
             regex += escapeRegex(char);
         }
+
         i++;
     }
 
     const flags = nocase ? 'i' : '';
+
     return new RegExp(`^${regex}$`, flags);
 }
 
@@ -188,17 +208,22 @@ function escapeRegex(str: string): string {
 export function isGlob(pattern: string): boolean {
     // Look for unescaped glob characters
     let i = 0;
+
     while (i < pattern.length) {
         const char = pattern[i];
+
         if (char === '\\') {
             i += 2; // Skip escaped char
             continue;
         }
+
         if (char === '*' || char === '?' || char === '[') {
             return true;
         }
+
         i++;
     }
+
     return false;
 }
 
@@ -213,7 +238,10 @@ export function base(pattern: string): string {
     const baseParts: string[] = [];
 
     for (const part of parts) {
-        if (isGlob(part)) break;
+        if (isGlob(part)) {
+            break;
+        }
+
         baseParts.push(part);
     }
 

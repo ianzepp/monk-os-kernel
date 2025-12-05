@@ -50,11 +50,18 @@ async function main(): Promise<void> {
     for (const arg of argv) {
         if (arg.startsWith('-') && arg !== '-') {
             for (const char of arg.slice(1)) {
-                if (char === 'l') showLines = true;
-                else if (char === 'w') showWords = true;
-                else if (char === 'c') showChars = true;
+                if (char === 'l') {
+                    showLines = true;
+                }
+                else if (char === 'w') {
+                    showWords = true;
+                }
+                else if (char === 'c') {
+                    showChars = true;
+                }
             }
-        } else {
+        }
+        else {
             files.push(arg === '-' ? '' : arg);
         }
     }
@@ -69,24 +76,30 @@ async function main(): Promise<void> {
     // Process stdin or files
     if (files.length === 0) {
         const counts = await processStdin();
+
         await printCounts(counts, '', options);
-    } else {
+    }
+    else {
         const cwd = await getcwd();
         let exitCode = 0;
-        let total: Counts = { lines: 0, words: 0, chars: 0 };
+        const total: Counts = { lines: 0, words: 0, chars: 0 };
 
         for (const file of files) {
             if (!file) {
                 const counts = await processStdin();
+
                 await printCounts(counts, '', options);
                 total.lines += counts.lines;
                 total.words += counts.words;
                 total.chars += counts.chars;
-            } else {
+            }
+            else {
                 const result = await processFile(cwd, file);
+
                 if (result === null) {
                     exitCode = 1;
-                } else {
+                }
+                else {
                     await printCounts(result, file, options);
                     total.lines += result.lines;
                     total.words += result.words;
@@ -113,9 +126,11 @@ async function processStdin(): Promise<Counts> {
     for await (const msg of recv(0)) {
         if (msg.op === 'item') {
             const text = (msg.data as { text: string }).text ?? '';
+
             lines++;
             chars += text.length;
             const trimmed = text.trim();
+
             if (trimmed) {
                 words += trimmed.split(/\s+/).length;
             }
@@ -130,10 +145,14 @@ async function processFile(cwd: string, file: string): Promise<Counts | null> {
 
     try {
         const content = await readFile(path);
+
         return countContent(content);
-    } catch (err) {
+    }
+    catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         await eprintln(`wc: ${file}: ${msg}`);
+
         return null;
     }
 }
@@ -149,19 +168,30 @@ function countContent(content: string): Counts {
 async function printCounts(
     counts: Counts,
     name: string,
-    options: { showLines: boolean; showWords: boolean; showChars: boolean }
+    options: { showLines: boolean; showWords: boolean; showChars: boolean },
 ): Promise<void> {
     const parts: string[] = [];
 
-    if (options.showLines) parts.push(String(counts.lines).padStart(8));
-    if (options.showWords) parts.push(String(counts.words).padStart(8));
-    if (options.showChars) parts.push(String(counts.chars).padStart(8));
-    if (name) parts.push(` ${name}`);
+    if (options.showLines) {
+        parts.push(String(counts.lines).padStart(8));
+    }
+
+    if (options.showWords) {
+        parts.push(String(counts.words).padStart(8));
+    }
+
+    if (options.showChars) {
+        parts.push(String(counts.chars).padStart(8));
+    }
+
+    if (name) {
+        parts.push(` ${name}`);
+    }
 
     await println(parts.join(''));
 }
 
-main().catch(async (err) => {
+main().catch(async err => {
     await eprintln(`wc: ${err.message}`);
     await exit(1);
 });

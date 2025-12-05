@@ -88,6 +88,7 @@ import { unrefHandle } from './unref-handle.js';
 export async function closeHandle(self: Kernel, proc: Process, h: number): Promise<void> {
     // Validate fd exists
     const handleId = proc.handles.get(h);
+
     if (!handleId) {
         throw new EBADF(`Bad file descriptor: ${h}`);
     }

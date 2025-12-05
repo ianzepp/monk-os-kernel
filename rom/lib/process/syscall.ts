@@ -47,27 +47,34 @@ export function onSignal(handler: SignalHandler): void {
 // ============================================================================
 
 function initTransport(): void {
-    if (initialized) return;
+    if (initialized) {
+        return;
+    }
 
     self.onmessage = (event: MessageEvent) => {
         const msg = event.data;
 
         if (msg.type === 'response') {
             const stream = streams.get(msg.id);
+
             if (stream) {
                 stream.queue.push(msg.result as Response);
                 // Check for terminal ops
                 const op = (msg.result as Response).op;
+
                 if (op === 'ok' || op === 'done' || op === 'error' || op === 'redirect') {
                     stream.done = true;
                 }
+
                 stream.resolve?.();
                 stream.resolve = null;
             }
-        } else if (msg.type === 'signal') {
+        }
+        else if (msg.type === 'signal') {
             if (signalHandler) {
                 signalHandler(msg.signal);
-            } else if (msg.signal === 15) {
+            }
+            else if (msg.signal === 15) {
                 // Default: exit on SIGTERM
                 self.postMessage({
                     type: 'syscall',
@@ -97,6 +104,7 @@ export async function* syscall(name: string, ...args: unknown[]): AsyncIterable<
 
     const id = crypto.randomUUID();
     const stream: StreamState = { queue: [], resolve: null, done: false };
+
     streams.set(id, stream);
 
     let processed = 0;
@@ -108,17 +116,21 @@ export async function* syscall(name: string, ...args: unknown[]): AsyncIterable<
         while (true) {
             // Wait for responses
             while (stream.queue.length === 0 && !stream.done) {
-                await new Promise<void>(r => { stream.resolve = r; });
+                await new Promise<void>(r => {
+                    stream.resolve = r;
+                });
             }
 
             // Yield all queued responses
             while (stream.queue.length > 0) {
                 const response = stream.queue.shift()!;
+
                 yield response;
                 processed++;
 
                 // Time-based ping with progress count
                 const now = Date.now();
+
                 if (now - lastPingTime >= PING_INTERVAL_MS) {
                     self.postMessage({ type: 'stream_ping', id, processed });
                     lastPingTime = now;
@@ -130,9 +142,12 @@ export async function* syscall(name: string, ...args: unknown[]): AsyncIterable<
                 }
             }
 
-            if (stream.done) return;
+            if (stream.done) {
+                return;
+            }
         }
-    } finally {
+    }
+    finally {
         streams.delete(id);
         self.postMessage({ type: 'stream_cancel', id });
     }
@@ -147,12 +162,17 @@ export async function* syscall(name: string, ...args: unknown[]): AsyncIterable<
  */
 export async function call<T>(name: string, ...args: unknown[]): Promise<T> {
     for await (const response of syscall(name, ...args)) {
-        if (response.op === 'ok') return response.data as T;
+        if (response.op === 'ok') {
+            return response.data as T;
+        }
+
         if (response.op === 'error') {
             const err = response.data as { code: string; message: string };
+
             throw new SyscallError(err.code, err.message);
         }
     }
+
     throw new SyscallError('EIO', 'No response');
 }
 
@@ -161,15 +181,27 @@ export async function call<T>(name: string, ...args: unknown[]): Promise<T> {
  */
 export async function collect<T>(name: string, ...args: unknown[]): Promise<T[]> {
     const items: T[] = [];
+
     for await (const response of syscall(name, ...args)) {
-        if (response.op === 'item') items.push(response.data as T);
-        if (response.op === 'done') return items;
+        if (response.op === 'item') {
+            items.push(response.data as T);
+        }
+
+        if (response.op === 'done') {
+            return items;
+        }
+
         if (response.op === 'error') {
             const err = response.data as { code: string; message: string };
+
             throw new SyscallError(err.code, err.message);
         }
-        if (response.op === 'ok') return [response.data as T]; // Single value as array
+
+        if (response.op === 'ok') {
+            return [response.data as T];
+        } // Single value as array
     }
+
     return items;
 }
 
@@ -178,14 +210,27 @@ export async function collect<T>(name: string, ...args: unknown[]): Promise<T[]>
  */
 export async function* iterate<T>(name: string, ...args: unknown[]): AsyncIterable<T> {
     for await (const response of syscall(name, ...args)) {
-        if (response.op === 'item') yield response.data as T;
+        if (response.op === 'item') {
+            yield response.data as T;
+        }
+
         if (response.op === 'data') {
             yield response.bytes as T;
         }
-        if (response.op === 'ok') { yield response.data as T; return; }
-        if (response.op === 'done') return;
+
+        if (response.op === 'ok') {
+            yield response.data as T;
+
+            return;
+        }
+
+        if (response.op === 'done') {
+            return;
+        }
+
         if (response.op === 'error') {
             const err = response.data as { code: string; message: string };
+
             throw new SyscallError(err.code, err.message);
         }
     }

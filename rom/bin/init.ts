@@ -29,6 +29,7 @@ const children = new Map<number, string>(); // pid -> entry name
  */
 async function main(): Promise<void> {
     const pid = await getpid();
+
     await println(`init: starting (pid ${pid})`);
 
     // Ignore SIGTERM - init cannot be killed
@@ -50,9 +51,11 @@ async function reapLoop(): Promise<void> {
         for (const [pid, entry] of children) {
             try {
                 const status = await wait(pid);
+
                 await println(`init: reaped ${entry} (pid ${pid}) with code ${status.code}`);
                 children.delete(pid);
-            } catch (error) {
+            }
+            catch (error) {
                 // ESRCH = No such process (already exited)
                 if (!(error instanceof SyscallError && error.code === 'ESRCH')) {
                     await eprintln(`init: wait error for pid ${pid}: ${error}`);
@@ -65,6 +68,6 @@ async function reapLoop(): Promise<void> {
 }
 
 // Run init
-main().catch(async (err) => {
+main().catch(async err => {
     await eprintln(`init: fatal error: ${err}`);
 });

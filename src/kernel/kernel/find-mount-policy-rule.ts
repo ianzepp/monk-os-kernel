@@ -40,7 +40,7 @@ export function findMountPolicyRule(
     self: Kernel,
     caller: string,
     source: string,
-    target: string
+    target: string,
 ): MountPolicyRule | null {
     // INVARIANT: Rules evaluated in array order, first match wins
     for (const rule of self.mountPolicy.rules) {
@@ -48,5 +48,6 @@ export function findMountPolicyRule(
             return rule;
         }
     }
+
     return null;
 }

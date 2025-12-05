@@ -195,7 +195,7 @@ export function checkAccess(
     acl: ACL,
     caller: string,
     op: string,
-    now: number = Date.now()
+    now: number = Date.now(),
 ): boolean {
     // INV-1: Deny always wins - check first
     if (acl.deny.includes(caller)) {
@@ -243,9 +243,9 @@ export function checkAccessAll(
     acl: ACL,
     caller: string,
     ops: string[],
-    now: number = Date.now()
+    now: number = Date.now(),
 ): boolean {
-    return ops.every((op) => checkAccess(acl, caller, op, now));
+    return ops.every(op => checkAccess(acl, caller, op, now));
 }
 
 // =============================================================================
@@ -310,5 +310,6 @@ export function encodeACL(acl: ACL): Uint8Array {
  */
 export function decodeACL(data: Uint8Array): ACL {
     const json = new TextDecoder().decode(data);
+
     return JSON.parse(json) as ACL;
 }

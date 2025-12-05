@@ -49,11 +49,21 @@ async function main(): Promise<void> {
     const files: string[] = [];
 
     for (const arg of argv) {
-        if (arg === '-e') mustExist = true;
-        else if (arg === '-m') mustExist = false;
-        else if (arg === '-q') quiet = true;
-        else if (arg.startsWith('--relative-to=')) relativeTo = arg.slice(14);
-        else if (!arg.startsWith('-')) files.push(arg);
+        if (arg === '-e') {
+            mustExist = true;
+        }
+        else if (arg === '-m') {
+            mustExist = false;
+        }
+        else if (arg === '-q') {
+            quiet = true;
+        }
+        else if (arg.startsWith('--relative-to=')) {
+            relativeTo = arg.slice(14);
+        }
+        else if (!arg.startsWith('-')) {
+            files.push(arg);
+        }
     }
 
     if (files.length === 0) {
@@ -62,6 +72,7 @@ async function main(): Promise<void> {
     }
 
     const cwd = await getcwd();
+
     if (relativeTo) {
         relativeTo = resolvePath(cwd, relativeTo);
     }
@@ -78,16 +89,20 @@ async function main(): Promise<void> {
             }
 
             let output = resolved;
+
             if (relativeTo) {
                 output = makeRelative(resolved, relativeTo);
             }
 
             await println(output);
-        } catch (err) {
+        }
+        catch (err) {
             if (!quiet) {
                 const msg = err instanceof Error ? err.message : String(err);
+
                 await eprintln(`realpath: ${file}: ${msg}`);
             }
+
             exitCode = 1;
         }
     }
@@ -100,8 +115,12 @@ function makeRelative(path: string, base: string): string {
     const baseParts = base.split('/').filter(p => p);
 
     let common = 0;
+
     while (common < pathParts.length && common < baseParts.length) {
-        if (pathParts[common] !== baseParts[common]) break;
+        if (pathParts[common] !== baseParts[common]) {
+            break;
+        }
+
         common++;
     }
 
@@ -109,15 +128,17 @@ function makeRelative(path: string, base: string): string {
     const downs = pathParts.slice(common);
 
     const parts: string[] = [];
+
     for (let i = 0; i < ups; i++) {
         parts.push('..');
     }
+
     parts.push(...downs);
 
     return parts.join('/') || '.';
 }
 
-main().catch(async (err) => {
+main().catch(async err => {
     await eprintln(`realpath: ${err.message}`);
     await exit(1);
 });

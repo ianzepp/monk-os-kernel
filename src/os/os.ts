@@ -97,7 +97,8 @@ export class OS {
             for (const spec of config.packages) {
                 if (typeof spec === 'string') {
                     this.pkg.queue(spec);
-                } else {
+                }
+                else {
                     this.pkg.queue(spec.name, spec.opts);
                 }
             }
@@ -113,6 +114,7 @@ export class OS {
      */
     alias(name: string, path: string): this {
         this.aliases.set(name, path);
+
         return this;
     }
 
@@ -138,10 +140,12 @@ export class OS {
     install(npmName: string, opts?: PackageOpts): this {
         if (this.booted) {
             throw new EINVAL(
-                'Cannot use os.install() after boot. Use os.pkg.install() instead.'
+                'Cannot use os.install() after boot. Use os.pkg.install() instead.',
             );
         }
+
         this.pkg.queue(npmName, opts);
+
         return this;
     }
 
@@ -171,6 +175,7 @@ export class OS {
      */
     on<K extends OSEventName>(event: K, callback: OSEvents[K]): this {
         this.listeners[event].push(callback);
+
         return this;
     }
 
@@ -183,10 +188,12 @@ export class OS {
             if (path === alias) {
                 return target;
             }
+
             if (path.startsWith(alias + '/')) {
                 return target + path.slice(alias.length);
             }
         }
+
         return path;
     }
 
@@ -252,6 +259,7 @@ export class OS {
         // 10. Boot kernel with init process
         // Default to /bin/true.ts for headless mode (exits immediately)
         const initPath = opts?.main ? this.resolvePath(opts.main) : '/bin/true.ts';
+
         await this.kernel.boot({
             initPath,
             initArgs: [initPath],
@@ -306,7 +314,9 @@ export class OS {
      * Shutdown the OS gracefully.
      */
     async shutdown(): Promise<void> {
-        if (!this.booted) return;
+        if (!this.booted) {
+            return;
+        }
 
         // Emit 'shutdown' event before teardown
         await this.emit('shutdown', this);
@@ -344,6 +354,7 @@ export class OS {
         if (!this.hal) {
             throw new EINVAL('OS not booted');
         }
+
         return this.hal;
     }
 
@@ -354,6 +365,7 @@ export class OS {
         if (!this.vfs) {
             throw new EINVAL('OS not booted');
         }
+
         return this.vfs;
     }
 
@@ -364,6 +376,7 @@ export class OS {
         if (!this.kernel) {
             throw new EINVAL('OS not booted');
         }
+
         return this.kernel;
     }
 
@@ -381,6 +394,7 @@ export class OS {
         if (!this._ems) {
             throw new EINVAL('OS not booted');
         }
+
         return this._ems;
     }
 
@@ -391,6 +405,7 @@ export class OS {
         if (!this._ems) {
             throw new EINVAL('OS not booted');
         }
+
         return this._ems.ops;
     }
 
@@ -402,6 +417,7 @@ export class OS {
         if (!this.kernel?.isBooted()) {
             return new Map();
         }
+
         return this.kernel.getServices();
     }
 
@@ -435,6 +451,7 @@ export class OS {
             if (!storage.url) {
                 throw new EINVAL('PostgreSQL storage requires url');
             }
+
             return {
                 storage: {
                     type: 'postgres',
@@ -453,7 +470,9 @@ export class OS {
      * and general OS operation.
      */
     private async createStandardDirectories(): Promise<void> {
-        if (!this.vfs) return;
+        if (!this.vfs) {
+            return;
+        }
 
         const standardDirs = [
             '/app',      // Application data and state
@@ -470,9 +489,11 @@ export class OS {
         for (const dir of standardDirs) {
             try {
                 await this.vfs.mkdir(dir, 'kernel', { recursive: true });
-            } catch (err) {
+            }
+            catch (err) {
                 // EEXIST is fine - directory already exists
                 const error = err as Error & { code?: string };
+
                 if (error.code !== 'EEXIST') {
                     // Log but don't fail - some dirs may not be creatable
                 }
@@ -491,6 +512,7 @@ export class OS {
         ...args: Parameters<OSEvents[K]>
     ): Promise<void> {
         const callbacks = this.listeners[event] as Array<(...a: Parameters<OSEvents[K]>) => void | Promise<void>>;
+
         for (const callback of callbacks) {
             await callback(...args);
         }

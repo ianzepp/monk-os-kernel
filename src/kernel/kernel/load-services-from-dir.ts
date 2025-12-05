@@ -91,7 +91,9 @@ export async function loadServicesFromDir(self: Kernel, dir: string): Promise<vo
 
     for await (const entry of self.vfs.readdir(dir, 'kernel')) {
         // WHY: Only process .json files (skip other files)
-        if (!entry.name.endsWith('.json')) continue;
+        if (!entry.name.endsWith('.json')) {
+            continue;
+        }
 
         const serviceName = entry.name.replace(/\.json$/, '');
         const path = `${dir}/${entry.name}`;
@@ -117,7 +119,11 @@ export async function loadServicesFromDir(self: Kernel, dir: string): Promise<vo
             // Read in 64KB chunks until EOF
             while (true) {
                 const chunk = await handle.read(65536);
-                if (chunk.length === 0) break;
+
+                if (chunk.length === 0) {
+                    break;
+                }
+
                 chunks.push(chunk);
             }
 
@@ -131,6 +137,7 @@ export async function loadServicesFromDir(self: Kernel, dir: string): Promise<vo
             const total = chunks.reduce((sum, c) => sum + c.length, 0);
             const combined = new Uint8Array(total);
             let offset = 0;
+
             for (const chunk of chunks) {
                 combined.set(chunk, offset);
                 offset += chunk.length;
@@ -145,9 +152,11 @@ export async function loadServicesFromDir(self: Kernel, dir: string): Promise<vo
 
             // WHY: Fail early if handler doesn't exist (before activation)
             const handlerPath = def.handler.endsWith('.ts') ? def.handler : def.handler + '.ts';
+
             try {
                 await self.vfs.stat(handlerPath, 'kernel');
-            } catch {
+            }
+            catch {
                 logServiceError(self, serviceName, 'unknown handler', def.handler);
                 continue;
             }
@@ -161,8 +170,8 @@ export async function loadServicesFromDir(self: Kernel, dir: string): Promise<vo
 
             // WHY: Activation spawns handler or starts activation loop
             await activateService(self, serviceName, def);
-
-        } catch (err) {
+        }
+        catch (err) {
             // -------------------------------------------------------------------------
             // Error handling (per-service, non-fatal)
             // -------------------------------------------------------------------------

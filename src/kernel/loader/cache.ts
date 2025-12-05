@@ -167,11 +167,13 @@ export class ModuleCache {
      */
     get(path: string): CachedModule | undefined {
         const mod = this.cache.get(path);
+
         if (mod) {
             // Update LRU timestamp on hit
             // WHY: Prevents recently accessed modules from being evicted
             mod.usedAt = Date.now();
         }
+
         return mod;
     }
 
@@ -194,6 +196,7 @@ export class ModuleCache {
         // Remove old version if exists
         // WHY: Update invalidation requires replacing existing entry
         const old = this.cache.get(path);
+
         if (old) {
             this.totalSize -= old.js.length;
         }
@@ -217,6 +220,7 @@ export class ModuleCache {
      */
     invalidate(path: string): void {
         const mod = this.cache.get(path);
+
         if (mod) {
             this.totalSize -= mod.js.length;
             this.cache.delete(path);
@@ -326,6 +330,7 @@ export class ModuleCache {
         // Remove it
         if (oldest) {
             const mod = this.cache.get(oldest)!;
+
             this.totalSize -= mod.js.length;
             this.cache.delete(oldest);
         }

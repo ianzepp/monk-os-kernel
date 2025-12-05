@@ -343,6 +343,7 @@ class RangeLock {
     private overlaps(a: { offset: number; size: number }, b: { offset: number; size: number }): boolean {
         const aEnd = a.offset + a.size;
         const bEnd = b.offset + b.size;
+
         return a.offset < bEnd && b.offset < aEnd;
     }
 
@@ -375,9 +376,9 @@ class RangeLock {
         const range = { offset, size, resolve: () => {} };
 
         // RACE FIX: Loop until no conflicts (handles spurious wakeups)
-        while (this.locks.some((lock) => this.overlaps(lock, range))) {
+        while (this.locks.some(lock => this.overlaps(lock, range))) {
             // Wait for release
-            await new Promise<void>((resolve) => {
+            await new Promise<void>(resolve => {
                 range.resolve = resolve;
                 this.waiters.push(range);
             });
@@ -406,7 +407,8 @@ class RangeLock {
      */
     release(offset: number, size: number): void {
         // Remove from locks
-        const idx = this.locks.findIndex((l) => l.offset === offset && l.size === size);
+        const idx = this.locks.findIndex(l => l.offset === offset && l.size === size);
+
         if (idx !== -1) {
             this.locks.splice(idx, 1);
         }
@@ -414,9 +416,10 @@ class RangeLock {
         // Wake waiters that might now be able to proceed
         // WHY: Selective wakeup reduces spurious wakeups
         const toWake = this.waiters.filter(
-            (w) => !this.locks.some((lock) => this.overlaps(lock, w))
+            w => !this.locks.some(lock => this.overlaps(lock, w)),
         );
-        this.waiters = this.waiters.filter((w) => !toWake.includes(w));
+
+        this.waiters = this.waiters.filter(w => !toWake.includes(w));
         for (const w of toWake) {
             w.resolve();
         }
@@ -520,11 +523,13 @@ export class BunBlockDevice implements BlockDevice {
 
         // Check if file exists and get size
         const exists = await file.exists();
+
         if (!exists) {
             return new Uint8Array(0);
         }
 
         const fileSize = file.size;
+
         if (offset >= fileSize) {
             return new Uint8Array(0);
         }
@@ -533,6 +538,7 @@ export class BunBlockDevice implements BlockDevice {
         const end = Math.min(offset + size, fileSize);
         const slice = file.slice(offset, end);
         const buffer = await slice.arrayBuffer();
+
         return new Uint8Array(buffer);
     }
 
@@ -571,6 +577,7 @@ export class BunBlockDevice implements BlockDevice {
             // Simple case: new file, write from start
             // WHY: Bun.write() is atomic for whole-file writes
             await Bun.write(this.path, data);
+
             return;
         }
 
@@ -578,21 +585,26 @@ export class BunBlockDevice implements BlockDevice {
         // RACE FIX: NOT FIXABLE - This sequence is inherently non-atomic
         // Caller must implement journaling if crash consistency is needed
         let existing: Uint8Array;
+
         if (exists) {
             const buffer = await file.arrayBuffer();
+
             existing = new Uint8Array(buffer);
-        } else {
+        }
+        else {
             existing = new Uint8Array(0);
         }
 
         // Extend buffer if writing past current end
         const requiredSize = offset + data.length;
         let result: Uint8Array;
+
         if (requiredSize > existing.length) {
             result = new Uint8Array(requiredSize);
             result.set(existing);
             // WHY: Gap is zero-filled automatically (Uint8Array initializes to zeros)
-        } else {
+        }
+        else {
             result = existing;
         }
 
@@ -776,6 +788,7 @@ export class MemoryBlockDevice implements BlockDevice {
         }
 
         const end = Math.min(offset + size, this.buffer.length);
+
         // WHY: Return a copy to prevent external mutation of internal state
         return this.buffer.slice(offset, end);
     }
@@ -807,10 +820,13 @@ export class MemoryBlockDevice implements BlockDevice {
         // WHY: Exponential growth amortizes allocation cost
         if (requiredSize > this.buffer.length) {
             let newSize = this.buffer.length;
+
             while (newSize < requiredSize) {
                 newSize *= 2;
             }
+
             const newBuffer = new Uint8Array(newSize);
+
             newBuffer.set(this.buffer);
             this.buffer = newBuffer;
             // RACE FIX: Atomic within event loop (no await points)

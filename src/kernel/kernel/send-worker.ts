@@ -35,7 +35,7 @@ export async function workerSend(
     self: Kernel,
     proc: Process,
     workerId: string,
-    msg: unknown
+    msg: unknown,
 ): Promise<void> {
     // Step 1: Validate ownership and get worker
     const worker = getLeasedWorker(self, proc, workerId);

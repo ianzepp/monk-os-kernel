@@ -31,7 +31,7 @@ const argSpecs = {
 async function listDirectory(
     path: string,
     options: { long: boolean; all: boolean; one: boolean },
-    showPath: boolean
+    showPath: boolean,
 ): Promise<number> {
     try {
         if (showPath) {
@@ -52,31 +52,39 @@ async function listDirectory(
             await println(`total ${filtered.length}`);
             for (const name of filtered) {
                 const entryPath = path === '/' ? `/${name}` : `${path}/${name}`;
+
                 try {
                     const info = await stat(entryPath);
                     const mode = formatMode(info.model === 'folder' ? 'directory' : 'file', 0o755);
                     const size = formatSize(info.size, false);
                     const date = formatDate(new Date(info.mtime));
                     const suffix = info.model === 'folder' ? '/' : '';
+
                     await println(`${mode}  ${size}  ${date}  ${name}${suffix}`);
-                } catch {
+                }
+                catch {
                     // If stat fails, just show name
                     await println(`??????????        ?           ${name}`);
                 }
             }
-        } else if (options.one) {
+        }
+        else if (options.one) {
             for (const name of filtered) {
                 await println(name);
             }
-        } else {
+        }
+        else {
             // Default: space-separated
             await println(filtered.join('  '));
         }
 
         return 0;
-    } catch (err) {
+    }
+    catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         await eprintln(`ls: ${path}: ${msg}`);
+
         return 1;
     }
 }
@@ -89,6 +97,7 @@ async function main(): Promise<void> {
         for (const err of parsed.errors) {
             await eprintln(`ls: ${err}`);
         }
+
         await exit(1);
     }
 
@@ -108,11 +117,17 @@ async function main(): Promise<void> {
 
     for (let i = 0; i < targets.length; i++) {
         const target = targets[i];
-        if (target === undefined) continue;
+
+        if (target === undefined) {
+            continue;
+        }
 
         const resolved = resolvePath(cwd, target);
         const code = await listDirectory(resolved, options, showPaths);
-        if (code !== 0) exitCode = code;
+
+        if (code !== 0) {
+            exitCode = code;
+        }
 
         if (i < targets.length - 1) {
             await println('');
@@ -122,7 +137,7 @@ async function main(): Promise<void> {
     await exit(exitCode);
 }
 
-main().catch(async (err) => {
+main().catch(async err => {
     await eprintln(`ls: ${err.message}`);
     await exit(1);
 });

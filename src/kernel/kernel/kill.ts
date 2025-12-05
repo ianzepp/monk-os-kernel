@@ -115,7 +115,7 @@ export function kill(
     self: Kernel,
     caller: Process,
     targetPid: number,
-    signal: number = SIGTERM
+    signal: number = SIGTERM,
 ): void {
     // =========================================================================
     // STEP 1: Resolve PID to process UUID
@@ -124,6 +124,7 @@ export function kill(
     // WHY: PID is in caller's namespace, need global UUID
     // THROWS: ESRCH if PID not found in caller's children
     const target = self.processes.resolvePid(caller, targetPid);
+
     if (!target) {
         throw new ESRCH(`No such process: ${targetPid}`);
     }
@@ -137,6 +138,7 @@ export function kill(
     // DENIED: All other combinations (EPERM)
     if (target.parent !== caller.id && target.id !== caller.id) {
         const init = self.processes.getInit();
+
         if (caller !== init) {
             throw new EPERM(`Cannot signal process ${targetPid}`);
         }
@@ -156,8 +158,8 @@ export function kill(
         // WHY IMMEDIATE: SIGKILL cannot be caught or ignored
         // EXIT CODE: 128 + SIGKILL (standard convention)
         forceExit(self, target, 128 + SIGKILL);
-
-    } else if (signal === SIGTERM) {
+    }
+    else if (signal === SIGTERM) {
         // ---------------------------------------------------------------------
         // SIGTERM: Graceful termination with grace period
         // ---------------------------------------------------------------------

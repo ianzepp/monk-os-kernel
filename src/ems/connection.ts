@@ -130,6 +130,7 @@ async function loadSchemaAsync(fileDevice: FileDevice): Promise<string> {
         // Cache the Promise immediately - all concurrent callers share this read
         cachedSchemaPromise = fileDevice.readText(SCHEMA_PATH);
     }
+
     return cachedSchemaPromise;
 }
 
@@ -217,8 +218,10 @@ export class DatabaseConnection {
                     return rows;
                 case 'error': {
                     const err = response.data as { code: string; message: string };
+
                     throw new EIO(`Query failed [${err.code}]: ${err.message}`);
                 }
+
                 default:
                     // SAFETY: Ignore unexpected response types (progress, event, etc.)
                     // These should not occur in SQLite channel but don't break if they do.
@@ -241,6 +244,7 @@ export class DatabaseConnection {
      */
     async queryOne<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<T | null> {
         const rows = await this.query<T>(sql, params);
+
         return rows[0] ?? null;
     }
 
@@ -266,12 +270,16 @@ export class DatabaseConnection {
             switch (response.op) {
                 case 'ok': {
                     const data = response.data as { affectedRows: number };
+
                     return data.affectedRows;
                 }
+
                 case 'error': {
                     const err = response.data as { code: string; message: string };
+
                     throw new EIO(`Execute failed [${err.code}]: ${err.message}`);
                 }
+
                 default:
                     // SAFETY: Ignore unexpected response types (progress, event, etc.)
                     break;
@@ -302,8 +310,10 @@ export class DatabaseConnection {
                     return;
                 case 'error': {
                     const err = response.data as { code: string; message: string };
+
                     throw new EIO(`Exec failed [${err.code}]: ${err.message}`);
                 }
+
                 default:
                     // SAFETY: Ignore unexpected response types (progress, event, etc.)
                     break;
@@ -340,7 +350,7 @@ export class DatabaseConnection {
      * @throws EIO on transaction failure (already rolled back by channel)
      */
     async transaction(
-        statements: Array<{ sql: string; params?: unknown[] }>
+        statements: Array<{ sql: string; params?: unknown[] }>,
     ): Promise<number[]> {
         for await (const response of this.channel.handle({
             op: 'transaction',
@@ -349,12 +359,16 @@ export class DatabaseConnection {
             switch (response.op) {
                 case 'ok': {
                     const data = response.data as { results: number[] };
+
                     return data.results;
                 }
+
                 case 'error': {
                     const err = response.data as { code: string; message: string };
+
                     throw new EIO(`Transaction failed [${err.code}]: ${err.message}`);
                 }
+
                 default:
                     // SAFETY: Ignore unexpected response types
                     break;
@@ -407,9 +421,10 @@ export class DatabaseConnection {
  */
 export async function createDatabaseConnection(
     channelDevice: ChannelDevice,
-    path: string = DEFAULT_PATH
+    path: string = DEFAULT_PATH,
 ): Promise<DatabaseConnection> {
     const channel = await channelDevice.open('sqlite', path);
+
     return new DatabaseConnection(channel, path);
 }
 
@@ -441,12 +456,13 @@ export async function createDatabaseConnection(
 export async function createDatabase(
     channelDevice: ChannelDevice,
     fileDevice: FileDevice,
-    path: string = DEFAULT_PATH
+    path: string = DEFAULT_PATH,
 ): Promise<DatabaseConnection> {
     const conn = await createDatabaseConnection(channelDevice, path);
 
     // Load and execute schema via HAL
     const schema = await loadSchemaAsync(fileDevice);
+
     await conn.exec(schema);
 
     return conn;
@@ -466,10 +482,12 @@ export async function createDatabase(
 export async function createDatabaseWithSchema(
     channelDevice: ChannelDevice,
     path: string,
-    schema: string
+    schema: string,
 ): Promise<DatabaseConnection> {
     const conn = await createDatabaseConnection(channelDevice, path);
+
     await conn.exec(schema);
+
     return conn;
 }
 

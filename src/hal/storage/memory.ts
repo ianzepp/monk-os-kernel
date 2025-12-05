@@ -24,25 +24,29 @@ export class MemoryStorageEngine implements StorageEngine {
 
     async get(key: string): Promise<Uint8Array | null> {
         const entry = this.data.get(key);
+
         return entry?.value ?? null;
     }
 
     async put(key: string, value: Uint8Array): Promise<void> {
         const timestamp = Date.now();
+
         this.data.set(key, { value, mtime: timestamp });
         this.emit({ key, op: 'put', value, timestamp });
     }
 
     async delete(key: string): Promise<void> {
         const timestamp = Date.now();
+
         this.data.delete(key);
         this.emit({ key, op: 'delete', timestamp });
     }
 
     async *list(prefix: string): AsyncIterable<string> {
         const keys = Array.from(this.data.keys())
-            .filter((k) => k.startsWith(prefix))
+            .filter(k => k.startsWith(prefix))
             .sort();
+
         for (const key of keys) {
             yield key;
         }
@@ -54,7 +58,11 @@ export class MemoryStorageEngine implements StorageEngine {
 
     async stat(key: string): Promise<StorageStat | null> {
         const entry = this.data.get(key);
-        if (!entry) return null;
+
+        if (!entry) {
+            return null;
+        }
+
         return { size: entry.value.length, mtime: entry.mtime };
     }
 
@@ -81,19 +89,22 @@ export class MemoryStorageEngine implements StorageEngine {
         if (!this.watchers.has(pattern)) {
             this.watchers.set(pattern, new Set());
         }
+
         this.watchers.get(pattern)!.add(callback);
 
         try {
             while (true) {
                 if (queue.length > 0) {
                     yield queue.shift()!;
-                } else {
-                    await new Promise<void>((r) => {
+                }
+                else {
+                    await new Promise<void>(r => {
                         resolve = r;
                     });
                 }
             }
-        } finally {
+        }
+        finally {
             this.watchers.get(pattern)?.delete(callback);
             if (this.watchers.get(pattern)?.size === 0) {
                 this.watchers.delete(pattern);
@@ -116,6 +127,7 @@ export class MemoryStorageEngine implements StorageEngine {
             .replace(/\*\*/g, '<<<DOUBLESTAR>>>')
             .replace(/\*/g, '[^/]*')
             .replace(/<<<DOUBLESTAR>>>/g, '.*');
+
         return new RegExp(`^${regex}$`).test(key);
     }
 
@@ -160,10 +172,12 @@ class MemoryTransaction implements Transaction {
         // Check pending operations first
         for (let i = this.operations.length - 1; i >= 0; i--) {
             const op = this.operations[i]!;
+
             if (op.key === key) {
                 return op.type === 'put' ? op.value! : null;
             }
         }
+
         return this.engine.get(key);
     }
 
@@ -176,20 +190,27 @@ class MemoryTransaction implements Transaction {
     }
 
     async commit(): Promise<void> {
-        if (this.committed) return;
+        if (this.committed) {
+            return;
+        }
+
         this.committed = true;
 
         for (const op of this.operations) {
             if (op.type === 'put') {
                 await this.engine.put(op.key, op.value!);
-            } else {
+            }
+            else {
                 await this.engine.delete(op.key);
             }
         }
     }
 
     async rollback(): Promise<void> {
-        if (this.committed || this.rolledBack) return;
+        if (this.committed || this.rolledBack) {
+            return;
+        }
+
         this.rolledBack = true;
         this.operations = [];
     }

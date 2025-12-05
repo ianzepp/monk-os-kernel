@@ -63,10 +63,11 @@ export function createEmsSyscalls(entityOps: EntityOps): SyscallRegistry {
         async *'ems:select'(
             _proc: Process,
             model: unknown,
-            filter: unknown
+            filter: unknown,
         ): AsyncIterable<Response> {
             if (typeof model !== 'string') {
                 yield respond.error('EINVAL', 'model must be a string');
+
                 return;
             }
 
@@ -78,9 +79,12 @@ export function createEmsSyscalls(entityOps: EntityOps): SyscallRegistry {
                 for await (const record of entityOps.selectAny(model, filterData)) {
                     yield respond.item(record);
                 }
+
                 yield respond.done();
-            } catch (err) {
+            }
+            catch (err) {
                 const msg = err instanceof Error ? err.message : String(err);
+
                 yield respond.error('EIO', msg);
             }
         },
@@ -100,25 +104,32 @@ export function createEmsSyscalls(entityOps: EntityOps): SyscallRegistry {
         async *'ems:create'(
             _proc: Process,
             model: unknown,
-            fields: unknown
+            fields: unknown,
         ): AsyncIterable<Response> {
             if (typeof model !== 'string') {
                 yield respond.error('EINVAL', 'model must be a string');
+
                 return;
             }
+
             if (typeof fields !== 'object' || fields === null) {
                 yield respond.error('EINVAL', 'fields must be an object');
+
                 return;
             }
 
             try {
                 for await (const created of entityOps.createAll(model, [fields as Record<string, unknown>])) {
                     yield respond.ok(created);
+
                     return;
                 }
+
                 yield respond.error('EIO', 'No record created');
-            } catch (err) {
+            }
+            catch (err) {
                 const msg = err instanceof Error ? err.message : String(err);
+
                 yield respond.error('EIO', msg);
             }
         },
@@ -136,30 +147,40 @@ export function createEmsSyscalls(entityOps: EntityOps): SyscallRegistry {
             _proc: Process,
             model: unknown,
             id: unknown,
-            changes: unknown
+            changes: unknown,
         ): AsyncIterable<Response> {
             if (typeof model !== 'string') {
                 yield respond.error('EINVAL', 'model must be a string');
+
                 return;
             }
+
             if (typeof id !== 'string') {
                 yield respond.error('EINVAL', 'id must be a string');
+
                 return;
             }
+
             if (typeof changes !== 'object' || changes === null) {
                 yield respond.error('EINVAL', 'changes must be an object');
+
                 return;
             }
 
             try {
                 const updates = [{ id, changes: changes as Partial<EntityRecord> }];
+
                 for await (const updated of entityOps.updateAll(model, updates)) {
                     yield respond.ok(updated);
+
                     return;
                 }
+
                 yield respond.error('ENOENT', `Entity not found: ${id}`);
-            } catch (err) {
+            }
+            catch (err) {
                 const msg = err instanceof Error ? err.message : String(err);
+
                 yield respond.error('EIO', msg);
             }
         },
@@ -175,25 +196,32 @@ export function createEmsSyscalls(entityOps: EntityOps): SyscallRegistry {
         async *'ems:delete'(
             _proc: Process,
             model: unknown,
-            id: unknown
+            id: unknown,
         ): AsyncIterable<Response> {
             if (typeof model !== 'string') {
                 yield respond.error('EINVAL', 'model must be a string');
+
                 return;
             }
+
             if (typeof id !== 'string') {
                 yield respond.error('EINVAL', 'id must be a string');
+
                 return;
             }
 
             try {
                 for await (const deleted of entityOps.deleteIds(model, [id])) {
                     yield respond.ok(deleted);
+
                     return;
                 }
+
                 yield respond.error('ENOENT', `Entity not found: ${id}`);
-            } catch (err) {
+            }
+            catch (err) {
                 const msg = err instanceof Error ? err.message : String(err);
+
                 yield respond.error('EIO', msg);
             }
         },
@@ -209,25 +237,32 @@ export function createEmsSyscalls(entityOps: EntityOps): SyscallRegistry {
         async *'ems:revert'(
             _proc: Process,
             model: unknown,
-            id: unknown
+            id: unknown,
         ): AsyncIterable<Response> {
             if (typeof model !== 'string') {
                 yield respond.error('EINVAL', 'model must be a string');
+
                 return;
             }
+
             if (typeof id !== 'string') {
                 yield respond.error('EINVAL', 'id must be a string');
+
                 return;
             }
 
             try {
                 for await (const reverted of entityOps.revertAll(model, [{ id }])) {
                     yield respond.ok(reverted);
+
                     return;
                 }
+
                 yield respond.error('ENOENT', `Entity not found: ${id}`);
-            } catch (err) {
+            }
+            catch (err) {
                 const msg = err instanceof Error ? err.message : String(err);
+
                 yield respond.error('EIO', msg);
             }
         },
@@ -243,25 +278,32 @@ export function createEmsSyscalls(entityOps: EntityOps): SyscallRegistry {
         async *'ems:expire'(
             _proc: Process,
             model: unknown,
-            id: unknown
+            id: unknown,
         ): AsyncIterable<Response> {
             if (typeof model !== 'string') {
                 yield respond.error('EINVAL', 'model must be a string');
+
                 return;
             }
+
             if (typeof id !== 'string') {
                 yield respond.error('EINVAL', 'id must be a string');
+
                 return;
             }
 
             try {
                 for await (const expired of entityOps.expireAll(model, [{ id }])) {
                     yield respond.ok(expired);
+
                     return;
                 }
+
                 yield respond.error('ENOENT', `Entity not found: ${id}`);
-            } catch (err) {
+            }
+            catch (err) {
                 const msg = err instanceof Error ? err.message : String(err);
+
                 yield respond.error('EIO', msg);
             }
         },

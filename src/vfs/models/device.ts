@@ -230,14 +230,16 @@ export class DeviceModel extends PosixModel {
         ctx: ModelContext,
         id: string,
         flags: OpenFlags,
-        _opts?: OpenOptions
+        _opts?: OpenOptions,
     ): Promise<FileHandle> {
         const data = await ctx.hal.storage.get(`${ENTITY_PREFIX}${id}`);
+
         if (!data) {
             throw new ENOENT(`Device not found: ${id}`);
         }
 
         const entity = decodeEntity<ModelStat & { device: DeviceType }>(data);
+
         return new ByteDeviceHandle(ctx, id, entity.device, flags);
     }
 
@@ -255,11 +257,13 @@ export class DeviceModel extends PosixModel {
      */
     async stat(ctx: ModelContext, id: string): Promise<ModelStat> {
         const data = await ctx.hal.storage.get(`${ENTITY_PREFIX}${id}`);
+
         if (!data) {
             throw new ENOENT(`Device not found: ${id}`);
         }
 
         const entity = decodeEntity<ModelStat>(data);
+
         return {
             ...entity,
             size: 0, // Devices have no fixed size
@@ -280,6 +284,7 @@ export class DeviceModel extends PosixModel {
      */
     async setstat(ctx: ModelContext, id: string, fields: Partial<ModelStat>): Promise<void> {
         const data = await ctx.hal.storage.get(`${ENTITY_PREFIX}${id}`);
+
         if (!data) {
             throw new ENOENT(`Device not found: ${id}`);
         }
@@ -288,8 +293,13 @@ export class DeviceModel extends PosixModel {
 
         // Only allow updating name/parent (for move/rename)
         // WHY: device type is fundamental to behavior, shouldn't change
-        if (fields.name !== undefined) entity.name = fields.name;
-        if (fields.parent !== undefined) entity.parent = fields.parent;
+        if (fields.name !== undefined) {
+            entity.name = fields.name;
+        }
+
+        if (fields.parent !== undefined) {
+            entity.parent = fields.parent;
+        }
 
         entity.mtime = ctx.hal.clock.now();
 
@@ -309,7 +319,7 @@ export class DeviceModel extends PosixModel {
         ctx: ModelContext,
         parent: string,
         name: string,
-        fields?: Partial<ModelStat> & { device?: DeviceType }
+        fields?: Partial<ModelStat> & { device?: DeviceType },
     ): Promise<string> {
         const id = ctx.hal.entropy.uuid();
         const now = ctx.hal.clock.now();
@@ -340,6 +350,7 @@ export class DeviceModel extends PosixModel {
      */
     async unlink(ctx: ModelContext, id: string): Promise<void> {
         const data = await ctx.hal.storage.get(`${ENTITY_PREFIX}${id}`);
+
         if (!data) {
             throw new ENOENT(`Device not found: ${id}`);
         }
@@ -569,20 +580,25 @@ class ByteDeviceHandle implements FileHandle {
      * push and shift are atomic operations.
      */
     private async pumpReader(): Promise<void> {
-        if (!this.streamReader) return;
+        if (!this.streamReader) {
+            return;
+        }
 
         try {
             while (true) {
                 const { value, done } = await this.streamReader.read();
+
                 if (done) {
                     this.readerDone = true;
                     break;
                 }
+
                 if (value) {
                     this.pendingChunks.push(value);
                 }
             }
-        } catch {
+        }
+        catch {
             // Stream error - mark as done
             this.readerDone = true;
         }
@@ -614,6 +630,7 @@ class ByteDeviceHandle implements FileHandle {
         if (this._closed) {
             throw new EBADF('Handle closed');
         }
+
         if (!this.flags.read) {
             throw new EACCES('Handle not opened for reading');
         }
@@ -672,15 +689,19 @@ class ByteDeviceHandle implements FileHandle {
         // First check buffer for leftover data
         if (this.consoleBuffer.length === 0) {
             const chunk = await this.ctx.hal.console.read();
+
             if (chunk.length === 0) {
                 return new Uint8Array(0); // EOF
             }
+
             this.consoleBuffer = chunk;
         }
 
         // Return requested size from buffer
         const toReturn = this.consoleBuffer.slice(0, size);
+
         this.consoleBuffer = this.consoleBuffer.slice(toReturn.length);
+
         return toReturn;
     }
 
@@ -691,6 +712,7 @@ class ByteDeviceHandle implements FileHandle {
      */
     private readClock(): Uint8Array {
         const now = this.ctx.hal.clock.now();
+
         return new TextEncoder().encode(now.toString() + '\n');
     }
 
@@ -707,6 +729,7 @@ class ByteDeviceHandle implements FileHandle {
         if (this.pendingChunks.length > 0) {
             return this.pendingChunks.shift()!;
         }
+
         // No output available yet
         return new Uint8Array(0);
     }
@@ -736,6 +759,7 @@ class ByteDeviceHandle implements FileHandle {
         if (this._closed) {
             throw new EBADF('Handle closed');
         }
+
         if (!this.flags.write) {
             throw new EACCES('Handle not opened for writing');
         }
@@ -753,6 +777,7 @@ class ByteDeviceHandle implements FileHandle {
             case 'console':
                 // Write to stdout
                 this.ctx.hal.console.write(data);
+
                 return data.length;
 
             case 'clock':
@@ -763,6 +788,7 @@ class ByteDeviceHandle implements FileHandle {
             case 'deflate':
             case 'inflate':
                 await this.writeCompressionInput(data);
+
                 return data.length;
 
             default:
@@ -780,6 +806,7 @@ class ByteDeviceHandle implements FileHandle {
         if (!this.streamWriter) {
             throw new EINVAL('Compression stream not initialized');
         }
+
         // Cast required for TypeScript's strict ArrayBuffer typing
         await this.streamWriter.write(data as Uint8Array<ArrayBuffer>);
     }
@@ -845,14 +872,18 @@ class ByteDeviceHandle implements FileHandle {
      * Safe to call multiple times.
      */
     async close(): Promise<void> {
-        if (this._closed) return;
+        if (this._closed) {
+            return;
+        }
+
         this._closed = true;
 
         // Close compression stream writer to flush remaining data
         if (this.streamWriter) {
             try {
                 await this.streamWriter.close();
-            } catch {
+            }
+            catch {
                 // Ignore errors on close (may already be closed)
             }
         }
@@ -861,7 +892,8 @@ class ByteDeviceHandle implements FileHandle {
         if (this.streamReader && !this.readerDone) {
             try {
                 await this.streamReader.cancel();
-            } catch {
+            }
+            catch {
                 // Ignore errors on cancel
             }
         }
@@ -901,7 +933,7 @@ export interface CreatedDevice {
 
 export async function initStandardDevices(
     ctx: ModelContext,
-    devFolderId: string
+    devFolderId: string,
 ): Promise<CreatedDevice[]> {
     const deviceModel = new DeviceModel();
 
@@ -936,6 +968,7 @@ export async function initStandardDevices(
             owner: ctx.caller,
             device,
         } as ModelStat & { device: DeviceType });
+
         created.push({ name, id });
     }
 

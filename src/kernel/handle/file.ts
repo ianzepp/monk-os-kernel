@@ -232,6 +232,7 @@ export class FileHandleAdapter implements Handle {
         // RACE FIX: Check closure state before dispatch
         if (this._closed) {
             yield respond.error('EBADF', 'Handle closed');
+
             return;
         }
 
@@ -305,6 +306,7 @@ export class FileHandleAdapter implements Handle {
                 totalYielded += chunk.length;
                 if (totalYielded > MAX_STREAM_BYTES) {
                     yield respond.error('EFBIG', `Read stream exceeded ${MAX_STREAM_BYTES} bytes`);
+
                     return;
                 }
 
@@ -317,7 +319,8 @@ export class FileHandleAdapter implements Handle {
             }
 
             yield respond.done();
-        } catch (err) {
+        }
+        catch (err) {
             // Catch VFS errors (EBADF, EACCES, etc.) and convert to EIO
             yield respond.error('EIO', (err as Error).message);
         }
@@ -356,28 +359,38 @@ export class FileHandleAdapter implements Handle {
             if ('data' in data && (data as { data: unknown }).data instanceof Uint8Array) {
                 // From write() syscall: { data: Uint8Array }
                 bytes = (data as { data: Uint8Array }).data;
-            } else if ('op' in data) {
+            }
+            else if ('op' in data) {
                 // From send() syscall: Response object (for redirected stdout)
                 const response = data as Response;
+
                 if (response.op === 'item') {
                     // Text item - extract and encode
                     const itemData = response.data as { text?: string } | undefined;
                     const text = itemData?.text ?? '';
+
                     bytes = this.encoder.encode(text);
-                } else if (response.op === 'data') {
+                }
+                else if (response.op === 'data') {
                     // Binary data - use directly
                     bytes = response.bytes ?? new Uint8Array(0);
-                } else {
+                }
+                else {
                     // done, ok, error - nothing to write
                     yield respond.ok({ written: 0 });
+
                     return;
                 }
-            } else {
+            }
+            else {
                 yield respond.error('EINVAL', 'Invalid data format for send');
+
                 return;
             }
-        } else {
+        }
+        else {
             yield respond.error('EINVAL', 'data must be object');
+
             return;
         }
 
@@ -385,8 +398,10 @@ export class FileHandleAdapter implements Handle {
             // RACE FIX: VFS handle may close during write
             // The write() call will throw EBADF if so
             const written = await this.handle.write(bytes);
+
             yield respond.ok({ written });
-        } catch (err) {
+        }
+        catch (err) {
             // Catch VFS errors (EBADF, EACCES, ENOSPC, etc.) and convert to EIO
             yield respond.error('EIO', (err as Error).message);
         }
@@ -410,6 +425,7 @@ export class FileHandleAdapter implements Handle {
     private async *seek(offset: number, whence?: SeekWhence): AsyncIterable<Response> {
         if (typeof offset !== 'number') {
             yield respond.error('EINVAL', 'offset must be a number');
+
             return;
         }
 
@@ -417,8 +433,10 @@ export class FileHandleAdapter implements Handle {
             // RACE FIX: VFS handle may close during seek
             // The seek() call will throw EBADF if so
             const pos = await this.handle.seek(offset, whence ?? 'start');
+
             yield respond.ok(pos);
-        } catch (err) {
+        }
+        catch (err) {
             // Catch VFS errors (EBADF, EINVAL) and convert to EIO
             yield respond.error('EIO', (err as Error).message);
         }
@@ -445,7 +463,8 @@ export class FileHandleAdapter implements Handle {
                 path: this.handle.path,
                 // Additional stat info would come from VFS
             });
-        } catch (err) {
+        }
+        catch (err) {
             // Catch any unexpected errors
             yield respond.error('EIO', (err as Error).message);
         }
@@ -472,7 +491,10 @@ export class FileHandleAdapter implements Handle {
      * close, subsequent calls no-op. No lock needed.
      */
     async close(): Promise<void> {
-        if (this._closed) return;
+        if (this._closed) {
+            return;
+        }
+
         this._closed = true;
         await this.handle.close();
     }

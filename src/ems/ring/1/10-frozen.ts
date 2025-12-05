@@ -95,7 +95,7 @@ export class Frozen extends BaseObserver {
 
         if (model.isFrozen) {
             throw new EOBSFROZEN(
-                `Model '${model.modelName}' is frozen and cannot be modified`
+                `Model '${model.modelName}' is frozen and cannot be modified`,
             );
         }
     }

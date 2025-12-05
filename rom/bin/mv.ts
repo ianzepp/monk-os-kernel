@@ -45,10 +45,13 @@ async function main(): Promise<void> {
 
     // Check if dest is a directory
     let destIsDir = false;
+
     try {
         const destStat = await stat(dest);
+
         destIsDir = destStat.model === 'folder';
-    } catch {
+    }
+    catch {
         // Dest doesn't exist
     }
 
@@ -67,13 +70,16 @@ async function main(): Promise<void> {
         if (destIsDir) {
             // Move into directory with same name
             const srcName = src.split('/').pop() || 'file';
+
             finalDest = dest + '/' + srcName;
         }
 
         try {
             await rename(src, finalDest);
-        } catch (err) {
+        }
+        catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
+
             await eprintln(`mv: ${srcArg}: ${msg}`);
             exitCode = 1;
         }
@@ -82,7 +88,7 @@ async function main(): Promise<void> {
     await exit(exitCode);
 }
 
-main().catch(async (err) => {
+main().catch(async err => {
     await eprintln(`mv: ${err.message}`);
     await exit(1);
 });

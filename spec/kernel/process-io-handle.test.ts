@@ -54,9 +54,11 @@ class MockHandle implements Handle {
  */
 async function collectResponses(iterable: AsyncIterable<Response>): Promise<Response[]> {
     const results: Response[] = [];
+
     for await (const response of iterable) {
         results.push(response);
     }
+
     return results;
 }
 
@@ -179,12 +181,13 @@ describe('ProcessIOHandle', () => {
     describe('read operation', () => {
         it('should forward read to source', async () => {
             const source = new MockHandle('source');
+
             source.setResponses([respond.item(new Uint8Array([1, 2, 3])), respond.done()]);
 
             const handle = new ProcessIOHandle('test-id', 'test', { source });
 
             const responses = await collectResponses(
-                handle.exec({ op: 'recv', data: { chunkSize: 1024 } })
+                handle.exec({ op: 'recv', data: { chunkSize: 1024 } }),
             );
 
             expect(source.messages.length).toBe(1);
@@ -208,13 +211,14 @@ describe('ProcessIOHandle', () => {
     describe('write operation', () => {
         it('should forward write to target', async () => {
             const target = new MockHandle('target');
+
             target.setResponses([respond.ok(5)]);
 
             const handle = new ProcessIOHandle('test-id', 'test', { target });
             const data = new Uint8Array([1, 2, 3, 4, 5]);
 
             const responses = await collectResponses(
-                handle.exec({ op: 'send', data: { data } })
+                handle.exec({ op: 'send', data: { data } }),
             );
 
             expect(target.messages.length).toBe(1);
@@ -228,7 +232,7 @@ describe('ProcessIOHandle', () => {
             const handle = new ProcessIOHandle('test-id', 'test');
 
             const responses = await collectResponses(
-                handle.exec({ op: 'send', data: { data: new Uint8Array([1]) } })
+                handle.exec({ op: 'send', data: { data: new Uint8Array([1]) } }),
             );
 
             expect(responses.length).toBe(1);
@@ -242,10 +246,12 @@ describe('ProcessIOHandle', () => {
             const tap2 = new MockHandle('tap2');
 
             const handle = new ProcessIOHandle('test-id', 'test', { target });
+
             handle.addTap(tap1);
             handle.addTap(tap2);
 
             const data = new Uint8Array([1, 2, 3]);
+
             await collectResponses(handle.exec({ op: 'send', data: { data } }));
 
             // Target should receive the write
@@ -278,11 +284,12 @@ describe('ProcessIOHandle', () => {
             };
 
             const handle = new ProcessIOHandle('test-id', 'test', { target });
+
             handle.addTap(errorTap);
 
             // Should not throw, target write should succeed
             const responses = await collectResponses(
-                handle.exec({ op: 'send', data: { data: new Uint8Array([1]) } })
+                handle.exec({ op: 'send', data: { data: new Uint8Array([1]) } }),
             );
 
             expect(responses[0]!.op).toBe('ok');
@@ -296,6 +303,7 @@ describe('ProcessIOHandle', () => {
             const tap = new MockHandle('tap');
 
             const handle = new ProcessIOHandle('test-id', 'test-desc', { target, source });
+
             handle.addTap(tap);
 
             const responses = await collectResponses(handle.exec({ op: 'stat' }));
@@ -304,6 +312,7 @@ describe('ProcessIOHandle', () => {
             expect(responses[0]!.op).toBe('ok');
 
             const stat = responses[0]!.data as Record<string, unknown>;
+
             expect(stat.type).toBe('process-io');
             expect(stat.description).toBe('test-desc');
             expect(stat.hasTarget).toBe(true);
@@ -317,6 +326,7 @@ describe('ProcessIOHandle', () => {
             const responses = await collectResponses(handle.exec({ op: 'stat' }));
 
             const stat = responses[0]!.data as Record<string, unknown>;
+
             expect(stat.hasTarget).toBe(false);
             expect(stat.hasSource).toBe(false);
             expect(stat.tapCount).toBe(0);
@@ -328,7 +338,7 @@ describe('ProcessIOHandle', () => {
             const handle = new ProcessIOHandle('test-id', 'test');
 
             const responses = await collectResponses(
-                handle.exec({ op: 'unknown-op' })
+                handle.exec({ op: 'unknown-op' }),
             );
 
             expect(responses.length).toBe(1);
@@ -357,12 +367,14 @@ describe('ProcessIOHandle', () => {
             };
 
             const handle = new ProcessIOHandle('test-id', 'test', { target });
+
             handle.addTap(slowTap);
 
             // Write should complete quickly (not wait for slow tap)
             const start = Date.now();
+
             await collectResponses(
-                handle.exec({ op: 'send', data: { data: new Uint8Array([1]) } })
+                handle.exec({ op: 'send', data: { data: new Uint8Array([1]) } }),
             );
             const elapsed = Date.now() - start;
 
@@ -383,7 +395,7 @@ describe('ProcessIOHandle', () => {
 
             // Create a tap that processes slowly
             const receivedMessages: Message[] = [];
-            let processDelay = 50;
+            const processDelay = 50;
             const slowTap: Handle = {
                 id: 'slow-tap',
                 type: 'file',
@@ -398,6 +410,7 @@ describe('ProcessIOHandle', () => {
             };
 
             const handle = new ProcessIOHandle('test-id', 'test', { target });
+
             handle.addTap(slowTap);
 
             // Send 3 writes quickly
@@ -436,12 +449,14 @@ describe('ProcessIOHandle', () => {
                             releaseResolve = resolve;
                         });
                     }
+
                     yield respond.ok();
                 },
                 async close() {},
             };
 
             const handle = new ProcessIOHandle('test-id', 'test', { target });
+
             handle.addTap(blockingTap);
 
             // Initially queue is empty
@@ -492,6 +507,7 @@ describe('ProcessIOHandle', () => {
             const tap = new MockHandle('tap');
 
             const handle = new ProcessIOHandle('test-id', 'test', { target });
+
             handle.addTap(tap);
 
             // Write once
@@ -526,6 +542,7 @@ describe('ProcessIOHandle', () => {
             const tap = new MockHandle('tap');
 
             const handle = new ProcessIOHandle('test-id', 'test', { target, source });
+
             handle.addTap(tap);
 
             await handle.close();
@@ -543,12 +560,14 @@ describe('ProcessIOHandle', () => {
             await handle.close();
 
             const readResponses = await collectResponses(handle.exec({ op: 'recv' }));
+
             expect(readResponses[0]!.op).toBe('error');
             expect((readResponses[0]!.data as { code: string }).code).toBe('EBADF');
 
             const writeResponses = await collectResponses(
-                handle.exec({ op: 'send', data: { data: new Uint8Array([1]) } })
+                handle.exec({ op: 'send', data: { data: new Uint8Array([1]) } }),
             );
+
             expect(writeResponses[0]!.op).toBe('error');
             expect((writeResponses[0]!.data as { code: string }).code).toBe('EBADF');
         });

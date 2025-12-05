@@ -206,13 +206,17 @@ function parseOptions(args: string[]): Options | { error: string } {
         // Short option with separate value: -n N
         if (arg === '-n') {
             const nextArg = args[i + 1];
+
             if (nextArg === undefined) {
                 return { error: "option requires an argument -- 'n'" };
             }
+
             const count = parseInt(nextArg, 10);
+
             if (isNaN(count) || count < 0) {
                 return { error: `invalid number of lines: '${nextArg}'` };
             }
+
             opts.lineCount = count;
             i += 2;
             continue;
@@ -222,9 +226,11 @@ function parseOptions(args: string[]): Options | { error: string } {
         if (arg.startsWith('-n')) {
             const valueStr = arg.slice(2);
             const count = parseInt(valueStr, 10);
+
             if (isNaN(count) || count < 0) {
                 return { error: `invalid number of lines: '${valueStr}'` };
             }
+
             opts.lineCount = count;
             i++;
             continue;
@@ -306,21 +312,26 @@ async function processFile(cwd: string, file: string, maxLines: number): Promise
         // EDGE: Remove trailing empty element if content ends with newline
         // This matches GNU behavior: "foo\nbar\n" is 2 lines, not 3
         const lastLine = allLines[allLines.length - 1];
+
         if (lastLine !== undefined && lastLine === '') {
             allLines.pop();
         }
 
         // Output first N lines
         const output = allLines.slice(0, maxLines);
+
         for (const line of output) {
             await println(line);
         }
 
         return EXIT_SUCCESS;
-    } catch (err) {
+    }
+    catch (err) {
         // GNU: Format errors as "head: file: message"
         const msg = err instanceof Error ? err.message : String(err);
+
         await eprintln(`head: ${file}: ${msg}`);
+
         return EXIT_FAILURE;
     }
 }
@@ -355,6 +366,7 @@ export default async function main(args: string[]): Promise<void> {
     if ('error' in parsed) {
         await eprintln(`head: ${parsed.error}`);
         await eprintln("Try 'head --help' for more information.");
+
         return exit(EXIT_USAGE);
     }
 
@@ -365,6 +377,7 @@ export default async function main(args: string[]): Promise<void> {
     // -------------------------------------------------------------------------
     if (opts.help) {
         await println(HELP_TEXT);
+
         return exit(EXIT_SUCCESS);
     }
 
@@ -375,6 +388,7 @@ export default async function main(args: string[]): Promise<void> {
     // POSIX: No files specified means read from stdin
     if (opts.files.length === 0) {
         await processStdin(opts.lineCount);
+
         return exit(EXIT_SUCCESS);
     }
 
@@ -394,17 +408,21 @@ export default async function main(args: string[]): Promise<void> {
             if (i > 0) {
                 await println('');
             }
+
             // POSIX: "-" is displayed as "standard input" in headers
             const displayName = file === '-' ? 'standard input' : file;
+
             await println(`==> ${displayName} <==`);
         }
 
         // Process stdin or file
         if (file === '-') {
             await processStdin(opts.lineCount);
-        } else {
+        }
+        else {
             const cwd = await getcwd();
             const exitCode = await processFile(cwd, file, opts.lineCount);
+
             if (exitCode !== EXIT_SUCCESS) {
                 hadError = true;
                 // GNU: Continue processing remaining files
@@ -427,9 +445,10 @@ export default async function main(args: string[]): Promise<void> {
  * This ensures no uncaught promise rejections.
  */
 getargs()
-    .then((args) => main(args))
+    .then(args => main(args))
     .catch(async (err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
+
         await eprintln(`head: ${msg}`);
         await exit(EXIT_FAILURE);
     });

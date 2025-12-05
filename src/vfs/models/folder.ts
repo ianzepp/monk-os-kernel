@@ -84,7 +84,7 @@ export class FolderModel extends EntityModel {
         _ctx: ModelContext,
         _id: string,
         _flags: OpenFlags,
-        _opts?: OpenOptions
+        _opts?: OpenOptions,
     ): Promise<FileHandle> {
         throw new EISDIR('Cannot open folder for I/O');
     }
@@ -104,7 +104,7 @@ export class FolderModel extends EntityModel {
         ctx: ModelContext,
         parent: string,
         pathname: string,
-        fields?: Partial<ModelStat>
+        fields?: Partial<ModelStat>,
     ): Promise<string> {
         // Delegate to EntityModel with folder-specific fields
         return super.create(ctx, parent, pathname, {

@@ -29,6 +29,7 @@ export const channel = {
                 return response as Response & { data?: T };
             }
         }
+
         throw new SyscallError('EIO', 'No response from channel');
     },
 

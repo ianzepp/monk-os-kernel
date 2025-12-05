@@ -93,6 +93,7 @@ export function unrefHandle(self: Kernel, handleId: string): void {
     if (refs > 0) {
         // Still referenced, update count and return
         self.handleRefs.set(handleId, refs);
+
         return;
     }
 
@@ -100,6 +101,7 @@ export function unrefHandle(self: Kernel, handleId: string): void {
     // CRITICAL: Delete from tables BEFORE calling close()
     // This prevents use-after-close if another operation is in flight
     const handle = self.handles.get(handleId);
+
     self.handles.delete(handleId);
     self.handleRefs.delete(handleId);
 
@@ -107,15 +109,16 @@ export function unrefHandle(self: Kernel, handleId: string): void {
     if (handle) {
         // Fire-and-forget: Don't await, don't propagate errors
         // WHY: Prevents blocking kernel on slow I/O cleanup
-        handle.close().catch((err) => {
+        handle.close().catch(err => {
             // Log failure but don't propagate (handle is already gone)
             printk(
                 self,
                 'cleanup',
-                `handle ${handleId} (${handle.type}) close failed: ${formatError(err)}`
+                `handle ${handleId} (${handle.type}) close failed: ${formatError(err)}`,
             );
         });
-    } else {
+    }
+    else {
         // INVARIANT VIOLATION: Refcount exists but handle doesn't
         // This indicates allocHandle() set refcount but didn't add handle,
         // or cleanup happened in wrong order
@@ -123,7 +126,7 @@ export function unrefHandle(self: Kernel, handleId: string): void {
             self,
             'warn',
             `Refcount for ${handleId} reached 0 but handle not found. ` +
-            `Possible refcount bug or double-close.`
+            `Possible refcount bug or double-close.`,
         );
     }
 
@@ -134,7 +137,7 @@ export function unrefHandle(self: Kernel, handleId: string): void {
             self,
             'warn',
             `Handle ${handleId} refcount went negative (${refs}). ` +
-            `This indicates more unrefs than refs (double-close or missing ref).`
+            `This indicates more unrefs than refs (double-close or missing ref).`,
         );
     }
 }

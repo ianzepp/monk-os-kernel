@@ -91,6 +91,7 @@ export class ServiceAPI {
 
         // Find service definition
         const def = await this.findServiceDef(name);
+
         if (!def) {
             throw new ENOENT(`Service '${name}' not found. Is the package installed?`);
         }
@@ -106,19 +107,22 @@ export class ServiceAPI {
             startedAt: Date.now(),
             config: mergedConfig,
         };
+
         this.running.set(name, record);
 
         try {
             if (def.host) {
                 // Host service - import and call start()
                 await this.startHostService(record);
-            } else {
+            }
+            else {
                 // Kernel service - spawn as process
                 await this.startKernelService(record);
             }
 
             record.status = 'running';
-        } catch (err) {
+        }
+        catch (err) {
             record.status = 'failed';
             record.error = err instanceof Error ? err.message : String(err);
             throw err;
@@ -132,6 +136,7 @@ export class ServiceAPI {
      */
     async stop(name: string): Promise<void> {
         const record = this.running.get(name);
+
         if (!record) {
             throw new ENOENT(`Service '${name}' is not running`);
         }
@@ -142,12 +147,14 @@ export class ServiceAPI {
             if (record.instance?.stop) {
                 // Host service
                 record.instance.stop();
-            } else if (record.processHandle) {
+            }
+            else if (record.processHandle) {
                 // Kernel service - send SIGTERM and wait
                 await record.processHandle.kill();
                 await record.processHandle.wait();
             }
-        } finally {
+        }
+        finally {
             this.running.delete(name);
         }
     }
@@ -157,11 +164,13 @@ export class ServiceAPI {
      */
     async restart(name: string): Promise<void> {
         const record = this.running.get(name);
+
         if (!record) {
             throw new ENOENT(`Service '${name}' is not running`);
         }
 
         const config = record.config;
+
         await this.stop(name);
         await this.start(name, config);
     }
@@ -171,6 +180,7 @@ export class ServiceAPI {
      */
     async get(name: string): Promise<ServiceInfo | undefined> {
         const record = this.running.get(name);
+
         if (!record) {
             return undefined;
         }
@@ -182,7 +192,7 @@ export class ServiceAPI {
      * List all running services.
      */
     async list(): Promise<ServiceInfo[]> {
-        return Array.from(this.running.values()).map((r) => this.toServiceInfo(r));
+        return Array.from(this.running.values()).map(r => this.toServiceInfo(r));
     }
 
     /**
@@ -215,26 +225,35 @@ export class ServiceAPI {
         try {
             // First, try the package with the same name
             const directPath = `/usr/${name}/etc/services/${name}.json`;
+
             try {
                 const content = await this.readVfsFile(vfs, directPath);
+
                 return JSON.parse(content) as HostServiceDef;
-            } catch {
+            }
+            catch {
                 // Not found at direct path, continue searching
             }
 
             // Search all packages under /usr/
             for await (const entry of vfs.readdir('/usr', 'kernel')) {
-                if (entry.type !== 'folder') continue;
+                if (entry.type !== 'folder') {
+                    continue;
+                }
 
                 const servicePath = `/usr/${entry.name}/etc/services/${name}.json`;
+
                 try {
                     const content = await this.readVfsFile(vfs, servicePath);
+
                     return JSON.parse(content) as HostServiceDef;
-                } catch {
+                }
+                catch {
                     // Not in this package
                 }
             }
-        } catch {
+        }
+        catch {
             // /usr doesn't exist or not readable
         }
 
@@ -246,11 +265,14 @@ export class ServiceAPI {
      */
     private async readVfsFile(vfs: VFS, path: string): Promise<string> {
         const handle = await vfs.open(path, { read: true }, 'kernel');
+
         try {
             // Read entire file content
             const content = await handle.read();
+
             return new TextDecoder().decode(content);
-        } finally {
+        }
+        finally {
             await handle.close();
         }
     }
@@ -266,6 +288,7 @@ export class ServiceAPI {
 
         // Get the host path from VFS mount
         const hostPath = vfs.resolveToHostPath(handlerPath);
+
         if (!hostPath) {
             throw new ENOENT(`Cannot resolve handler path: ${handlerPath}`);
         }
@@ -298,11 +321,14 @@ export class ServiceAPI {
         // Map common config fields to environment variables
         // Services read config from env (e.g., PORT, HTTPD_ROOT)
         for (const [key, value] of Object.entries(record.config)) {
-            if (value === undefined || value === null) continue;
+            if (value === undefined || value === null) {
+                continue;
+            }
 
             // Convert config key to env var format (e.g., 'root' -> 'HTTPD_ROOT')
             // Use service-prefixed env vars for service-specific config
             const envKey = `${record.name.toUpperCase()}_${key.toUpperCase()}`;
+
             env[envKey] = String(value);
 
             // Also set common unprefixed vars for well-known config
@@ -313,6 +339,7 @@ export class ServiceAPI {
 
         // Spawn the service process via ProcessAPI
         const handle = await this.host.getProcessAPI().spawn(record.def.handler, { env });
+
         record.processHandle = handle;
     }
 

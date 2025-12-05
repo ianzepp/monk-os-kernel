@@ -11,6 +11,7 @@ export function join(...segments: string[]): string {
     const joined = segments
         .filter(s => s.length > 0)
         .join('/');
+
     return normalize(joined);
 }
 
@@ -18,15 +19,25 @@ export function join(...segments: string[]): string {
  * Get the directory portion of a path.
  */
 export function dirname(path: string): string {
-    if (path === '') return '.';
-    if (path === '/') return '/';
+    if (path === '') {
+        return '.';
+    }
+
+    if (path === '/') {
+        return '/';
+    }
 
     // Remove trailing slashes
     const normalized = path.replace(/\/+$/, '');
     const lastSlash = normalized.lastIndexOf('/');
 
-    if (lastSlash === -1) return '.';
-    if (lastSlash === 0) return '/';
+    if (lastSlash === -1) {
+        return '.';
+    }
+
+    if (lastSlash === 0) {
+        return '/';
+    }
 
     return normalized.slice(0, lastSlash);
 }
@@ -35,8 +46,13 @@ export function dirname(path: string): string {
  * Get the filename portion of a path.
  */
 export function basename(path: string, ext?: string): string {
-    if (path === '') return '';
-    if (path === '/') return '';
+    if (path === '') {
+        return '';
+    }
+
+    if (path === '/') {
+        return '';
+    }
 
     // Remove trailing slashes
     const normalized = path.replace(/\/+$/, '');
@@ -70,7 +86,9 @@ export function extname(path: string): string {
  * Normalize a path, resolving . and .. segments.
  */
 export function normalize(path: string): string {
-    if (path === '') return '.';
+    if (path === '') {
+        return '.';
+    }
 
     const isAbs = path.startsWith('/');
     const segments = path.split('/').filter(s => s.length > 0);
@@ -79,14 +97,17 @@ export function normalize(path: string): string {
     for (const segment of segments) {
         if (segment === '.') {
             continue;
-        } else if (segment === '..') {
+        }
+        else if (segment === '..') {
             if (result.length > 0 && result[result.length - 1] !== '..') {
                 result.pop();
-            } else if (!isAbs) {
+            }
+            else if (!isAbs) {
                 result.push('..');
             }
             // For absolute paths, ignore .. at root
-        } else {
+        }
+        else {
             result.push(segment);
         }
     }
@@ -114,6 +135,7 @@ export function resolve(base: string, path: string): string {
     if (isAbsolute(path)) {
         return normalize(path);
     }
+
     return normalize(join(base, path));
 }
 
@@ -142,6 +164,7 @@ export function relative(from: string, to: string): string {
 
     for (let i = commonLength; i < toParts.length; i++) {
         const part = toParts[i];
+
         if (part !== undefined) {
             result.push(part);
         }
@@ -181,8 +204,14 @@ export function format(parsed: Partial<ParsedPath>): string {
     const dir = parsed.dir ?? '';
     const base = parsed.base ?? (parsed.name ?? '') + (parsed.ext ?? '');
 
-    if (dir === '') return base;
-    if (dir === '/') return '/' + base;
+    if (dir === '') {
+        return base;
+    }
+
+    if (dir === '/') {
+        return '/' + base;
+    }
+
     return dir + '/' + base;
 }
 
@@ -197,9 +226,11 @@ export function expandHome(path: string, home: string = '/'): string {
     if (path === '~') {
         return home;
     }
+
     if (path.startsWith('~/')) {
         return home + path.slice(1);
     }
+
     return path;
 }
 

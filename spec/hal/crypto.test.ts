@@ -14,43 +14,51 @@ describe('Crypto Device', () => {
 
             it('should compute SHA-256 hash', async () => {
                 const hash = await crypto.hash('sha256', testData);
+
                 expect(hash.length).toBe(32); // 256 bits = 32 bytes
             });
 
             it('should compute SHA-384 hash', async () => {
                 const hash = await crypto.hash('sha384', testData);
+
                 expect(hash.length).toBe(48); // 384 bits = 48 bytes
             });
 
             it('should compute SHA-512 hash', async () => {
                 const hash = await crypto.hash('sha512', testData);
+
                 expect(hash.length).toBe(64); // 512 bits = 64 bytes
             });
 
             it('should compute SHA-1 hash', async () => {
                 const hash = await crypto.hash('sha1', testData);
+
                 expect(hash.length).toBe(20); // 160 bits = 20 bytes
             });
 
             it('should compute MD5 hash', async () => {
                 const hash = await crypto.hash('md5', testData);
+
                 expect(hash.length).toBe(16); // 128 bits = 16 bytes
             });
 
             it('should produce deterministic output', async () => {
                 const hash1 = await crypto.hash('sha256', testData);
                 const hash2 = await crypto.hash('sha256', testData);
+
                 expect(hash1).toEqual(hash2);
             });
 
             it('should produce different output for different input', async () => {
                 const hash1 = await crypto.hash('sha256', testData);
                 const hash2 = await crypto.hash('sha256', new TextEncoder().encode('different'));
+
                 expect(hash1).not.toEqual(hash2);
             });
 
             it('should handle empty input', async () => {
                 const hash = await crypto.hash('sha256', new Uint8Array(0));
+
                 expect(hash.length).toBe(32);
             });
         });
@@ -61,23 +69,27 @@ describe('Crypto Device', () => {
 
             it('should compute HMAC-SHA256', async () => {
                 const mac = await crypto.hmac('sha256', key, data);
+
                 expect(mac.length).toBe(32);
             });
 
             it('should compute HMAC-SHA512', async () => {
                 const mac = await crypto.hmac('sha512', key, data);
+
                 expect(mac.length).toBe(64);
             });
 
             it('should produce deterministic output', async () => {
                 const mac1 = await crypto.hmac('sha256', key, data);
                 const mac2 = await crypto.hmac('sha256', key, data);
+
                 expect(mac1).toEqual(mac2);
             });
 
             it('should produce different output for different key', async () => {
                 const mac1 = await crypto.hmac('sha256', key, data);
                 const mac2 = await crypto.hmac('sha256', new TextEncoder().encode('other key'), data);
+
                 expect(mac1).not.toEqual(mac2);
             });
         });
@@ -85,17 +97,20 @@ describe('Crypto Device', () => {
         describe('genkey', () => {
             it('should generate AES-256 key', async () => {
                 const key = await crypto.genkey('aes-256');
+
                 expect(key).toBeDefined();
                 expect(key.algorithm.name).toBe('AES-GCM');
             });
 
             it('should generate AES-128 key', async () => {
                 const key = await crypto.genkey('aes-128');
+
                 expect(key).toBeDefined();
             });
 
             it('should generate HMAC-SHA256 key', async () => {
                 const key = await crypto.genkey('hmac-sha256');
+
                 expect(key).toBeDefined();
                 expect(key.algorithm.name).toBe('HMAC');
             });
@@ -171,6 +186,7 @@ describe('Crypto Device', () => {
             it('should handle large data', async () => {
                 const key = await crypto.genkey('aes-256');
                 const plaintext = new Uint8Array(1024 * 1024); // 1MB
+
                 globalThis.crypto.getRandomValues(plaintext);
 
                 const ciphertext = await crypto.encrypt('aes-256-gcm', key, plaintext);
@@ -186,6 +202,7 @@ describe('Crypto Device', () => {
                 const salt = new TextEncoder().encode('random salt');
 
                 const key = await crypto.derive('pbkdf2-sha256', password, salt);
+
                 expect(key.length).toBe(32); // 256 bits
             });
 
@@ -213,6 +230,7 @@ describe('Crypto Device', () => {
                 const salt = new TextEncoder().encode('random salt');
 
                 const hash = await crypto.derive('argon2id', password, salt);
+
                 // Argon2 returns a string hash encoded as bytes
                 expect(hash.length).toBeGreaterThan(0);
             });
@@ -224,6 +242,7 @@ describe('Crypto Device', () => {
                 const hash = await crypto.derive('argon2id', password, new Uint8Array(16));
 
                 const result = await crypto.verify(hash, password);
+
                 expect(result).toBe(true);
             });
 
@@ -233,6 +252,7 @@ describe('Crypto Device', () => {
                 const hash = await crypto.derive('argon2id', password, new Uint8Array(16));
 
                 const result = await crypto.verify(hash, wrong);
+
                 expect(result).toBe(false);
             });
         });

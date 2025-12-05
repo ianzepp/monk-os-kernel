@@ -40,6 +40,7 @@ function createMockProcess(overrides: Partial<Process> = {}): Process {
  */
 function createMockChannel(responses: Response[]): Channel {
     let closed = false;
+
     return {
         id: crypto.randomUUID(),
         proto: 'mock',
@@ -69,6 +70,7 @@ function createMockChannel(responses: Response[]): Channel {
  */
 function createStreamingChannel(items: unknown[]): Channel {
     let closed = false;
+
     return {
         id: crypto.randomUUID(),
         proto: 'mock',
@@ -77,6 +79,7 @@ function createStreamingChannel(items: unknown[]): Channel {
             for (const item of items) {
                 yield respond.item(item);
             }
+
             yield respond.done();
         },
         async push(_response: Response): Promise<void> {
@@ -107,7 +110,9 @@ describe('Channel Syscalls', () => {
 
         const openChannel = async (_proc: Process, _proto: string, _url: string, _opts?: ChannelOpts): Promise<number> => {
             const id = nextChannelId++;
+
             channels.set(id, createMockChannel([respond.ok({ connected: true })]));
+
             return id;
         };
 
@@ -117,6 +122,7 @@ describe('Channel Syscalls', () => {
 
         const closeHandle = async (_proc: Process, ch: number): Promise<void> => {
             const channel = channels.get(ch);
+
             if (channel) {
                 await channel.close();
                 channels.delete(ch);
@@ -131,8 +137,9 @@ describe('Channel Syscalls', () => {
         it('should open a channel and return handle', async () => {
             const proc = createMockProcess();
             const ch = await unwrapStream<number>(
-                dispatcher.dispatch(proc, 'channel:open', ['http', 'https://api.example.com'])
+                dispatcher.dispatch(proc, 'channel:open', ['http', 'https://api.example.com']),
             );
+
             expect(ch).toBe(10);
             expect(channels.has(10)).toBe(true);
         });
@@ -140,22 +147,25 @@ describe('Channel Syscalls', () => {
         it('should pass options to channel', async () => {
             const proc = createMockProcess();
             const ch = await unwrapStream<number>(
-                dispatcher.dispatch(proc, 'channel:open', ['http', 'https://api.example.com', { timeout: 5000 }])
+                dispatcher.dispatch(proc, 'channel:open', ['http', 'https://api.example.com', { timeout: 5000 }]),
             );
+
             expect(ch).toBeNumber();
         });
 
         it('should reject non-string proto', async () => {
             const proc = createMockProcess();
+
             await expect(
-                unwrapStream(dispatcher.dispatch(proc, 'channel:open', [123, 'url']))
+                unwrapStream(dispatcher.dispatch(proc, 'channel:open', [123, 'url'])),
             ).rejects.toThrow('proto must be a string');
         });
 
         it('should reject non-string url', async () => {
             const proc = createMockProcess();
+
             await expect(
-                unwrapStream(dispatcher.dispatch(proc, 'channel:open', ['http', 123]))
+                unwrapStream(dispatcher.dispatch(proc, 'channel:open', ['http', 123])),
             ).rejects.toThrow('url must be a string');
         });
     });
@@ -168,8 +178,9 @@ describe('Channel Syscalls', () => {
             channels.set(5, createMockChannel([respond.ok({ data: 'test' })]));
 
             const response = await unwrapStream<{ data: string }>(
-                dispatcher.dispatch(proc, 'channel:call', [5, { op: 'request', data: {} }])
+                dispatcher.dispatch(proc, 'channel:call', [5, { op: 'request', data: {} }]),
             );
+
             expect(response).toEqual({ data: 'test' });
         });
 
@@ -183,8 +194,9 @@ describe('Channel Syscalls', () => {
             ]));
 
             const response = await unwrapStream<{ result: string }>(
-                dispatcher.dispatch(proc, 'channel:call', [5, { op: 'request', data: {} }])
+                dispatcher.dispatch(proc, 'channel:call', [5, { op: 'request', data: {} }]),
             );
+
             expect(response).toEqual({ result: 'done' });
         });
 
@@ -194,21 +206,23 @@ describe('Channel Syscalls', () => {
             channels.set(5, createMockChannel([respond.error('ENOENT', 'Not found')]));
 
             await expect(
-                unwrapStream(dispatcher.dispatch(proc, 'channel:call', [5, { op: 'request', data: {} }]))
+                unwrapStream(dispatcher.dispatch(proc, 'channel:call', [5, { op: 'request', data: {} }])),
             ).rejects.toThrow('Not found');
         });
 
         it('should reject invalid channel handle', async () => {
             const proc = createMockProcess();
+
             await expect(
-                unwrapStream(dispatcher.dispatch(proc, 'channel:call', [999, { op: 'request', data: {} }]))
+                unwrapStream(dispatcher.dispatch(proc, 'channel:call', [999, { op: 'request', data: {} }])),
             ).rejects.toThrow('Bad channel: 999');
         });
 
         it('should reject non-number channel', async () => {
             const proc = createMockProcess();
+
             await expect(
-                unwrapStream(dispatcher.dispatch(proc, 'channel:call', ['not-a-number', {}]))
+                unwrapStream(dispatcher.dispatch(proc, 'channel:call', ['not-a-number', {}])),
             ).rejects.toThrow('ch must be a number');
         });
     });
@@ -224,7 +238,7 @@ describe('Channel Syscalls', () => {
             ]));
 
             const items = await collectItems<{ id: number; name: string }>(
-                dispatcher.dispatch(proc, 'channel:stream', [5, { op: 'query', data: {} }])
+                dispatcher.dispatch(proc, 'channel:stream', [5, { op: 'query', data: {} }]),
             );
 
             expect(items).toHaveLength(3);
@@ -239,6 +253,7 @@ describe('Channel Syscalls', () => {
             channels.set(5, createStreamingChannel(['a', 'b', 'c']));
 
             const responses: Response[] = [];
+
             for await (const r of dispatcher.dispatch(proc, 'channel:stream', [5, { op: 'query', data: {} }])) {
                 responses.push(r);
             }
@@ -255,6 +270,7 @@ describe('Channel Syscalls', () => {
 
             // Channel that yields item then error
             let closed = false;
+
             channels.set(5, {
                 id: crypto.randomUUID(),
                 proto: 'mock',
@@ -263,13 +279,22 @@ describe('Channel Syscalls', () => {
                     yield respond.item({ partial: true });
                     yield respond.error('EIO', 'Connection lost');
                 },
-                async push(): Promise<void> { throw new Error('not supported'); },
-                async recv(): Promise<Message> { throw new Error('not supported'); },
-                async close(): Promise<void> { closed = true; },
-                get closed(): boolean { return closed; },
+                async push(): Promise<void> {
+                    throw new Error('not supported');
+                },
+                async recv(): Promise<Message> {
+                    throw new Error('not supported');
+                },
+                async close(): Promise<void> {
+                    closed = true;
+                },
+                get closed(): boolean {
+                    return closed;
+                },
             });
 
             const responses: Response[] = [];
+
             for await (const r of dispatcher.dispatch(proc, 'channel:stream', [5, { op: 'query', data: {} }])) {
                 responses.push(r);
             }
@@ -283,6 +308,7 @@ describe('Channel Syscalls', () => {
             const proc = createMockProcess();
 
             const responses: Response[] = [];
+
             for await (const r of dispatcher.dispatch(proc, 'channel:stream', [999, { op: 'query', data: {} }])) {
                 responses.push(r);
             }
@@ -298,6 +324,7 @@ describe('Channel Syscalls', () => {
             const proc = createMockProcess();
 
             const mockChannel = createMockChannel([respond.ok()]);
+
             channels.set(5, mockChannel);
 
             await unwrapStream(dispatcher.dispatch(proc, 'channel:close', [5]));
@@ -308,8 +335,9 @@ describe('Channel Syscalls', () => {
 
         it('should reject non-number channel', async () => {
             const proc = createMockProcess();
+
             await expect(
-                unwrapStream(dispatcher.dispatch(proc, 'channel:close', ['not-a-number']))
+                unwrapStream(dispatcher.dispatch(proc, 'channel:close', ['not-a-number'])),
             ).rejects.toThrow('ch must be a number');
         });
     });
@@ -320,6 +348,7 @@ describe('Channel Syscalls', () => {
 
             let pushedResponse: Response | null = null;
             let closed = false;
+
             channels.set(5, {
                 id: crypto.randomUUID(),
                 proto: 'mock',
@@ -330,13 +359,19 @@ describe('Channel Syscalls', () => {
                 async push(response: Response): Promise<void> {
                     pushedResponse = response;
                 },
-                async recv(): Promise<Message> { throw new Error('not supported'); },
-                async close(): Promise<void> { closed = true; },
-                get closed(): boolean { return closed; },
+                async recv(): Promise<Message> {
+                    throw new Error('not supported');
+                },
+                async close(): Promise<void> {
+                    closed = true;
+                },
+                get closed(): boolean {
+                    return closed;
+                },
             });
 
             await unwrapStream(
-                dispatcher.dispatch(proc, 'channel:push', [5, { op: 'event', data: { type: 'test' } }])
+                dispatcher.dispatch(proc, 'channel:push', [5, { op: 'event', data: { type: 'test' } }]),
             );
 
             expect(pushedResponse).not.toBeNull();
@@ -344,8 +379,9 @@ describe('Channel Syscalls', () => {
 
         it('should reject invalid channel', async () => {
             const proc = createMockProcess();
+
             await expect(
-                unwrapStream(dispatcher.dispatch(proc, 'channel:push', [999, { op: 'ok' }]))
+                unwrapStream(dispatcher.dispatch(proc, 'channel:push', [999, { op: 'ok' }])),
             ).rejects.toThrow('Bad channel: 999');
         });
     });
@@ -355,6 +391,7 @@ describe('Channel Syscalls', () => {
             const proc = createMockProcess();
 
             let closed = false;
+
             channels.set(5, {
                 id: crypto.randomUUID(),
                 proto: 'mock',
@@ -362,16 +399,22 @@ describe('Channel Syscalls', () => {
                 async *handle(_msg: Message): AsyncIterable<Response> {
                     yield respond.ok();
                 },
-                async push(_response: Response): Promise<void> { throw new Error('not supported'); },
+                async push(_response: Response): Promise<void> {
+                    throw new Error('not supported');
+                },
                 async recv(): Promise<Message> {
                     return { op: 'message', data: { text: 'hello' } };
                 },
-                async close(): Promise<void> { closed = true; },
-                get closed(): boolean { return closed; },
+                async close(): Promise<void> {
+                    closed = true;
+                },
+                get closed(): boolean {
+                    return closed;
+                },
             });
 
             const msg = await unwrapStream<Message>(
-                dispatcher.dispatch(proc, 'channel:recv', [5])
+                dispatcher.dispatch(proc, 'channel:recv', [5]),
             );
 
             expect(msg).toEqual({ op: 'message', data: { text: 'hello' } });
@@ -379,8 +422,9 @@ describe('Channel Syscalls', () => {
 
         it('should reject invalid channel', async () => {
             const proc = createMockProcess();
+
             await expect(
-                unwrapStream(dispatcher.dispatch(proc, 'channel:recv', [999]))
+                unwrapStream(dispatcher.dispatch(proc, 'channel:recv', [999])),
             ).rejects.toThrow('Bad channel: 999');
         });
     });

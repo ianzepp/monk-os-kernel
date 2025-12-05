@@ -163,7 +163,7 @@ export async function createPort(
     self: Kernel,
     proc: Process,
     type: string,
-    opts: unknown
+    opts: unknown,
 ): Promise<number> {
     let port: Port;
 
@@ -173,6 +173,7 @@ export async function createPort(
         // ---------------------------------------------------------------------
         case 'tcp:listen': {
             const listenOpts = opts as { port: number; host?: string; backlog?: number } | undefined;
+
             if (!listenOpts || typeof listenOpts.port !== 'number') {
                 throw new EINVAL('tcp:listen requires port option');
             }
@@ -190,6 +191,7 @@ export async function createPort(
             const portId = self.hal.entropy.uuid();
             const addr = listener.addr();
             const description = `tcp:listen:${addr.hostname}:${addr.port}`;
+
             port = new ListenerPort(portId, listener, description);
             break;
         }
@@ -199,6 +201,7 @@ export async function createPort(
         // ---------------------------------------------------------------------
         case 'fs:watch': {
             const watchOpts = opts as { pattern: string } | undefined;
+
             if (!watchOpts || typeof watchOpts.pattern !== 'string') {
                 throw new EINVAL('fs:watch requires pattern option');
             }
@@ -221,6 +224,7 @@ export async function createPort(
         // ---------------------------------------------------------------------
         case 'udp:bind': {
             const udpOpts = opts as { port: number; host?: string } | undefined;
+
             if (!udpOpts || typeof udpOpts.port !== 'number') {
                 throw new EINVAL('udp:bind requires port option');
             }
@@ -259,7 +263,7 @@ export async function createPort(
                 topic: string,
                 data: Uint8Array | undefined,
                 meta: Record<string, unknown> | undefined,
-                sourcePortId: string
+                sourcePortId: string,
             ) => {
                 publishPubsub(self, topic, data, meta, sourcePortId);
             };
@@ -270,8 +274,10 @@ export async function createPort(
             // NOTE: This closure captures 'port' before it's assigned, uses handle lookup
             const unsubscribeFn = () => {
                 const handle = self.handles.get(portId) as PortHandleAdapter | undefined;
+
                 if (handle) {
                     const p = handle.getPort() as PubsubPort;
+
                     self.pubsubPorts.delete(p);
                 }
             };

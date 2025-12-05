@@ -12,6 +12,7 @@ describe('Console Device', () => {
         describe('write', () => {
             it('should capture output', () => {
                 const data = new TextEncoder().encode('hello');
+
                 console.write(data);
 
                 expect(console.getOutput()).toBe('hello');
@@ -39,6 +40,7 @@ describe('Console Device', () => {
             it('should return set input', async () => {
                 console.setInput('test input');
                 const data = await console.read();
+
                 expect(new TextDecoder().decode(data)).toBe('test input');
             });
 
@@ -46,6 +48,7 @@ describe('Console Device', () => {
                 console.setInput('test');
                 await console.read();
                 const data = await console.read();
+
                 expect(data.length).toBe(0);
             });
         });
@@ -105,8 +108,10 @@ describe('Console Device', () => {
         describe('setInput with Uint8Array', () => {
             it('should accept binary data', async () => {
                 const data = new Uint8Array([72, 101, 108, 108, 111]); // "Hello"
+
                 console.setInput(data);
                 const result = await console.read();
+
                 expect(new TextDecoder().decode(result)).toBe('Hello');
             });
         });

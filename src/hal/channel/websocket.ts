@@ -202,13 +202,14 @@ export class BunWebSocketClientChannel implements Channel {
         // Convert http:// or https:// to ws:// or wss://
         // WHY: Users often provide HTTP URLs by mistake, auto-correct to WebSocket
         const wsUrl = url.replace(/^http/, 'ws');
+
         this.ws = new WebSocket(wsUrl);
 
         // -------------------------------------------------------------------------
         // Message routing
         // -------------------------------------------------------------------------
 
-        this.ws.onmessage = (event) => {
+        this.ws.onmessage = event => {
             try {
                 const data = JSON.parse(event.data);
 
@@ -221,29 +222,35 @@ export class BunWebSocketClientChannel implements Channel {
                         // handle() is waiting, resolve immediately
                         this.responseResolve(data);
                         this.responseResolve = null;
-                    } else {
+                    }
+                    else {
                         // No handle() waiting, queue for later
                         this.responseQueue.push(data);
                     }
-                } else {
+                }
+                else {
                     // It's a message (server-initiated)
                     if (this.messageResolve) {
                         // recv() is waiting, resolve immediately
                         this.messageResolve(data);
                         this.messageResolve = null;
-                    } else {
+                    }
+                    else {
                         // No recv() waiting, queue for later
                         this.messageQueue.push(data);
                     }
                 }
-            } catch {
+            }
+            catch {
                 // Non-JSON message, treat as raw message
                 // WHY: Some protocols send binary or non-JSON text
                 const msg: Message = { op: 'raw', data: event.data };
+
                 if (this.messageResolve) {
                     this.messageResolve(msg);
                     this.messageResolve = null;
-                } else {
+                }
+                else {
                     this.messageQueue.push(msg);
                 }
             }
@@ -317,6 +324,7 @@ export class BunWebSocketClientChannel implements Channel {
         // RACE FIX: Check state before every operation
         if (this._closed || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
             yield respond.error('EBADF', 'Channel closed');
+
             return;
         }
 
@@ -328,6 +336,7 @@ export class BunWebSocketClientChannel implements Channel {
         // WHY: Loop handles streaming responses (multiple chunks, progress events)
         while (true) {
             const response = await this.waitForResponse();
+
             yield response;
 
             // Stop on terminal responses
@@ -357,7 +366,7 @@ export class BunWebSocketClientChannel implements Channel {
         }
 
         // Slow path: wait for onmessage to resolve
-        return new Promise((resolve) => {
+        return new Promise(resolve => {
             this.responseResolve = resolve;
         });
     }
@@ -382,6 +391,7 @@ export class BunWebSocketClientChannel implements Channel {
         if (this._closed || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
             throw new Error('Channel closed');
         }
+
         this.ws.send(JSON.stringify(response));
     }
 
@@ -415,7 +425,7 @@ export class BunWebSocketClientChannel implements Channel {
         }
 
         // Slow path: wait for onmessage to resolve
-        return new Promise((resolve) => {
+        return new Promise(resolve => {
             this.messageResolve = resolve;
         });
     }

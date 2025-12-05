@@ -15,9 +15,11 @@ import { respond, type Response } from '@src/message.js';
  */
 async function collectResponses(iterable: AsyncIterable<Response>): Promise<Response[]> {
     const results: Response[] = [];
+
     for await (const response of iterable) {
         results.push(response);
     }
+
     return results;
 }
 
@@ -57,7 +59,7 @@ describe('ConsoleHandleAdapter', () => {
 
         it('should write text from item message', async () => {
             const responses = await collectResponses(
-                adapter.exec({ op: 'send', data: respond.item({ text: 'hello\n' }) })
+                adapter.exec({ op: 'send', data: respond.item({ text: 'hello\n' }) }),
             );
 
             expect(responses.length).toBe(1);
@@ -67,10 +69,10 @@ describe('ConsoleHandleAdapter', () => {
 
         it('should write multiple item messages', async () => {
             await collectResponses(
-                adapter.exec({ op: 'send', data: respond.item({ text: 'first\n' }) })
+                adapter.exec({ op: 'send', data: respond.item({ text: 'first\n' }) }),
             );
             await collectResponses(
-                adapter.exec({ op: 'send', data: respond.item({ text: 'second\n' }) })
+                adapter.exec({ op: 'send', data: respond.item({ text: 'second\n' }) }),
             );
 
             expect(console.getOutput()).toBe('first\nsecond\n');
@@ -78,7 +80,7 @@ describe('ConsoleHandleAdapter', () => {
 
         it('should handle item with empty text', async () => {
             const responses = await collectResponses(
-                adapter.exec({ op: 'send', data: respond.item({ text: '' }) })
+                adapter.exec({ op: 'send', data: respond.item({ text: '' }) }),
             );
 
             expect(responses.length).toBe(1);
@@ -88,7 +90,7 @@ describe('ConsoleHandleAdapter', () => {
 
         it('should handle item with no text property', async () => {
             const responses = await collectResponses(
-                adapter.exec({ op: 'send', data: respond.item({ other: 'data' }) })
+                adapter.exec({ op: 'send', data: respond.item({ other: 'data' }) }),
             );
 
             expect(responses.length).toBe(1);
@@ -99,7 +101,7 @@ describe('ConsoleHandleAdapter', () => {
         it('should write binary data from data message', async () => {
             const bytes = new TextEncoder().encode('binary content');
             const responses = await collectResponses(
-                adapter.exec({ op: 'send', data: respond.data(bytes) })
+                adapter.exec({ op: 'send', data: respond.data(bytes) }),
             );
 
             expect(responses.length).toBe(1);
@@ -109,7 +111,7 @@ describe('ConsoleHandleAdapter', () => {
 
         it('should format error messages', async () => {
             const responses = await collectResponses(
-                adapter.exec({ op: 'send', data: respond.error('ENOENT', 'File not found') })
+                adapter.exec({ op: 'send', data: respond.error('ENOENT', 'File not found') }),
             );
 
             expect(responses.length).toBe(1);
@@ -119,7 +121,7 @@ describe('ConsoleHandleAdapter', () => {
 
         it('should handle done message (no output)', async () => {
             const responses = await collectResponses(
-                adapter.exec({ op: 'send', data: respond.done() })
+                adapter.exec({ op: 'send', data: respond.done() }),
             );
 
             expect(responses.length).toBe(1);
@@ -129,7 +131,7 @@ describe('ConsoleHandleAdapter', () => {
 
         it('should handle ok message (no output)', async () => {
             const responses = await collectResponses(
-                adapter.exec({ op: 'send', data: respond.ok() })
+                adapter.exec({ op: 'send', data: respond.ok() }),
             );
 
             expect(responses.length).toBe(1);
@@ -139,7 +141,7 @@ describe('ConsoleHandleAdapter', () => {
 
         it('should return error for invalid message', async () => {
             const responses = await collectResponses(
-                adapter.exec({ op: 'send', data: null as unknown as Response })
+                adapter.exec({ op: 'send', data: null as unknown as Response }),
             );
 
             expect(responses.length).toBe(1);
@@ -150,10 +152,12 @@ describe('ConsoleHandleAdapter', () => {
         it('should yield exactly one response per send', async () => {
             // This is critical for the CAT_LOOP bug - send must not loop
             let responseCount = 0;
+
             for await (const response of adapter.exec({ op: 'send', data: respond.item({ text: 'test' }) })) {
                 responseCount++;
                 expect(response.op).toBe('ok');
             }
+
             expect(responseCount).toBe(1);
         });
     });
@@ -169,7 +173,7 @@ describe('ConsoleHandleAdapter', () => {
 
         it('should write to stderr buffer', async () => {
             await collectResponses(
-                adapter.exec({ op: 'send', data: respond.item({ text: 'error message\n' }) })
+                adapter.exec({ op: 'send', data: respond.item({ text: 'error message\n' }) }),
             );
 
             expect(console.getOutput()).toBe('');
@@ -183,7 +187,7 @@ describe('ConsoleHandleAdapter', () => {
             const adapter = new ConsoleHandleAdapter('stdin-adapter', console, 'stdin');
 
             const responses = await collectResponses(
-                adapter.exec({ op: 'send', data: respond.item({ text: 'test' }) })
+                adapter.exec({ op: 'send', data: respond.item({ text: 'test' }) }),
             );
 
             expect(responses.length).toBe(1);
@@ -302,7 +306,7 @@ describe('ConsoleHandleAdapter', () => {
             await adapter.close();
 
             const responses = await collectResponses(
-                adapter.exec({ op: 'send', data: respond.item({ text: 'test' }) })
+                adapter.exec({ op: 'send', data: respond.item({ text: 'test' }) }),
             );
 
             expect(responses.length).toBe(1);
@@ -332,6 +336,7 @@ describe('ConsoleHandleAdapter', () => {
 
             // Receive all input
             const recvResponses: Response[] = [];
+
             for await (const r of stdin.exec({ op: 'recv' })) {
                 recvResponses.push(r);
             }
@@ -340,8 +345,9 @@ describe('ConsoleHandleAdapter', () => {
             for (const r of recvResponses) {
                 if (r.op === 'item') {
                     const sendResponses = await collectResponses(
-                        stdout.exec({ op: 'send', data: r })
+                        stdout.exec({ op: 'send', data: r }),
                     );
+
                     // Critical: should yield exactly one 'ok'
                     expect(sendResponses.length).toBe(1);
                     expect(sendResponses[0]!.op).toBe('ok');
@@ -358,13 +364,15 @@ describe('ConsoleHandleAdapter', () => {
             // Send 100 messages - should complete quickly without issues
             for (let i = 0; i < 100; i++) {
                 const responses = await collectResponses(
-                    stdout.exec({ op: 'send', data: respond.item({ text: `msg${i}\n` }) })
+                    stdout.exec({ op: 'send', data: respond.item({ text: `msg${i}\n` }) }),
                 );
+
                 expect(responses.length).toBe(1);
                 expect(responses[0]!.op).toBe('ok');
             }
 
             const output = consoleDevice.getOutput();
+
             expect(output.split('\n').filter(l => l).length).toBe(100);
         });
     });

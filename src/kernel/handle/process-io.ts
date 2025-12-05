@@ -161,17 +161,22 @@ class TapQueue<T> {
      * @returns true if queued, false if closed
      */
     push(item: T): boolean {
-        if (this._closed) return false;
+        if (this._closed) {
+            return false;
+        }
 
         if (this.waiting) {
             // Consumer is waiting, deliver directly without buffering
             const resolve = this.waiting;
+
             this.waiting = null;
             resolve(item);
-        } else {
+        }
+        else {
             // Buffer the item for later pull
             this.items.push(item);
         }
+
         return true;
     }
 
@@ -199,7 +204,7 @@ class TapQueue<T> {
         }
 
         // Wait for an item or close
-        return new Promise<T | null>((resolve) => {
+        return new Promise<T | null>(resolve => {
             this.waiting = (item: T) => resolve(item);
         });
     }
@@ -225,9 +230,11 @@ class TapQueue<T> {
         this._closed = true;
         if (this.waiting) {
             const resolve = this.waiting;
+
             this.waiting = null;
             resolve(null as unknown as T);
         }
+
         this.items = [];
     }
 }
@@ -363,7 +370,7 @@ export class ProcessIOHandle implements Handle {
         opts?: {
             target?: Handle;
             source?: Handle;
-        }
+        },
     ) {
         this.id = id;
         this.description = description;
@@ -452,7 +459,9 @@ export class ProcessIOHandle implements Handle {
      * @param handle - Handle to receive write copies
      */
     addTap(handle: Handle): void {
-        if (this.taps.has(handle)) return;
+        if (this.taps.has(handle)) {
+            return;
+        }
 
         const queue = new TapQueue<Message>();
 
@@ -478,7 +487,10 @@ export class ProcessIOHandle implements Handle {
      */
     removeTap(handle: Handle): void {
         const entry = this.taps.get(handle);
-        if (!entry) return;
+
+        if (!entry) {
+            return;
+        }
 
         // Close queue to stop drain loop (RC-2: prevents use-after-free)
         entry.queue.close();
@@ -510,6 +522,7 @@ export class ProcessIOHandle implements Handle {
      */
     getTapQueueDepth(handle: Handle): number {
         const entry = this.taps.get(handle);
+
         return entry?.queue.length ?? 0;
     }
 
@@ -537,6 +550,7 @@ export class ProcessIOHandle implements Handle {
         // RACE FIX: Check closure state before any operation
         if (this._closed) {
             yield respond.error('EBADF', 'Handle closed');
+
             return;
         }
 
@@ -579,6 +593,7 @@ export class ProcessIOHandle implements Handle {
     private async *recv(msg: Message): AsyncIterable<Response> {
         if (!this.source) {
             yield respond.error('EBADF', 'No source configured for reading');
+
             return;
         }
 
@@ -609,11 +624,13 @@ export class ProcessIOHandle implements Handle {
     private async *send(msg: Message): AsyncIterable<Response> {
         if (!this.target) {
             yield respond.error('EBADF', 'No target configured for writing');
+
             return;
         }
 
         // Send to target (synchronous with caller - RC-4: ensures ordering)
         const responses: Response[] = [];
+
         for await (const response of this.target.exec(msg)) {
             responses.push(response);
         }
@@ -665,14 +682,17 @@ export class ProcessIOHandle implements Handle {
             const msg = await queue.pull();
 
             // RACE FIX: Queue closed = tap removed (RC-3)
-            if (msg === null) break;
+            if (msg === null) {
+                break;
+            }
 
             try {
                 // Send to tap, drain responses (discarded)
                 for await (const _ of handle.exec(msg)) {
                     // Discard tap responses (see WHY above)
                 }
-            } catch {
+            }
+            catch {
                 // Tap errors don't affect anything
                 // TODO: Consider logging or auto-remove on repeated failures
             }
@@ -701,7 +721,10 @@ export class ProcessIOHandle implements Handle {
      * subsequent calls are no-ops.
      */
     async close(): Promise<void> {
-        if (this._closed) return;
+        if (this._closed) {
+            return;
+        }
+
         this._closed = true;
 
         // Close all tap queues to stop drain loops

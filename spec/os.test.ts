@@ -14,6 +14,7 @@ describe('OS', () => {
         if (os?.isBooted()) {
             await os.shutdown();
         }
+
         os = null;
     });
 
@@ -70,6 +71,7 @@ describe('OS', () => {
             await os.boot();
 
             const hal = os.getHAL();
+
             expect(hal).toBeDefined();
             expect(hal.entropy).toBeDefined();
             expect(hal.storage).toBeDefined();
@@ -80,6 +82,7 @@ describe('OS', () => {
             await os.boot();
 
             const vfs = os.getVFS();
+
             expect(vfs).toBeDefined();
         });
 
@@ -91,10 +94,12 @@ describe('OS', () => {
 
             // Check that standard devices exist
             const consoleStat = await vfs.stat('/dev/console', 'kernel');
+
             expect(consoleStat).toBeDefined();
             expect(consoleStat.model).toBe('device');
 
             const nullStat = await vfs.stat('/dev/null', 'kernel');
+
             expect(nullStat).toBeDefined();
             expect(nullStat.model).toBe('device');
         });
@@ -169,6 +174,7 @@ describe('OS with aliases', () => {
         if (os?.isBooted()) {
             await os.shutdown();
         }
+
         os = null;
     });
 
@@ -217,6 +223,7 @@ describe('OS.fs', () => {
             await os.boot();
 
             const binary = new Uint8Array([1, 2, 3, 4, 5]);
+
             await os.fs.write('/binary.bin', binary);
             const data = await os.fs.read('/binary.bin');
 
@@ -385,6 +392,7 @@ describe('OS.fs', () => {
 
             // Should be able to read files from host
             const exists = await os.fs.exists('/mounted/os.test.ts');
+
             expect(exists).toBe(true);
         });
 

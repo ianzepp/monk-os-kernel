@@ -33,6 +33,7 @@ interface SqlCall {
  */
 function createMockDatabase(): DatabaseAdapter & { calls: SqlCall[]; shouldFail: boolean } {
     const calls: SqlCall[] = [];
+
     return {
         calls,
         shouldFail: false,
@@ -41,6 +42,7 @@ function createMockDatabase(): DatabaseAdapter & { calls: SqlCall[]; shouldFail:
             if (this.shouldFail) {
                 throw new Error('Database error: SQLITE_CONSTRAINT');
             }
+
             return 1;
         },
         async query<T>(_sql: string, _params?: unknown[]): Promise<T[]> {
@@ -50,16 +52,19 @@ function createMockDatabase(): DatabaseAdapter & { calls: SqlCall[]; shouldFail:
             // no-op
         },
         async transaction(
-            statements: Array<{ sql: string; params?: unknown[] }>
+            statements: Array<{ sql: string; params?: unknown[] }>,
         ): Promise<number[]> {
             if (this.shouldFail) {
                 throw new Error('Database error: SQLITE_CONSTRAINT');
             }
+
             const results: number[] = [];
+
             for (const stmt of statements) {
                 calls.push({ sql: stmt.sql, params: stmt.params });
                 results.push(1);
             }
+
             return results;
         },
     };
@@ -98,7 +103,7 @@ function createMockModel(name = 'test_model'): Model {
  */
 function createMockRecord(
     oldData: Record<string, unknown> = {},
-    newData: Record<string, unknown> = {}
+    newData: Record<string, unknown> = {},
 ): ModelRecord {
     const merged = { ...oldData, ...newData };
     const changedFields = Object.keys(newData);
@@ -117,19 +122,26 @@ function createMockRecord(
         toChanges: () => ({ ...newData }),
         getDiff: () => {
             const diff: Record<string, { old: unknown; new: unknown }> = {};
+
             for (const field of changedFields) {
                 diff[field] = { old: oldData[field], new: newData[field] };
             }
+
             return diff;
         },
         getDiffForFields: (fields: Set<string>) => {
             const diff: Record<string, { old: unknown; new: unknown }> = {};
+
             for (const field of changedFields) {
-                if (!fields.has(field)) continue;
+                if (!fields.has(field)) {
+                    continue;
+                }
+
                 if (oldData[field] !== newData[field]) {
                     diff[field] = { old: oldData[field], new: newData[field] };
                 }
             }
+
             return diff;
         },
     };
@@ -142,7 +154,7 @@ function createContext(
     operation: 'create' | 'update' | 'delete',
     record: ModelRecord,
     db: DatabaseAdapter,
-    modelName = 'test_model'
+    modelName = 'test_model',
 ): ObserverContext {
     return {
         system: {
@@ -205,6 +217,7 @@ describe('SqlCreate', () => {
 
             expect(mockDb.calls.length).toBe(1);
             const call = mockDb.calls[0]!;
+
             expect(call.sql).toContain('INSERT INTO models');
             expect(call.sql).toContain('id');
             expect(call.sql).toContain('model_name');
@@ -220,6 +233,7 @@ describe('SqlCreate', () => {
             await observer.execute(ctx);
 
             const call = mockDb.calls[0]!;
+
             expect(call.params).toContain('abc123');
             expect(call.params).toContain('test');
         });
@@ -234,6 +248,7 @@ describe('SqlCreate', () => {
             await observer.execute(ctx);
 
             const call = mockDb.calls[0]!;
+
             expect(call.params).toContain(null);
         });
     });
@@ -272,6 +287,7 @@ describe('SqlCreate', () => {
 
             // Check entities INSERT (first call)
             const entityCall = mockDb.calls[0]!;
+
             expect(entityCall.sql).toContain('INSERT INTO entities');
             expect(entityCall.params).toContain('abc123');      // id
             expect(entityCall.params).toContain('file');        // model
@@ -293,6 +309,7 @@ describe('SqlCreate', () => {
 
             // Check detail INSERT (second call)
             const detailCall = mockDb.calls[1]!;
+
             expect(detailCall.sql).toContain('INSERT INTO file');
             expect(detailCall.params).toContain('abc123');  // id
             expect(detailCall.params).toContain('user1');   // owner
@@ -320,7 +337,8 @@ describe('SqlCreate', () => {
             try {
                 await observer.execute(ctx);
                 expect(true).toBe(false); // Should not reach
-            } catch (err) {
+            }
+            catch (err) {
                 expect(err).toBeInstanceOf(EOBSSYS);
                 expect((err as EOBSSYS).message).toContain('customers');
                 expect((err as EOBSSYS).message).toContain('my-id-123');
@@ -364,7 +382,7 @@ describe('SqlUpdate', () => {
         it('should execute UPDATE statement', async () => {
             const record = createMockRecord(
                 { id: 'abc123', name: 'Old', value: 10 },
-                { name: 'New', value: 20 }
+                { name: 'New', value: 20 },
             );
             const ctx = createContext('update', record, mockDb);
 
@@ -372,6 +390,7 @@ describe('SqlUpdate', () => {
 
             expect(mockDb.calls.length).toBe(1);
             const call = mockDb.calls[0]!;
+
             expect(call.sql).toContain('UPDATE test_model');
             expect(call.sql).toContain('SET');
             expect(call.sql).toContain('WHERE id = ?');
@@ -380,13 +399,14 @@ describe('SqlUpdate', () => {
         it('should only update changed fields', async () => {
             const record = createMockRecord(
                 { id: 'abc123', name: 'Old', unchanged: 'same' },
-                { name: 'New' }
+                { name: 'New' },
             );
             const ctx = createContext('update', record, mockDb);
 
             await observer.execute(ctx);
 
             const call = mockDb.calls[0]!;
+
             expect(call.sql).toContain('name = ?');
             expect(call.sql).not.toContain('unchanged');
         });
@@ -394,13 +414,14 @@ describe('SqlUpdate', () => {
         it('should use id as WHERE parameter', async () => {
             const record = createMockRecord(
                 { id: 'abc123', name: 'Old' },
-                { name: 'New' }
+                { name: 'New' },
             );
             const ctx = createContext('update', record, mockDb);
 
             await observer.execute(ctx);
 
             const call = mockDb.calls[0]!;
+
             // id should be the last parameter (for WHERE clause)
             expect(call.params![call.params!.length - 1]).toBe('abc123');
         });
@@ -408,7 +429,7 @@ describe('SqlUpdate', () => {
         it('should skip execution when no changes', async () => {
             const record = createMockRecord(
                 { id: 'abc123', name: 'Same' },
-                {} // No changes
+                {}, // No changes
             );
             const ctx = createContext('update', record, mockDb);
 
@@ -423,7 +444,7 @@ describe('SqlUpdate', () => {
             mockDb.shouldFail = true;
             const record = createMockRecord(
                 { id: 'abc123', name: 'Old' },
-                { name: 'New' }
+                { name: 'New' },
             );
             const ctx = createContext('update', record, mockDb);
 
@@ -434,14 +455,15 @@ describe('SqlUpdate', () => {
             mockDb.shouldFail = true;
             const record = createMockRecord(
                 { id: 'update-id', name: 'Old' },
-                { name: 'New' }
+                { name: 'New' },
             );
             const ctx = createContext('update', record, mockDb, 'orders');
 
             try {
                 await observer.execute(ctx);
                 expect(true).toBe(false);
-            } catch (err) {
+            }
+            catch (err) {
                 expect(err).toBeInstanceOf(EOBSSYS);
                 expect((err as EOBSSYS).message).toContain('orders');
                 expect((err as EOBSSYS).message).toContain('update-id');
@@ -486,7 +508,7 @@ describe('SqlDelete', () => {
             const trashedAt = new Date().toISOString();
             const record = createMockRecord(
                 { id: 'abc123', name: 'Test' },
-                { trashed_at: trashedAt }
+                { trashed_at: trashedAt },
             );
             const ctx = createContext('delete', record, mockDb);
 
@@ -494,6 +516,7 @@ describe('SqlDelete', () => {
 
             expect(mockDb.calls.length).toBe(1);
             const call = mockDb.calls[0]!;
+
             expect(call.sql).toContain('UPDATE test_model');
             expect(call.sql).toContain('SET trashed_at = ?');
             expect(call.sql).toContain('WHERE id = ?');
@@ -502,13 +525,14 @@ describe('SqlDelete', () => {
         it('should NOT execute DELETE statement (soft delete only)', async () => {
             const record = createMockRecord(
                 { id: 'abc123' },
-                { trashed_at: new Date().toISOString() }
+                { trashed_at: new Date().toISOString() },
             );
             const ctx = createContext('delete', record, mockDb);
 
             await observer.execute(ctx);
 
             const call = mockDb.calls[0]!;
+
             expect(call.sql).not.toContain('DELETE FROM');
             expect(call.sql).toContain('UPDATE');
         });
@@ -517,13 +541,14 @@ describe('SqlDelete', () => {
             const trashedAt = '2025-01-15T12:00:00.000Z';
             const record = createMockRecord(
                 { id: 'abc123' },
-                { trashed_at: trashedAt }
+                { trashed_at: trashedAt },
             );
             const ctx = createContext('delete', record, mockDb);
 
             await observer.execute(ctx);
 
             const call = mockDb.calls[0]!;
+
             expect(call.params).toContain(trashedAt);
         });
     });
@@ -533,7 +558,7 @@ describe('SqlDelete', () => {
             mockDb.shouldFail = true;
             const record = createMockRecord(
                 { id: 'abc123' },
-                { trashed_at: new Date().toISOString() }
+                { trashed_at: new Date().toISOString() },
             );
             const ctx = createContext('delete', record, mockDb);
 
@@ -544,14 +569,15 @@ describe('SqlDelete', () => {
             mockDb.shouldFail = true;
             const record = createMockRecord(
                 { id: 'delete-id' },
-                { trashed_at: new Date().toISOString() }
+                { trashed_at: new Date().toISOString() },
             );
             const ctx = createContext('delete', record, mockDb, 'products');
 
             try {
                 await observer.execute(ctx);
                 expect(true).toBe(false);
-            } catch (err) {
+            }
+            catch (err) {
                 expect(err).toBeInstanceOf(EOBSSYS);
                 expect((err as EOBSSYS).message).toContain('products');
                 expect((err as EOBSSYS).message).toContain('delete-id');
@@ -567,6 +593,7 @@ describe('SqlDelete', () => {
 describe('Ring 5 Integration', () => {
     it('should export all observers from index', async () => {
         const exports = await import('@src/ems/ring/5/index.js');
+
         expect(exports.SqlCreate).toBeDefined();
         expect(exports.SqlUpdate).toBeDefined();
         expect(exports.SqlDelete).toBeDefined();
@@ -574,6 +601,7 @@ describe('Ring 5 Integration', () => {
 
     it('should export observers from main observers index', async () => {
         const exports = await import('@src/ems/observers/index.js');
+
         expect(exports.SqlCreate).toBeDefined();
         expect(exports.SqlUpdate).toBeDefined();
         expect(exports.SqlDelete).toBeDefined();
@@ -597,6 +625,7 @@ describe('Ring 5 is required for persistence', () => {
 
         // Setup
         const hal = new BunHAL();
+
         await hal.init();
         const db = await createDatabase(hal.channel, hal.file);
         const cache = new ModelCache(db);
@@ -613,7 +642,7 @@ describe('Ring 5 is required for persistence', () => {
                     pathname: 'ghost-file.txt',
                     owner: 'ghost',
                 },
-            ])
+            ]),
         );
 
         // Record is yielded (createAll doesn't know INSERT failed)
@@ -621,6 +650,7 @@ describe('Ring 5 is required for persistence', () => {
 
         // But verify ghost file is NOT in database (check entities table)
         const rows = await db.query('SELECT * FROM entities WHERE pathname = ?', ['ghost-file.txt']);
+
         expect(rows.length).toBe(0);
 
         // Cleanup
@@ -637,6 +667,7 @@ describe('Ring 5 is required for persistence', () => {
 
         // Setup
         const hal = new BunHAL();
+
         await hal.init();
         const db = await createDatabase(hal.channel, hal.file);
         const cache = new ModelCache(db);
@@ -652,12 +683,13 @@ describe('Ring 5 is required for persistence', () => {
                     pathname: 'real-file.txt',
                     owner: 'real-owner',
                 },
-            ])
+            ]),
         );
 
         // The record should exist and have an id
         expect(results.length).toBe(1);
         const created = results[0]!;
+
         expect(created).toBeDefined();
         expect(created.id).toBeTruthy();
         // Note: pathname is stored in entities table, owner in detail table
@@ -666,16 +698,18 @@ describe('Ring 5 is required for persistence', () => {
         // Verify entities table has the pathname
         const entityRows = await db.query<{ pathname: string }>(
             'SELECT pathname FROM entities WHERE id = ?',
-            [created.id]
+            [created.id],
         );
+
         expect(entityRows.length).toBe(1);
         expect(entityRows[0]!.pathname).toBe('real-file.txt');
 
         // Verify detail table has the owner
         const detailRows = await db.query<{ owner: string }>(
             'SELECT owner FROM file WHERE id = ?',
-            [created.id]
+            [created.id],
         );
+
         expect(detailRows.length).toBe(1);
         expect(detailRows[0]!.owner).toBe('real-owner');
 

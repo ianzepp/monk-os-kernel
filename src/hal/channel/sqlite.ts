@@ -148,8 +148,8 @@ export class BunSqliteChannel implements Channel {
     constructor(path: string, opts?: ChannelOpts) {
         this.description = path;
 
-        // WHY: bun:sqlite is built-in module. require() is synchronous and safe.
-        // Could use import() but that's async and unnecessary here.
+        // WHY: bun:sqlite is built-in module. require() is synchronous and safe here.
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { Database } = require('bun:sqlite');
 
         // WHY: readonly=true opens in read-only mode (no writes allowed).
@@ -226,6 +226,7 @@ export class BunSqliteChannel implements Channel {
         // RACE FIX: Check closed at method entry, before any operations
         if (this._closed) {
             yield respond.error('EBADF', 'Channel closed');
+
             return;
         }
 
@@ -248,6 +249,7 @@ export class BunSqliteChannel implements Channel {
                     for (const row of rows) {
                         yield respond.item(row);
                     }
+
                     // WHY: done signals end of result set. Kernel knows stream is complete.
                     yield respond.done();
                     break;
@@ -302,6 +304,7 @@ export class BunSqliteChannel implements Channel {
                             const prepared = this.db.prepare(stmt.sql);
                             const bindings = (stmt.params ?? []) as import('bun:sqlite').SQLQueryBindings[];
                             const result = prepared.run(...bindings);
+
                             results.push(result.changes);
                         }
                     })();
@@ -314,10 +317,12 @@ export class BunSqliteChannel implements Channel {
                     // WHY: Unknown operations fail fast. Helps catch bugs in syscall layer.
                     yield respond.error('EINVAL', `Unknown op: ${msg.op}`);
             }
-        } catch (err) {
+        }
+        catch (err) {
             // WHY: SQLite errors are Error instances with message property.
             // No error codes like PostgreSQL - just message strings.
             const sqliteErr = err as Error;
+
             // WHY: Use EIO (generic I/O error) for database errors. Consistent
             // with other database channels.
             yield respond.error('EIO', sqliteErr.message);

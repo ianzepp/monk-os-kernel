@@ -12,6 +12,7 @@ describe('Host Device', () => {
         describe('exec', () => {
             it('should return command not found for unknown commands', async () => {
                 const result = await host.exec('nonexistent');
+
                 expect(result.exitCode).toBe(127);
                 expect(result.stderr).toContain('command not found');
             });
@@ -24,6 +25,7 @@ describe('Host Device', () => {
                 });
 
                 const result = await host.exec('test');
+
                 expect(result.exitCode).toBe(0);
                 expect(result.stdout).toBe('test output');
             });
@@ -36,6 +38,7 @@ describe('Host Device', () => {
                 });
 
                 const result = await host.exec('error');
+
                 expect(result.exitCode).toBe(1);
                 expect(result.stderr).toBe('error message');
             });
@@ -45,6 +48,7 @@ describe('Host Device', () => {
             it('should return process with pid', () => {
                 host.addCommand('test', { exitCode: 0 });
                 const proc = host.spawn('test');
+
                 expect(typeof proc.pid).toBe('number');
             });
 
@@ -54,6 +58,7 @@ describe('Host Device', () => {
 
                 const reader = proc.stdout!.getReader();
                 const { value } = await reader.read();
+
                 expect(new TextDecoder().decode(value)).toBe('output');
             });
 
@@ -61,6 +66,7 @@ describe('Host Device', () => {
                 host.addCommand('test', { exitCode: 42 });
                 const proc = host.spawn('test');
                 const result = await proc.wait();
+
                 expect(result.exitCode).toBe(42);
             });
 
@@ -110,6 +116,7 @@ describe('Host Device', () => {
         describe('stat', () => {
             it('should return default stats', () => {
                 const stat = host.stat();
+
                 expect(stat.cpus).toBe(4);
                 expect(stat.memtotal).toBe(8 * 1024 * 1024 * 1024);
                 expect(stat.memfree).toBe(4 * 1024 * 1024 * 1024);
@@ -118,6 +125,7 @@ describe('Host Device', () => {
             it('should return configured stats', () => {
                 host.setStat({ cpus: 8, memtotal: 16e9, memfree: 8e9 });
                 const stat = host.stat();
+
                 expect(stat.cpus).toBe(8);
                 expect(stat.memtotal).toBe(16e9);
                 expect(stat.memfree).toBe(8e9);
@@ -163,12 +171,14 @@ describe('Host Device', () => {
         describe('exec', () => {
             it('should execute real command', async () => {
                 const result = await host.exec('echo', ['hello']);
+
                 expect(result.exitCode).toBe(0);
                 expect(result.stdout.trim()).toBe('hello');
             });
 
             it('should return non-zero for failing command', async () => {
                 const result = await host.exec('false');
+
                 expect(result.exitCode).not.toBe(0);
             });
         });
@@ -176,6 +186,7 @@ describe('Host Device', () => {
         describe('spawn', () => {
             it('should spawn process', () => {
                 const proc = host.spawn('echo', ['test']);
+
                 expect(typeof proc.pid).toBe('number');
                 expect(proc.pid).toBeGreaterThan(0);
             });
@@ -184,6 +195,7 @@ describe('Host Device', () => {
                 const proc = host.spawn('echo', ['hello'], { stdout: 'pipe' });
                 const reader = proc.stdout!.getReader();
                 const { value } = await reader.read();
+
                 expect(new TextDecoder().decode(value).trim()).toBe('hello');
                 await proc.wait();
             });
@@ -192,6 +204,7 @@ describe('Host Device', () => {
         describe('platform', () => {
             it('should return valid platform', () => {
                 const platform = host.platform();
+
                 expect(['darwin', 'linux', 'win32']).toContain(platform);
             });
         });
@@ -199,6 +212,7 @@ describe('Host Device', () => {
         describe('arch', () => {
             it('should return valid arch', () => {
                 const arch = host.arch();
+
                 expect(['x64', 'arm64', 'arm', 'ia32']).toContain(arch);
             });
         });
@@ -206,6 +220,7 @@ describe('Host Device', () => {
         describe('hostname', () => {
             it('should return non-empty hostname', () => {
                 const hostname = host.hostname();
+
                 expect(hostname.length).toBeGreaterThan(0);
             });
         });
@@ -213,6 +228,7 @@ describe('Host Device', () => {
         describe('stat', () => {
             it('should return valid stats', () => {
                 const stat = host.stat();
+
                 expect(stat.cpus).toBeGreaterThan(0);
                 expect(stat.memtotal).toBeGreaterThan(0);
                 expect(stat.memfree).toBeGreaterThanOrEqual(0);
@@ -223,6 +239,7 @@ describe('Host Device', () => {
         describe('getenv', () => {
             it('should return PATH', () => {
                 const path = host.getenv('PATH');
+
                 expect(path).toBeDefined();
                 expect(path!.length).toBeGreaterThan(0);
             });

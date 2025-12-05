@@ -37,7 +37,7 @@ export async function workerLoad(
     self: Kernel,
     proc: Process,
     workerId: string,
-    path: string
+    path: string,
 ): Promise<void> {
     // Step 1: Validate ownership and get worker
     const worker = getLeasedWorker(self, proc, workerId);

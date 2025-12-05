@@ -199,6 +199,7 @@ export class BunStorageEngine implements StorageEngine {
         const row = this.db.query('SELECT value FROM storage WHERE key = ?').get(key) as
             | { value: Uint8Array }
             | null;
+
         return row?.value ?? null;
     }
 
@@ -263,6 +264,7 @@ export class BunStorageEngine implements StorageEngine {
         const rows = this.db.query('SELECT key FROM storage WHERE key LIKE ? ORDER BY key').all(pattern) as Array<{
             key: string;
         }>;
+
         for (const row of rows) {
             yield row.key;
         }
@@ -278,6 +280,7 @@ export class BunStorageEngine implements StorageEngine {
      */
     async exists(key: string): Promise<boolean> {
         const row = this.db.query('SELECT 1 FROM storage WHERE key = ?').get(key);
+
         return row !== null;
     }
 
@@ -293,6 +296,7 @@ export class BunStorageEngine implements StorageEngine {
         const row = this.db.query('SELECT length(value) as size, mtime FROM storage WHERE key = ?').get(key) as
             | { size: number; mtime: number }
             | null;
+
         return row ? { size: row.size, mtime: row.mtime } : null;
     }
 
@@ -319,6 +323,7 @@ export class BunStorageEngine implements StorageEngine {
         // Use IMMEDIATE to acquire write lock at start, avoiding deadlocks
         // WHY: Prevents "database is locked" errors from lock upgrades
         this.db.run('BEGIN IMMEDIATE');
+
         return new SQLiteTransaction(this.db, this);
     }
 
@@ -370,6 +375,7 @@ export class BunStorageEngine implements StorageEngine {
         if (!this.watchers.has(key)) {
             this.watchers.set(key, new Set());
         }
+
         this.watchers.get(key)!.add(callback);
 
         try {
@@ -377,14 +383,16 @@ export class BunStorageEngine implements StorageEngine {
                 if (queue.length > 0) {
                     // Yield next event from queue
                     yield queue.shift()!;
-                } else {
+                }
+                else {
                     // Wait for next event
-                    await new Promise<void>((r) => {
+                    await new Promise<void>(r => {
                         resolve = r;
                     });
                 }
             }
-        } finally {
+        }
+        finally {
             // Cleanup on break/return
             // WHY: Prevents memory leak from abandoned watchers
             this.watchers.get(key)?.delete(callback);
@@ -443,6 +451,7 @@ export class BunStorageEngine implements StorageEngine {
             .replace(/\*\*/g, '<<<DOUBLESTAR>>>')
             .replace(/\*/g, '[^/]*')
             .replace(/<<<DOUBLESTAR>>>/g, '.*');
+
         return new RegExp(`^${regex}$`).test(key);
     }
 
@@ -469,6 +478,7 @@ export class BunStorageEngine implements StorageEngine {
             clearInterval(this.pollInterval);
             this.pollInterval = null;
         }
+
         this.db.close();
     }
 
@@ -564,7 +574,7 @@ class SQLiteTransaction implements Transaction {
      */
     constructor(
         private db: Database,
-        private engine: BunStorageEngine
+        private engine: BunStorageEngine,
     ) {}
 
     /**
@@ -602,6 +612,7 @@ class SQLiteTransaction implements Transaction {
         const row = this.db.query('SELECT value FROM storage WHERE key = ?').get(key) as
             | { value: Uint8Array }
             | null;
+
         return row?.value ?? null;
     }
 
@@ -661,7 +672,10 @@ class SQLiteTransaction implements Transaction {
      * @returns Promise that resolves when commit is complete
      */
     async commit(): Promise<void> {
-        if (this.committed) return;
+        if (this.committed) {
+            return;
+        }
+
         this.committed = true;
         this.engine._commit();
         // Emit events after commit succeeds
@@ -684,7 +698,10 @@ class SQLiteTransaction implements Transaction {
      * @returns Promise that resolves when rollback is complete
      */
     async rollback(): Promise<void> {
-        if (this.committed || this.rolledBack) return;
+        if (this.committed || this.rolledBack) {
+            return;
+        }
+
         this.rolledBack = true;
         this.engine._rollback();
         // Discard buffered events

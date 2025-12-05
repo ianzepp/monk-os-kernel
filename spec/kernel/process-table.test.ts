@@ -40,6 +40,7 @@ describe('ProcessTable', () => {
     describe('register', () => {
         it('should register a process', () => {
             const proc = createMockProcess();
+
             table.register(proc);
 
             expect(table.has(proc.id)).toBe(true);
@@ -63,6 +64,7 @@ describe('ProcessTable', () => {
     describe('unregister', () => {
         it('should remove a process', () => {
             const proc = createMockProcess();
+
             table.register(proc);
             table.unregister(proc.id);
 
@@ -87,10 +89,12 @@ describe('ProcessTable', () => {
         it('should iterate all processes', () => {
             const p1 = createMockProcess();
             const p2 = createMockProcess();
+
             table.register(p1);
             table.register(p2);
 
             const all = [...table.all()];
+
             expect(all).toContain(p1);
             expect(all).toContain(p2);
             expect(all.length).toBe(2);
@@ -110,6 +114,7 @@ describe('ProcessTable', () => {
             table.register(other);
 
             const children = table.getChildren(parent.id);
+
             expect(children).toContain(child1);
             expect(children).toContain(child2);
             expect(children).not.toContain(other);
@@ -129,14 +134,17 @@ describe('ProcessTable', () => {
             table.register(child);
 
             const resolved = table.resolvePid(parent, 1);
+
             expect(resolved).toBe(child);
         });
 
         it('should return undefined for unknown PID', () => {
             const parent = createMockProcess();
+
             table.register(parent);
 
             const resolved = table.resolvePid(parent, 999);
+
             expect(resolved).toBeUndefined();
         });
     });
@@ -150,6 +158,7 @@ describe('ProcessTable', () => {
             table.register(zombie);
 
             const zombies = table.getZombies();
+
             expect(zombies).toContain(zombie);
             expect(zombies).not.toContain(running);
         });

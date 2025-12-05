@@ -143,7 +143,7 @@ export class ListenerPort implements Port {
     constructor(
         id: string,
         listener: Listener,
-        description: string
+        description: string,
     ) {
         this.id = id;
         this.listener = listener;

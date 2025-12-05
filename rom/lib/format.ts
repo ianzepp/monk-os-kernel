@@ -71,7 +71,7 @@ export function formatDate(date: Date | number, format: string): string {
     // Sort tokens by length (longest first) to match correctly
     const tokenRegex = new RegExp(
         Object.keys(tokens).sort((a, b) => b.length - a.length).join('|'),
-        'g'
+        'g',
     );
 
     return format.replace(tokenRegex, match => tokens[match]?.() ?? match);
@@ -88,10 +88,15 @@ function pad(n: number, width: number = 2): string {
 
 function formatTimezone(d: Date, allowZ: boolean): string {
     const offset = -d.getTimezoneOffset();
-    if (allowZ && offset === 0) return 'Z';
+
+    if (allowZ && offset === 0) {
+        return 'Z';
+    }
+
     const sign = offset >= 0 ? '+' : '-';
     const hours = pad(Math.floor(Math.abs(offset) / 60));
     const mins = pad(Math.abs(offset) % 60);
+
     return `${sign}${hours}:${mins}`;
 }
 
@@ -100,6 +105,7 @@ function formatTimezone(d: Date, allowZ: boolean): string {
  */
 export function parseDate(str: string): Date | null {
     const d = new Date(str);
+
     return isNaN(d.getTime()) ? null : d;
 }
 
@@ -111,13 +117,33 @@ export function parseDate(str: string): Date | null {
 export function addTime(date: Date | number, delta: TimeDelta): Date {
     const d = typeof date === 'number' ? new Date(date) : new Date(date.getTime());
 
-    if (delta.years) d.setFullYear(d.getFullYear() + delta.years);
-    if (delta.months) d.setMonth(d.getMonth() + delta.months);
-    if (delta.days) d.setDate(d.getDate() + delta.days);
-    if (delta.hours) d.setHours(d.getHours() + delta.hours);
-    if (delta.minutes) d.setMinutes(d.getMinutes() + delta.minutes);
-    if (delta.seconds) d.setSeconds(d.getSeconds() + delta.seconds);
-    if (delta.milliseconds) d.setMilliseconds(d.getMilliseconds() + delta.milliseconds);
+    if (delta.years) {
+        d.setFullYear(d.getFullYear() + delta.years);
+    }
+
+    if (delta.months) {
+        d.setMonth(d.getMonth() + delta.months);
+    }
+
+    if (delta.days) {
+        d.setDate(d.getDate() + delta.days);
+    }
+
+    if (delta.hours) {
+        d.setHours(d.getHours() + delta.hours);
+    }
+
+    if (delta.minutes) {
+        d.setMinutes(d.getMinutes() + delta.minutes);
+    }
+
+    if (delta.seconds) {
+        d.setSeconds(d.getSeconds() + delta.seconds);
+    }
+
+    if (delta.milliseconds) {
+        d.setMilliseconds(d.getMilliseconds() + delta.milliseconds);
+    }
 
     return d;
 }
@@ -138,6 +164,7 @@ export interface TimeDelta {
 export function diffTime(a: Date | number, b: Date | number): number {
     const aTime = typeof a === 'number' ? a : a.getTime();
     const bTime = typeof b === 'number' ? b : b.getTime();
+
     return aTime - bTime;
 }
 
@@ -206,11 +233,17 @@ export function ms(str: string): number {
     const regex = /(-?\d+\.?\d*)\s*(ms|milliseconds?|s|secs?|seconds?|m|mins?|minutes?|h|hrs?|hours?|d|days?|w|weeks?|y|years?)?/gi;
 
     let match: RegExpExecArray | null;
+
     while ((match = regex.exec(str)) !== null) {
         const matchValue = match[1];
-        if (matchValue === undefined) continue;
+
+        if (matchValue === undefined) {
+            continue;
+        }
+
         const value = parseFloat(matchValue);
         const unit = (match[2] || 'ms').toLowerCase();
+
         total += value * (DURATION_UNITS[unit] ?? 1);
     }
 
@@ -261,10 +294,22 @@ export function formatMs(milliseconds: number, long: boolean = false): string {
         return sign + formatMsLong(abs);
     }
 
-    if (abs >= 86_400_000) return sign + Math.round(abs / 86_400_000) + 'd';
-    if (abs >= 3_600_000) return sign + Math.round(abs / 3_600_000) + 'h';
-    if (abs >= 60_000) return sign + Math.round(abs / 60_000) + 'm';
-    if (abs >= 1000) return sign + Math.round(abs / 1000) + 's';
+    if (abs >= 86_400_000) {
+        return sign + Math.round(abs / 86_400_000) + 'd';
+    }
+
+    if (abs >= 3_600_000) {
+        return sign + Math.round(abs / 3_600_000) + 'h';
+    }
+
+    if (abs >= 60_000) {
+        return sign + Math.round(abs / 60_000) + 'm';
+    }
+
+    if (abs >= 1000) {
+        return sign + Math.round(abs / 1000) + 's';
+    }
+
     return sign + abs + 'ms';
 }
 
@@ -272,24 +317,28 @@ function formatMsLong(ms: number): string {
     const parts: string[] = [];
 
     const days = Math.floor(ms / 86_400_000);
+
     if (days > 0) {
         parts.push(`${days} ${days === 1 ? 'day' : 'days'}`);
         ms %= 86_400_000;
     }
 
     const hours = Math.floor(ms / 3_600_000);
+
     if (hours > 0) {
         parts.push(`${hours} ${hours === 1 ? 'hour' : 'hours'}`);
         ms %= 3_600_000;
     }
 
     const minutes = Math.floor(ms / 60_000);
+
     if (minutes > 0) {
         parts.push(`${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`);
         ms %= 60_000;
     }
 
     const seconds = Math.floor(ms / 1000);
+
     if (seconds > 0) {
         parts.push(`${seconds} ${seconds === 1 ? 'second' : 'seconds'}`);
         ms %= 1000;
@@ -353,9 +402,16 @@ function escapeRegex(str: string): string {
  * Capitalize the first letter of a string.
  */
 export function capitalize(str: string): string {
-    if (str.length === 0) return str;
+    if (str.length === 0) {
+        return str;
+    }
+
     const firstChar = str[0];
-    if (firstChar === undefined) return str;
+
+    if (firstChar === undefined) {
+        return str;
+    }
+
     return firstChar.toUpperCase() + str.slice(1).toLowerCase();
 }
 
@@ -404,7 +460,10 @@ export function kebabCase(str: string): string {
  *     truncate('Hello World', 8, '…')    // 'Hello W…'
  */
 export function truncate(str: string, maxLength: number, ellipsis: string = '...'): string {
-    if (str.length <= maxLength) return str;
+    if (str.length <= maxLength) {
+        return str;
+    }
+
     return str.slice(0, maxLength - ellipsis.length) + ellipsis;
 }
 
@@ -487,8 +546,8 @@ export function formatSize(bytes: number, human: boolean, padWidth: number = 8):
 export function formatMode(type: string, mode: number): string {
     const typeChar = type === 'directory' ? 'd'
         : type === 'symlink' ? 'l'
-        : type === 'device' ? 'c'
-        : '-';
+            : type === 'device' ? 'c'
+                : '-';
 
     const perms = [
         (mode & 0o400) ? 'r' : '-',
@@ -523,6 +582,7 @@ export function formatDateLs(date: Date | undefined): string {
         const day = String(date.getDate()).padStart(2);
         const hours = String(date.getHours()).padStart(2, '0');
         const mins = String(date.getMinutes()).padStart(2, '0');
+
         return `${month} ${day} ${hours}:${mins}`;
     }
 

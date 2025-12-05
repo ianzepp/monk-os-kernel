@@ -79,9 +79,11 @@ describe('EntityModel', () => {
 
         it('should return field definitions', () => {
             const fields = model.fields();
+
             expect(fields.length).toBeGreaterThan(0);
 
             const idField = fields.find(f => f.name === 'id');
+
             expect(idField).toBeDefined();
             expect(idField?.required).toBe(true);
         });
@@ -90,6 +92,7 @@ describe('EntityModel', () => {
     describe('EntityCache integration', () => {
         it('should load root entity from database', () => {
             const root = entityCache.getEntity(ROOT_ID);
+
             expect(root).toBeDefined();
             expect(root?.model).toBe('folder');
             expect(root?.pathname).toBe('');
@@ -97,6 +100,7 @@ describe('EntityModel', () => {
 
         it('should resolve root path', async () => {
             const id = await entityCache.resolvePath('/', db);
+
             expect(id).toBe(ROOT_ID);
         });
     });
@@ -119,6 +123,7 @@ describe('EntityModel', () => {
     describe('list()', () => {
         it('should list children of root', async () => {
             const children: string[] = [];
+
             for await (const id of model.list(ctx, ROOT_ID)) {
                 children.push(id);
             }
@@ -142,8 +147,9 @@ describe('EntityModel', () => {
             // Verify it was persisted to database
             const rows = await db.query<{ id: string; parent: string; pathname: string }>(
                 'SELECT id, parent, pathname FROM entities WHERE id = ?',
-                [id]
+                [id],
             );
+
             expect(rows.length).toBe(1);
             expect(rows[0]!.pathname).toBe('test-folder');
             expect(rows[0]!.parent).toBe(ROOT_ID);
@@ -158,13 +164,14 @@ describe('EntityModel', () => {
 
             // Verify cache lookup works
             const entity = entityCache.getEntity(id);
+
             expect(entity?.pathname).toBe('test-folder');
             expect(entity?.model).toBe('folder');
         });
 
         it('should require model in fields', async () => {
             await expect(
-                model.create(ctx, ROOT_ID, 'no-model', {})
+                model.create(ctx, ROOT_ID, 'no-model', {}),
             ).rejects.toThrow('EntityModel.create requires fields.model');
         });
     });
@@ -190,6 +197,7 @@ describe('EntityModel', () => {
 
             // Verify the update
             const stat = await model.stat(ctx, id);
+
             expect(stat.owner).toBe('new-owner');
         });
     });
@@ -215,13 +223,15 @@ describe('EntityModel', () => {
 
             // Entity should still be in cache (soft delete doesn't remove from cache)
             const entity = entityCache.getEntity(id);
+
             expect(entity).toBeDefined();
 
             // But detail should have trashed_at set
             const rows = await db.query<EntityRecord>(
                 'SELECT trashed_at FROM folder WHERE id = ?',
-                [id]
+                [id],
             );
+
             expect(rows.length).toBe(1);
             expect(rows[0]!.trashed_at).not.toBeNull();
         });
@@ -248,6 +258,7 @@ describe('EntityModel with booted OS', () => {
 
     it('should have VFS available after boot', () => {
         const vfs = os.getVFS();
+
         expect(vfs).toBeDefined();
     });
 
@@ -271,18 +282,21 @@ describe('EntityModel with booted OS', () => {
 
     it('should query models via os.ems', async () => {
         const models = await os.ems.selectAny('models');
+
         expect(models.length).toBeGreaterThan(0);
 
         // Should have core models
         const modelNames = models.map((m: EntityRecord) => m.model_name);
+
         expect(modelNames).toContain('folder');
         expect(modelNames).toContain('file');
     });
 
     it('should query fields via os.ems', async () => {
         const fields = await os.ems.selectAny('fields', {
-            where: { model_name: 'folder' }
+            where: { model_name: 'folder' },
         });
+
         expect(fields.length).toBeGreaterThan(0);
     });
 
@@ -298,8 +312,9 @@ describe('EntityModel with booted OS', () => {
 
         // Verify in entities table (entities has no trashed_at, so use 'include')
         const entities = await os.ems.selectAny('entities', {
-            where: { id: folder.id }
+            where: { id: folder.id },
         }, { trashed: 'include' });
+
         expect(entities.length).toBe(1);
         expect((entities[0] as EntityRecord).pathname).toBe('test-via-os-db');
     });

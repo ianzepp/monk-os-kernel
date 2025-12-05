@@ -161,7 +161,7 @@ export function publishPubsub(
     topic: string,
     data: Uint8Array | undefined,
     meta: Record<string, unknown> | undefined,
-    sourcePortId: string
+    sourcePortId: string,
 ): void {
     // Create message object with timestamp
     // WHY SPREAD META: Preserve existing metadata from sender

@@ -33,7 +33,7 @@ import { getargs, println, exit } from '@rom/lib/process';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 async function main(): Promise<void> {
     const args = await getargs();
@@ -53,6 +53,7 @@ async function main(): Promise<void> {
     if (formatArg) {
         const format = formatArg.slice(1);
         const result = formatDate(now, format, utc);
+
         await println(result);
         await exit(0);
     }
@@ -60,7 +61,8 @@ async function main(): Promise<void> {
     // Default format like Unix date
     if (utc) {
         await println(now.toUTCString());
-    } else {
+    }
+    else {
         await println(now.toString());
     }
 
@@ -92,12 +94,16 @@ function formatDate(date: Date, format: string, utc: boolean): string {
             case 'S': return pad(seconds);
             case 'a': {
                 const weekday = WEEKDAYS[dayOfWeek];
+
                 return weekday !== undefined ? weekday : '';
             }
+
             case 'b': {
                 const monthName = MONTHS[month];
+
                 return monthName !== undefined ? monthName : '';
             }
+
             case 'j': return pad(getDayOfYear(date, utc), 3);
             case 'n': return '\n';
             case 't': return '\t';
@@ -114,6 +120,7 @@ function getDayOfYear(date: Date, utc: boolean): number {
     const start = new Date(utc ? date.getUTCFullYear() : date.getFullYear(), 0, 0);
     const diff = date.getTime() - start.getTime();
     const oneDay = 1000 * 60 * 60 * 24;
+
     return Math.floor(diff / oneDay);
 }
 

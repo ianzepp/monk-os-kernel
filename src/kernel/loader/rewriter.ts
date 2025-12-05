@@ -219,7 +219,7 @@ export function rewriteImportsAST(js: string, fromModule: string): string {
                     node as unknown as ExportNamedDeclaration,
                     fromModule,
                     replacements,
-                    exportedNames
+                    exportedNames,
                 );
                 break;
 
@@ -237,6 +237,7 @@ export function rewriteImportsAST(js: string, fromModule: string): string {
     replacements.sort((a, b) => b.start - a.start);
 
     let result = js;
+
     for (const { start, end, text } of replacements) {
         result = result.slice(0, start) + text + result.slice(end);
     }
@@ -247,6 +248,7 @@ export function rewriteImportsAST(js: string, fromModule: string): string {
     // and ensures the symbol is defined before assignment.
     if (exportedNames.length > 0) {
         const exportStatements = exportedNames.map(name => `exports.${name} = ${name};`).join('\n');
+
         result += '\n' + exportStatements;
     }
 
@@ -281,7 +283,7 @@ export function rewriteImportsAST(js: string, fromModule: string): string {
 function processImport(
     node: ImportDeclaration,
     fromModule: string,
-    replacements: Replacement[]
+    replacements: Replacement[],
 ): void {
     // Resolve import path to absolute VFS path or external reference
     const resolved = resolveImport(node.source.value, fromModule);
@@ -293,7 +295,8 @@ function processImport(
         // Side-effect import: import 'path'
         // WHY semicolon: Ensures statement termination for safety
         replacement = `__require('${resolved}');`;
-    } else {
+    }
+    else {
         const defaultSpec = specifiers.find(s => s.type === 'ImportDefaultSpecifier');
         const namespaceSpec = specifiers.find(s => s.type === 'ImportNamespaceSpecifier');
         const namedSpecs = specifiers.filter(s => s.type === 'ImportSpecifier');
@@ -301,29 +304,36 @@ function processImport(
         if (namespaceSpec) {
             // import * as x from 'path'
             replacement = `const ${namespaceSpec.local.name} = __require('${resolved}')`;
-        } else if (defaultSpec && namedSpecs.length > 0) {
+        }
+        else if (defaultSpec && namedSpecs.length > 0) {
             // Mixed: import x, { y, z } from 'path'
             // WHY temp variable: Ensures single __require() call
             const tempVar = `__import_${Math.random().toString(36).slice(2, 8)}`;
             const namedDestructure = namedSpecs
                 .map(s => {
                     const imported = (s as ImportSpecifier).imported?.name ?? s.local.name;
+
                     // WHY check for aliasing: import { x as y } needs 'x: y' syntax
                     return imported === s.local.name ? imported : `${imported}: ${s.local.name}`;
                 })
                 .join(', ');
+
             replacement = `const ${tempVar} = __require('${resolved}'); const ${defaultSpec.local.name} = ${tempVar}.default; const { ${namedDestructure} } = ${tempVar}`;
-        } else if (defaultSpec) {
+        }
+        else if (defaultSpec) {
             // import x from 'path'
             replacement = `const ${defaultSpec.local.name} = __require('${resolved}').default`;
-        } else {
+        }
+        else {
             // import { x, y } from 'path'
             const destructure = namedSpecs
                 .map(s => {
                     const imported = (s as ImportSpecifier).imported?.name ?? s.local.name;
+
                     return imported === s.local.name ? imported : `${imported}: ${s.local.name}`;
                 })
                 .join(', ');
+
             replacement = `const { ${destructure} } = __require('${resolved}')`;
         }
     }
@@ -361,7 +371,7 @@ function processExportNamed(
     node: ExportNamedDeclaration,
     fromModule: string,
     replacements: Replacement[],
-    exportedNames: string[]
+    exportedNames: string[],
 ): void {
     if (node.source) {
         // Re-export: export { x } from 'path'
@@ -380,7 +390,8 @@ function processExportNamed(
         const replacement = `const ${tempVar} = __require('${resolved}'); ${assigns};`;
 
         replacements.push({ start: node.start, end: node.end, text: replacement });
-    } else if (node.declaration) {
+    }
+    else if (node.declaration) {
         // export function/class/const/let/var
         const decl = node.declaration as Declaration;
 
@@ -388,7 +399,8 @@ function processExportNamed(
         if (decl.id) {
             // function or class declaration
             exportedNames.push(decl.id.name);
-        } else if (decl.declarations) {
+        }
+        else if (decl.declarations) {
             // variable declaration (const, let, var)
             for (const d of decl.declarations) {
                 if (d.id?.name) {
@@ -403,7 +415,8 @@ function processExportNamed(
             end: node.declaration.start,
             text: '',
         });
-    } else {
+    }
+    else {
         // export { x, y }
         const assigns = node.specifiers
             .map(s => `exports.${s.exported.name} = ${s.local.name}`)
@@ -457,15 +470,17 @@ function processExportDefault(node: ExportDefaultDeclaration, replacements: Repl
 function processExportAll(
     node: ExportAllDeclaration,
     fromModule: string,
-    replacements: Replacement[]
+    replacements: Replacement[],
 ): void {
     const resolved = resolveImport(node.source.value, fromModule);
 
     let replacement: string;
+
     if (node.exported) {
         // export * as ns from 'path'
         replacement = `exports.${node.exported.name} = __require('${resolved}');`;
-    } else {
+    }
+    else {
         // export * from 'path'
         replacement = `Object.assign(exports, __require('${resolved}'));`;
     }

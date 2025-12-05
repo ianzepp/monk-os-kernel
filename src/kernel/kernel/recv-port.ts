@@ -154,11 +154,12 @@ import { allocHandle } from './alloc-handle.js';
 export async function recvPort(
     self: Kernel,
     proc: Process,
-    h: number
+    h: number,
 ): Promise<ProcessPortMessage> {
     // Look up port from process's fd table
     // Validates fd exists and is a port (not file/socket)
     const port = getPortFromHandle(self, proc, h);
+
     if (!port) {
         throw new EBADF(`Bad port: ${h}`);
     }

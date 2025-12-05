@@ -88,8 +88,10 @@ export class BunJsonDevice implements JsonDevice {
     decode(text: string): unknown {
         try {
             return JSON.parse(text);
-        } catch (err) {
+        }
+        catch (err) {
             const message = err instanceof Error ? err.message : String(err);
+
             throw new EIO(`JSON decode failed: ${message}`);
         }
     }
@@ -105,8 +107,10 @@ export class BunJsonDevice implements JsonDevice {
     encode(data: unknown, pretty?: boolean): string {
         try {
             return JSON.stringify(data, null, pretty ? 2 : undefined);
-        } catch (err) {
+        }
+        catch (err) {
             const message = err instanceof Error ? err.message : String(err);
+
             throw new EIO(`JSON encode failed: ${message}`);
         }
     }
@@ -144,6 +148,7 @@ export class MockJsonDevice implements JsonDevice {
      */
     onDecode(fn: (text: string) => unknown): this {
         this._decode = fn;
+
         return this;
     }
 
@@ -152,6 +157,7 @@ export class MockJsonDevice implements JsonDevice {
      */
     onEncode(fn: (data: unknown, pretty?: boolean) => string): this {
         this._encode = fn;
+
         return this;
     }
 
@@ -160,6 +166,7 @@ export class MockJsonDevice implements JsonDevice {
         if (this._decode) {
             return this._decode(text);
         }
+
         return JSON.parse(text);
     }
 
@@ -168,6 +175,7 @@ export class MockJsonDevice implements JsonDevice {
         if (this._encode) {
             return this._encode(data, pretty);
         }
+
         return JSON.stringify(data, null, pretty ? 2 : undefined);
     }
 

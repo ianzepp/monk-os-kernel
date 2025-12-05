@@ -61,7 +61,7 @@ function createFieldRow(overrides: Partial<FieldRow> = {}): FieldRow {
 
 function createMockModel(
     name = 'test_model',
-    validationFields: FieldRow[] = []
+    validationFields: FieldRow[] = [],
 ): Model {
     return {
         modelName: name,
@@ -78,7 +78,7 @@ function createMockModel(
 
 function createMockRecord(
     oldData: Record<string, unknown> = {},
-    newData: Record<string, unknown> = {}
+    newData: Record<string, unknown> = {},
 ): ModelRecord {
     const merged = { ...oldData, ...newData };
     const changedFields = Object.keys(newData);
@@ -97,19 +97,26 @@ function createMockRecord(
         toChanges: () => ({ ...newData }),
         getDiff: () => {
             const diff: Record<string, { old: unknown; new: unknown }> = {};
+
             for (const field of changedFields) {
                 diff[field] = { old: oldData[field], new: newData[field] };
             }
+
             return diff;
         },
         getDiffForFields: (fields: Set<string>) => {
             const diff: Record<string, { old: unknown; new: unknown }> = {};
+
             for (const field of changedFields) {
-                if (!fields.has(field)) continue;
+                if (!fields.has(field)) {
+                    continue;
+                }
+
                 if (oldData[field] !== newData[field]) {
                     diff[field] = { old: oldData[field], new: newData[field] };
                 }
             }
+
             return diff;
         },
     };
@@ -118,7 +125,7 @@ function createMockRecord(
 function createContext(
     operation: 'create' | 'update' | 'delete',
     model: Model,
-    record: ModelRecord
+    record: ModelRecord,
 ): ObserverContext {
     return {
         system: {
@@ -221,7 +228,8 @@ describe('Constraints', () => {
             try {
                 await observer.execute(ctx);
                 expect.unreachable('Should have thrown');
-            } catch (err) {
+            }
+            catch (err) {
                 expect(err).toBeInstanceOf(EOBSINVALID);
                 expect((err as EOBSINVALID).field).toBe('email');
                 expect((err as EOBSINVALID).message).toContain('email');
@@ -504,7 +512,8 @@ describe('Constraints', () => {
             try {
                 await observer.execute(ctx);
                 expect.unreachable('Should have thrown');
-            } catch (err) {
+            }
+            catch (err) {
                 expect((err as EOBSINVALID).message).toContain('>= 18');
             }
         });
@@ -538,7 +547,8 @@ describe('Constraints', () => {
             try {
                 await observer.execute(ctx);
                 expect.unreachable('Should have thrown');
-            } catch (err) {
+            }
+            catch (err) {
                 expect((err as EOBSINVALID).message).toContain('^[A-Z]{3}$');
             }
         });
@@ -572,7 +582,8 @@ describe('Constraints', () => {
             try {
                 await observer.execute(ctx);
                 expect.unreachable('Should have thrown');
-            } catch (err) {
+            }
+            catch (err) {
                 expect((err as EOBSINVALID).message).toContain('a, b, c');
             }
         });
@@ -591,7 +602,8 @@ describe('Constraints', () => {
             try {
                 await observer.execute(ctx);
                 expect.unreachable('Should have thrown');
-            } catch (err) {
+            }
+            catch (err) {
                 expect(err).toBeInstanceOf(EOBSINVALID);
                 // First field with error
                 expect((err as EOBSINVALID).field).toBe('name');
@@ -622,7 +634,8 @@ describe('Constraints', () => {
             try {
                 await observer.execute(ctx);
                 expect.unreachable('Should have thrown');
-            } catch (err) {
+            }
+            catch (err) {
                 expect(err).toBeInstanceOf(EOBSINVALID);
                 expect((err as EOBSINVALID).code).toBe('EOBSINVALID');
                 expect((err as EOBSINVALID).errno).toBe(1001);

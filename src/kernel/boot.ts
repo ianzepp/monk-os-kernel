@@ -37,6 +37,7 @@ export interface BootDeps {
  */
 export async function copyRomToVfs(deps: BootDeps, romPath: string): Promise<void> {
     const absoluteRomPath = resolve(romPath);
+
     await copyDirToVfs(deps, absoluteRomPath, '/');
 }
 
@@ -63,7 +64,8 @@ async function copyDirToVfs(deps: BootDeps, hostDir: string, vfsDir: string): Pr
 
             // Recurse into subdirectory
             await copyDirToVfs(deps, hostPath, vfsPath);
-        } else if (entry.isFile()) {
+        }
+        else if (entry.isFile()) {
             // Read file content from host
             const content = await readFile(hostPath);
 
@@ -71,7 +73,7 @@ async function copyDirToVfs(deps: BootDeps, hostDir: string, vfsDir: string): Pr
             const handle = await vfs.open(
                 vfsPath,
                 { read: true, write: true, create: true },
-                'kernel'
+                'kernel',
             );
 
             // Write content

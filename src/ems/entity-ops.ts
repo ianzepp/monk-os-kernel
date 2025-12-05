@@ -45,7 +45,7 @@ import { ModelRecord } from './model-record.js';
 import type { ObserverRunner } from './observers/runner.js';
 import type { ObserverContext, SystemContext } from './observers/interfaces.js';
 import type { OperationType } from './observers/types.js';
-import { EOBSINVALID } from './observers/errors.js';
+import type { EOBSINVALID } from './observers/errors.js';
 import { Filter } from './filter.js';
 import { ENOENT } from '@src/hal/errors.js';
 import type {
@@ -137,10 +137,11 @@ export class EntityOps {
     async *selectAny<T extends EntityRecord>(
         modelName: string,
         filterData: FilterData = {},
-        options: SelectOptions = {}
+        options: SelectOptions = {},
     ): AsyncGenerator<T> {
         const filter = Filter.from(modelName, filterData, options);
         const { sql, params } = filter.toSQL();
+
         yield* this.dbOps.query<T>(sql, params);
     }
 
@@ -150,10 +151,13 @@ export class EntityOps {
     async *selectIds<T extends EntityRecord>(
         modelName: string,
         ids: Source<string>,
-        options: SelectOptions = {}
+        options: SelectOptions = {},
     ): AsyncGenerator<T> {
         const idArray = await collect(this.normalize(ids));
-        if (idArray.length === 0) return;
+
+        if (idArray.length === 0) {
+            return;
+        }
 
         yield* this.selectAny<T>(modelName, { where: { id: { $in: idArray } } }, options);
     }
@@ -169,7 +173,7 @@ export class EntityOps {
      */
     async *createAll<T extends EntityRecord>(
         modelName: string,
-        source: Source<CreateInput<T>>
+        source: Source<CreateInput<T>>,
     ): AsyncGenerator<T> {
         const model = await this.system.cache.require(modelName);
 
@@ -183,15 +187,18 @@ export class EntityOps {
 
             // Set timestamps
             const now = new Date().toISOString();
+
             record.set('created_at', now);
             record.set('updated_at', now);
 
             if (model.isPassthrough) {
                 // Bypass observer pipeline for passthrough models
                 await this.executeInsertDirect(modelName, record);
-            } else {
+            }
+            else {
                 // Full observer pipeline
                 const context = this.createContext('create', model, record);
+
                 await this.system.runner.run(context);
             }
 
@@ -212,7 +219,7 @@ export class EntityOps {
      */
     async *updateAll<T extends EntityRecord>(
         modelName: string,
-        source: Source<UpdateInput<T>>
+        source: Source<UpdateInput<T>>,
     ): AsyncGenerator<T> {
         const model = await this.system.cache.require(modelName);
 
@@ -222,10 +229,11 @@ export class EntityOps {
 
             // Load existing
             let existing: T | null = null;
+
             for await (const row of this.selectAny<T>(
                 modelName,
                 { where: { id }, limit: 1 },
-                { trashed: 'include' }
+                { trashed: 'include' },
             )) {
                 existing = row;
                 break;
@@ -237,14 +245,17 @@ export class EntityOps {
 
             const record = new ModelRecord(
                 existing as Record<string, unknown>,
-                changes as Record<string, unknown>
+                changes as Record<string, unknown>,
             );
+
             record.set('updated_at', new Date().toISOString());
 
             if (model.isPassthrough) {
                 await this.executeUpdateDirect(modelName, id, record);
-            } else {
+            }
+            else {
                 const context = this.createContext('update', model, record);
+
                 await this.system.runner.run(context);
             }
 
@@ -252,7 +263,7 @@ export class EntityOps {
             for await (const updated of this.selectAny<T>(
                 modelName,
                 { where: { id }, limit: 1 },
-                { trashed: 'include' }
+                { trashed: 'include' },
             )) {
                 yield updated;
             }
@@ -265,7 +276,7 @@ export class EntityOps {
     async *updateIds<T extends EntityRecord>(
         modelName: string,
         ids: Source<string>,
-        changes: Partial<T>
+        changes: Partial<T>,
     ): AsyncGenerator<T> {
         const self = this;
         const updates = async function* (): AsyncGenerator<UpdateInput<T>> {
@@ -273,6 +284,7 @@ export class EntityOps {
                 yield { id, changes };
             }
         };
+
         yield* this.updateAll<T>(modelName, updates());
     }
 
@@ -282,7 +294,7 @@ export class EntityOps {
     async *updateAny<T extends EntityRecord>(
         modelName: string,
         filterData: FilterData,
-        changes: Partial<T>
+        changes: Partial<T>,
     ): AsyncGenerator<T> {
         const self = this;
         const ids = async function* (): AsyncGenerator<string> {
@@ -290,6 +302,7 @@ export class EntityOps {
                 yield record.id;
             }
         };
+
         yield* this.updateIds<T>(modelName, ids(), changes);
     }
 
@@ -302,7 +315,7 @@ export class EntityOps {
      */
     async *deleteAll<T extends EntityRecord>(
         modelName: string,
-        source: Source<DeleteInput>
+        source: Source<DeleteInput>,
     ): AsyncGenerator<T> {
         const model = await this.system.cache.require(modelName);
 
@@ -311,6 +324,7 @@ export class EntityOps {
 
             // Load existing
             let existing: T | null = null;
+
             for await (const row of this.selectAny<T>(modelName, { where: { id }, limit: 1 })) {
                 existing = row;
                 break;
@@ -326,8 +340,10 @@ export class EntityOps {
 
             if (model.isPassthrough) {
                 await this.executeUpdateDirect(modelName, id, record);
-            } else {
+            }
+            else {
                 const context = this.createContext('delete', model, record);
+
                 await this.system.runner.run(context);
             }
 
@@ -340,7 +356,7 @@ export class EntityOps {
      */
     async *deleteIds<T extends EntityRecord>(
         modelName: string,
-        ids: Source<string>
+        ids: Source<string>,
     ): AsyncGenerator<T> {
         const self = this;
         const deletes = async function* (): AsyncGenerator<DeleteInput> {
@@ -348,6 +364,7 @@ export class EntityOps {
                 yield { id };
             }
         };
+
         yield* this.deleteAll<T>(modelName, deletes());
     }
 
@@ -356,7 +373,7 @@ export class EntityOps {
      */
     async *deleteAny<T extends EntityRecord>(
         modelName: string,
-        filterData: FilterData
+        filterData: FilterData,
     ): AsyncGenerator<T> {
         const self = this;
         const ids = async function* (): AsyncGenerator<string> {
@@ -364,6 +381,7 @@ export class EntityOps {
                 yield record.id;
             }
         };
+
         yield* this.deleteIds<T>(modelName, ids());
     }
 
@@ -376,7 +394,7 @@ export class EntityOps {
      */
     async *revertAll<T extends EntityRecord>(
         modelName: string,
-        source: Source<RevertInput>
+        source: Source<RevertInput>,
     ): AsyncGenerator<T> {
         const model = await this.system.cache.require(modelName);
 
@@ -385,10 +403,11 @@ export class EntityOps {
 
             // Load existing (must be trashed)
             let existing: T | null = null;
+
             for await (const row of this.selectAny<T>(
                 modelName,
                 { where: { id }, limit: 1 },
-                { trashed: 'only' }
+                { trashed: 'only' },
             )) {
                 existing = row;
                 break;
@@ -405,15 +424,17 @@ export class EntityOps {
 
             if (model.isPassthrough) {
                 await this.executeUpdateDirect(modelName, id, record);
-            } else {
+            }
+            else {
                 const context = this.createContext('update', model, record);
+
                 await this.system.runner.run(context);
             }
 
             // Yield reverted record
             for await (const reverted of this.selectAny<T>(
                 modelName,
-                { where: { id }, limit: 1 }
+                { where: { id }, limit: 1 },
             )) {
                 yield reverted;
             }
@@ -425,14 +446,14 @@ export class EntityOps {
      */
     async *revertAny<T extends EntityRecord>(
         modelName: string,
-        filterData: FilterData = {}
+        filterData: FilterData = {},
     ): AsyncGenerator<T> {
         const self = this;
         const ids = async function* (): AsyncGenerator<string> {
             for await (const record of self.selectAny<T>(
                 modelName,
                 filterData,
-                { trashed: 'only' }
+                { trashed: 'only' },
             )) {
                 yield record.id;
             }
@@ -456,7 +477,7 @@ export class EntityOps {
      */
     async *expireAll<T extends EntityRecord>(
         modelName: string,
-        source: Source<DeleteInput>
+        source: Source<DeleteInput>,
     ): AsyncGenerator<T> {
         const model = await this.system.cache.require(modelName);
 
@@ -465,10 +486,11 @@ export class EntityOps {
 
             // Load existing (include trashed)
             let existing: T | null = null;
+
             for await (const row of this.selectAny<T>(
                 modelName,
                 { where: { id }, limit: 1 },
-                { trashed: 'include' }
+                { trashed: 'include' },
             )) {
                 existing = row;
                 break;
@@ -484,12 +506,14 @@ export class EntityOps {
 
             // Run observer pipeline
             const context = this.createContext('delete', model, record);
+
             if (!model.isPassthrough) {
                 await this.system.runner.run(context);
             }
 
             // Execute actual DELETE
             const sql = `DELETE FROM ${modelName} WHERE id = ?`;
+
             await this.system.db.execute(sql, [id]);
 
             yield existing;
@@ -505,12 +529,13 @@ export class EntityOps {
      */
     async *upsertAll<T extends EntityRecord>(
         modelName: string,
-        source: Source<CreateInput<T> | UpdateInput<T>>
+        source: Source<CreateInput<T> | UpdateInput<T>>,
     ): AsyncGenerator<T> {
         for await (const data of this.normalize(source)) {
             // Check if it's an UpdateInput (has id and changes)
             if ('id' in data && 'changes' in data) {
                 const updateData = data as UpdateInput<T>;
+
                 yield* this.updateAll<T>(modelName, [updateData]);
                 continue;
             }
@@ -524,8 +549,10 @@ export class EntityOps {
                     for await (const created of this.createAll<T>(modelName, [createData])) {
                         yield created;
                     }
+
                     continue;
-                } catch (err) {
+                }
+                catch (err) {
                     const message = err instanceof Error ? err.message : String(err);
                     const isUniqueViolation =
                         message.includes('UNIQUE constraint failed') ||
@@ -533,6 +560,7 @@ export class EntityOps {
 
                     if (isUniqueViolation) {
                         const { id, ...changes } = createData;
+
                         yield* this.updateAll<T>(modelName, [
                             { id: id!, changes: changes as Partial<T> },
                         ]);
@@ -575,7 +603,7 @@ export class EntityOps {
         operation: OperationType,
         model: Model,
         record: ModelRecord,
-        recordIndex: number = 0
+        recordIndex: number = 0,
     ): ObserverContext {
         return {
             system: this.system,
@@ -596,9 +624,10 @@ export class EntityOps {
         const data = record.toRecord();
         const columns = Object.keys(data);
         const placeholders = columns.map(() => '?').join(', ');
-        const values = columns.map((col) => data[col]);
+        const values = columns.map(col => data[col]);
 
         const sql = `INSERT INTO ${modelName} (${columns.join(', ')}) VALUES (${placeholders})`;
+
         await this.system.db.execute(sql, values);
     }
 
@@ -609,7 +638,7 @@ export class EntityOps {
     private async executeUpdateDirect(
         modelName: string,
         id: string,
-        record: ModelRecord
+        record: ModelRecord,
     ): Promise<void> {
         const changes = record.toChanges();
         const setClauses: string[] = [];
@@ -620,10 +649,13 @@ export class EntityOps {
             values.push(value);
         }
 
-        if (setClauses.length === 0) return;
+        if (setClauses.length === 0) {
+            return;
+        }
 
         values.push(id);
         const sql = `UPDATE ${modelName} SET ${setClauses.join(', ')} WHERE id = ?`;
+
         await this.system.db.execute(sql, values);
     }
 

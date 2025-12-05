@@ -16,14 +16,17 @@ describe('Timer Device', () => {
         describe('sleep', () => {
             it('should resolve after delay', async () => {
                 const start = Date.now();
+
                 await timer.sleep(50);
                 const elapsed = Date.now() - start;
+
                 expect(elapsed).toBeGreaterThanOrEqual(40);
                 expect(elapsed).toBeLessThan(150);
             });
 
             it('should throw on immediate abort', async () => {
                 const controller = new AbortController();
+
                 controller.abort();
 
                 await expect(timer.sleep(1000, controller.signal)).rejects.toThrow('Aborted');
@@ -33,6 +36,7 @@ describe('Timer Device', () => {
                 const controller = new AbortController();
 
                 const sleepPromise = timer.sleep(1000, controller.signal);
+
                 setTimeout(() => controller.abort(), 50);
 
                 await expect(sleepPromise).rejects.toThrow('Aborted');
@@ -40,6 +44,7 @@ describe('Timer Device', () => {
 
             it('should complete if abort never called', async () => {
                 const controller = new AbortController();
+
                 await timer.sleep(50, controller.signal);
                 // Should complete without throwing
             });
@@ -48,6 +53,7 @@ describe('Timer Device', () => {
         describe('timeout', () => {
             it('should call function after delay', async () => {
                 let called = false;
+
                 timer.timeout(50, () => {
                     called = true;
                 });
@@ -59,6 +65,7 @@ describe('Timer Device', () => {
 
             it('should return handle with id and type', () => {
                 const handle = timer.timeout(1000, () => {});
+
                 expect(typeof handle.id).toBe('number');
                 expect(handle.type).toBe('timeout');
             });
@@ -89,6 +96,7 @@ describe('Timer Device', () => {
 
             it('should return handle with interval type', () => {
                 const handle = timer.interval(1000, () => {});
+
                 expect(handle.type).toBe('interval');
                 timer.cancel(handle);
             });
@@ -111,6 +119,7 @@ describe('Timer Device', () => {
         describe('cancel', () => {
             it('should be safe to cancel twice', () => {
                 const handle = timer.timeout(1000, () => {});
+
                 timer.cancel(handle);
                 timer.cancel(handle); // Should not throw
             });
@@ -123,6 +132,7 @@ describe('Timer Device', () => {
         describe('cancelAll', () => {
             it('should cancel all timers', async () => {
                 let count = 0;
+
                 timer.timeout(30, () => count++);
                 timer.timeout(30, () => count++);
                 timer.interval(30, () => count++);
@@ -155,6 +165,7 @@ describe('Timer Device', () => {
 
             it('should fire timeout at correct time', () => {
                 let called = false;
+
                 timer.timeout(50, () => {
                     called = true;
                 });
@@ -168,6 +179,7 @@ describe('Timer Device', () => {
 
             it('should fire multiple timeouts in order', () => {
                 const order: number[] = [];
+
                 timer.timeout(100, () => order.push(100));
                 timer.timeout(50, () => order.push(50));
                 timer.timeout(75, () => order.push(75));
@@ -178,6 +190,7 @@ describe('Timer Device', () => {
 
             it('should fire interval repeatedly', () => {
                 let count = 0;
+
                 timer.interval(30, () => {
                     count++;
                 });
@@ -202,6 +215,7 @@ describe('Timer Device', () => {
 
             it('should throw on immediate abort', async () => {
                 const controller = new AbortController();
+
                 controller.abort();
 
                 await expect(timer.sleep(1000, controller.signal)).rejects.toThrow('Aborted');
@@ -247,6 +261,7 @@ describe('Timer Device', () => {
         describe('cancelAll', () => {
             it('should cancel all timers and reject sleepers', async () => {
                 let count = 0;
+
                 timer.timeout(50, () => count++);
                 timer.interval(30, () => count++);
 

@@ -135,7 +135,7 @@ export async function wait(
     self: Kernel,
     caller: Process,
     pid: number,
-    timeout?: number
+    timeout?: number,
 ): Promise<ExitStatus> {
     // =========================================================================
     // STEP 1: Resolve PID to process UUID
@@ -144,6 +144,7 @@ export async function wait(
     // WHY: PID is in caller's namespace, need global UUID
     // THROWS: ESRCH if PID not found in caller's children
     const target = self.processes.resolvePid(caller, pid);
+
     if (!target) {
         throw new ESRCH(`No such process: ${pid}`);
     }
@@ -166,7 +167,9 @@ export async function wait(
     // OPTIMIZATION: Common case when parent waits after child finishes
     if (target.state === 'zombie') {
         const status: ExitStatus = { pid, code: target.exitCode ?? 0 };
+
         reapZombie(self, caller, pid, target);
+
         return status;
     }
 
@@ -205,11 +208,14 @@ export async function wait(
              */
             cleanup: () => {
                 const waiters = self.waiters.get(target.id);
+
                 if (waiters) {
                     const idx = waiters.indexOf(waiterEntry);
+
                     if (idx !== -1) {
                         waiters.splice(idx, 1);
                     }
+
                     // Clean up empty waiter lists
                     if (waiters.length === 0) {
                         self.waiters.delete(target.id);
@@ -221,6 +227,7 @@ export async function wait(
         // Add to global waiters map (keyed by child UUID)
         // WHY: Child exit() needs to find waiters to notify
         const waiters = self.waiters.get(target.id) ?? [];
+
         waiters.push(waiterEntry);
         self.waiters.set(target.id, waiters);
 

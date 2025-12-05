@@ -27,6 +27,7 @@ export function get<T = unknown>(obj: unknown, path: PropertyPath, defaultValue?
         if (result == null) {
             return defaultValue;
         }
+
         result = (result as Record<string, unknown>)[key];
     }
 
@@ -45,17 +46,24 @@ export function set<T extends object>(obj: T, path: PropertyPath, value: unknown
 
     for (let i = 0; i < keys.length - 1; i++) {
         const key = keys[i];
-        if (key === undefined) continue;
+
+        if (key === undefined) {
+            continue;
+        }
+
         if (current[key] == null || typeof current[key] !== 'object') {
             current[key] = {};
         }
+
         current = current[key] as Record<string, unknown>;
     }
 
     const lastKey = keys[keys.length - 1];
+
     if (lastKey !== undefined) {
         current[lastKey] = value;
     }
+
     return obj;
 }
 
@@ -66,11 +74,13 @@ export function set<T extends object>(obj: T, path: PropertyPath, value: unknown
  */
 export function pick<T extends object, K extends keyof T>(obj: T, keys: K[]): Pick<T, K> {
     const result = {} as Pick<T, K>;
+
     for (const key of keys) {
         if (key in obj) {
             result[key] = obj[key];
         }
     }
+
     return result;
 }
 
@@ -81,9 +91,11 @@ export function pick<T extends object, K extends keyof T>(obj: T, keys: K[]): Pi
  */
 export function omit<T extends object, K extends keyof T>(obj: T, keys: K[]): Omit<T, K> {
     const result = { ...obj };
+
     for (const key of keys) {
         delete result[key];
     }
+
     return result as Omit<T, K>;
 }
 
@@ -96,7 +108,9 @@ export function merge<T extends object>(...sources: Partial<T>[]): T {
     const result: Record<PropertyKey, unknown> = {};
 
     for (const source of sources) {
-        if (source == null) continue;
+        if (source == null) {
+            continue;
+        }
 
         for (const key of Object.keys(source)) {
             const srcVal = (source as Record<string, unknown>)[key];
@@ -104,7 +118,8 @@ export function merge<T extends object>(...sources: Partial<T>[]): T {
 
             if (isPlainObject(srcVal) && isPlainObject(dstVal)) {
                 result[key] = merge(dstVal as object, srcVal as object);
-            } else {
+            }
+            else {
                 result[key] = srcVal;
             }
         }
@@ -136,9 +151,11 @@ export function groupBy<T>(arr: T[], iteratee: Iteratee<T>): Record<string, T[]>
 
     for (const item of arr) {
         const key = String(fn(item));
+
         if (!result[key]) {
             result[key] = [];
         }
+
         result[key].push(item);
     }
 
@@ -156,6 +173,7 @@ export function keyBy<T>(arr: T[], iteratee: Iteratee<T>): Record<string, T> {
 
     for (const item of arr) {
         const key = String(fn(item));
+
         result[key] = item;
     }
 
@@ -179,12 +197,15 @@ export function sortBy<T>(arr: T[], iteratee: Iteratee<T>): T[] {
         if (typeof aVal === 'number' && typeof bVal === 'number') {
             return aVal - bVal;
         }
+
         if (typeof aVal === 'string' && typeof bVal === 'string') {
             return aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
         }
+
         // For other types, convert to string for comparison
         const aStr = String(aVal);
         const bStr = String(bVal);
+
         return aStr < bStr ? -1 : aStr > bStr ? 1 : 0;
     });
 }
@@ -210,6 +231,7 @@ export function uniqBy<T>(arr: T[], iteratee: Iteratee<T>): T[] {
 
     for (const item of arr) {
         const key = fn(item);
+
         if (!seen.has(key)) {
             seen.add(key);
             result.push(item);
@@ -225,12 +247,16 @@ export function uniqBy<T>(arr: T[], iteratee: Iteratee<T>): T[] {
  *     chunk([1, 2, 3, 4, 5], 2)  // [[1, 2], [3, 4], [5]]
  */
 export function chunk<T>(arr: T[], size: number): T[][] {
-    if (size < 1) return [];
+    if (size < 1) {
+        return [];
+    }
 
     const result: T[][] = [];
+
     for (let i = 0; i < arr.length; i += size) {
         result.push(arr.slice(i, i + size));
     }
+
     return result;
 }
 
@@ -291,7 +317,7 @@ export function last<T>(arr: T[]): T | undefined {
  */
 export function debounce<T extends (...args: unknown[]) => unknown>(
     fn: T,
-    wait: number
+    wait: number,
 ): (...args: Parameters<T>) => void {
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
@@ -299,6 +325,7 @@ export function debounce<T extends (...args: unknown[]) => unknown>(
         if (timeoutId) {
             clearTimeout(timeoutId);
         }
+
         timeoutId = setTimeout(() => {
             fn(...args);
             timeoutId = null;
@@ -313,7 +340,7 @@ export function debounce<T extends (...args: unknown[]) => unknown>(
  */
 export function throttle<T extends (...args: unknown[]) => unknown>(
     fn: T,
-    wait: number
+    wait: number,
 ): (...args: Parameters<T>) => void {
     let lastCall = 0;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -327,9 +354,11 @@ export function throttle<T extends (...args: unknown[]) => unknown>(
                 clearTimeout(timeoutId);
                 timeoutId = null;
             }
+
             lastCall = now;
             fn(...args);
-        } else if (!timeoutId) {
+        }
+        else if (!timeoutId) {
             timeoutId = setTimeout(() => {
                 lastCall = Date.now();
                 timeoutId = null;
@@ -346,7 +375,7 @@ export function throttle<T extends (...args: unknown[]) => unknown>(
  */
 export function memoize<T extends (...args: unknown[]) => unknown>(
     fn: T,
-    keyFn?: (...args: Parameters<T>) => string
+    keyFn?: (...args: Parameters<T>) => string,
 ): T {
     const cache = new Map<string, ReturnType<T>>();
 
@@ -358,7 +387,9 @@ export function memoize<T extends (...args: unknown[]) => unknown>(
         }
 
         const result = fn(...args) as ReturnType<T>;
+
         cache.set(key, result);
+
         return result;
     }) as T;
 }
@@ -374,7 +405,9 @@ export function isPlainObject(value: unknown): value is Record<PropertyKey, unkn
     if (value === null || typeof value !== 'object') {
         return false;
     }
+
     const proto = Object.getPrototypeOf(value);
+
     return proto === null || proto === Object.prototype;
 }
 
@@ -382,10 +415,22 @@ export function isPlainObject(value: unknown): value is Record<PropertyKey, unkn
  * Check if value is empty (null, undefined, empty string/array/object).
  */
 export function isEmpty(value: unknown): boolean {
-    if (value == null) return true;
-    if (typeof value === 'string' || Array.isArray(value)) return value.length === 0;
-    if (value instanceof Map || value instanceof Set) return value.size === 0;
-    if (isPlainObject(value)) return Object.keys(value).length === 0;
+    if (value == null) {
+        return true;
+    }
+
+    if (typeof value === 'string' || Array.isArray(value)) {
+        return value.length === 0;
+    }
+
+    if (value instanceof Map || value instanceof Set) {
+        return value.size === 0;
+    }
+
+    if (isPlainObject(value)) {
+        return Object.keys(value).length === 0;
+    }
+
     return false;
 }
 

@@ -236,9 +236,13 @@ export class BunListener implements Listener {
                         socket,
                         dataQueue,
                         () => dataResolve,
-                        (r) => { dataResolve = r; },
+                        r => {
+                            dataResolve = r;
+                        },
                         () => closed,
-                        (c) => { closed = c; }
+                        c => {
+                            closed = c;
+                        },
                     );
 
                     /**
@@ -252,8 +256,13 @@ export class BunListener implements Listener {
                     (socket as any)._halSocket = wrappedSocket;
                     (socket as any)._dataQueue = dataQueue;
                     (socket as any)._getDataResolve = () => dataResolve;
-                    (socket as any)._setDataResolve = (r: any) => { dataResolve = r; };
-                    (socket as any)._setClosed = (c: boolean) => { closed = c; };
+                    (socket as any)._setDataResolve = (r: any) => {
+                        dataResolve = r;
+                    };
+
+                    (socket as any)._setClosed = (c: boolean) => {
+                        closed = c;
+                    };
 
                     /**
                      * Deliver connection to pending accept() or queue it.
@@ -263,7 +272,8 @@ export class BunListener implements Listener {
                     if (self.connectionResolve) {
                         self.connectionResolve(wrappedSocket);
                         self.connectionResolve = null;
-                    } else {
+                    }
+                    else {
                         self.connectionQueue.push(wrappedSocket);
                     }
                 },
@@ -283,7 +293,8 @@ export class BunListener implements Listener {
                         // Pending read() - wake it
                         dataResolve(bytes);
                         (socket as any)._setDataResolve(null);
-                    } else {
+                    }
+                    else {
                         // No pending read - buffer
                         dataQueue.push(bytes);
                     }
@@ -297,6 +308,7 @@ export class BunListener implements Listener {
                 close(socket) {
                     (socket as any)._setClosed(true);
                     const dataResolve = (socket as any)._getDataResolve() as ((data: Uint8Array) => void) | null;
+
                     if (dataResolve) {
                         // Pending read() - wake with EOF
                         dataResolve(new Uint8Array(0));
@@ -400,8 +412,11 @@ export class BunListener implements Listener {
              * last one's resolver is stored. Previous ones are lost. This is
              * acceptable because multiple pending accepts is unusual.
              */
-            this.connectionResolve = (socket) => {
-                if (timeoutId) clearTimeout(timeoutId);
+            this.connectionResolve = socket => {
+                if (timeoutId) {
+                    clearTimeout(timeoutId);
+                }
+
                 resolve(socket);
             };
         });

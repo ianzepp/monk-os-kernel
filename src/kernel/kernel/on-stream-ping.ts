@@ -39,9 +39,10 @@ export function handleStreamPing(
     _self: Kernel,
     proc: Process,
     requestId: string,
-    processed: number
+    processed: number,
 ): void {
     const handler = proc.streamPingHandlers.get(requestId);
+
     if (handler) {
         // Update acknowledged count, potentially resuming paused stream
         handler(processed);

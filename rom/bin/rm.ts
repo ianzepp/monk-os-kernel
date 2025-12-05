@@ -32,13 +32,17 @@ async function removeRecursive(path: string): Promise<void> {
     if (info.model === 'folder') {
         // Remove contents first
         const entries = await readdirAll(path);
+
         for (const name of entries) {
             const childPath = path === '/' ? `/${name}` : `${path}/${name}`;
+
             await removeRecursive(childPath);
         }
+
         // Then remove the directory
         await rmdir(path);
-    } else {
+    }
+    else {
         await unlink(path);
     }
 }
@@ -51,6 +55,7 @@ async function main(): Promise<void> {
         for (const err of parsed.errors) {
             await eprintln(`rm: ${err}`);
         }
+
         await exit(1);
     }
 
@@ -77,13 +82,17 @@ async function main(): Promise<void> {
                     exitCode = 1;
                     continue;
                 }
+
                 await removeRecursive(path);
-            } else {
+            }
+            else {
                 await unlink(path);
             }
-        } catch (err) {
+        }
+        catch (err) {
             if (!force) {
                 const msg = err instanceof Error ? err.message : String(err);
+
                 await eprintln(`rm: ${target}: ${msg}`);
                 exitCode = 1;
             }
@@ -93,7 +102,7 @@ async function main(): Promise<void> {
     await exit(exitCode);
 }
 
-main().catch(async (err) => {
+main().catch(async err => {
     await eprintln(`rm: ${err.message}`);
     await exit(1);
 });

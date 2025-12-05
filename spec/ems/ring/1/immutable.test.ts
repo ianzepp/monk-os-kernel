@@ -55,7 +55,7 @@ function createMockCache(): ModelCacheAdapter {
  */
 function createMockModel(
     name = 'test_model',
-    immutableFields: string[] = []
+    immutableFields: string[] = [],
 ): Model {
     return {
         modelName: name,
@@ -75,7 +75,7 @@ function createMockModel(
  */
 function createMockRecord(
     oldData: Record<string, unknown> = {},
-    newData: Record<string, unknown> = {}
+    newData: Record<string, unknown> = {},
 ): ModelRecord {
     const merged = { ...oldData, ...newData };
     const changedFields = Object.keys(newData);
@@ -94,19 +94,26 @@ function createMockRecord(
         toChanges: () => ({ ...newData }),
         getDiff: () => {
             const diff: Record<string, { old: unknown; new: unknown }> = {};
+
             for (const field of changedFields) {
                 diff[field] = { old: oldData[field], new: newData[field] };
             }
+
             return diff;
         },
         getDiffForFields: (fields: Set<string>) => {
             const diff: Record<string, { old: unknown; new: unknown }> = {};
+
             for (const field of changedFields) {
-                if (!fields.has(field)) continue;
+                if (!fields.has(field)) {
+                    continue;
+                }
+
                 if (oldData[field] !== newData[field]) {
                     diff[field] = { old: oldData[field], new: newData[field] };
                 }
             }
+
             return diff;
         },
     };
@@ -118,7 +125,7 @@ function createMockRecord(
 function createContext(
     operation: 'create' | 'update' | 'delete',
     model: Model,
-    record: ModelRecord
+    record: ModelRecord,
 ): ObserverContext {
     return {
         system: {
@@ -168,7 +175,7 @@ describe('Immutable', () => {
             const model = createMockModel('users', []);
             const record = createMockRecord(
                 { id: '123', name: 'Old Name', email: 'old@test.com' },
-                { name: 'New Name', email: 'new@test.com' }
+                { name: 'New Name', email: 'new@test.com' },
             );
             const ctx = createContext('update', model, record);
 
@@ -181,7 +188,7 @@ describe('Immutable', () => {
             const model = createMockModel('orders', ['customer_id']);
             const record = createMockRecord(
                 { id: '123', customer_id: 'cust-1', status: 'pending' },
-                { status: 'completed' }
+                { status: 'completed' },
             );
             const ctx = createContext('update', model, record);
 
@@ -192,7 +199,7 @@ describe('Immutable', () => {
             const model = createMockModel('orders', ['customer_id']);
             const record = createMockRecord(
                 { id: '123', customer_id: null, status: 'draft' },
-                { customer_id: 'cust-1' }
+                { customer_id: 'cust-1' },
             );
             const ctx = createContext('update', model, record);
 
@@ -203,7 +210,7 @@ describe('Immutable', () => {
             const model = createMockModel('orders', ['customer_id']);
             const record = createMockRecord(
                 { id: '123', status: 'draft' }, // customer_id not present
-                { customer_id: 'cust-1' }
+                { customer_id: 'cust-1' },
             );
             const ctx = createContext('update', model, record);
 
@@ -214,7 +221,7 @@ describe('Immutable', () => {
             const model = createMockModel('orders', ['customer_id']);
             const record = createMockRecord(
                 { id: '123', customer_id: 'cust-1' },
-                { customer_id: 'cust-1' } // Same value
+                { customer_id: 'cust-1' }, // Same value
             );
             const ctx = createContext('update', model, record);
 
@@ -225,7 +232,7 @@ describe('Immutable', () => {
             const model = createMockModel('configs', ['settings']);
             const record = createMockRecord(
                 { id: '123', settings: { theme: 'dark', lang: 'en' } },
-                { settings: { theme: 'dark', lang: 'en' } } // Same object
+                { settings: { theme: 'dark', lang: 'en' } }, // Same object
             );
             const ctx = createContext('update', model, record);
 
@@ -236,7 +243,7 @@ describe('Immutable', () => {
             const model = createMockModel('items', ['tags']);
             const record = createMockRecord(
                 { id: '123', tags: ['a', 'b', 'c'] },
-                { tags: ['a', 'b', 'c'] } // Same array
+                { tags: ['a', 'b', 'c'] }, // Same array
             );
             const ctx = createContext('update', model, record);
 
@@ -249,7 +256,7 @@ describe('Immutable', () => {
             const model = createMockModel('orders', ['customer_id']);
             const record = createMockRecord(
                 { id: '123', customer_id: 'cust-1' },
-                { customer_id: 'cust-2' }
+                { customer_id: 'cust-2' },
             );
             const ctx = createContext('update', model, record);
 
@@ -260,7 +267,7 @@ describe('Immutable', () => {
             const model = createMockModel('transactions', ['amount']);
             const record = createMockRecord(
                 { id: '123', amount: 100 },
-                { amount: 200 }
+                { amount: 200 },
             );
             const ctx = createContext('update', model, record);
 
@@ -271,7 +278,7 @@ describe('Immutable', () => {
             const model = createMockModel('configs', ['settings']);
             const record = createMockRecord(
                 { id: '123', settings: { theme: 'dark' } },
-                { settings: { theme: 'light' } }
+                { settings: { theme: 'light' } },
             );
             const ctx = createContext('update', model, record);
 
@@ -282,7 +289,7 @@ describe('Immutable', () => {
             const model = createMockModel('items', ['tags']);
             const record = createMockRecord(
                 { id: '123', tags: ['a', 'b'] },
-                { tags: ['a', 'b', 'c'] }
+                { tags: ['a', 'b', 'c'] },
             );
             const ctx = createContext('update', model, record);
 
@@ -293,14 +300,15 @@ describe('Immutable', () => {
             const model = createMockModel('orders', ['customer_id']);
             const record = createMockRecord(
                 { id: '123', customer_id: 'cust-1' },
-                { customer_id: 'cust-2' }
+                { customer_id: 'cust-2' },
             );
             const ctx = createContext('update', model, record);
 
             try {
                 await observer.execute(ctx);
                 expect.unreachable('Should have thrown');
-            } catch (err) {
+            }
+            catch (err) {
                 expect(err).toBeInstanceOf(EOBSIMMUT);
                 expect((err as EOBSIMMUT).field).toBe('customer_id');
                 expect((err as EOBSIMMUT).message).toContain('customer_id');
@@ -311,14 +319,15 @@ describe('Immutable', () => {
             const model = createMockModel('orders', ['customer_id']);
             const record = createMockRecord(
                 { id: '123', customer_id: 'cust-1' },
-                { customer_id: 'cust-2' }
+                { customer_id: 'cust-2' },
             );
             const ctx = createContext('update', model, record);
 
             try {
                 await observer.execute(ctx);
                 expect.unreachable('Should have thrown');
-            } catch (err) {
+            }
+            catch (err) {
                 expect((err as EOBSIMMUT).message).toContain('cust-1');
             }
         });
@@ -327,14 +336,15 @@ describe('Immutable', () => {
             const model = createMockModel('orders', ['customer_id']);
             const record = createMockRecord(
                 { id: '123', customer_id: 'cust-1' },
-                { customer_id: 'cust-2' }
+                { customer_id: 'cust-2' },
             );
             const ctx = createContext('update', model, record);
 
             try {
                 await observer.execute(ctx);
                 expect.unreachable('Should have thrown');
-            } catch (err) {
+            }
+            catch (err) {
                 expect(err).toBeInstanceOf(EOBSIMMUT);
                 expect((err as EOBSIMMUT).code).toBe('EOBSIMMUT');
                 expect((err as EOBSIMMUT).errno).toBe(1003);
@@ -347,7 +357,7 @@ describe('Immutable', () => {
             const model = createMockModel('orders', ['customer_id', 'order_type']);
             const record = createMockRecord(
                 { id: '123', customer_id: 'cust-1', order_type: 'sale', status: 'pending' },
-                { status: 'completed' }
+                { status: 'completed' },
             );
             const ctx = createContext('update', model, record);
 
@@ -358,7 +368,7 @@ describe('Immutable', () => {
             const model = createMockModel('orders', ['customer_id', 'order_type']);
             const record = createMockRecord(
                 { id: '123', customer_id: 'cust-1', order_type: 'sale' },
-                { order_type: 'return' }
+                { order_type: 'return' },
             );
             const ctx = createContext('update', model, record);
 
@@ -369,14 +379,15 @@ describe('Immutable', () => {
             const model = createMockModel('orders', ['customer_id', 'order_type']);
             const record = createMockRecord(
                 { id: '123', customer_id: 'cust-1', order_type: 'sale' },
-                { customer_id: 'cust-2', order_type: 'return' }
+                { customer_id: 'cust-2', order_type: 'return' },
             );
             const ctx = createContext('update', model, record);
 
             try {
                 await observer.execute(ctx);
                 expect.unreachable('Should have thrown');
-            } catch (err) {
+            }
+            catch (err) {
                 expect(err).toBeInstanceOf(EOBSIMMUT);
                 // Should mention both fields in the message
                 expect((err as EOBSIMMUT).message).toContain('customer_id');

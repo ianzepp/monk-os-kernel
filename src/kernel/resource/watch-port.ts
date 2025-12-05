@@ -211,7 +211,7 @@ export class WatchPort implements Port {
         id: string,
         pattern: string,
         vfsWatch: (pattern: string) => AsyncIterable<WatchEvent>,
-        description: string
+        description: string,
     ) {
         this.id = id;
         this.pattern = pattern;
@@ -276,7 +276,7 @@ export class WatchPort implements Port {
 
         // Slow path: wait for next event to arrive
         // WHY no timeout: Watch recv() blocks until event or close()
-        return new Promise((resolve) => {
+        return new Promise(resolve => {
             this.waiters.push(resolve);
         });
     }
@@ -359,6 +359,7 @@ export class WatchPort implements Port {
         try {
             // Create async iterator from VFS watch function
             const iterable = this.vfsWatch(this.pattern);
+
             this.vfsIterator = iterable[Symbol.asyncIterator]();
 
             // Consume events until iterator done or port closed
@@ -394,13 +395,16 @@ export class WatchPort implements Port {
                 // Fast path: deliver to waiting recv() call
                 if (this.waiters.length > 0) {
                     const waiter = this.waiters.shift()!;
+
                     waiter(message);
-                } else {
+                }
+                else {
                     // Slow path: queue for later recv() call
                     this.messageQueue.push(message);
                 }
             }
-        } catch (error) {
+        }
+        catch (error) {
             // If closed, ignore errors (expected during shutdown)
             if (!this._closed) {
                 // WHY console.error: No kernel logging available in async context

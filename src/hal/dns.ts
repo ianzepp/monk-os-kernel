@@ -230,13 +230,16 @@ export class BunDNSDevice implements DNSDevice {
     async lookup(host: string): Promise<string[]> {
         try {
             const results = await Bun.dns.lookup(host);
+
             // Bun.dns.lookup returns array of { address, family } objects
             if (Array.isArray(results)) {
                 return results.map((r: any) => r.address ?? r);
             }
+
             // Handle single result case
             return [(results as any).address ?? results];
-        } catch (err) {
+        }
+        catch (_err) {
             // DNS resolution failed (NXDOMAIN, timeout, etc.)
             return [];
         }
@@ -260,11 +263,14 @@ export class BunDNSDevice implements DNSDevice {
     async lookup4(host: string): Promise<string[]> {
         try {
             const results = await Bun.dns.lookup(host, { family: 4 });
+
             if (Array.isArray(results)) {
                 return results.map((r: any) => r.address ?? r);
             }
+
             return [(results as any).address ?? results];
-        } catch {
+        }
+        catch {
             return [];
         }
     }
@@ -281,11 +287,14 @@ export class BunDNSDevice implements DNSDevice {
     async lookup6(host: string): Promise<string[]> {
         try {
             const results = await Bun.dns.lookup(host, { family: 6 });
+
             if (Array.isArray(results)) {
                 return results.map((r: any) => r.address ?? r);
             }
+
             return [(results as any).address ?? results];
-        } catch {
+        }
+        catch {
             return [];
         }
     }
@@ -318,6 +327,7 @@ export class BunDNSDevice implements DNSDevice {
         // We could use a system call via host device, but for now return empty
         // This is a known limitation
         console.warn('DNS reverse lookup not implemented in Bun HAL');
+
         return [];
     }
 }
@@ -498,11 +508,15 @@ export class MockDNSDevice implements DNSDevice {
     async lookup4(host: string): Promise<string[]> {
         // Check specific records first, fall back to general
         const specific = this.records4.get(host.toLowerCase());
-        if (specific) return specific;
+
+        if (specific) {
+            return specific;
+        }
 
         // Filter general records for IPv4
         const general = this.records.get(host.toLowerCase()) ?? [];
-        return general.filter((addr) => !addr.includes(':'));
+
+        return general.filter(addr => !addr.includes(':'));
     }
 
     /**
@@ -516,10 +530,14 @@ export class MockDNSDevice implements DNSDevice {
      */
     async lookup6(host: string): Promise<string[]> {
         const specific = this.records6.get(host.toLowerCase());
-        if (specific) return specific;
+
+        if (specific) {
+            return specific;
+        }
 
         const general = this.records.get(host.toLowerCase()) ?? [];
-        return general.filter((addr) => addr.includes(':'));
+
+        return general.filter(addr => addr.includes(':'));
     }
 
     /**

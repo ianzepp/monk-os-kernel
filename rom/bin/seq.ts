@@ -35,25 +35,34 @@ async function main(): Promise<void> {
     // Parse arguments
     for (let i = 0; i < argv.length; i++) {
         const arg = argv[i];
-        if (!arg) continue;
+
+        if (!arg) {
+            continue;
+        }
 
         if (arg === '-s' && i + 1 < argv.length) {
             const nextArg = argv[i + 1];
+
             if (nextArg) {
                 separator = nextArg;
             }
+
             i++;
-        } else if (arg === '-w') {
+        }
+        else if (arg === '-w') {
             equalWidth = true;
-        } else if (arg.startsWith('-s')) {
+        }
+        else if (arg.startsWith('-s')) {
             separator = arg.slice(2);
-        } else if (!arg.startsWith('-')) {
+        }
+        else if (!arg.startsWith('-')) {
             positional.push(arg);
         }
     }
 
     if (positional.length === 0) {
         await eprintln('seq: missing operand');
+
         return exit(1);
     }
 
@@ -63,28 +72,39 @@ async function main(): Promise<void> {
 
     if (positional.length === 1) {
         const arg0 = positional[0];
+
         if (!arg0) {
             await eprintln('seq: missing operand');
+
             return exit(1);
         }
+
         last = parseFloat(arg0);
-    } else if (positional.length === 2) {
+    }
+    else if (positional.length === 2) {
         const arg0 = positional[0];
         const arg1 = positional[1];
+
         if (!arg0 || !arg1) {
             await eprintln('seq: missing operand');
+
             return exit(1);
         }
+
         first = parseFloat(arg0);
         last = parseFloat(arg1);
-    } else {
+    }
+    else {
         const arg0 = positional[0];
         const arg1 = positional[1];
         const arg2 = positional[2];
+
         if (!arg0 || !arg1 || !arg2) {
             await eprintln('seq: missing operand');
+
             return exit(1);
         }
+
         first = parseFloat(arg0);
         increment = parseFloat(arg1);
         last = parseFloat(arg2);
@@ -102,7 +122,8 @@ async function main(): Promise<void> {
 
     // Signal handling for interruption
     let running = true;
-    onSignal((signal) => {
+
+    onSignal(signal => {
         if (signal === SIGTERM) {
             running = false;
         }
@@ -110,11 +131,13 @@ async function main(): Promise<void> {
 
     // Generate sequence
     const numbers: number[] = [];
+
     if (increment > 0) {
         for (let n = first; n <= last && running; n += increment) {
             numbers.push(n);
         }
-    } else {
+    }
+    else {
         for (let n = first; n >= last && running; n += increment) {
             numbers.push(n);
         }
@@ -126,16 +149,20 @@ async function main(): Promise<void> {
 
     // Format output
     let output: string[];
+
     if (equalWidth) {
         const maxWidth = Math.max(...numbers.map(n => String(Math.floor(Math.abs(n))).length));
+
         output = numbers.map(n => {
             const intPart = Math.floor(Math.abs(n));
             const sign = n < 0 ? '-' : '';
             const fracPart = Math.abs(n) - intPart;
             const padded = String(intPart).padStart(maxWidth, '0');
+
             return sign + (fracPart === 0 ? padded : padded + String(fracPart).slice(1));
         });
-    } else {
+    }
+    else {
         output = numbers.map(n => String(n));
     }
 
@@ -143,7 +170,7 @@ async function main(): Promise<void> {
     await exit(0);
 }
 
-main().catch(async (err) => {
+main().catch(async err => {
     await eprintln(`seq: ${err.message}`);
     await exit(1);
 });

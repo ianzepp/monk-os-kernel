@@ -32,11 +32,16 @@ export async function redirect(targetFd: number, sourceFd: number): Promise<() =
  */
 export async function* recv(fd: number = 0): AsyncIterable<Response> {
     for await (const response of syscall('file:recv', fd)) {
-        if (response.op === 'done') return;
+        if (response.op === 'done') {
+            return;
+        }
+
         if (response.op === 'error') {
             const err = response.data as { code: string; message: string };
+
             throw new SyscallError(err.code, err.message);
         }
+
         yield response;
     }
 }

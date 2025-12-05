@@ -16,6 +16,7 @@ import { readLines, println } from '@rom/lib/process';
 // Format: [timestamp] [topic] message
 function formatLogLine(topic: string, payload: string): string {
     const ts = new Date().toISOString();
+
     return `[${ts}] [${topic}] ${payload}`;
 }
 
@@ -28,16 +29,20 @@ function formatLogLine(topic: string, payload: string): string {
 
             // Payload might be binary (array) or object
             let payload: string;
+
             if (msg.data && Array.isArray(msg.data)) {
                 payload = new TextDecoder().decode(new Uint8Array(msg.data));
-            } else if (msg.meta?.message) {
+            }
+            else if (msg.meta?.message) {
                 payload = String(msg.meta.message);
-            } else {
+            }
+            else {
                 payload = JSON.stringify(msg);
             }
 
             await println(formatLogLine(topic, payload));
-        } catch {
+        }
+        catch {
             // If not valid JSON, write raw
             await println(line);
         }

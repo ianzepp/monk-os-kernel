@@ -39,12 +39,14 @@ describe('ListenerPort', () => {
     it('should have type "tcp:listen"', () => {
         const listener = createMockListener();
         const port = new ListenerPort('port-1', listener, 'tcp:listen:0.0.0.0:8080');
+
         expect(port.type).toBe('tcp:listen');
     });
 
     it('should use provided description', () => {
         const listener = createMockListener();
         const port = new ListenerPort('port-1', listener, 'tcp:listen:0.0.0.0:8080');
+
         expect(port.description).toBe('tcp:listen:0.0.0.0:8080');
     });
 
@@ -64,7 +66,7 @@ describe('ListenerPort', () => {
         const port = new ListenerPort('port-1', listener, 'tcp:listen:0.0.0.0:8080');
 
         await expect(
-            port.send('anywhere', new Uint8Array())
+            port.send('anywhere', new Uint8Array()),
         ).rejects.toThrow(ENOTSUP);
     });
 
@@ -91,6 +93,7 @@ describe('ListenerPort', () => {
         const port = new ListenerPort('port-1', listener, 'tcp:listen:0.0.0.0:8080');
 
         const addr = port.addr();
+
         expect(addr.hostname).toBe('0.0.0.0');
         expect(addr.port).toBe(8080);
     });
@@ -102,9 +105,11 @@ describe('MessagePipe', () => {
 
         // Send a message
         const sendResult = [];
+
         for await (const r of sendEnd.exec({ op: 'send', data: respond.item('hello') })) {
             sendResult.push(r);
         }
+
         expect(sendResult[0]?.op).toBe('ok');
 
         // Close send end to signal EOF
@@ -112,9 +117,11 @@ describe('MessagePipe', () => {
 
         // Recv the message
         const recvResult = [];
+
         for await (const r of recvEnd.exec({ op: 'recv' })) {
             recvResult.push(r);
         }
+
         expect(recvResult[0]).toEqual(respond.item('hello'));
         expect(recvResult[1]?.op).toBe('done');
     });
@@ -123,14 +130,17 @@ describe('MessagePipe', () => {
         const [recvEnd, sendEnd] = createMessagePipe('test-pipe');
 
         // Send multiple messages
-        for await (const _r of sendEnd.exec({ op: 'send', data: respond.item('first') })) {}
-        for await (const _r of sendEnd.exec({ op: 'send', data: respond.item('second') })) {}
-        for await (const _r of sendEnd.exec({ op: 'send', data: respond.item('third') })) {}
+        for await (const _r of sendEnd.exec({ op: 'send', data: respond.item('first') })) { /* drain */ }
+
+        for await (const _r of sendEnd.exec({ op: 'send', data: respond.item('second') })) { /* drain */ }
+
+        for await (const _r of sendEnd.exec({ op: 'send', data: respond.item('third') })) { /* drain */ }
 
         await sendEnd.close();
 
         // Recv all messages
         const recvResult = [];
+
         for await (const r of recvEnd.exec({ op: 'recv' })) {
             recvResult.push(r);
         }
@@ -145,9 +155,11 @@ describe('MessagePipe', () => {
         const [, sendEnd] = createMessagePipe('test-pipe');
 
         const result = [];
+
         for await (const r of sendEnd.exec({ op: 'recv' })) {
             result.push(r);
         }
+
         expect(result[0]?.op).toBe('error');
         expect((result[0]?.data as { code: string })?.code).toBe('EBADF');
     });
@@ -156,9 +168,11 @@ describe('MessagePipe', () => {
         const [recvEnd] = createMessagePipe('test-pipe');
 
         const result = [];
+
         for await (const r of recvEnd.exec({ op: 'send', data: respond.item('test') })) {
             result.push(r);
         }
+
         expect(result[0]?.op).toBe('error');
         expect((result[0]?.data as { code: string })?.code).toBe('EBADF');
     });
@@ -171,9 +185,11 @@ describe('MessagePipe', () => {
 
         // Recv should get done immediately
         const result = [];
+
         for await (const r of recvEnd.exec({ op: 'recv' })) {
             result.push(r);
         }
+
         expect(result[0]?.op).toBe('done');
     });
 
@@ -183,9 +199,11 @@ describe('MessagePipe', () => {
         await recvEnd.close();
 
         const result = [];
+
         for await (const r of sendEnd.exec({ op: 'send', data: respond.item('test') })) {
             result.push(r);
         }
+
         expect(result[0]?.op).toBe('error');
         expect((result[0]?.data as { code: string })?.code).toBe('EPIPE');
     });
@@ -196,9 +214,11 @@ describe('MessagePipe', () => {
         await sendEnd.close();
 
         const result = [];
+
         for await (const r of sendEnd.exec({ op: 'send', data: respond.item('test') })) {
             result.push(r);
         }
+
         expect(result[0]?.op).toBe('error');
         expect((result[0]?.data as { code: string })?.code).toBe('EBADF');
     });
@@ -227,19 +247,25 @@ describe('MessagePipe', () => {
         // Start recv before send (will wait)
         const recvPromise = (async () => {
             const result = [];
+
             for await (const r of recvEnd.exec({ op: 'recv' })) {
                 result.push(r);
-                if (r.op === 'done') break;
+                if (r.op === 'done') {
+                    break;
+                }
             }
+
             return result;
         })();
 
         // Small delay, then send
         await new Promise(r => setTimeout(r, 10));
-        for await (const _r of sendEnd.exec({ op: 'send', data: respond.item('delayed') })) {}
+        for await (const _r of sendEnd.exec({ op: 'send', data: respond.item('delayed') })) { /* drain */ }
+
         await sendEnd.close();
 
         const result = await recvPromise;
+
         expect(result[0]).toEqual(respond.item('delayed'));
         expect(result[1]?.op).toBe('done');
     });
@@ -248,9 +274,11 @@ describe('MessagePipe', () => {
         const [recvEnd] = createMessagePipe('test-pipe');
 
         const result = [];
+
         for await (const r of recvEnd.exec({ op: 'unknown' })) {
             result.push(r);
         }
+
         expect(result[0]?.op).toBe('error');
         expect((result[0]?.data as { code: string })?.code).toBe('EINVAL');
     });
@@ -265,27 +293,31 @@ describe('WatchPort', () => {
             return {
                 [Symbol.asyncIterator](): AsyncIterator<WatchEvent> {
                     let index = 0;
+
                     return {
                         async next(): Promise<IteratorResult<WatchEvent>> {
                             if (index < events.length) {
                                 return { done: false, value: events[index++]! };
                             }
+
                             // Never resolves - simulates waiting for more events
                             return new Promise<IteratorResult<WatchEvent>>(() => {});
-                        }
+                        },
                     };
-                }
+                },
             };
         };
     }
 
     it('should have type "fs:watch"', () => {
         const port = new WatchPort('watch-1', '/test/*', createMockVfsWatch([]), 'fs:watch:/test/*');
+
         expect(port.type).toBe('fs:watch');
     });
 
     it('should use provided description', () => {
         const port = new WatchPort('watch-1', '/users/**', createMockVfsWatch([]), 'watch:/users/**');
+
         expect(port.description).toBe('watch:/users/**');
     });
 
@@ -301,11 +333,13 @@ describe('WatchPort', () => {
         await new Promise(r => setTimeout(r, 10));
 
         const msg1 = await port.recv();
+
         expect(msg1.from).toBe('/test/file1.txt');
         expect(msg1.meta?.op).toBe('create');
         expect(msg1.meta?.entity).toBe('uuid-1');
 
         const msg2 = await port.recv();
+
         expect(msg2.from).toBe('/test/file2.txt');
         expect(msg2.meta?.op).toBe('update');
         expect(msg2.meta?.fields).toEqual(['size']);
@@ -317,9 +351,11 @@ describe('WatchPort', () => {
         ];
 
         const port = new WatchPort('watch-1', '/test/*', createMockVfsWatch(events), 'watch:/test/*');
+
         await new Promise(r => setTimeout(r, 10));
 
         const msg = await port.recv();
+
         // Watch events now use meta, not serialized data
         expect(msg.data).toBeUndefined();
         expect(msg.meta?.entity).toBe('uuid-1');
@@ -330,7 +366,7 @@ describe('WatchPort', () => {
         const port = new WatchPort('watch-1', '/test/*', createMockVfsWatch([]), 'watch:/test/*');
 
         await expect(
-            port.send('anywhere', new Uint8Array())
+            port.send('anywhere', new Uint8Array()),
         ).rejects.toThrow(ENOTSUP);
     });
 
@@ -394,25 +430,42 @@ describe('UdpPort', () => {
         expect(() => {
             const addr = '127.0.0.1:8080';
             const lastColon = addr.lastIndexOf(':');
-            if (lastColon === -1) throw new Error('no colon');
+
+            if (lastColon === -1) {
+                throw new Error('no colon');
+            }
+
             const port = parseInt(addr.slice(lastColon + 1), 10);
-            if (isNaN(port)) throw new Error('invalid port');
+
+            if (isNaN(port)) {
+                throw new Error('invalid port');
+            }
         }).not.toThrow();
 
         // Invalid: no colon at all
         expect(() => {
             const addr = 'localhost';
             const lastColon = addr.lastIndexOf(':');
-            if (lastColon === -1) throw new Error('no colon');
+
+            if (lastColon === -1) {
+                throw new Error('no colon');
+            }
         }).toThrow('no colon');
 
         // Invalid: port is not a number
         expect(() => {
             const addr = 'host:abc';
             const lastColon = addr.lastIndexOf(':');
-            if (lastColon === -1) throw new Error('no colon');
+
+            if (lastColon === -1) {
+                throw new Error('no colon');
+            }
+
             const port = parseInt(addr.slice(lastColon + 1), 10);
-            if (isNaN(port)) throw new Error('invalid port');
+
+            if (isNaN(port)) {
+                throw new Error('invalid port');
+            }
         }).toThrow('invalid port');
     });
 });
@@ -461,6 +514,7 @@ describe('PubsubPort', () => {
         const publishFn = mock(() => {});
         const unsubscribeFn = mock(() => {});
         const port = new PubsubPort('pub-1', ['orders.*'], publishFn, unsubscribeFn, 'pubsub:subscribe:orders.*');
+
         expect(port.type).toBe('pubsub:subscribe');
     });
 
@@ -468,6 +522,7 @@ describe('PubsubPort', () => {
         const publishFn = mock(() => {});
         const unsubscribeFn = mock(() => {});
         const port = new PubsubPort('pub-1', ['orders.*'], publishFn, unsubscribeFn, 'pubsub:orders.*');
+
         expect(port.description).toBe('pubsub:orders.*');
     });
 
@@ -475,6 +530,7 @@ describe('PubsubPort', () => {
         const publishFn = mock(() => {});
         const unsubscribeFn = mock(() => {});
         const port = new PubsubPort('pub-1', ['orders.*', 'users.>'], publishFn, unsubscribeFn, 'pubsub:test');
+
         expect(port.getPatterns()).toEqual(['orders.*', 'users.>']);
     });
 
@@ -484,6 +540,7 @@ describe('PubsubPort', () => {
         const port = new PubsubPort('pub-1', [], publishFn, unsubscribeFn, 'pubsub:send-only');
 
         const data = new Uint8Array([1, 2, 3]);
+
         await port.send('orders.created', data);
 
         // publishFn now has 4 args: (topic, data, meta, sourcePortId)
@@ -502,6 +559,7 @@ describe('PubsubPort', () => {
         });
 
         const msg = await port.recv();
+
         expect(msg.from).toBe('orders.created');
         expect(msg.data).toEqual(new Uint8Array([4, 5, 6]));
         expect(msg.meta?.timestamp).toBe(12345);
@@ -534,6 +592,7 @@ describe('PubsubPort', () => {
         port.enqueue({ from: 'delayed', data: new Uint8Array([99]) });
 
         const msg = await recvPromise;
+
         expect(msg.from).toBe('delayed');
     });
 

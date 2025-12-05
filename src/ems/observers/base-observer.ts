@@ -156,15 +156,16 @@ export abstract class BaseObserver implements Observer {
             timeoutId = setTimeout(() => {
                 reject(
                     new EOBSTIMEOUT(
-                        `Observer '${this.name}' timed out after ${this.timeout}ms`
-                    )
+                        `Observer '${this.name}' timed out after ${this.timeout}ms`,
+                    ),
                 );
             }, this.timeout);
         });
 
         try {
             await Promise.race([this.execute(context), timeoutPromise]);
-        } catch (err) {
+        }
+        catch (err) {
             // Re-throw ObserverError as-is
             if (err instanceof ObserverError) {
                 throw err;
@@ -173,10 +174,12 @@ export abstract class BaseObserver implements Observer {
             // Wrap unknown errors with context
             const message =
                 err instanceof Error ? err.message : String(err);
+
             throw new EOBSERVER(
-                `Observer '${this.name}' failed: ${message}`
+                `Observer '${this.name}' failed: ${message}`,
             );
-        } finally {
+        }
+        finally {
             // CLEANUP: Always clear timeout to prevent memory leaks and spurious rejections.
             // This runs whether execute() succeeds, fails, or times out.
             if (timeoutId !== undefined) {

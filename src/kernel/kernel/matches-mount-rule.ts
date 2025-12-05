@@ -38,7 +38,7 @@ export function matchesMountRule(
     rule: MountPolicyRule,
     caller: string,
     source: string,
-    target: string
+    target: string,
 ): boolean {
     // Check caller pattern (exact match or wildcard)
     if (rule.caller !== '*' && rule.caller !== caller) {

@@ -22,7 +22,7 @@ async function main(): Promise<void> {
 
     let running = true;
 
-    onSignal((signal) => {
+    onSignal(signal => {
         if (signal === SIGTERM) {
             running = false;
         }
@@ -37,10 +37,11 @@ async function main(): Promise<void> {
     await exit(130);
 }
 
-main().catch(async (err) => {
+main().catch(async err => {
     // Broken pipe is expected when piped to head, etc.
     if (err.code === 'EPIPE') {
         await exit(0);
     }
+
     await exit(1);
 });

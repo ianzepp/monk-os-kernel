@@ -79,12 +79,12 @@ export type TokenType =
     // Special
     | 'EOF';
 
-export type Token = {
+export interface Token {
     type: TokenType;
     value: string;
     line: number;
     column: number;
-};
+}
 
 // ============================================================================
 // AST Node Types
@@ -133,11 +133,11 @@ export type ASTNodeType =
     | 'InExpr';
 
 // Base AST node
-export type ASTNode = {
+export interface ASTNode {
     type: ASTNodeType;
     line?: number;
     column?: number;
-};
+}
 
 // Program
 export type ProgramNode = ASTNode & {
@@ -244,10 +244,10 @@ export type PrintfStmtNode = ASTNode & {
     output: OutputRedirect | null;
 };
 
-export type OutputRedirect = {
+export interface OutputRedirect {
     type: 'file' | 'append' | 'pipe';
     target: ExprNode;
-};
+}
 
 export type ExpressionStmtNode = ASTNode & {
     type: 'ExpressionStmt';
@@ -330,10 +330,10 @@ export type GetlineNode = ASTNode & {
     input: InputSource | null;
 };
 
-export type InputSource = {
+export interface InputSource {
     type: 'file' | 'pipe';
     source: ExprNode;
-};
+}
 
 export type IdentifierNode = ASTNode & {
     type: 'Identifier';
@@ -392,14 +392,14 @@ export type AwkValue = string | number;
 export type AwkArray = Map<string, AwkValue>;
 
 // Variable scope
-export type Scope = {
+export interface Scope {
     variables: Map<string, AwkValue>;
     arrays: Map<string, AwkArray>;
     parent: Scope | null;
-};
+}
 
 // Built-in variables
-export type BuiltinVars = {
+export interface BuiltinVars {
     FS: string;      // Field separator (default: " ")
     RS: string;      // Record separator (default: "\n")
     OFS: string;     // Output field separator (default: " ")
@@ -413,29 +413,35 @@ export type BuiltinVars = {
     RLENGTH: number; // Length of match (from match())
     CONVFMT: string; // Number to string conversion format
     OFMT: string;    // Output format for numbers
-};
+}
 
 // Runtime state
-export type RuntimeState = {
+export interface RuntimeState {
     globals: Scope;
     builtins: BuiltinVars;
     fields: string[];       // Current record fields ($0, $1, ...)
     functions: Map<string, FunctionDefNode>;
     exitCode: number | null;
     rangeStates: Map<RuleNode, boolean>;  // Track pattern range state
-};
+}
 
 // Control flow exceptions
 export class BreakException extends Error {
-    constructor() { super('break'); this.name = 'BreakException'; }
+    constructor() {
+        super('break'); this.name = 'BreakException';
+    }
 }
 
 export class ContinueException extends Error {
-    constructor() { super('continue'); this.name = 'ContinueException'; }
+    constructor() {
+        super('continue'); this.name = 'ContinueException';
+    }
 }
 
 export class NextException extends Error {
-    constructor() { super('next'); this.name = 'NextException'; }
+    constructor() {
+        super('next'); this.name = 'NextException';
+    }
 }
 
 export class ExitException extends Error {

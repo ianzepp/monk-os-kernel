@@ -251,6 +251,7 @@ export class BunSSEServerChannel implements Channel {
                 '',                                // Blank line ends headers
                 '',                                // Start of body
             ].join('\r\n');
+
             await this.socket.write(this.encoder.encode(headers));
             this.headersSent = true;
         }
@@ -258,12 +259,15 @@ export class BunSSEServerChannel implements Channel {
         // WHY: Format response as SSE event. If response.op is 'event', use
         // event.type from data. Otherwise, use default 'message' type.
         let eventData: string;
+
         if (response.op === 'event') {
             const eventPayload = response.data as { type: string; [key: string]: unknown };
+
             // WHY: SSE format requires 'event:' line for custom types. Data is
             // always JSON-serialized (could be raw string but JSON is safer).
             eventData = `event: ${eventPayload.type}\ndata: ${JSON.stringify(response.data)}\n\n`;
-        } else {
+        }
+        else {
             // WHY: Default event type (no 'event:' line). Data is JSON-serialized.
             eventData = `data: ${JSON.stringify(response.data)}\n\n`;
         }

@@ -161,6 +161,7 @@ export class TransformProcessor extends BaseObserver {
             if (value === null || value === undefined) {
                 continue;
             }
+
             if (typeof value !== 'string') {
                 continue;
             }
@@ -215,6 +216,7 @@ export class TransformProcessor extends BaseObserver {
                 const hasPlus = value.trimStart().startsWith('+');
                 // Remove all non-digit characters
                 const digits = value.replace(/\D/g, '');
+
                 // Reconstruct with + if originally present
                 return (hasPlus ? '+' : '') + digits;
             }
@@ -223,6 +225,7 @@ export class TransformProcessor extends BaseObserver {
             // WHY: Graceful degradation for misconfigured fields
             default:
                 console.warn(`[TransformProcessor] Unknown transform: ${transform}`);
+
                 return value;
         }
     }

@@ -44,9 +44,10 @@ import type { Process } from '../types.js';
 export function handleStreamCancel(
     _self: Kernel,
     proc: Process,
-    requestId: string
+    requestId: string,
 ): void {
     const abort = proc.activeStreams.get(requestId);
+
     if (abort) {
         // Signal syscall to abort (triggers AbortSignal listeners)
         abort.abort();
