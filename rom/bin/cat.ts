@@ -66,10 +66,11 @@ import {
     eprintln,
     exit,
     getargs,
+    respond,
 } from '@rom/lib/process';
 
 // Local utilities
-import { resolvePath } from '@rom/lib/shell';
+import { parseArgs, resolvePath } from '@rom/lib/shell';
 
 // =============================================================================
 // CONSTANTS
@@ -124,102 +125,15 @@ Examples:
 `.trim();
 
 // =============================================================================
-// TYPES
+// ARGUMENT SPECS
 // =============================================================================
 
 /**
- * Parsed command-line options.
- *
- * DESIGN: Each flag maps to a clear, typed field.
- * Boolean flags use true/false, not presence/absence.
+ * Argument specifications for parseArgs().
  */
-interface Options {
-    /** Show help and exit */
-    help: boolean;
-    /** Input files (positional arguments) */
-    files: string[];
-}
-
-/**
- * Default options when no flags provided.
- */
-const DEFAULT_OPTIONS: Options = {
-    help: false,
-    files: [],
+const ARG_SPECS = {
+    help: { short: 'h', long: 'help', desc: 'Display help' },
 };
-
-// =============================================================================
-// ARGUMENT PARSING
-// =============================================================================
-
-/**
- * Parse command-line arguments.
- *
- * GNU CONVENTIONS:
- * - Single dash + letter: -h
- * - Double dash + word: --help
- * - "--" ends flag parsing (remaining args are positional)
- * - "-" as argument means stdin (not a flag)
- *
- * @param args - Command-line arguments (excluding argv[0])
- * @returns Parsed options
- */
-function parseOptions(args: string[]): Options {
-    const opts: Options = { ...DEFAULT_OPTIONS };
-    let i = 0;
-
-    while (i < args.length) {
-        const arg = args[i];
-
-        if (arg === undefined) {
-            break;
-        }
-
-        // "--" ends option parsing
-        if (arg === '--') {
-            opts.files.push(...args.slice(i + 1));
-            break;
-        }
-
-        // "-" is stdin, not a flag
-        if (arg === '-') {
-            opts.files.push('-');
-            i++;
-            continue;
-        }
-
-        // Long options
-        if (arg === '--help') {
-            opts.help = true;
-            i++;
-            continue;
-        }
-
-        // Short options
-        if (arg.startsWith('-') && arg.length > 1) {
-            // Handle combined short flags: -h
-            for (let j = 1; j < arg.length; j++) {
-                const flag = arg[j];
-
-                if (flag === 'h') {
-                    opts.help = true;
-                }
-                else {
-                    throw new Error(`unknown option: -${flag}`);
-                }
-            }
-
-            i++;
-            continue;
-        }
-
-        // Positional argument (file path)
-        opts.files.push(arg);
-        i++;
-    }
-
-    return opts;
-}
 
 // =============================================================================
 // FILE PROCESSING
@@ -323,15 +237,25 @@ export default async function main(): Promise<void> {
     // Argument Parsing
     // -------------------------------------------------------------------------
     const args = await getargs();
-    let opts: Options;
+    const parsed = parseArgs(args.slice(1), ARG_SPECS);
 
-    try {
-        opts = parseOptions(args.slice(1));
+    // Handle parse errors
+    if (parsed.errors.length > 0) {
+        for (const err of parsed.errors) {
+            await eprintln(`cat: ${err}`);
+        }
+
+        await eprintln(`Try 'cat --help' for more information.`);
+
+        return exit(EXIT_USAGE);
     }
-    catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
 
-        await eprintln(`cat: ${msg}`);
+    // Handle unknown flags
+    if (parsed.unknown.length > 0) {
+        for (const flag of parsed.unknown) {
+            await eprintln(`cat: unknown option: ${flag}`);
+        }
+
         await eprintln(`Try 'cat --help' for more information.`);
 
         return exit(EXIT_USAGE);
@@ -340,7 +264,7 @@ export default async function main(): Promise<void> {
     // -------------------------------------------------------------------------
     // Help Display
     // -------------------------------------------------------------------------
-    if (opts.help) {
+    if (parsed.flags.help) {
         await println(HELP_TEXT);
 
         return exit(EXIT_SUCCESS);
@@ -350,8 +274,9 @@ export default async function main(): Promise<void> {
     // Stdin Passthrough Mode
     // -------------------------------------------------------------------------
     // POSIX: No files means read from stdin
-    if (opts.files.length === 0) {
+    if (parsed.positional.length === 0) {
         await passthroughStdin();
+        await send(1, respond.done());
 
         return exit(EXIT_SUCCESS);
     }
@@ -362,7 +287,7 @@ export default async function main(): Promise<void> {
     const cwd = await getcwd();
     let hadError = false;
 
-    for (const file of opts.files) {
+    for (const file of parsed.positional) {
         // POSIX: "-" means read from stdin
         if (file === '-') {
             await passthroughStdin();
@@ -388,5 +313,8 @@ export default async function main(): Promise<void> {
     // -------------------------------------------------------------------------
     // Exit
     // -------------------------------------------------------------------------
+    // Signal end of stream for downstream commands
+    await send(1, respond.done());
+
     return exit(hadError ? EXIT_FAILURE : EXIT_SUCCESS);
 }

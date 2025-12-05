@@ -59,7 +59,11 @@ import {
     println,
     eprintln,
     exit,
+    respond,
 } from '@rom/lib/process';
+
+// Argument parsing and utilities
+import { parseArgs } from '@rom/lib/args';
 import { resolvePath } from '@rom/lib/shell';
 
 // =============================================================================
@@ -91,31 +95,15 @@ const EXIT_USAGE = 2;
 const DEFAULT_LINE_COUNT = 10;
 
 // =============================================================================
-// TYPES
+// ARGUMENT SPECS
 // =============================================================================
 
 /**
- * Parsed command-line options.
- *
- * DESIGN: Each flag maps to a clear, typed field.
- * Boolean flags use true/false, not presence/absence.
+ * Argument specifications for parseArgs().
  */
-interface Options {
-    /** Show help and exit */
-    help: boolean;
-    /** Number of lines to output */
-    lineCount: number;
-    /** Input files (positional arguments) */
-    files: string[];
-}
-
-/**
- * Default options when no flags provided.
- */
-const DEFAULT_OPTIONS: Options = {
-    help: false,
-    lineCount: DEFAULT_LINE_COUNT,
-    files: [],
+const ARG_SPECS = {
+    help: { short: 'h', long: 'help', desc: 'Display help and exit' },
+    lines: { short: 'n', value: true, desc: 'Number of lines to output' },
 };
 
 // =============================================================================
@@ -151,110 +139,6 @@ Examples:
   cat file.txt | head -n 3      Read from stdin via pipe
   head - < input.txt            Read from stdin explicitly
 `.trim();
-
-// =============================================================================
-// ARGUMENT PARSING
-// =============================================================================
-
-/**
- * Parse command-line arguments.
- *
- * GNU CONVENTIONS:
- * - Single dash + letter: -n
- * - Double dash + word: --help
- * - Combined format: -n10 (no space)
- * - "--" ends flag parsing (remaining args are positional)
- * - "-" as argument means stdin (not a flag)
- *
- * @param args - Raw command-line arguments (including program name at index 0)
- * @returns Parsed options object
- * @throws Never throws - invalid usage is returned as usage error
- */
-function parseOptions(args: string[]): Options | { error: string } {
-    const opts = { ...DEFAULT_OPTIONS };
-
-    // Skip program name (args[0])
-    let i = 1;
-
-    while (i < args.length) {
-        const arg = args[i];
-
-        if (arg === undefined) {
-            break;
-        }
-
-        // "--" ends option parsing
-        if (arg === '--') {
-            opts.files.push(...args.slice(i + 1));
-            break;
-        }
-
-        // "-" is stdin, not a flag
-        if (arg === '-') {
-            opts.files.push('-');
-            i++;
-            continue;
-        }
-
-        // Long options
-        if (arg === '--help') {
-            opts.help = true;
-            i++;
-            continue;
-        }
-
-        // Short option with separate value: -n N
-        if (arg === '-n') {
-            const nextArg = args[i + 1];
-
-            if (nextArg === undefined) {
-                return { error: "option requires an argument -- 'n'" };
-            }
-
-            const count = parseInt(nextArg, 10);
-
-            if (isNaN(count) || count < 0) {
-                return { error: `invalid number of lines: '${nextArg}'` };
-            }
-
-            opts.lineCount = count;
-            i += 2;
-            continue;
-        }
-
-        // Short option with combined value: -n10
-        if (arg.startsWith('-n')) {
-            const valueStr = arg.slice(2);
-            const count = parseInt(valueStr, 10);
-
-            if (isNaN(count) || count < 0) {
-                return { error: `invalid number of lines: '${valueStr}'` };
-            }
-
-            opts.lineCount = count;
-            i++;
-            continue;
-        }
-
-        // Short help flag
-        if (arg === '-h') {
-            opts.help = true;
-            i++;
-            continue;
-        }
-
-        // Unknown flag
-        if (arg.startsWith('-')) {
-            return { error: `invalid option -- '${arg.slice(1)}'` };
-        }
-
-        // Positional argument
-        opts.files.push(arg);
-        i++;
-    }
-
-    return opts;
-}
 
 // =============================================================================
 // FILE PROCESSING
@@ -360,44 +244,75 @@ export default async function main(): Promise<void> {
     // Argument Parsing
     // -------------------------------------------------------------------------
     const args = await getargs();
-    const parsed = parseOptions(args.slice(1));
+    const parsed = parseArgs(args.slice(1), ARG_SPECS);
 
     // Handle parse errors
-    if ('error' in parsed) {
-        await eprintln(`head: ${parsed.error}`);
+    if (parsed.errors.length > 0) {
+        for (const err of parsed.errors) {
+            await eprintln(`head: ${err}`);
+        }
+
         await eprintln("Try 'head --help' for more information.");
 
         return exit(EXIT_USAGE);
     }
 
-    const opts = parsed;
+    // Handle unknown flags
+    if (parsed.unknown.length > 0) {
+        for (const flag of parsed.unknown) {
+            await eprintln(`head: unknown option: ${flag}`);
+        }
+
+        await eprintln("Try 'head --help' for more information.");
+
+        return exit(EXIT_USAGE);
+    }
 
     // -------------------------------------------------------------------------
     // Help Text
     // -------------------------------------------------------------------------
-    if (opts.help) {
+    if (parsed.flags.help) {
         await println(HELP_TEXT);
 
         return exit(EXIT_SUCCESS);
     }
 
     // -------------------------------------------------------------------------
+    // Parse Line Count
+    // -------------------------------------------------------------------------
+    let lineCount = DEFAULT_LINE_COUNT;
+
+    if (typeof parsed.flags.lines === 'string') {
+        const num = parseInt(parsed.flags.lines, 10);
+
+        if (isNaN(num) || num < 0) {
+            await eprintln(`head: invalid number of lines: '${parsed.flags.lines}'`);
+
+            return exit(EXIT_USAGE);
+        }
+
+        lineCount = num;
+    }
+
+    // -------------------------------------------------------------------------
     // Input Processing
     // -------------------------------------------------------------------------
+    const files = parsed.positional;
 
     // POSIX: No files specified means read from stdin
-    if (opts.files.length === 0) {
-        await processStdin(opts.lineCount);
+    if (files.length === 0) {
+        await processStdin(lineCount);
+        await send(1, respond.done());
 
         return exit(EXIT_SUCCESS);
     }
 
     // GNU: Multiple files get headers, single file doesn't
-    const showHeaders = opts.files.length > 1;
+    const showHeaders = files.length > 1;
     let hadError = false;
 
-    for (let i = 0; i < opts.files.length; i++) {
-        const file = opts.files[i];
+    for (let i = 0; i < files.length; i++) {
+        const file = files[i];
 
         if (file === undefined) {
             continue;
@@ -417,11 +332,11 @@ export default async function main(): Promise<void> {
 
         // Process stdin or file
         if (file === '-') {
-            await processStdin(opts.lineCount);
+            await processStdin(lineCount);
         }
         else {
             const cwd = await getcwd();
-            const exitCode = await processFile(cwd, file, opts.lineCount);
+            const exitCode = await processFile(cwd, file, lineCount);
 
             if (exitCode !== EXIT_SUCCESS) {
                 hadError = true;
@@ -429,6 +344,9 @@ export default async function main(): Promise<void> {
             }
         }
     }
+
+    // Signal end of stream for downstream commands
+    await send(1, respond.done());
 
     // GNU: Exit code reflects whether ANY file failed
     return exit(hadError ? EXIT_FAILURE : EXIT_SUCCESS);

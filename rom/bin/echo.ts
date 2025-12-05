@@ -59,7 +59,10 @@
 // =============================================================================
 
 // Monk OS process I/O
-import { print, println, eprintln, exit, getargs } from '@rom/lib/process';
+import { print, println, eprintln, exit, getargs, send, respond } from '@rom/lib/process';
+
+// Argument parsing
+import { parseArgs } from '@rom/lib/args';
 
 // =============================================================================
 // CONSTANTS
@@ -108,80 +111,19 @@ Examples:
 `.trim();
 
 // =============================================================================
-// TYPES
+// ARGUMENT SPECS
 // =============================================================================
 
 /**
- * Parsed command-line options.
+ * Argument specifications for parseArgs().
  *
- * DESIGN: Each flag maps to a clear, typed field.
+ * GNU ECHO: Only -n and --help are recognized flags.
+ * All other arguments (including unknown flags) become text.
  */
-interface Options {
-    /** Suppress trailing newline */
-    noNewline: boolean;
-    /** Show help and exit */
-    help: boolean;
-    /** Text arguments to output */
-    args: string[];
-}
-
-// =============================================================================
-// FUNCTIONS
-// =============================================================================
-
-/**
- * Parse command-line arguments for echo.
- *
- * GNU COMPATIBILITY:
- * - Only leading flags are parsed
- * - Once a non-flag argument is seen, flag parsing stops
- * - This matches GNU echo behavior: "echo -n foo -n" outputs "foo -n"
- *
- * @param args - Command-line arguments (excluding command name)
- * @returns Parsed options
- */
-function parseOptions(args: string[]): Options {
-    const opts: Options = {
-        noNewline: false,
-        help: false,
-        args: [],
-    };
-
-    let i = 0;
-
-    // Parse leading flags only
-    while (i < args.length) {
-        const arg = args[i];
-
-        // Stop parsing flags at first non-flag argument
-        if (!arg || !arg.startsWith('-')) {
-            break;
-        }
-
-        // Handle "--help"
-        if (arg === '--help') {
-            opts.help = true;
-            i++;
-            continue;
-        }
-
-        // Handle "-n"
-        if (arg === '-n') {
-            opts.noNewline = true;
-            i++;
-            continue;
-        }
-
-        // Unknown flag - treat as literal text (GNU behavior)
-        // This handles "-", "--", or any other dash-prefixed string
-        break;
-    }
-
-    // Remaining arguments are text to output
-    opts.args = args.slice(i);
-
-    return opts;
-}
+const ARG_SPECS = {
+    noNewline: { short: 'n', desc: 'Do not output trailing newline' },
+    help: { long: 'help', desc: 'Display help and exit' },
+};
 
 /**
  * Format output text from arguments.
@@ -220,12 +162,15 @@ export default async function main(): Promise<void> {
     // Argument Parsing
     // -------------------------------------------------------------------------
     const args = await getargs();
-    const opts = parseOptions(args.slice(1));
+
+    // GNU ECHO: Only leading flags are parsed. Once a non-flag or unknown
+    // flag is seen, all remaining args become text.
+    const parsed = parseArgs(args.slice(1), ARG_SPECS, { stopAtFirstPositional: true });
 
     // -------------------------------------------------------------------------
     // Handle Help
     // -------------------------------------------------------------------------
-    if (opts.help) {
+    if (parsed.flags.help) {
         await println(HELP_TEXT);
 
         return exit(EXIT_SUCCESS);
@@ -235,11 +180,12 @@ export default async function main(): Promise<void> {
     // Format and Output
     // -------------------------------------------------------------------------
     try {
-        const text = formatOutput(opts.args);
+        const text = formatOutput(parsed.positional);
 
         // PROTOCOL: Send one message per line for proper pipeline composition.
         // Commands like sort, grep, uniq expect one line per message.
         const lines = text.split('\n');
+        const noNewline = parsed.flags.noNewline === true;
 
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
@@ -250,7 +196,7 @@ export default async function main(): Promise<void> {
             }
 
             // GNU BEHAVIOR: -n suppresses trailing newline on final line only
-            if (isLast && opts.noNewline) {
+            if (isLast && noNewline) {
                 await print(line);
             }
             else if (isLast) {
@@ -261,6 +207,9 @@ export default async function main(): Promise<void> {
                 await println(line);
             }
         }
+
+        // Signal end of stream for downstream commands
+        await send(1, respond.done());
 
         return exit(EXIT_SUCCESS);
     }
