@@ -1,0 +1,15 @@
+{
+    "name": "@monk-api/jsond",
+    "version": "0.1.0",
+    "description": "JSON daemon (NDJSON-over-TCP API server) for Monk OS",
+    "type": "module",
+    "exports": {
+        ".": "./index.ts",
+        "./package.json": "./package.json"
+    },
+    "monk": {
+        "service": "jsond"
+    },
+    "author": "Ian Zepp",
+    "license": "SEE LICENSE IN LICENSE.md"
+}

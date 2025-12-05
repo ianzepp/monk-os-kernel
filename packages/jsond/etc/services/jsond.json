@@ -1,0 +1,11 @@
+{
+    "name": "jsond",
+    "handler": "/usr/jsond/sbin/jsond.ts",
+    "description": "JSON daemon (NDJSON-over-TCP API server)",
+    "activate": {
+        "type": "manual"
+    },
+    "defaults": {
+        "port": 9000
+    }
+}
