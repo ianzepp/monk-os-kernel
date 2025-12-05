@@ -1,5 +1,39 @@
 # Monk OS - Agent Instructions & Technical Architecture
 
+## Clone Context
+
+**Detect which repo you're in from the directory name:**
+
+| Directory | Role | Rules |
+|-----------|------|-------|
+| `os/` | **Main** | Stable. No speculative changes. Run tests before committing. |
+| `os-dev*/` | **Development** | Active work. Ask user for current goal if unclear. |
+
+**In main**: Be conservative. Only well-tested, complete changes.
+
+**In dev clones**: Move fast, experiment freely. The user will direct you.
+
+---
+
+## Prompt Library (`prompts/`)
+
+**Select and apply prompts based on what you're working on:**
+
+| File | Use When | Summary |
+|------|----------|---------|
+| `planning-mode.md` | Designing new features | Collaborative planning via `docs/`. Plans persist across sessions, iterate with user. |
+| `kernel-dev.md` | Modifying `src/` (kernel, HAL, VFS, EMS) | Linux kernel + TypeScript staff engineer code review. Focus on race conditions, invariants, concurrency, testability. |
+| `userspace-dev.md` | Modifying `rom/` (bin commands, lib utilities) | GNU coreutils + TypeScript code review. Focus on POSIX compatibility, streams, error handling, argument parsing. |
+| `parallel-agents.md` | Bulk changes across many files | How to split work across 2-5 parallel agents. ~4x faster than sequential. |
+| `tester.md` | Fixing `spec/` or `perf/` after refactors | Parallel agent strategy for fixing typecheck and test failures. |
+| `performance.md` | Writing `perf/` tests | Throughput, stress, and backend comparison tests. Run via `bun run perf`. |
+
+**Before major work**: Read the relevant prompt and apply its standards.
+
+**For large changes (5+ files)**: Use `parallel-agents.md` to split work. Parallel agents have been very successful for bulk refactors and conversions.
+
+---
+
 > **Quick Context**: Monk OS reframes API architecture as an operating system where **Bun is the hardware**. The single-executable deployment (`bun build --compile`) isn't packaging an app—it's burning firmware.
 
 ## 1. Core Philosophy & Architecture
