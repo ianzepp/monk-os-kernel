@@ -1,0 +1,57 @@
+# Selection Model
+# Tracks text selection state within a window
+
+name: selection
+description: Text selection state
+
+fields:
+  window_id:
+    type: uuid
+    required: true
+    index: true
+    relationship:
+      model: window
+      type: owned
+      name: selection
+      cascade_delete: true
+    description: Window containing selection
+
+  element_id:
+    type: uuid
+    index: true
+    description: Element containing selection
+
+  text:
+    type: text
+    description: Selected text content
+
+  start_offset:
+    type: integer
+    description: Selection start offset in element
+
+  end_offset:
+    type: integer
+    description: Selection end offset in element
+
+  collapsed:
+    type: boolean
+    default: true
+    description: Selection is collapsed (caret only)
+
+  direction:
+    type: text
+    default: forward
+    enum:
+      - forward
+      - backward
+      - none
+    description: Selection direction
+
+  # For multi-element selections
+  start_element_id:
+    type: uuid
+    description: Element where selection starts
+
+  end_element_id:
+    type: uuid
+    description: Element where selection ends

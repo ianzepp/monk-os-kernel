@@ -1,0 +1,79 @@
+# Cursor Model
+# Tracks mouse cursor state per display
+
+name: cursor
+description: Mouse cursor state
+passthrough: true  # High-frequency updates
+
+fields:
+  display_id:
+    type: uuid
+    required: true
+    unique: true
+    relationship:
+      model: display
+      type: owned
+      name: cursor
+      cascade_delete: true
+    description: Parent display (one cursor per display)
+
+  x:
+    type: integer
+    required: true
+    default: 0
+    description: X coordinate on screen
+
+  y:
+    type: integer
+    required: true
+    default: 0
+    description: Y coordinate on screen
+
+  style:
+    type: text
+    default: default
+    enum:
+      - default
+      - pointer
+      - text
+      - wait
+      - progress
+      - help
+      - crosshair
+      - move
+      - grab
+      - grabbing
+      - not-allowed
+      - no-drop
+      - col-resize
+      - row-resize
+      - n-resize
+      - e-resize
+      - s-resize
+      - w-resize
+      - ne-resize
+      - nw-resize
+      - se-resize
+      - sw-resize
+      - ew-resize
+      - ns-resize
+      - nesw-resize
+      - nwse-resize
+      - zoom-in
+      - zoom-out
+      - none
+    description: CSS cursor style
+
+  visible:
+    type: boolean
+    default: true
+    description: Cursor is visible
+
+  # Current hover state
+  window_id:
+    type: uuid
+    description: Window cursor is over
+
+  element_id:
+    type: uuid
+    description: Element cursor is over

@@ -1,0 +1,124 @@
+# Window Model
+# Represents a window owned by a process
+
+name: window
+description: Application window
+
+fields:
+  display_id:
+    type: uuid
+    required: true
+    index: true
+    relationship:
+      model: display
+      type: owned
+      name: windows
+      cascade_delete: true
+    description: Parent display
+
+  title:
+    type: text
+    default: ""
+    description: Window title bar text
+
+  x:
+    type: integer
+    default: 0
+    description: X position in pixels
+
+  y:
+    type: integer
+    default: 0
+    description: Y position in pixels
+
+  width:
+    type: integer
+    required: true
+    minimum: 1
+    description: Window width in pixels
+
+  height:
+    type: integer
+    required: true
+    minimum: 1
+    description: Window height in pixels
+
+  min_width:
+    type: integer
+    minimum: 0
+    description: Minimum window width
+
+  min_height:
+    type: integer
+    minimum: 0
+    description: Minimum window height
+
+  max_width:
+    type: integer
+    minimum: 0
+    description: Maximum window width
+
+  max_height:
+    type: integer
+    minimum: 0
+    description: Maximum window height
+
+  z_index:
+    type: integer
+    default: 0
+    index: true
+    description: Stacking order (higher = on top)
+
+  focused:
+    type: boolean
+    default: false
+    index: true
+    description: Has keyboard focus
+
+  visible:
+    type: boolean
+    default: true
+    index: true
+    description: Is visible on screen
+
+  minimized:
+    type: boolean
+    default: false
+    description: Window is minimized
+
+  maximized:
+    type: boolean
+    default: false
+    description: Window is maximized
+
+  resizable:
+    type: boolean
+    default: true
+    description: Window can be resized
+
+  movable:
+    type: boolean
+    default: true
+    description: Window can be moved
+
+  closable:
+    type: boolean
+    default: true
+    description: Window can be closed
+
+  owner_pid:
+    type: text
+    required: true
+    index: true
+    description: Owning process UUID
+
+  background:
+    type: text
+    description: Background color or CSS value
+
+  opacity:
+    type: numeric
+    default: 1.0
+    minimum: 0
+    maximum: 1
+    description: Window opacity (0-1)

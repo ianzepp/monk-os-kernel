@@ -1,0 +1,30 @@
+{
+    "name": "@monk-api/displayd",
+    "version": "0.1.0",
+    "description": "Display server daemon for Monk OS - browser-based windowing system",
+    "type": "module",
+    "exports": {
+        ".": "./index.ts",
+        "./package.json": "./package.json"
+    },
+    "monk": {
+        "service": "displayd",
+        "models": [
+            "display",
+            "window",
+            "element",
+            "event",
+            "cursor",
+            "selection"
+        ],
+        "mounts": [
+            {
+                "path": "/dev/display",
+                "model": "display",
+                "field": "id"
+            }
+        ]
+    },
+    "author": "Ian Zepp",
+    "license": "SEE LICENSE IN LICENSE.md"
+}
