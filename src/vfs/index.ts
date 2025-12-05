@@ -95,6 +95,12 @@ export { LinkModel } from '@src/vfs/models/link.js';
 // ProcModel removed - /proc is now handled by ProcMount (see src/vfs/mounts/proc.ts)
 
 // =============================================================================
+// SYNTHETIC MOUNTS
+// =============================================================================
+
+export type { EntityMount, EntityMountOptions } from '@src/vfs/mounts/entity.js';
+
+// =============================================================================
 // ERROR TYPES
 // =============================================================================
 

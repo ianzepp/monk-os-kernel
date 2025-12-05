@@ -92,7 +92,16 @@ import {
     procUnlink,
     procReadlink,
 } from '@src/vfs/mounts/proc.js';
+import type { EntityMount, EntityMountOptions } from '@src/vfs/mounts/entity.js';
+import {
+    createEntityMount,
+    isUnderEntityMount,
+    entityStat,
+    entityReaddir,
+    entityOpen,
+} from '@src/vfs/mounts/entity.js';
 import type { ProcessTable } from '@src/kernel/process-table.js';
+import type { ModelCache } from '@src/ems/model-cache.js';
 
 // =============================================================================
 // CONSTANTS
@@ -269,6 +278,20 @@ export class VFS {
      * Set via mountProc() after kernel is available.
      */
     private procMount: ProcMount | null = null;
+
+    /**
+     * Entity filesystem mounts.
+     *
+     * Synthetic mounts backed by EMS entity data.
+     * INVARIANT: Sorted by vfsPath length descending (longest prefix first).
+     */
+    private entityMounts: EntityMount[] = [];
+
+    /**
+     * Model cache for entity mounts.
+     * Required for entity mount field validation.
+     */
+    private modelCache: ModelCache | null = null;
 
     // =========================================================================
     // STATE
@@ -515,6 +538,75 @@ export class VFS {
     }
 
     /**
+     * Set the model cache for entity mounts.
+     *
+     * Must be called before mounting entity filesystems if field validation is needed.
+     *
+     * @param modelCache - Model cache instance
+     */
+    setModelCache(modelCache: ModelCache): void {
+        this.modelCache = modelCache;
+    }
+
+    /**
+     * Mount an entity filesystem.
+     *
+     * Creates a synthetic mount backed by EMS entity data.
+     * Entities are exposed as directories with fields as files.
+     *
+     * @param vfsPath - VFS path to mount at
+     * @param options - Mount options (model filter, field key)
+     * @throws EINVAL if field is not unique or model not found
+     */
+    async mountEntity(vfsPath: string, options: EntityMountOptions = {}): Promise<void> {
+        if (!this.cache || !this.entityOps) {
+            throw new Error('VFS requires EntityCache and EntityOps for entity mounts');
+        }
+        if (!this.modelCache) {
+            throw new Error('VFS requires ModelCache for entity mounts (call setModelCache first)');
+        }
+
+        const mount = await createEntityMount(
+            vfsPath,
+            this.cache,
+            this.entityOps,
+            this.modelCache,
+            options
+        );
+        this.entityMounts.push(mount);
+
+        // Keep sorted by path length descending (longest prefix first)
+        this.entityMounts.sort((a, b) => b.vfsPath.length - a.vfsPath.length);
+    }
+
+    /**
+     * Unmount an entity filesystem.
+     *
+     * @param vfsPath - VFS path to unmount
+     */
+    unmountEntity(vfsPath: string): void {
+        const normalPath = this.normalizePath(vfsPath);
+        this.entityMounts = this.entityMounts.filter(m => m.vfsPath !== normalPath);
+    }
+
+    /**
+     * Find the entity mount that handles a path.
+     *
+     * Uses longest prefix match (entity mounts are pre-sorted).
+     *
+     * @param path - Normalized path to check
+     * @returns Matching entity mount or null
+     */
+    private findEntityMount(path: string): EntityMount | null {
+        for (const mount of this.entityMounts) {
+            if (isUnderEntityMount(mount, path)) {
+                return mount;
+            }
+        }
+        return null;
+    }
+
+    /**
      * Resolve a VFS path to a host filesystem path.
      *
      * Returns the absolute host path if the VFS path is under a host mount,
@@ -589,6 +681,13 @@ export class VFS {
             return procOpen(this.procMount, normalPath, flags, caller);
         }
 
+        // Try entity mount (synthetic entity filesystem)
+        const entityMount = this.findEntityMount(normalPath);
+        if (entityMount) {
+            // Entity mount bypasses ACL (kernel-owned)
+            return entityOpen(entityMount, normalPath, flags);
+        }
+
         // Try VFS storage
         let entityId = await this.resolvePath(normalPath);
 
@@ -648,6 +747,12 @@ export class VFS {
         // Try proc mount first
         if (this.procMount && isUnderProcMount(this.procMount, normalPath)) {
             return procStat(this.procMount, normalPath, caller);
+        }
+
+        // Try entity mount
+        const entityMount = this.findEntityMount(normalPath);
+        if (entityMount) {
+            return entityStat(entityMount, normalPath);
         }
 
         // Try VFS storage
@@ -927,6 +1032,13 @@ export class VFS {
         // Try proc mount first
         if (this.procMount && isUnderProcMount(this.procMount, normalPath)) {
             yield* procReaddir(this.procMount, normalPath, caller);
+            return;
+        }
+
+        // Try entity mount
+        const entityMount = this.findEntityMount(normalPath);
+        if (entityMount) {
+            yield* entityReaddir(entityMount, normalPath);
             return;
         }
 
