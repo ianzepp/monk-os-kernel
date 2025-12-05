@@ -121,7 +121,7 @@ describe('Passthrough vs Pipeline Performance', () => {
         // Create test models on both stacks
         for (const stack of [sqliteStack, pgStack]) {
             // Create normal model (passthrough=false)
-            await collect(stack.entityOps!.createAll('models', [{
+            await collect(stack.ems!.ops.createAll('models', [{
                 model_name: NORMAL_MODEL,
                 status: 'active',
                 description: 'Normal model with full observer pipeline',
@@ -129,7 +129,7 @@ describe('Passthrough vs Pipeline Performance', () => {
             }]));
 
             // Create passthrough model (passthrough=true)
-            await collect(stack.entityOps!.createAll('models', [{
+            await collect(stack.ems!.ops.createAll('models', [{
                 model_name: PASSTHROUGH_MODEL,
                 status: 'active',
                 description: 'Passthrough model - skips observer pipeline',
@@ -138,7 +138,7 @@ describe('Passthrough vs Pipeline Performance', () => {
 
             // Create fields for both simple models
             for (const modelName of [NORMAL_MODEL, PASSTHROUGH_MODEL]) {
-                await collect(stack.entityOps!.createAll('fields', [
+                await collect(stack.ems!.ops.createAll('fields', [
                     { model_name: modelName, field_name: 'name', type: 'text', required: true },
                     { model_name: modelName, field_name: 'value', type: 'integer', required: false },
                     { model_name: modelName, field_name: 'data', type: 'text', required: false },
@@ -146,7 +146,7 @@ describe('Passthrough vs Pipeline Performance', () => {
             }
 
             // Create heavy model with lots of validation
-            await collect(stack.entityOps!.createAll('models', [{
+            await collect(stack.ems!.ops.createAll('models', [{
                 model_name: HEAVY_MODEL,
                 status: 'active',
                 description: 'Heavy model with constraints, transforms, and tracking',
@@ -154,7 +154,7 @@ describe('Passthrough vs Pipeline Performance', () => {
             }]));
 
             // Heavy model fields with constraints and tracking
-            await collect(stack.entityOps!.createAll('fields', [
+            await collect(stack.ems!.ops.createAll('fields', [
                 // Required text with pattern (email-like)
                 {
                     model_name: HEAVY_MODEL,
@@ -242,7 +242,7 @@ describe('Passthrough vs Pipeline Performance', () => {
         const results: BenchResult[] = [];
 
         for (const [label, stack] of [['SQLite', sqliteStack], ['PostgreSQL', pgStack]] as const) {
-            const entityOps = stack.entityOps!;
+            const entityOps = stack.ems!.ops;
 
             // Test normal model (full pipeline)
             const normalResult = await benchmark(
@@ -298,7 +298,7 @@ describe('Passthrough vs Pipeline Performance', () => {
             const results: BenchResult[] = [];
 
             for (const [label, stack] of [['SQLite', sqliteStack], ['PostgreSQL', pgStack]] as const) {
-                const entityOps = stack.entityOps!;
+                const entityOps = stack.ems!.ops;
 
                 // Parallel normal model
                 const normalResult = await benchmark(
@@ -367,8 +367,8 @@ describe('Passthrough vs Pipeline Performance', () => {
         const results: BenchResult[] = [];
 
         for (const [label, stack] of [['SQLite', sqliteStack], ['PostgreSQL', pgStack]] as const) {
-            const db = stack.db!;
-            const entityOps = stack.entityOps!;
+            const db = stack.ems!.db;
+            const entityOps = stack.ems!.ops;
 
             // Direct DB insert (baseline)
             const directResult = await benchmark(
@@ -446,7 +446,7 @@ describe('Passthrough vs Pipeline Performance', () => {
         const results: BenchResult[] = [];
 
         for (const [label, stack] of [['SQLite', sqliteStack], ['PostgreSQL', pgStack]] as const) {
-            const entityOps = stack.entityOps!;
+            const entityOps = stack.ems!.ops;
 
             // Light model (simple fields, no constraints)
             const lightResult = await benchmark(
@@ -511,7 +511,7 @@ describe('Passthrough vs Pipeline Performance', () => {
         const results: BenchResult[] = [];
 
         for (const [label, stack] of [['SQLite', sqliteStack], ['PostgreSQL', pgStack]] as const) {
-            const entityOps = stack.entityOps!;
+            const entityOps = stack.ems!.ops;
 
             // Passthrough (no observer pipeline)
             const passthroughResult = await benchmark(

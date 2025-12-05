@@ -23,6 +23,8 @@ import {
     BunChannelDevice,
     MockCompressionDevice,
     MockFileDevice,
+    MockJsonDevice,
+    MockYamlDevice,
 } from '@src/hal/index.js';
 
 /**
@@ -48,6 +50,8 @@ function createTestHAL(): HAL {
         channel: new BunChannelDevice(),
         compression: new MockCompressionDevice(),
         file: new MockFileDevice(),
+        json: new MockJsonDevice(),
+        yaml: new MockYamlDevice(),
 
         async init(): Promise<void> {
             // No initialization needed for these mock devices

@@ -83,10 +83,10 @@ interface FileEntity {
     owner: string;
     data?: string;
     size?: number;
-    created_at?: string;
-    updated_at?: string;
-    trashed_at?: string | null;
-    expired_at?: string | null;
+    created_at: string;
+    updated_at: string;
+    trashed_at: string | null;
+    expired_at: string | null;
     [key: string]: unknown;
 }
 
@@ -542,9 +542,6 @@ describe('Display Refresh: Full Frame Simulation', () => {
     let adminSql: InstanceType<typeof Bun.SQL>;
     let sqliteWindow: FileEntity;
     let pgWindow: FileEntity;
-    let sqliteElements: FileEntity[];
-    let pgElements: FileEntity[];
-
     beforeAll(async () => {
         adminSql = new Bun.SQL(POSTGRES_URL);
         await adminSql.unsafe(`CREATE SCHEMA IF NOT EXISTS ${PG_SCHEMA}_frame`);
@@ -556,8 +553,9 @@ describe('Display Refresh: Full Frame Simulation', () => {
         sqliteWindow = await createWindow(sqlite, 'display-0', 0, owner);
         pgWindow = await createWindow(postgres, 'display-0', 0, owner);
 
-        sqliteElements = await createElements(sqlite, sqliteWindow.id, ELEMENT_COUNTS.medium, owner);
-        pgElements = await createElements(postgres, pgWindow.id, ELEMENT_COUNTS.medium, owner);
+        // Pre-create elements for the test (queried fresh in each frame)
+        await createElements(sqlite, sqliteWindow.id, ELEMENT_COUNTS.medium, owner);
+        await createElements(postgres, pgWindow.id, ELEMENT_COUNTS.medium, owner);
     });
 
     afterAll(async () => {

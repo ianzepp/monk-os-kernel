@@ -25,6 +25,8 @@ import {
     BunChannelDevice,
     MockCompressionDevice,
     MockFileDevice,
+    MockJsonDevice,
+    MockYamlDevice,
 } from '@src/hal/index.js';
 
 const TIMEOUT_LONG = 60_000;
@@ -52,6 +54,8 @@ function createTestHAL(): HAL & { console: BufferConsoleDevice } {
         channel: new BunChannelDevice(),
         compression: new MockCompressionDevice(),
         file: new MockFileDevice(),
+        json: new MockJsonDevice(),
+        yaml: new MockYamlDevice(),
 
         async init(): Promise<void> {
             // No initialization needed for these mock devices
@@ -81,7 +85,7 @@ describe('Process Spawn: Sequential Boot Cycles', () => {
         for (let i = 0; i < 10; i++) {
             const hal = createTestHAL();
             const vfs = new VFS(hal);
-            const kernel = new Kernel(hal, vfs);
+            const kernel = new Kernel(hal, undefined, vfs);
 
             await vfs.init();
             await kernel.boot({
@@ -106,7 +110,7 @@ describe('Process Spawn: Sequential Boot Cycles', () => {
         for (let i = 0; i < 50; i++) {
             const hal = createTestHAL();
             const vfs = new VFS(hal);
-            const kernel = new Kernel(hal, vfs);
+            const kernel = new Kernel(hal, undefined, vfs);
 
             await vfs.init();
             await kernel.boot({
@@ -134,7 +138,7 @@ describe('Process Spawn: Child Processes via Shell', () => {
     beforeEach(async () => {
         hal = createTestHAL();
         vfs = new VFS(hal);
-        kernel = new Kernel(hal, vfs);
+        kernel = new Kernel(hal, undefined, vfs);
         await vfs.init();
     });
 
@@ -205,7 +209,7 @@ describe('Process Spawn: Rapid Exit Codes', () => {
     it('should correctly report exit code 0 (true)', async () => {
         const hal = createTestHAL();
         const vfs = new VFS(hal);
-        const kernel = new Kernel(hal, vfs);
+        const kernel = new Kernel(hal, undefined, vfs);
 
         await vfs.init();
         await kernel.boot({
@@ -226,7 +230,7 @@ describe('Process Spawn: Rapid Exit Codes', () => {
     it('should correctly report exit code 1 (false)', async () => {
         const hal = createTestHAL();
         const vfs = new VFS(hal);
-        const kernel = new Kernel(hal, vfs);
+        const kernel = new Kernel(hal, undefined, vfs);
 
         await vfs.init();
         await kernel.boot({
@@ -250,7 +254,7 @@ describe('Process Spawn: Rapid Exit Codes', () => {
         for (let i = 0; i < 10; i++) {
             const hal = createTestHAL();
             const vfs = new VFS(hal);
-            const kernel = new Kernel(hal, vfs);
+            const kernel = new Kernel(hal, undefined, vfs);
 
             const cmd = i % 2 === 0 ? '/bin/true.ts' : '/bin/false.ts';
             const expectedCode = i % 2 === 0 ? 0 : 1;
@@ -286,7 +290,7 @@ describe('Process Spawn: Pipe Chains', () => {
     beforeEach(async () => {
         hal = createTestHAL();
         vfs = new VFS(hal);
-        kernel = new Kernel(hal, vfs);
+        kernel = new Kernel(hal, undefined, vfs);
         await vfs.init();
     });
 
@@ -410,7 +414,7 @@ describe('Process Table: Cleanup After Exit', () => {
     it('should have empty process table after init exits and cleanup', async () => {
         const hal = createTestHAL();
         const vfs = new VFS(hal);
-        const kernel = new Kernel(hal, vfs);
+        const kernel = new Kernel(hal, undefined, vfs);
 
         await vfs.init();
         await kernel.boot({
@@ -432,7 +436,7 @@ describe('Process Table: Cleanup After Exit', () => {
         for (let i = 0; i < 20; i++) {
             const hal = createTestHAL();
             const vfs = new VFS(hal);
-            const kernel = new Kernel(hal, vfs);
+            const kernel = new Kernel(hal, undefined, vfs);
 
             await vfs.init();
             await kernel.boot({

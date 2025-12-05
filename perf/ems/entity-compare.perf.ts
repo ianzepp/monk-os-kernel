@@ -173,7 +173,7 @@ describe('EMS Entity Compare: File Operations', () => {
 
         const sqliteResult = await runBench('SQLite', sqlite, count, async (stack, i) => {
             await collect(
-                stack.entityOps!.createAll<FileEntity>('file', [
+                stack.ems!.ops.createAll<FileEntity>('file', [
                     { pathname: `sqlite-file-${i}.txt`, owner, parent: null },
                 ])
             );
@@ -181,7 +181,7 @@ describe('EMS Entity Compare: File Operations', () => {
 
         const pgResult = await runBench('PostgreSQL', postgres, count, async (stack, i) => {
             await collect(
-                stack.entityOps!.createAll<FileEntity>('file', [
+                stack.ems!.ops.createAll<FileEntity>('file', [
                     { pathname: `pg-file-${i}.txt`, owner, parent: null },
                 ])
             );
@@ -199,7 +199,7 @@ describe('EMS Entity Compare: File Operations', () => {
 
         // Pre-create files
         const sqliteFiles = await collect(
-            sqlite.entityOps!.createAll<FileEntity>('file',
+            sqlite.ems!.ops.createAll<FileEntity>('file',
                 Array.from({ length: 100 }, (_, i) => ({
                     pathname: `sqlite-lookup-${i}.txt`,
                     owner,
@@ -208,7 +208,7 @@ describe('EMS Entity Compare: File Operations', () => {
             )
         );
         const pgFiles = await collect(
-            postgres.entityOps!.createAll<FileEntity>('file',
+            postgres.ems!.ops.createAll<FileEntity>('file',
                 Array.from({ length: 100 }, (_, i) => ({
                     pathname: `pg-lookup-${i}.txt`,
                     owner,
@@ -219,12 +219,12 @@ describe('EMS Entity Compare: File Operations', () => {
 
         const sqliteResult = await runBench('SQLite', sqlite, count, async (stack, i) => {
             const id = sqliteFiles[i % sqliteFiles.length]!.id;
-            await collect(stack.entityOps!.selectIds<FileEntity>('file', [id]));
+            await collect(stack.ems!.ops.selectIds<FileEntity>('file', [id]));
         });
 
         const pgResult = await runBench('PostgreSQL', postgres, count, async (stack, i) => {
             const id = pgFiles[i % pgFiles.length]!.id;
-            await collect(stack.entityOps!.selectIds<FileEntity>('file', [id]));
+            await collect(stack.ems!.ops.selectIds<FileEntity>('file', [id]));
         });
 
         console.log('\nSELECT 500 file lookups by id:');
@@ -237,7 +237,7 @@ describe('EMS Entity Compare: File Operations', () => {
 
         // Pre-create files
         const sqliteFiles = await collect(
-            sqlite.entityOps!.createAll<FileEntity>('file',
+            sqlite.ems!.ops.createAll<FileEntity>('file',
                 Array.from({ length: 100 }, (_, i) => ({
                     pathname: `sqlite-update-${i}.txt`,
                     owner,
@@ -246,7 +246,7 @@ describe('EMS Entity Compare: File Operations', () => {
             )
         );
         const pgFiles = await collect(
-            postgres.entityOps!.createAll<FileEntity>('file',
+            postgres.ems!.ops.createAll<FileEntity>('file',
                 Array.from({ length: 100 }, (_, i) => ({
                     pathname: `pg-update-${i}.txt`,
                     owner,
@@ -258,7 +258,7 @@ describe('EMS Entity Compare: File Operations', () => {
         const sqliteResult = await runBench('SQLite', sqlite, count, async (stack, i) => {
             const id = sqliteFiles[i % sqliteFiles.length]!.id;
             await collect(
-                stack.entityOps!.updateAll<FileEntity>('file', [
+                stack.ems!.ops.updateAll<FileEntity>('file', [
                     { id, changes: { pathname: `sqlite-updated-${i}.txt` } },
                 ])
             );
@@ -267,7 +267,7 @@ describe('EMS Entity Compare: File Operations', () => {
         const pgResult = await runBench('PostgreSQL', postgres, count, async (stack, i) => {
             const id = pgFiles[i % pgFiles.length]!.id;
             await collect(
-                stack.entityOps!.updateAll<FileEntity>('file', [
+                stack.ems!.ops.updateAll<FileEntity>('file', [
                     { id, changes: { pathname: `pg-updated-${i}.txt` } },
                 ])
             );
@@ -283,7 +283,7 @@ describe('EMS Entity Compare: File Operations', () => {
 
         // Pre-create files to delete
         const sqliteFiles = await collect(
-            sqlite.entityOps!.createAll<FileEntity>('file',
+            sqlite.ems!.ops.createAll<FileEntity>('file',
                 Array.from({ length: count }, (_, i) => ({
                     pathname: `sqlite-delete-${i}.txt`,
                     owner,
@@ -292,7 +292,7 @@ describe('EMS Entity Compare: File Operations', () => {
             )
         );
         const pgFiles = await collect(
-            postgres.entityOps!.createAll<FileEntity>('file',
+            postgres.ems!.ops.createAll<FileEntity>('file',
                 Array.from({ length: count }, (_, i) => ({
                     pathname: `pg-delete-${i}.txt`,
                     owner,
@@ -303,12 +303,12 @@ describe('EMS Entity Compare: File Operations', () => {
 
         const sqliteResult = await runBench('SQLite', sqlite, count, async (stack, i) => {
             const id = sqliteFiles[i]!.id;
-            await collect(stack.entityOps!.deleteIds('file', [id]));
+            await collect(stack.ems!.ops.deleteIds('file', [id]));
         });
 
         const pgResult = await runBench('PostgreSQL', postgres, count, async (stack, i) => {
             const id = pgFiles[i]!.id;
-            await collect(stack.entityOps!.deleteIds('file', [id]));
+            await collect(stack.ems!.ops.deleteIds('file', [id]));
         });
 
         console.log('\nDELETE 200 file soft deletes:');
@@ -345,7 +345,7 @@ describe('EMS Entity Compare: Folder Operations', () => {
 
         const sqliteResult = await runBench('SQLite', sqlite, count, async (stack, i) => {
             await collect(
-                stack.entityOps!.createAll<FolderEntity>('folder', [
+                stack.ems!.ops.createAll<FolderEntity>('folder', [
                     { pathname: `sqlite-folder-${i}`, owner, parent: null },
                 ])
             );
@@ -353,7 +353,7 @@ describe('EMS Entity Compare: Folder Operations', () => {
 
         const pgResult = await runBench('PostgreSQL', postgres, count, async (stack, i) => {
             await collect(
-                stack.entityOps!.createAll<FolderEntity>('folder', [
+                stack.ems!.ops.createAll<FolderEntity>('folder', [
                     { pathname: `pg-folder-${i}`, owner, parent: null },
                 ])
             );
@@ -375,7 +375,7 @@ describe('EMS Entity Compare: Folder Operations', () => {
                 for (const parentId of parentIds) {
                     for (let i = 0; i < 10; i++) {
                         const folders = await collect(
-                            stack.entityOps!.createAll<FolderEntity>('folder', [
+                            stack.ems!.ops.createAll<FolderEntity>('folder', [
                                 { pathname: `${prefix}-L${level}-${i}`, owner, parent: parentId },
                             ])
                         );
@@ -437,7 +437,7 @@ describe('EMS Entity Compare: Bulk Operations', () => {
 
         const sqliteStart = performance.now();
         const sqliteFiles = await collect(
-            sqlite.entityOps!.createAll<FileEntity>('file',
+            sqlite.ems!.ops.createAll<FileEntity>('file',
                 Array.from({ length: count }, (_, i) => ({
                     pathname: `sqlite-batch-${i}.txt`,
                     owner,
@@ -449,7 +449,7 @@ describe('EMS Entity Compare: Bulk Operations', () => {
 
         const pgStart = performance.now();
         const pgFiles = await collect(
-            postgres.entityOps!.createAll<FileEntity>('file',
+            postgres.ems!.ops.createAll<FileEntity>('file',
                 Array.from({ length: count }, (_, i) => ({
                     pathname: `pg-batch-${i}.txt`,
                     owner,
@@ -477,7 +477,7 @@ describe('EMS Entity Compare: Bulk Operations', () => {
 
         // Pre-create
         await collect(
-            sqlite.entityOps!.createAll<FileEntity>('file',
+            sqlite.ems!.ops.createAll<FileEntity>('file',
                 Array.from({ length: count }, (_, i) => ({
                     pathname: `sqlite-query-${i}.txt`,
                     owner,
@@ -486,7 +486,7 @@ describe('EMS Entity Compare: Bulk Operations', () => {
             )
         );
         await collect(
-            postgres.entityOps!.createAll<FileEntity>('file',
+            postgres.ems!.ops.createAll<FileEntity>('file',
                 Array.from({ length: count }, (_, i) => ({
                     pathname: `pg-query-${i}.txt`,
                     owner,
@@ -500,7 +500,7 @@ describe('EMS Entity Compare: Bulk Operations', () => {
         const sqliteStart = performance.now();
         for (let i = 0; i < iterations; i++) {
             const files = await collect(
-                sqlite.entityOps!.selectAny<FileEntity>('file', { where: { owner } })
+                sqlite.ems!.ops.selectAny<FileEntity>('file', { where: { owner } })
             );
             expect(files.length).toBe(count);
         }
@@ -509,7 +509,7 @@ describe('EMS Entity Compare: Bulk Operations', () => {
         const pgStart = performance.now();
         for (let i = 0; i < iterations; i++) {
             const files = await collect(
-                postgres.entityOps!.selectAny<FileEntity>('file', { where: { owner } })
+                postgres.ems!.ops.selectAny<FileEntity>('file', { where: { owner } })
             );
             expect(files.length).toBe(count);
         }
@@ -530,7 +530,7 @@ describe('EMS Entity Compare: Bulk Operations', () => {
 
         // Pre-create
         const sqliteFiles = await collect(
-            sqlite.entityOps!.createAll<FileEntity>('file',
+            sqlite.ems!.ops.createAll<FileEntity>('file',
                 Array.from({ length: count }, (_, i) => ({
                     pathname: `sqlite-bupd-${i}.txt`,
                     owner,
@@ -539,7 +539,7 @@ describe('EMS Entity Compare: Bulk Operations', () => {
             )
         );
         const pgFiles = await collect(
-            postgres.entityOps!.createAll<FileEntity>('file',
+            postgres.ems!.ops.createAll<FileEntity>('file',
                 Array.from({ length: count }, (_, i) => ({
                     pathname: `pg-bupd-${i}.txt`,
                     owner,
@@ -550,7 +550,7 @@ describe('EMS Entity Compare: Bulk Operations', () => {
 
         const sqliteStart = performance.now();
         await collect(
-            sqlite.entityOps!.updateAll<FileEntity>('file',
+            sqlite.ems!.ops.updateAll<FileEntity>('file',
                 sqliteFiles.map((f, i) => ({ id: f.id, changes: { pathname: `sqlite-bupd-updated-${i}.txt` } }))
             )
         );
@@ -558,7 +558,7 @@ describe('EMS Entity Compare: Bulk Operations', () => {
 
         const pgStart = performance.now();
         await collect(
-            postgres.entityOps!.updateAll<FileEntity>('file',
+            postgres.ems!.ops.updateAll<FileEntity>('file',
                 pgFiles.map((f, i) => ({ id: f.id, changes: { pathname: `pg-bupd-updated-${i}.txt` } }))
             )
         );
@@ -579,7 +579,7 @@ describe('EMS Entity Compare: Bulk Operations', () => {
 
         // Pre-create
         const sqliteFiles = await collect(
-            sqlite.entityOps!.createAll<FileEntity>('file',
+            sqlite.ems!.ops.createAll<FileEntity>('file',
                 Array.from({ length: count }, (_, i) => ({
                     pathname: `sqlite-bdel-${i}.txt`,
                     owner,
@@ -588,7 +588,7 @@ describe('EMS Entity Compare: Bulk Operations', () => {
             )
         );
         const pgFiles = await collect(
-            postgres.entityOps!.createAll<FileEntity>('file',
+            postgres.ems!.ops.createAll<FileEntity>('file',
                 Array.from({ length: count }, (_, i) => ({
                     pathname: `pg-bdel-${i}.txt`,
                     owner,
@@ -599,13 +599,13 @@ describe('EMS Entity Compare: Bulk Operations', () => {
 
         const sqliteStart = performance.now();
         await collect(
-            sqlite.entityOps!.deleteIds('file', sqliteFiles.map(f => f.id))
+            sqlite.ems!.ops.deleteIds('file', sqliteFiles.map(f => f.id))
         );
         const sqliteMs = performance.now() - sqliteStart;
 
         const pgStart = performance.now();
         await collect(
-            postgres.entityOps!.deleteIds('file', pgFiles.map(f => f.id))
+            postgres.ems!.ops.deleteIds('file', pgFiles.map(f => f.id))
         );
         const pgMs = performance.now() - pgStart;
 
@@ -637,7 +637,7 @@ describe('EMS Entity Compare: Mixed Workload', () => {
         // Pre-populate with files
         const owner = 'mixed-owner';
         await collect(
-            sqlite.entityOps!.createAll<FileEntity>('file',
+            sqlite.ems!.ops.createAll<FileEntity>('file',
                 Array.from({ length: 200 }, (_, i) => ({
                     pathname: `sqlite-mixed-${i}.txt`,
                     owner,
@@ -646,7 +646,7 @@ describe('EMS Entity Compare: Mixed Workload', () => {
             )
         );
         await collect(
-            postgres.entityOps!.createAll<FileEntity>('file',
+            postgres.ems!.ops.createAll<FileEntity>('file',
                 Array.from({ length: 200 }, (_, i) => ({
                     pathname: `pg-mixed-${i}.txt`,
                     owner,
@@ -671,24 +671,24 @@ describe('EMS Entity Compare: Mixed Workload', () => {
         for (let i = 0; i < cycles; i++) {
             // Create
             const created = await collect(
-                sqlite.entityOps!.createAll<FileEntity>('file', [
+                sqlite.ems!.ops.createAll<FileEntity>('file', [
                     { pathname: `sqlite-crud-${i}.txt`, owner, parent: null },
                 ])
             );
             const id = created[0]!.id;
 
             // Read
-            await collect(sqlite.entityOps!.selectIds<FileEntity>('file', [id]));
+            await collect(sqlite.ems!.ops.selectIds<FileEntity>('file', [id]));
 
             // Update
             await collect(
-                sqlite.entityOps!.updateAll<FileEntity>('file', [
+                sqlite.ems!.ops.updateAll<FileEntity>('file', [
                     { id, changes: { pathname: `sqlite-crud-updated-${i}.txt` } },
                 ])
             );
 
             // Delete
-            await collect(sqlite.entityOps!.deleteIds('file', [id]));
+            await collect(sqlite.ems!.ops.deleteIds('file', [id]));
         }
         const sqliteMs = performance.now() - sqliteStart;
 
@@ -696,24 +696,24 @@ describe('EMS Entity Compare: Mixed Workload', () => {
         for (let i = 0; i < cycles; i++) {
             // Create
             const created = await collect(
-                postgres.entityOps!.createAll<FileEntity>('file', [
+                postgres.ems!.ops.createAll<FileEntity>('file', [
                     { pathname: `pg-crud-${i}.txt`, owner, parent: null },
                 ])
             );
             const id = created[0]!.id;
 
             // Read
-            await collect(postgres.entityOps!.selectIds<FileEntity>('file', [id]));
+            await collect(postgres.ems!.ops.selectIds<FileEntity>('file', [id]));
 
             // Update
             await collect(
-                postgres.entityOps!.updateAll<FileEntity>('file', [
+                postgres.ems!.ops.updateAll<FileEntity>('file', [
                     { id, changes: { pathname: `pg-crud-updated-${i}.txt` } },
                 ])
             );
 
             // Delete
-            await collect(postgres.entityOps!.deleteIds('file', [id]));
+            await collect(postgres.ems!.ops.deleteIds('file', [id]));
         }
         const pgMs = performance.now() - pgStart;
 
@@ -733,7 +733,7 @@ describe('EMS Entity Compare: Mixed Workload', () => {
 
         // Pre-create files for reading
         const sqliteFiles = await collect(
-            sqlite.entityOps!.createAll<FileEntity>('file',
+            sqlite.ems!.ops.createAll<FileEntity>('file',
                 Array.from({ length: 50 }, (_, i) => ({
                     pathname: `sqlite-rh-${i}.txt`,
                     owner,
@@ -742,7 +742,7 @@ describe('EMS Entity Compare: Mixed Workload', () => {
             )
         );
         const pgFiles = await collect(
-            postgres.entityOps!.createAll<FileEntity>('file',
+            postgres.ems!.ops.createAll<FileEntity>('file',
                 Array.from({ length: 50 }, (_, i) => ({
                     pathname: `pg-rh-${i}.txt`,
                     owner,
@@ -755,10 +755,10 @@ describe('EMS Entity Compare: Mixed Workload', () => {
         for (let i = 0; i < totalOps; i++) {
             if (Math.random() < 0.95) {
                 const id = sqliteFiles[i % sqliteFiles.length]!.id;
-                await collect(sqlite.entityOps!.selectIds<FileEntity>('file', [id]));
+                await collect(sqlite.ems!.ops.selectIds<FileEntity>('file', [id]));
             } else {
                 await collect(
-                    sqlite.entityOps!.createAll<FileEntity>('file', [
+                    sqlite.ems!.ops.createAll<FileEntity>('file', [
                         { pathname: `sqlite-rh-new-${i}.txt`, owner, parent: null },
                     ])
                 );
@@ -770,10 +770,10 @@ describe('EMS Entity Compare: Mixed Workload', () => {
         for (let i = 0; i < totalOps; i++) {
             if (Math.random() < 0.95) {
                 const id = pgFiles[i % pgFiles.length]!.id;
-                await collect(postgres.entityOps!.selectIds<FileEntity>('file', [id]));
+                await collect(postgres.ems!.ops.selectIds<FileEntity>('file', [id]));
             } else {
                 await collect(
-                    postgres.entityOps!.createAll<FileEntity>('file', [
+                    postgres.ems!.ops.createAll<FileEntity>('file', [
                         { pathname: `pg-rh-new-${i}.txt`, owner, parent: null },
                     ])
                 );
@@ -796,7 +796,7 @@ describe('EMS Entity Compare: Mixed Workload', () => {
 
         // Pre-create files for reading
         const sqliteFiles = await collect(
-            sqlite.entityOps!.createAll<FileEntity>('file',
+            sqlite.ems!.ops.createAll<FileEntity>('file',
                 Array.from({ length: 50 }, (_, i) => ({
                     pathname: `sqlite-wh-${i}.txt`,
                     owner,
@@ -805,7 +805,7 @@ describe('EMS Entity Compare: Mixed Workload', () => {
             )
         );
         const pgFiles = await collect(
-            postgres.entityOps!.createAll<FileEntity>('file',
+            postgres.ems!.ops.createAll<FileEntity>('file',
                 Array.from({ length: 50 }, (_, i) => ({
                     pathname: `pg-wh-${i}.txt`,
                     owner,
@@ -818,10 +818,10 @@ describe('EMS Entity Compare: Mixed Workload', () => {
         for (let i = 0; i < totalOps; i++) {
             if (Math.random() < 0.05) {
                 const id = sqliteFiles[i % sqliteFiles.length]!.id;
-                await collect(sqlite.entityOps!.selectIds<FileEntity>('file', [id]));
+                await collect(sqlite.ems!.ops.selectIds<FileEntity>('file', [id]));
             } else {
                 await collect(
-                    sqlite.entityOps!.createAll<FileEntity>('file', [
+                    sqlite.ems!.ops.createAll<FileEntity>('file', [
                         { pathname: `sqlite-wh-new-${i}.txt`, owner, parent: null },
                     ])
                 );
@@ -833,10 +833,10 @@ describe('EMS Entity Compare: Mixed Workload', () => {
         for (let i = 0; i < totalOps; i++) {
             if (Math.random() < 0.05) {
                 const id = pgFiles[i % pgFiles.length]!.id;
-                await collect(postgres.entityOps!.selectIds<FileEntity>('file', [id]));
+                await collect(postgres.ems!.ops.selectIds<FileEntity>('file', [id]));
             } else {
                 await collect(
-                    postgres.entityOps!.createAll<FileEntity>('file', [
+                    postgres.ems!.ops.createAll<FileEntity>('file', [
                         { pathname: `pg-wh-new-${i}.txt`, owner, parent: null },
                     ])
                 );
@@ -874,7 +874,7 @@ describe('EMS Entity Compare: Files in Folders', () => {
         // Pre-create folder structure
         const owner = 'hierarchy-owner';
         sqliteFolders = await collect(
-            sqlite.entityOps!.createAll<FolderEntity>('folder',
+            sqlite.ems!.ops.createAll<FolderEntity>('folder',
                 Array.from({ length: 10 }, (_, i) => ({
                     pathname: `sqlite-folder-${i}`,
                     owner,
@@ -883,7 +883,7 @@ describe('EMS Entity Compare: Files in Folders', () => {
             )
         );
         pgFolders = await collect(
-            postgres.entityOps!.createAll<FolderEntity>('folder',
+            postgres.ems!.ops.createAll<FolderEntity>('folder',
                 Array.from({ length: 10 }, (_, i) => ({
                     pathname: `pg-folder-${i}`,
                     owner,
@@ -907,7 +907,7 @@ describe('EMS Entity Compare: Files in Folders', () => {
         const sqliteResult = await runBench('SQLite', sqlite, count, async (stack, i) => {
             const folderId = sqliteFolders[i % 10]!.id;
             await collect(
-                stack.entityOps!.createAll<FileEntity>('file', [
+                stack.ems!.ops.createAll<FileEntity>('file', [
                     { pathname: `sqlite-hier-${i}.txt`, owner, parent: folderId },
                 ])
             );
@@ -916,7 +916,7 @@ describe('EMS Entity Compare: Files in Folders', () => {
         const pgResult = await runBench('PostgreSQL', postgres, count, async (stack, i) => {
             const folderId = pgFolders[i % 10]!.id;
             await collect(
-                stack.entityOps!.createAll<FileEntity>('file', [
+                stack.ems!.ops.createAll<FileEntity>('file', [
                     { pathname: `pg-hier-${i}.txt`, owner, parent: folderId },
                 ])
             );
@@ -933,7 +933,7 @@ describe('EMS Entity Compare: Files in Folders', () => {
         for (let iter = 0; iter < iterations; iter++) {
             for (const folder of sqliteFolders) {
                 await collect(
-                    sqlite.entityOps!.selectAny<FileEntity>('file', { where: { parent: folder.id } })
+                    sqlite.ems!.ops.selectAny<FileEntity>('file', { where: { parent: folder.id } })
                 );
             }
         }
@@ -943,7 +943,7 @@ describe('EMS Entity Compare: Files in Folders', () => {
         for (let iter = 0; iter < iterations; iter++) {
             for (const folder of pgFolders) {
                 await collect(
-                    postgres.entityOps!.selectAny<FileEntity>('file', { where: { parent: folder.id } })
+                    postgres.ems!.ops.selectAny<FileEntity>('file', { where: { parent: folder.id } })
                 );
             }
         }
@@ -989,7 +989,7 @@ describe('EMS Entity Compare: Upsert Operations', () => {
 
         // Pre-create some files for updates
         const sqliteFiles = await collect(
-            sqlite.entityOps!.createAll<FileEntity>('file',
+            sqlite.ems!.ops.createAll<FileEntity>('file',
                 Array.from({ length: count / 2 }, (_, i) => ({
                     pathname: `sqlite-upsert-${i}.txt`,
                     owner,
@@ -998,7 +998,7 @@ describe('EMS Entity Compare: Upsert Operations', () => {
             )
         );
         const pgFiles = await collect(
-            postgres.entityOps!.createAll<FileEntity>('file',
+            postgres.ems!.ops.createAll<FileEntity>('file',
                 Array.from({ length: count / 2 }, (_, i) => ({
                     pathname: `pg-upsert-${i}.txt`,
                     owner,
@@ -1012,14 +1012,14 @@ describe('EMS Entity Compare: Upsert Operations', () => {
             if (i < count / 2) {
                 // Update existing
                 await collect(
-                    sqlite.entityOps!.upsertAll<FileEntity>('file', [
+                    sqlite.ems!.ops.upsertAll<FileEntity>('file', [
                         { id: sqliteFiles[i]!.id, pathname: `sqlite-upserted-${i}.txt`, owner, parent: null },
                     ])
                 );
             } else {
                 // Insert new
                 await collect(
-                    sqlite.entityOps!.upsertAll<FileEntity>('file', [
+                    sqlite.ems!.ops.upsertAll<FileEntity>('file', [
                         { pathname: `sqlite-upsert-new-${i}.txt`, owner, parent: null },
                     ])
                 );
@@ -1032,14 +1032,14 @@ describe('EMS Entity Compare: Upsert Operations', () => {
             if (i < count / 2) {
                 // Update existing
                 await collect(
-                    postgres.entityOps!.upsertAll<FileEntity>('file', [
+                    postgres.ems!.ops.upsertAll<FileEntity>('file', [
                         { id: pgFiles[i]!.id, pathname: `pg-upserted-${i}.txt`, owner, parent: null },
                     ])
                 );
             } else {
                 // Insert new
                 await collect(
-                    postgres.entityOps!.upsertAll<FileEntity>('file', [
+                    postgres.ems!.ops.upsertAll<FileEntity>('file', [
                         { pathname: `pg-upsert-new-${i}.txt`, owner, parent: null },
                     ])
                 );

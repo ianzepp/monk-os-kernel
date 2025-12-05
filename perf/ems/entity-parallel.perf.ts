@@ -179,7 +179,7 @@ describe('EMS Parallel: Write Contention', () => {
             // SQLite - fails due to single-connection transaction limitation
             const sqliteRun = await runParallel(concurrency, totalOps, async (i) => {
                 return collect(
-                    sqlite.entityOps!.createAll<FileEntity>('file', [
+                    sqlite.ems!.ops.createAll<FileEntity>('file', [
                         { pathname: `sqlite-p${concurrency}-${i}.txt`, owner, parent: null },
                     ])
                 );
@@ -207,7 +207,7 @@ describe('EMS Parallel: Write Contention', () => {
             // PostgreSQL - also fails due to single-connection model in EMS
             const pgRun = await runParallel(concurrency, totalOps, async (i) => {
                 return collect(
-                    postgres.entityOps!.createAll<FileEntity>('file', [
+                    postgres.ems!.ops.createAll<FileEntity>('file', [
                         { pathname: `pg-p${concurrency}-${i}.txt`, owner, parent: null },
                     ])
                 );
@@ -248,7 +248,7 @@ describe('EMS Parallel: Write Contention', () => {
 
             // Pre-create files
             const sqliteFiles = await collect(
-                sqlite.entityOps!.createAll<FileEntity>('file',
+                sqlite.ems!.ops.createAll<FileEntity>('file',
                     Array.from({ length: totalOps }, (_, i) => ({
                         pathname: `sqlite-upd-${concurrency}-${i}.txt`,
                         owner,
@@ -257,7 +257,7 @@ describe('EMS Parallel: Write Contention', () => {
                 )
             );
             const pgFiles = await collect(
-                postgres.entityOps!.createAll<FileEntity>('file',
+                postgres.ems!.ops.createAll<FileEntity>('file',
                     Array.from({ length: totalOps }, (_, i) => ({
                         pathname: `pg-upd-${concurrency}-${i}.txt`,
                         owner,
@@ -269,7 +269,7 @@ describe('EMS Parallel: Write Contention', () => {
             // SQLite parallel updates
             const sqliteRun = await runParallel(concurrency, totalOps, async (i) => {
                 return collect(
-                    sqlite.entityOps!.updateAll<FileEntity>('file', [
+                    sqlite.ems!.ops.updateAll<FileEntity>('file', [
                         { id: sqliteFiles[i]!.id, changes: { pathname: `sqlite-upd-done-${i}.txt` } },
                     ])
                 );
@@ -286,7 +286,7 @@ describe('EMS Parallel: Write Contention', () => {
             // PostgreSQL parallel updates
             const pgRun = await runParallel(concurrency, totalOps, async (i) => {
                 return collect(
-                    postgres.entityOps!.updateAll<FileEntity>('file', [
+                    postgres.ems!.ops.updateAll<FileEntity>('file', [
                         { id: pgFiles[i]!.id, changes: { pathname: `pg-upd-done-${i}.txt` } },
                     ])
                 );
@@ -322,7 +322,7 @@ describe('EMS Parallel: Read Scalability', () => {
         // Pre-create files for reading
         const owner = 'parallel-read-owner';
         sqliteFiles = await collect(
-            sqlite.entityOps!.createAll<FileEntity>('file',
+            sqlite.ems!.ops.createAll<FileEntity>('file',
                 Array.from({ length: 200 }, (_, i) => ({
                     pathname: `sqlite-read-${i}.txt`,
                     owner,
@@ -331,7 +331,7 @@ describe('EMS Parallel: Read Scalability', () => {
             )
         );
         pgFiles = await collect(
-            postgres.entityOps!.createAll<FileEntity>('file',
+            postgres.ems!.ops.createAll<FileEntity>('file',
                 Array.from({ length: 200 }, (_, i) => ({
                     pathname: `pg-read-${i}.txt`,
                     owner,
@@ -357,7 +357,7 @@ describe('EMS Parallel: Read Scalability', () => {
             // SQLite parallel reads
             const sqliteRun = await runParallel(concurrency, totalOps, async (i) => {
                 const id = sqliteFiles[i % sqliteFiles.length]!.id;
-                return collect(sqlite.entityOps!.selectIds<FileEntity>('file', [id]));
+                return collect(sqlite.ems!.ops.selectIds<FileEntity>('file', [id]));
             });
             results.push({
                 name: `SQLite`,
@@ -371,7 +371,7 @@ describe('EMS Parallel: Read Scalability', () => {
             // PostgreSQL parallel reads
             const pgRun = await runParallel(concurrency, totalOps, async (i) => {
                 const id = pgFiles[i % pgFiles.length]!.id;
-                return collect(postgres.entityOps!.selectIds<FileEntity>('file', [id]));
+                return collect(postgres.ems!.ops.selectIds<FileEntity>('file', [id]));
             });
             results.push({
                 name: `PostgreSQL`,
@@ -396,7 +396,7 @@ describe('EMS Parallel: Read Scalability', () => {
             // SQLite parallel queries
             const sqliteRun = await runParallel(concurrency, totalOps, async (i) => {
                 return collect(
-                    sqlite.entityOps!.selectAny<FileEntity>('file', {
+                    sqlite.ems!.ops.selectAny<FileEntity>('file', {
                         where: { pathname: { $like: `sqlite-read-${i % 200}.txt` } },
                     })
                 );
@@ -413,7 +413,7 @@ describe('EMS Parallel: Read Scalability', () => {
             // PostgreSQL parallel queries
             const pgRun = await runParallel(concurrency, totalOps, async (i) => {
                 return collect(
-                    postgres.entityOps!.selectAny<FileEntity>('file', {
+                    postgres.ems!.ops.selectAny<FileEntity>('file', {
                         where: { pathname: { $like: `pg-read-${i % 200}.txt` } },
                     })
                 );
@@ -462,7 +462,7 @@ describe('EMS Parallel: Mixed Read/Write', () => {
 
             // Pre-create files for reading
             const sqliteFiles = await collect(
-                sqlite.entityOps!.createAll<FileEntity>('file',
+                sqlite.ems!.ops.createAll<FileEntity>('file',
                     Array.from({ length: 100 }, (_, i) => ({
                         pathname: `sqlite-mixed-pre-${concurrency}-${i}.txt`,
                         owner,
@@ -471,7 +471,7 @@ describe('EMS Parallel: Mixed Read/Write', () => {
                 )
             );
             const pgFiles = await collect(
-                postgres.entityOps!.createAll<FileEntity>('file',
+                postgres.ems!.ops.createAll<FileEntity>('file',
                     Array.from({ length: 100 }, (_, i) => ({
                         pathname: `pg-mixed-pre-${concurrency}-${i}.txt`,
                         owner,
@@ -485,11 +485,11 @@ describe('EMS Parallel: Mixed Read/Write', () => {
                 if (i % 2 === 0) {
                     // Read
                     const id = sqliteFiles[i % sqliteFiles.length]!.id;
-                    return collect(sqlite.entityOps!.selectIds<FileEntity>('file', [id]));
+                    return collect(sqlite.ems!.ops.selectIds<FileEntity>('file', [id]));
                 } else {
                     // Write
                     return collect(
-                        sqlite.entityOps!.createAll<FileEntity>('file', [
+                        sqlite.ems!.ops.createAll<FileEntity>('file', [
                             { pathname: `sqlite-mixed-new-${concurrency}-${i}.txt`, owner, parent: null },
                         ])
                     );
@@ -520,11 +520,11 @@ describe('EMS Parallel: Mixed Read/Write', () => {
                 if (i % 2 === 0) {
                     // Read
                     const id = pgFiles[i % pgFiles.length]!.id;
-                    return collect(postgres.entityOps!.selectIds<FileEntity>('file', [id]));
+                    return collect(postgres.ems!.ops.selectIds<FileEntity>('file', [id]));
                 } else {
                     // Write
                     return collect(
-                        postgres.entityOps!.createAll<FileEntity>('file', [
+                        postgres.ems!.ops.createAll<FileEntity>('file', [
                             { pathname: `pg-mixed-new-${concurrency}-${i}.txt`, owner, parent: null },
                         ])
                     );
@@ -554,7 +554,7 @@ describe('EMS Parallel: Mixed Read/Write', () => {
 
             // Pre-create files for reading
             const sqliteFiles = await collect(
-                sqlite.entityOps!.createAll<FileEntity>('file',
+                sqlite.ems!.ops.createAll<FileEntity>('file',
                     Array.from({ length: 100 }, (_, i) => ({
                         pathname: `sqlite-mixed90-pre-${concurrency}-${i}.txt`,
                         owner,
@@ -563,7 +563,7 @@ describe('EMS Parallel: Mixed Read/Write', () => {
                 )
             );
             const pgFiles = await collect(
-                postgres.entityOps!.createAll<FileEntity>('file',
+                postgres.ems!.ops.createAll<FileEntity>('file',
                     Array.from({ length: 100 }, (_, i) => ({
                         pathname: `pg-mixed90-pre-${concurrency}-${i}.txt`,
                         owner,
@@ -577,11 +577,11 @@ describe('EMS Parallel: Mixed Read/Write', () => {
                 if (i % 10 !== 0) {
                     // Read (90%)
                     const id = sqliteFiles[i % sqliteFiles.length]!.id;
-                    return collect(sqlite.entityOps!.selectIds<FileEntity>('file', [id]));
+                    return collect(sqlite.ems!.ops.selectIds<FileEntity>('file', [id]));
                 } else {
                     // Write (10%)
                     return collect(
-                        sqlite.entityOps!.createAll<FileEntity>('file', [
+                        sqlite.ems!.ops.createAll<FileEntity>('file', [
                             { pathname: `sqlite-mixed90-new-${concurrency}-${i}.txt`, owner, parent: null },
                         ])
                     );
@@ -612,11 +612,11 @@ describe('EMS Parallel: Mixed Read/Write', () => {
                 if (i % 10 !== 0) {
                     // Read (90%)
                     const id = pgFiles[i % pgFiles.length]!.id;
-                    return collect(postgres.entityOps!.selectIds<FileEntity>('file', [id]));
+                    return collect(postgres.ems!.ops.selectIds<FileEntity>('file', [id]));
                 } else {
                     // Write (10%)
                     return collect(
-                        postgres.entityOps!.createAll<FileEntity>('file', [
+                        postgres.ems!.ops.createAll<FileEntity>('file', [
                             { pathname: `pg-mixed90-new-${concurrency}-${i}.txt`, owner, parent: null },
                         ])
                     );
@@ -665,7 +665,7 @@ describe('EMS Parallel: Stress Test', () => {
         // SQLite burst - expected to fail due to concurrent transaction limitation
         const sqliteRun = await runParallel(concurrency, totalOps, async (i) => {
             return collect(
-                sqlite.entityOps!.createAll<FileEntity>('file', [
+                sqlite.ems!.ops.createAll<FileEntity>('file', [
                     { pathname: `sqlite-burst-${i}.txt`, owner, parent: null },
                 ])
             );
@@ -693,7 +693,7 @@ describe('EMS Parallel: Stress Test', () => {
         // PostgreSQL burst
         const pgRun = await runParallel(concurrency, totalOps, async (i) => {
             return collect(
-                postgres.entityOps!.createAll<FileEntity>('file', [
+                postgres.ems!.ops.createAll<FileEntity>('file', [
                     { pathname: `pg-burst-${i}.txt`, owner, parent: null },
                 ])
             );
