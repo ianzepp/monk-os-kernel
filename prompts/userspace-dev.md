@@ -112,12 +112,20 @@ The rewritten file should follow this structure:
 // IMPORTS
 // =============================================================================
 
-// Monk OS syscalls and types
-import { read, write, exit, stat } from '@src/process';
-import type { Stat, OpenFlags } from '@src/types';
+// Monk OS syscalls and process I/O
+import {
+    getargs,      // Get command-line arguments
+    println,      // Print to stdout with newline
+    eprintln,     // Print to stderr with newline
+    exit,         // Exit process with code
+    open,         // Open file descriptor
+    read,         // Read from file descriptor
+    close,        // Close file descriptor
+} from '@rom/lib/process';
 
 // Local utilities
-import { parseArgs, formatError } from '@rom/lib/utils';
+import { parseArgs, formatError } from '@rom/lib/args';
+import { resolvePath } from '@rom/lib/shell';
 ```
 
 ---
@@ -270,6 +278,10 @@ Examples:
 
 ### 7. Main Function Structure
 
+> **IMPORTANT**: The runtime automatically invokes `export default` functions.
+> You do NOT need to call `main()` at the end of your file - the loader handles this.
+> This matches how compiled languages (C, Rust, Go) invoke main() automatically.
+
 ```typescript
 // =============================================================================
 // MAIN
@@ -278,9 +290,13 @@ Examples:
 /**
  * Entry point for the command.
  *
+ * RUNTIME BEHAVIOR:
+ * The VFS loader auto-invokes the default export if it's a function.
+ * No explicit main() call is needed at the end of the file.
+ *
  * ALGORITHM:
- * 1. Parse command-line arguments
- * 2. Validate options and arguments
+ * 1. Get command-line arguments via getargs()
+ * 2. Parse and validate options
  * 3. Process each input (files or stdin)
  * 4. Exit with appropriate code
  *
@@ -289,14 +305,15 @@ Examples:
  * - Runtime errors: Print to stderr, exit 1
  * - Success: Exit 0
  */
-export default async function main(args: string[]): Promise<void> {
+export default async function main(): Promise<void> {
     // -------------------------------------------------------------------------
     // Argument Parsing
     // -------------------------------------------------------------------------
-    const opts = parseOptions(args);
+    const args = await getargs();
+    const opts = parseOptions(args.slice(1));  // slice(1) skips argv[0]
 
     if (opts.help) {
-        await write(1, HELP_TEXT + '\n');
+        await println(HELP_TEXT);
         return exit(EXIT_SUCCESS);
     }
 
@@ -317,7 +334,7 @@ export default async function main(args: string[]): Promise<void> {
         try {
             await processFile(file, opts);
         } catch (err) {
-            await write(2, `command: ${file}: ${formatError(err)}\n`);
+            await eprintln(`command: ${file}: ${formatError(err)}`);
             hadError = true;
             // Continue processing remaining files (GNU behavior)
         }
@@ -325,6 +342,53 @@ export default async function main(args: string[]): Promise<void> {
 
     return exit(hadError ? EXIT_FAILURE : EXIT_SUCCESS);
 }
+
+// NOTE: No main() call needed here - the runtime auto-invokes export default
+```
+
+### Entry Point Patterns (Valid)
+
+The following patterns are all valid for `rom/bin/*` commands:
+
+```typescript
+// =============================================================================
+// PATTERN 1: Program style (PREFERRED)
+// =============================================================================
+// Export default function - auto-invoked by runtime
+// This is the cleanest pattern, matching compiled language conventions.
+
+export default async function main(): Promise<void> {
+    const args = await getargs();
+    // ... process args.slice(1)
+    await exit(0);
+}
+
+// =============================================================================
+// PATTERN 2: Script style
+// =============================================================================
+// Top-level executable code (no main function)
+// Useful for simple scripts that don't need structure.
+
+const args = await getargs();
+await println(args.slice(1).join(' '));
+await exit(0);
+
+// =============================================================================
+// PATTERN 3: Legacy style (backwards compatible)
+// =============================================================================
+// Explicit main() call at end
+// Still works, but unnecessary with auto-invoke.
+
+async function main(): Promise<void> {
+    const args = await getargs();
+    // ...
+    await exit(0);
+}
+
+main().catch(async err => {
+    await eprintln(`command: ${err.message}`);
+    await exit(1);
+});
 ```
 
 ---
@@ -627,7 +691,7 @@ await write(fd, new TextEncoder().encode('content'));
  */
 
 // Example: A filter command
-export default async function main(args: string[]): Promise<void> {
+export default async function main(): Promise<void> {
     // Read messages from stdin (piped from previous command)
     for await (const response of recv(0)) {
         if (response.op === 'item') {
@@ -643,6 +707,7 @@ export default async function main(args: string[]): Promise<void> {
     await send(1, respond.done());
     return exit(0);
 }
+// NOTE: Runtime auto-invokes export default - no main() call needed
 ```
 
 ---
@@ -926,6 +991,9 @@ const content = await os.fs.readText('/tmp/out');
 ### Commands (`rom/bin/*`)
 - [ ] Header with SYNOPSIS, DESCRIPTION, POSIX COMPATIBILITY, EXIT CODES
 - [ ] HELP_TEXT follows GNU format with examples
+- [ ] **`export default async function main(): Promise<void>`** (no args parameter)
+- [ ] **`getargs()` called inside main()** to get command-line arguments
+- [ ] **No explicit `main()` call at end** - runtime auto-invokes export default
 - [ ] Exit codes match GNU conventions (0=success, 1=error, 2=usage)
 - [ ] Errors written to stderr with "command: message" format
 - [ ] "-" handled as stdin where appropriate
