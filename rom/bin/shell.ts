@@ -29,16 +29,14 @@ import {
     open,
     read,
     readText,
-    write,
     close,
     exit,
     print,
     println,
     eprintln,
     pipe,
-    recv,
     redirect,
-    respond,
+    outputRedirect,
     ByteReader,
 } from '@rom/lib/process';
 
@@ -66,62 +64,6 @@ const BUILTIN_COMMANDS = ['cd', 'export', 'exit', 'true', 'false'];
 
 // VFS bin directory for command resolution
 const VFS_BIN_PATH = '/bin';
-
-// ============================================================================
-// Message-to-File Pump
-// ============================================================================
-
-/**
- * Pump messages from a pipe fd to a file fd, converting messages to bytes.
- *
- * MESSAGE→BYTE BOUNDARY: Processes emit Response messages via send(), but
- * files expect raw bytes via write(). This function bridges that gap for
- * shell redirects like `cmd > file`.
- *
- * This function takes ownership of the fds and closes them when done.
- *
- * @param pipeRecvFd - Fd to receive messages from (read end of pipe)
- * @param pipeSendFd - Fd for the write end of the message pipe (closed after spawn)
- * @param fileFd - Fd to write bytes to (opened file)
- */
-async function pumpMessagesToFile(
-    pipeRecvFd: number,
-    pipeSendFd: number,
-    fileFd: number,
-): Promise<void> {
-    // Close the shell's copy of the write end. The spawned process has its own
-    // copy. When the process exits, the pipe will signal EOF to the pump.
-    await close(pipeSendFd).catch(() => {});
-
-    try {
-        const encoder = new TextEncoder();
-
-        for await (const msg of recv(pipeRecvFd)) {
-            // Extract text from message
-            let text: string | undefined;
-
-            if (msg.op === 'item' && msg.data && typeof msg.data === 'object') {
-                const data = msg.data as { text?: string };
-
-                text = data.text;
-            }
-            else if (msg.op === 'data' && msg.bytes) {
-                // Binary data - write directly
-                await write(fileFd, msg.bytes);
-                continue;
-            }
-
-            if (text !== undefined) {
-                await write(fileFd, encoder.encode(text));
-            }
-        }
-    }
-    finally {
-        // Close our fds when pump completes
-        await close(pipeRecvFd).catch(() => {});
-        await close(fileFd).catch(() => {});
-    }
-}
 
 // ============================================================================
 // Shell State
@@ -727,38 +669,20 @@ async function executePipeline(
                 // External: expand globs, then spawn (but don't wait yet)
                 // =============================================================
                 //
-                // MESSAGE→BYTE BOUNDARY: If there's an output redirect to a file,
-                // we need to bridge the gap between message-based process I/O and
-                // byte-based file I/O. Create a message pipe, spawn the process
-                // with the pipe's write end as stdout, then pump messages to the file.
-
-                let fileFd: number | undefined;
-                let pipeRecvFd: number | undefined;
-                let pipeSendFd: number | undefined;
+                // MESSAGE→BYTE BOUNDARY: Output redirects bridge message↔byte gap.
+                // Use outputRedirect() to handle the conversion transparently.
 
                 // Handle output redirect (> file) or append redirect (>> file)
+                let redirectHandle: { fd: number; start: () => Promise<void> } | undefined;
+
                 if (cmd.outputRedirect || cmd.appendRedirect) {
                     const redirectPath = cmd.outputRedirect || cmd.appendRedirect;
                     const outputPath = resolvePath(state.cwd, redirectPath!);
                     const appendMode = !!cmd.appendRedirect;
 
                     try {
-                        // Open the output file
-                        fileFd = await open(outputPath, {
-                            write: true,
-                            create: true,
-                            truncate: !appendMode,
-                            append: appendMode,
-                        });
-                        // NOTE: Don't add fileFd to fdsToClose - pump takes ownership
-
-                        // Create a message pipe for the process's stdout
-                        const [recvFd, sendFd] = await pipe();
-
-                        pipeRecvFd = recvFd;
-                        pipeSendFd = sendFd;
-                        stdoutFd = sendFd;
-                        // NOTE: Don't add pipe fds to fdsToClose - pump takes ownership
+                        redirectHandle = await outputRedirect(outputPath, { append: appendMode });
+                        stdoutFd = redirectHandle.fd;
                     }
                     catch (err) {
                         const msg = err instanceof Error ? err.message : String(err);
@@ -776,12 +700,9 @@ async function executePipeline(
                 spawnedPids.push(pid);
                 exitCodes.push(pid < 0 ? 126 : -1); // -1 means "need to wait"
 
-                // Start the message→file pump if we set one up
-                // Pump takes ownership of all three fds and closes them when done
-                if (fileFd !== undefined && pipeRecvFd !== undefined && pipeSendFd !== undefined) {
-                    pumpPromises.push(
-                        pumpMessagesToFile(pipeRecvFd, pipeSendFd, fileFd).catch(() => {}),
-                    );
+                // Start the redirect pump AFTER spawn so process has inherited the fd
+                if (redirectHandle) {
+                    pumpPromises.push(redirectHandle.start().catch(() => {}));
                 }
             }
         }

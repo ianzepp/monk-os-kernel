@@ -48,6 +48,10 @@ export { access } from './access';
 // Pipe operations (message-based I/O)
 export { pipe, redirect, recv, send } from './pipe';
 
+// Redirect operations (message↔byte boundary for shell redirects)
+export { outputRedirect, inputRedirect } from './redirect';
+export type { RedirectHandle } from './redirect';
+
 // Network operations
 export { connect, unix, listen, watch, udp, pubsub, portRecv, portSend, pclose } from './net';
 
