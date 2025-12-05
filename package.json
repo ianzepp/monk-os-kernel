@@ -26,7 +26,8 @@
         "typecheck:spec": "bun x tsc --noEmit -p tsconfig.spec.json",
         "typecheck:perf": "bun x tsc --noEmit -p tsconfig.perf.json",
         "lint": "eslint src rom spec",
-        "lint:fix": "eslint src rom spec --fix"
+        "lint:fix": "eslint src rom spec --fix",
+        "audit": "bun scripts/audit.ts"
     },
     "keywords": [
         "os",

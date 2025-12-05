@@ -6,76 +6,20 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { VFS } from '@src/vfs/vfs.js';
-import type { HAL } from '@src/hal/index.js';
-import {
-    MemoryStorageEngine,
-    MemoryBlockDevice,
-    BunNetworkDevice,
-    BunTimerDevice,
-    BunClockDevice,
-    BunEntropyDevice,
-    BunCryptoDevice,
-    BufferConsoleDevice,
-    BunDNSDevice,
-    BunHostDevice,
-    MockIPCDevice,
-    BunChannelDevice,
-    MockCompressionDevice,
-    MockFileDevice,
-    MockJsonDevice,
-    MockYamlDevice,
-} from '@src/hal/index.js';
-
-/**
- * Create a test HAL with memory backends
- */
-function createTestHAL(): HAL {
-    const timer = new BunTimerDevice();
-    const storage = new MemoryStorageEngine();
-    const console = new BufferConsoleDevice();
-
-    return {
-        block: new MemoryBlockDevice(),
-        storage,
-        network: new BunNetworkDevice(),
-        timer,
-        clock: new BunClockDevice(),
-        entropy: new BunEntropyDevice(),
-        crypto: new BunCryptoDevice(),
-        console,
-        dns: new BunDNSDevice(),
-        host: new BunHostDevice(),
-        ipc: new MockIPCDevice(),
-        channel: new BunChannelDevice(),
-        compression: new MockCompressionDevice(),
-        file: new MockFileDevice(),
-        json: new MockJsonDevice(),
-        yaml: new MockYamlDevice(),
-
-        async init(): Promise<void> {
-            // No initialization needed for these mock devices
-        },
-
-        async shutdown(): Promise<void> {
-            timer.cancelAll();
-            await storage.close();
-        },
-    };
-}
+import { createOsStack, type OsStack } from '@src/os/stack.js';
+import type { VFS } from '@src/vfs/vfs.js';
 
 const TIMEOUT_MEDIUM = 30_000;
 const TIMEOUT_LONG = 60_000;
 
 describe('VFS Storage: Write Performance', () => {
-    let hal: HAL;
+    let stack: OsStack;
     let vfs: VFS;
     const caller = 'perf-test';
 
     beforeEach(async () => {
-        hal = createTestHAL();
-        vfs = new VFS(hal);
-        await vfs.init();
+        stack = await createOsStack({ vfs: true });
+        vfs = stack.vfs!;
 
         // Create /tmp with world-writable permissions
         await vfs.mkdir('/tmp', 'kernel');
@@ -89,7 +33,7 @@ describe('VFS Storage: Write Performance', () => {
     });
 
     afterEach(async () => {
-        await hal.shutdown();
+        await stack.shutdown();
     });
 
     it('should write 1KB file', async () => {
@@ -200,14 +144,13 @@ describe('VFS Storage: Write Performance', () => {
 });
 
 describe('VFS Storage: Read Performance', () => {
-    let hal: HAL;
+    let stack: OsStack;
     let vfs: VFS;
     const caller = 'perf-test';
 
     beforeEach(async () => {
-        hal = createTestHAL();
-        vfs = new VFS(hal);
-        await vfs.init();
+        stack = await createOsStack({ vfs: true });
+        vfs = stack.vfs!;
 
         await vfs.mkdir('/tmp', 'kernel');
         await vfs.setAccess('/tmp', 'kernel', {
@@ -220,7 +163,7 @@ describe('VFS Storage: Read Performance', () => {
     });
 
     afterEach(async () => {
-        await hal.shutdown();
+        await stack.shutdown();
     });
 
     async function createFile(path: string, size: number): Promise<void> {
@@ -332,14 +275,13 @@ describe('VFS Storage: Read Performance', () => {
 });
 
 describe('VFS Storage: List Performance', () => {
-    let hal: HAL;
+    let stack: OsStack;
     let vfs: VFS;
     const caller = 'perf-test';
 
     beforeEach(async () => {
-        hal = createTestHAL();
-        vfs = new VFS(hal);
-        await vfs.init();
+        stack = await createOsStack({ vfs: true });
+        vfs = stack.vfs!;
 
         await vfs.mkdir('/tmp', 'kernel');
         await vfs.setAccess('/tmp', 'kernel', {
@@ -352,7 +294,7 @@ describe('VFS Storage: List Performance', () => {
     });
 
     afterEach(async () => {
-        await hal.shutdown();
+        await stack.shutdown();
     });
 
     async function createFiles(count: number): Promise<void> {
@@ -436,14 +378,13 @@ describe('VFS Storage: List Performance', () => {
 });
 
 describe('VFS Storage: Delete Performance', () => {
-    let hal: HAL;
+    let stack: OsStack;
     let vfs: VFS;
     const caller = 'perf-test';
 
     beforeEach(async () => {
-        hal = createTestHAL();
-        vfs = new VFS(hal);
-        await vfs.init();
+        stack = await createOsStack({ vfs: true });
+        vfs = stack.vfs!;
 
         await vfs.mkdir('/tmp', 'kernel');
         await vfs.setAccess('/tmp', 'kernel', {
@@ -456,7 +397,7 @@ describe('VFS Storage: Delete Performance', () => {
     });
 
     afterEach(async () => {
-        await hal.shutdown();
+        await stack.shutdown();
     });
 
     async function createFiles(count: number): Promise<string[]> {
@@ -543,14 +484,13 @@ describe('VFS Storage: Delete Performance', () => {
 });
 
 describe('VFS Storage: Mixed Workload', () => {
-    let hal: HAL;
+    let stack: OsStack;
     let vfs: VFS;
     const caller = 'perf-test';
 
     beforeEach(async () => {
-        hal = createTestHAL();
-        vfs = new VFS(hal);
-        await vfs.init();
+        stack = await createOsStack({ vfs: true });
+        vfs = stack.vfs!;
 
         await vfs.mkdir('/tmp', 'kernel');
         await vfs.setAccess('/tmp', 'kernel', {
@@ -563,7 +503,7 @@ describe('VFS Storage: Mixed Workload', () => {
     });
 
     afterEach(async () => {
-        await hal.shutdown();
+        await stack.shutdown();
     });
 
     it('should handle create-read-delete cycle (100 files)', async () => {
