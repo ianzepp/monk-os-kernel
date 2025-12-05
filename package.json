@@ -10,7 +10,16 @@
     "exports": {
         ".": "./src/index.ts",
         "./*": "./src/*",
-        "./rom/*": "./rom/*"
+        "./process": "./src/userspace/process/index.ts",
+        "./path": "./src/userspace/path.ts",
+        "./io": "./src/userspace/io.ts",
+        "./shell": "./src/userspace/shell/index.ts",
+        "./awk": "./src/userspace/awk/index.ts",
+        "./glob": "./src/userspace/glob.ts",
+        "./args": "./src/userspace/args.ts",
+        "./format": "./src/userspace/format.ts",
+        "./http": "./src/userspace/http.ts",
+        "./validator": "./src/userspace/validator.ts"
     },
     "scripts": {
         "start": "bun scripts/startup.ts",

@@ -21,7 +21,7 @@
  *   sort file | uniq -d
  */
 
-import type { Response } from '@rom/lib/process';
+import type { Response } from '@os/process';
 import {
     getargs,
     getcwd,
@@ -31,8 +31,8 @@ import {
     println,
     eprintln,
     exit,
-} from '@rom/lib/process';
-import { resolvePath } from '@rom/lib/shell';
+} from '@os/process';
+import { resolvePath } from '@os/shell';
 
 async function main(): Promise<void> {
     const args = await getargs();

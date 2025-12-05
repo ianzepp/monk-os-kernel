@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect } from 'bun:test';
-import { expandGlobs, expandGlob, type GlobEntry, type ReaddirFn } from '@rom/lib/shell/glob.js';
+import { expandGlobs, expandGlob, type GlobEntry, type ReaddirFn } from '@os/shell/glob.js';
 
 /**
  * Create a mock readdir function from a directory structure

@@ -22,7 +22,7 @@
     "baseUrl": ".",
     "paths": {
       "@src/*": ["src/*"],
-      "@rom/*": ["rom/*"],
+      "@os/*": ["src/userspace/*"],
       "@usr/*": ["usr/*"]
     },
 

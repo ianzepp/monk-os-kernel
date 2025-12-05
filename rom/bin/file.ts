@@ -23,9 +23,9 @@ import {
     println,
     eprintln,
     exit,
-} from '@rom/lib/process';
-import { resolvePath } from '@rom/lib/shell';
-import type { Stat } from '@rom/lib/process';
+} from '@os/process';
+import { resolvePath } from '@os/shell';
+import type { Stat } from '@os/process';
 
 async function main(): Promise<void> {
     const args = await getargs();

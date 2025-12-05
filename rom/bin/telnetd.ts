@@ -19,7 +19,7 @@ import {
     wait,
     exit,
     getenv,
-} from '@rom/lib/process';
+} from '@os/process';
 
 // Telnet commands (for future use)
 const TELNET = {

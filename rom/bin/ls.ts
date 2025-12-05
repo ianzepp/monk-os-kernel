@@ -19,8 +19,8 @@ import {
     println,
     eprintln,
     exit,
-} from '@rom/lib/process';
-import { parseArgs, resolvePath, formatMode, formatSize, formatDate } from '@rom/lib/shell';
+} from '@os/process';
+import { parseArgs, resolvePath, formatMode, formatSize, formatDate } from '@os/shell';
 
 const argSpecs = {
     long: { short: 'l', desc: 'Long format' },

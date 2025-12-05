@@ -14,8 +14,8 @@ import {
     mkdir,
     eprintln,
     exit,
-} from '@rom/lib/process';
-import { parseArgs, resolvePath, dirname } from '@rom/lib/shell';
+} from '@os/process';
+import { parseArgs, resolvePath, dirname } from '@os/shell';
 
 const argSpecs = {
     parents: { short: 'p', desc: 'Create parent directories as needed' },

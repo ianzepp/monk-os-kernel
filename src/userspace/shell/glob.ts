@@ -5,8 +5,8 @@
  * Uses /lib/glob for pattern matching.
  */
 
-import { resolvePath } from '@rom/lib/path';
-import { match, isGlob } from '@rom/lib/glob';
+import { resolvePath } from '@os/path';
+import { match, isGlob } from '@os/glob';
 
 /**
  * Directory entry for glob expansion

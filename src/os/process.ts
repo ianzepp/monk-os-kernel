@@ -7,7 +7,7 @@
 import type { Kernel } from '@src/kernel/kernel.js';
 import type { ExternalProcessHandle } from '@src/kernel/types.js';
 import type { SpawnOpts, RunOpts, ProcessHandle, RunResult } from './types.js';
-import { ENOSYS } from '@src/hal/errors.js';
+import { ENOSYS, EINVAL } from '@src/hal/errors.js';
 
 /**
  * Interface for OS methods needed by ProcessAPI.
@@ -16,6 +16,7 @@ import { ENOSYS } from '@src/hal/errors.js';
 export interface ProcessAPIHost {
     getKernel(): Kernel;
     resolvePath(path: string): string;
+    isBooted(): boolean;
 }
 
 /**
@@ -51,8 +52,14 @@ export class ProcessAPI {
      * const result = await proc.wait();
      * console.log('Exit code:', result.exitCode);
      * ```
+     *
+     * @throws EINVAL if called before boot()
      */
     async spawn(cmd: string, opts?: SpawnOpts): Promise<ProcessHandle> {
+        if (!this.host.isBooted()) {
+            throw new EINVAL('Cannot call process.spawn() before boot()');
+        }
+
         const resolvedCmd = this.host.resolvePath(cmd);
         const kernel = this.host.getKernel();
 

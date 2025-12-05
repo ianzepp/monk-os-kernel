@@ -12,7 +12,7 @@ import { BunHAL, EINVAL, EBUSY, ENOSYS } from '@src/hal/index.js';
 import { VFS } from '@src/vfs/vfs.js';
 import { Kernel } from '@src/kernel/kernel.js';
 import type { ServiceDef } from '@src/kernel/services.js';
-import type { OSConfig, BootOpts, ExecOpts, OSEvents, OSEventName, PackageOpts } from './types.js';
+import type { OSConfig, BootOpts, ExecOpts, OSEvents, OSEventName } from './types.js';
 import { FilesystemAPI } from './fs.js';
 import { ProcessAPI } from './process.js';
 import { ServiceAPI } from './service.js';
@@ -91,18 +91,6 @@ export class OS {
                 this.aliases.set(name, path);
             }
         }
-
-        // Queue packages from config
-        if (config?.packages) {
-            for (const spec of config.packages) {
-                if (typeof spec === 'string') {
-                    this.pkg.queue(spec);
-                }
-                else {
-                    this.pkg.queue(spec.name, spec.opts);
-                }
-            }
-        }
     }
 
     /**
@@ -114,37 +102,6 @@ export class OS {
      */
     alias(name: string, path: string): this {
         this.aliases.set(name, path);
-
-        return this;
-    }
-
-    /**
-     * Install a package (pre-boot).
-     *
-     * Queues the package for installation during boot.
-     * For post-boot installation, use `os.pkg.install()`.
-     *
-     * @param npmName - npm package name (e.g., '@monk-api/httpd')
-     * @param opts - Installation options
-     * @returns this for chaining
-     *
-     * @example
-     * ```typescript
-     * const os = new OS()
-     *   .install('@monk-api/httpd')
-     *   .install('@monk-api/redis', { config: { port: 6379 } });
-     *
-     * await os.boot();
-     * ```
-     */
-    install(npmName: string, opts?: PackageOpts): this {
-        if (this.booted) {
-            throw new EINVAL(
-                'Cannot use os.install() after boot. Use os.pkg.install() instead.',
-            );
-        }
-
-        this.pkg.queue(npmName, opts);
 
         return this;
     }
@@ -244,11 +201,8 @@ export class OS {
         // 6. Emit 'vfs' event - os.fs.* available
         await this.emit('vfs', this);
 
-        // 7. Create standard directories (needed before package install)
+        // 7. Create standard directories
         await this.createStandardDirectories();
-
-        // 8. Install queued packages
-        await this.pkg.installQueued();
 
         // 8. Create Kernel
         this.kernel = new Kernel(this.hal, this._ems, this.vfs);

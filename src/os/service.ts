@@ -72,18 +72,20 @@ export class ServiceAPI {
      *
      * @param name - Service name (e.g., 'httpd')
      * @param config - Runtime configuration (merged with defaults)
+     * @throws EINVAL if called before boot()
      *
      * @example
      * ```typescript
-     * // Install package first
-     * os.install('httpd');
      * await os.boot();
-     *
-     * // Start with custom config
+     * await os.pkg.install('@monk-api/httpd');
      * await os.service.start('httpd', { port: 8080, hostname: 'localhost' });
      * ```
      */
     async start(name: string, config: Record<string, unknown> = {}): Promise<void> {
+        if (!this.host.isBooted()) {
+            throw new EINVAL('Cannot call service.start() before boot()');
+        }
+
         // Check if already running
         if (this.running.has(name)) {
             throw new EEXIST(`Service '${name}' is already running`);

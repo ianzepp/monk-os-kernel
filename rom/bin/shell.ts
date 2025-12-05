@@ -38,18 +38,18 @@ import {
     redirect,
     outputRedirect,
     ByteReader,
-} from '@rom/lib/process';
+} from '@os/process';
 
 import {
     parseCommand,
     expandCommandVariables,
     flattenPipeline,
     expandGlobs,
-} from '@rom/lib/shell';
-import type { ParsedCommand, GlobEntry } from '@rom/lib/shell';
+} from '@os/shell';
+import type { ParsedCommand, GlobEntry } from '@os/shell';
 
-import { parseArgs } from '@rom/lib/args';
-import { resolvePath } from '@rom/lib/path';
+import { parseArgs } from '@os/args';
+import { resolvePath } from '@os/path';
 
 // ============================================================================
 // Constants

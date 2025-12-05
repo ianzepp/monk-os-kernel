@@ -20,7 +20,7 @@
  *   basename -s .txt a.txt b.txt    # a\nb
  */
 
-import { getargs, println, eprintln, exit } from '@rom/lib/process';
+import { getargs, println, eprintln, exit } from '@os/process';
 
 /**
  * Get basename of a path, optionally removing suffix

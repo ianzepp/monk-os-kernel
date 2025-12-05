@@ -15,9 +15,9 @@ import {
     getcwd,
     eprintln,
     exit,
-} from '@rom/lib/process';
-import { resolvePath } from '@rom/lib/shell';
-import { symlink } from '@rom/lib/process';
+} from '@os/process';
+import { resolvePath } from '@os/shell';
+import { symlink } from '@os/process';
 
 async function main(): Promise<void> {
     const args = await getargs();

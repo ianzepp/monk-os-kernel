@@ -14,7 +14,7 @@ import {
     flattenPipeline,
     findUnquotedChar,
     findUnquotedOperator,
-} from '@rom/lib/shell/parse.js';
+} from '@os/shell/parse.js';
 
 describe('tokenize', () => {
     describe('basic tokenization', () => {

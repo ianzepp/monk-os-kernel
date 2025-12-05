@@ -20,13 +20,13 @@
  * Path resolution handles three types of imports:
  * - Absolute VFS paths: /lib/io.ts
  * - Relative imports: ./helper.ts or ../util.ts
- * - Aliased imports: @rom/lib/io (maps to /lib/io)
+ * - Aliased imports: @os/process (maps to /userspace/process)
  *
  * INVARIANTS (must always hold true)
  * ===================================
  * INV-1: All VFS paths are absolute and start with '/'
  * INV-2: VFS TypeScript files use .ts extension, not .js
- * INV-3: @rom/ alias always maps to VFS root /
+ * INV-3: @os/ alias always maps to VFS /userspace/
  * INV-4: Path resolution never produces paths with . or .. segments
  * INV-5: External/builtin modules (bun:*, node:*) pass through unchanged
  * INV-6: resolveImport() is idempotent - resolving an already-resolved path returns the same path
@@ -144,19 +144,19 @@ export function extractImports(js: string): string[] {
  * Resolve an import path relative to the importing module.
  *
  * WHY this function exists:
- * ES modules use relative paths (./foo) and aliases (@rom/foo) that must be
- * converted to absolute VFS paths (/lib/foo.ts) before the kernel can load them.
+ * ES modules use relative paths (./foo) and aliases (@os/foo) that must be
+ * converted to absolute VFS paths (/userspace/foo.ts) before the kernel can load them.
  *
  * ALGORITHM:
  * 1. Strip .js extension if present (transpiler adds it, VFS uses .ts)
- * 2. Handle @rom/ alias by converting to VFS root /
+ * 2. Handle @os/ alias by converting to VFS /userspace/
  * 3. If path is absolute, ensure .ts extension and return
  * 4. If path is relative, resolve against fromModule's directory
  * 5. If path is external/builtin, return unchanged
  *
  * Examples:
  * - resolveImport('./helper.js', '/lib/io.ts') -> '/lib/helper.ts'
- * - resolveImport('@rom/lib/io', '/app/main.ts') -> '/lib/io.ts'
+ * - resolveImport('@os/process', '/app/main.ts') -> '/userspace/process.ts'
  * - resolveImport('../util', '/app/components/button.ts') -> '/app/util.ts'
  * - resolveImport('bun:test', '/test/foo.ts') -> 'bun:test'
  *
@@ -174,11 +174,11 @@ export function resolveImport(importPath: string, fromModule: string): string {
         path = path.slice(0, -3);
     }
 
-    // WHY @rom/ alias:
-    // Provides a stable, absolute way to reference VFS root regardless of
+    // WHY @os/ alias:
+    // Provides a stable, absolute way to reference userspace modules regardless of
     // the importing module's location. Inspired by TypeScript path mapping.
-    if (path.startsWith('@rom/')) {
-        path = path.slice(4); // '@rom/lib/io' -> '/lib/io'
+    if (path.startsWith('@os/')) {
+        path = '/userspace' + path.slice(3); // '@os/process' -> '/userspace/process'
     }
 
     // Absolute VFS path
@@ -273,17 +273,17 @@ export function resolvePath(base: string, relative: string): string {
  * and external modules (loaded from Bun/Node.js runtime). This determines
  * which loader to use.
  *
- * WHY check for @rom/ prefix:
- * @rom/ is our alias for VFS root. Imports using this alias should be
+ * WHY check for @os/ prefix:
+ * @os/ is our alias for VFS userspace. Imports using this alias should be
  * resolved from VFS, not treated as npm packages (which also use @ syntax).
  *
  * @param path - Import path to classify
  * @returns true if path should be loaded from VFS, false if external
  */
 export function isVFSPath(path: string): boolean {
-    // VFS paths start with / or @rom/
+    // VFS paths start with / or @os/
     // External paths include: bun:*, node:*, npm packages
-    return path.startsWith('/') || path.startsWith('@rom/');
+    return path.startsWith('/') || path.startsWith('@os/');
 }
 
 // =============================================================================

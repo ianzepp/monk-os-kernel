@@ -64,7 +64,7 @@ import type { Port } from '@src/kernel/resource.js';
 import type { PubsubPort } from '@src/kernel/resource.js';
 import type { ServiceDef } from '@src/kernel/services.js';
 import { loadMounts } from '@src/kernel/mounts.js';
-import { copyRomToVfs } from '@src/kernel/boot.js';
+import { copyRomToVfs, copyHostToVfs } from '@src/kernel/boot.js';
 import { VFSLoader } from '@src/kernel/loader.js';
 import { PoolManager, type LeasedWorker } from '@src/kernel/pool.js';
 // Extracted kernel functions (used by boot, shutdown, spawnExternal)
@@ -526,6 +526,11 @@ export class Kernel {
 
         printk(this, 'boot', `Copying ROM to VFS from: ${romPath}`);
         await copyRomToVfs({ vfs: this.vfs }, romPath);
+
+        // Copy userspace stdlib to VFS
+        // WHY: Processes import from @os/process which resolves to /userspace/process
+        printk(this, 'boot', 'Copying userspace stdlib to VFS');
+        await copyHostToVfs({ vfs: this.vfs }, './src/userspace', '/userspace');
 
         // ---------------------------------------------------------------------
         // PHASE 3: MOUNTS, POLICY, AND POOLS

@@ -66,9 +66,9 @@ import {
     exit,
     onSignal,
     SIGTERM,
-} from '@rom/lib/process';
-import { resolvePath } from '@rom/lib/shell';
-import { Lexer, Parser, Interpreter } from '@rom/lib/awk';
+} from '@os/process';
+import { resolvePath } from '@os/shell';
+import { Lexer, Parser, Interpreter } from '@os/awk';
 
 const abortController = new AbortController();
 

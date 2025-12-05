@@ -33,8 +33,8 @@ import {
     eprintln,
     exit,
     respond,
-} from '@rom/lib/process';
-import { resolvePath } from '@rom/lib/shell';
+} from '@os/process';
+import { resolvePath } from '@os/shell';
 
 type BodyNumbering = 'a' | 't' | 'n';
 type NumberFormat = 'ln' | 'rn' | 'rz';

@@ -130,14 +130,14 @@ describe('extractImports', () => {
 
     test('should handle multiple import types', () => {
         const js = `
-            import { open, read } from '/lib/process';
+            import { open, read } from '/userspace/process';
             import Config from '/lib/config';
             import * as helpers from '/lib/helpers';
             import '/lib/polyfills';
         `;
         const imports = extractImports(js);
 
-        expect(imports).toContain('/lib/process');
+        expect(imports).toContain('/userspace/process');
         expect(imports).toContain('/lib/config');
         expect(imports).toContain('/lib/helpers');
         expect(imports).toContain('/lib/polyfills');
@@ -146,11 +146,11 @@ describe('extractImports', () => {
 
 describe('resolveImport', () => {
     test('should resolve absolute VFS paths', () => {
-        expect(resolveImport('/lib/process', '/bin/app.ts')).toBe('/lib/process.ts');
+        expect(resolveImport('/userspace/process', '/bin/app.ts')).toBe('/userspace/process.ts');
     });
 
     test('should preserve .ts extension', () => {
-        expect(resolveImport('/lib/process.ts', '/bin/app.ts')).toBe('/lib/process.ts');
+        expect(resolveImport('/userspace/process.ts', '/bin/app.ts')).toBe('/userspace/process.ts');
     });
 
     test('should resolve relative paths', () => {
@@ -375,7 +375,7 @@ describe('VFSLoader', () => {
     test('should extract VFS imports', async () => {
         const vfs = stack.vfs!;
         const source = `
-            import { open, read } from '/lib/process';
+            import { open, read } from '/userspace/process';
             export function readAll() {}
         `;
         const handle = await vfs.open('/lib/io.ts', { write: true, create: true }, 'kernel');
@@ -385,7 +385,7 @@ describe('VFSLoader', () => {
 
         const mod = await loader.compileModule('/lib/io.ts');
 
-        expect(mod.imports).toContain('/lib/process.ts');
+        expect(mod.imports).toContain('/userspace/process.ts');
     });
 
     test('should cache modules by hash', async () => {
@@ -491,27 +491,27 @@ describe('VFS Script Execution', () => {
         await stack.shutdown();
     });
 
-    test('should have /lib/process.ts after boot', async () => {
+    test('should have /userspace/process.ts after boot', async () => {
         const kernel = stack.kernel!;
         const vfs = stack.vfs!;
 
         await kernel.boot({ initPath: '/bin/init.ts' });
 
-        // Verify /lib/process.ts exists
-        const stat = await vfs.stat('/lib/process.ts', 'kernel');
+        // Verify /userspace/process.ts exists
+        const stat = await vfs.stat('/userspace/process.ts', 'kernel');
 
         expect(stat).toBeDefined();
         expect(stat.model).toBe('file');
         expect(stat.size).toBeGreaterThan(0);
     });
 
-    test('should be able to read /lib/process.ts content', async () => {
+    test('should be able to read /userspace/process.ts content', async () => {
         const kernel = stack.kernel!;
         const vfs = stack.vfs!;
 
         await kernel.boot({ initPath: '/bin/init.ts' });
 
-        const handle = await vfs.open('/lib/process.ts', { read: true }, 'kernel');
+        const handle = await vfs.open('/userspace/process.ts', { read: true }, 'kernel');
         const chunks: Uint8Array[] = [];
 
         while (true) {

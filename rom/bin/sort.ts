@@ -49,7 +49,7 @@
 // IMPORTS
 // =============================================================================
 
-import type { Response } from '@rom/lib/process';
+import type { Response } from '@os/process';
 import {
     getargs,
     getcwd,
@@ -63,8 +63,8 @@ import {
     eprintln,
     exit,
     respond,
-} from '@rom/lib/process';
-import { parseArgs, resolvePath } from '@rom/lib/shell';
+} from '@os/process';
+import { parseArgs, resolvePath } from '@os/shell';
 
 // =============================================================================
 // CONSTANTS

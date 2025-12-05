@@ -90,20 +90,6 @@ export interface OSConfig {
      * Environment variables available to all processes.
      */
     env?: Record<string, string>;
-
-    /**
-     * Packages to install at boot.
-     * Can be npm package names or objects with options.
-     *
-     * @example
-     * ```typescript
-     * packages: [
-     *   '@monk-api/httpd',
-     *   { name: '@monk-api/redis', opts: { config: { port: 6379 } } }
-     * ]
-     * ```
-     */
-    packages?: PackageSpec[];
 }
 
 /**
@@ -120,6 +106,7 @@ export interface BootOpts {
      * Enable kernel debug logging (printk).
      */
     debug?: boolean;
+
 }
 
 /**

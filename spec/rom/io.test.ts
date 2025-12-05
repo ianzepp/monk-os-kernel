@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect } from 'bun:test';
-import { ByteReader, ByteWriter } from '@rom/lib/io';
+import { ByteReader, ByteWriter } from '@os/io';
 
 describe('ByteReader', () => {
     it('should read bytes from async iterable', async () => {

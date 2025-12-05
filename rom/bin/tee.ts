@@ -28,8 +28,8 @@ import {
     send,
     eprintln,
     exit,
-} from '@rom/lib/process';
-import { resolvePath } from '@rom/lib/shell';
+} from '@os/process';
+import { resolvePath } from '@os/shell';
 
 async function main(): Promise<void> {
     const args = await getargs();

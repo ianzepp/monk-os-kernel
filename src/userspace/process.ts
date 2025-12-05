@@ -30,4 +30,4 @@
 export * from './process/index';
 
 // Re-export ByteReader/ByteWriter from io library for byte-stream operations
-export { ByteReader, ByteWriter } from '@rom/lib/io';
+export { ByteReader, ByteWriter } from '@os/io';

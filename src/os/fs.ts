@@ -7,6 +7,7 @@
 import type { VFS } from '@src/vfs/vfs.js';
 import type { ModelStat } from '@src/vfs/model.js';
 import type { MountOpts, Stat } from './types.js';
+import { EINVAL } from '@src/hal/errors.js';
 
 /**
  * Interface for OS methods needed by FilesystemAPI.
@@ -15,6 +16,7 @@ import type { MountOpts, Stat } from './types.js';
 export interface FilesystemAPIHost {
     getVFS(): VFS;
     resolvePath(path: string): string;
+    isBooted(): boolean;
 }
 
 /**
@@ -36,8 +38,13 @@ export class FilesystemAPI {
      * @param hostPath - Path on the host filesystem
      * @param osPath - Path inside the OS (aliases resolved)
      * @param opts - Mount options
+     * @throws EINVAL if called before boot()
      */
     mount(hostPath: string, osPath: string, opts?: MountOpts): void {
+        if (!this.host.isBooted()) {
+            throw new EINVAL('Cannot call fs.mount() before boot()');
+        }
+
         const vfs = this.host.getVFS();
         const resolvedPath = this.host.resolvePath(osPath);
 

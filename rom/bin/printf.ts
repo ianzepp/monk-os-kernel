@@ -36,7 +36,7 @@
  *   printf "%-10s %5d\n" "Name" 42
  */
 
-import { getargs, write, eprintln, exit } from '@rom/lib/process';
+import { getargs, write, eprintln, exit } from '@os/process';
 
 async function main(): Promise<void> {
     const args = await getargs();

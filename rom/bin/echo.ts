@@ -59,10 +59,10 @@
 // =============================================================================
 
 // Monk OS process I/O
-import { print, println, eprintln, exit, getargs, send, respond } from '@rom/lib/process';
+import { print, println, eprintln, exit, getargs, send, respond } from '@os/process';
 
 // Argument parsing
-import { parseArgs } from '@rom/lib/args';
+import { parseArgs } from '@os/args';
 
 // =============================================================================
 // CONSTANTS

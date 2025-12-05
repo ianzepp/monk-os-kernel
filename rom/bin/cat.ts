@@ -67,10 +67,10 @@ import {
     exit,
     getargs,
     respond,
-} from '@rom/lib/process';
+} from '@os/process';
 
 // Local utilities
-import { parseArgs, resolvePath } from '@rom/lib/shell';
+import { parseArgs, resolvePath } from '@os/shell';
 
 // =============================================================================
 // CONSTANTS

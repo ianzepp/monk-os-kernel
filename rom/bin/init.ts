@@ -17,7 +17,7 @@ import {
     println,
     eprintln,
     SyscallError,
-} from '@rom/lib/process';
+} from '@os/process';
 
 /**
  * Child process tracking

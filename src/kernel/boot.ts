@@ -42,6 +42,26 @@ export async function copyRomToVfs(deps: BootDeps, romPath: string): Promise<voi
 }
 
 /**
+ * Copy a host directory into a specific VFS path.
+ *
+ * @param deps - VFS dependencies
+ * @param hostPath - Path to directory on host filesystem
+ * @param vfsPath - Destination path in VFS
+ */
+export async function copyHostToVfs(deps: BootDeps, hostPath: string, vfsPath: string): Promise<void> {
+    const absoluteHostPath = resolve(hostPath);
+
+    // Ensure target directory exists before copying contents
+    await deps.vfs.mkdir(vfsPath, 'kernel', { recursive: true });
+    await deps.vfs.setAccess(vfsPath, 'kernel', {
+        grants: [{ to: '*', ops: ['read', 'list', 'stat'] }],
+        deny: [],
+    });
+
+    await copyDirToVfs(deps, absoluteHostPath, vfsPath);
+}
+
+/**
  * Recursively copy a host directory into VFS.
  */
 async function copyDirToVfs(deps: BootDeps, hostDir: string, vfsDir: string): Promise<void> {

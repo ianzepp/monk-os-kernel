@@ -7,7 +7,7 @@
 
 import type { VFS } from '@src/vfs/vfs.js';
 import type { PackageOpts, PackageInfo } from './types.js';
-import { EEXIST, ENOENT } from '@src/hal/errors.js';
+import { EEXIST, ENOENT, EINVAL } from '@src/hal/errors.js';
 
 /**
  * Interface for OS methods needed by PackageAPI.
@@ -56,44 +56,8 @@ export class PackageAPI {
     private host: PackageAPIHost;
     private packages: Map<string, PackageRecord> = new Map();
 
-    // Packages queued before boot (via os.install() chaining)
-    private pending: Array<{ npmName: string; opts?: PackageOpts }> = [];
-
     constructor(host: PackageAPIHost) {
         this.host = host;
-    }
-
-    /**
-     * Queue a package for installation (pre-boot).
-     * Used by OS.install() for chaining before boot.
-     *
-     * @internal
-     */
-    queue(npmName: string, opts?: PackageOpts): void {
-        this.pending.push({ npmName, opts });
-    }
-
-    /**
-     * Install all queued packages.
-     * Called during boot sequence after VFS is ready.
-     *
-     * @internal
-     */
-    async installQueued(): Promise<void> {
-        for (const { npmName, opts } of this.pending) {
-            await this.install(npmName, opts);
-        }
-
-        this.pending = [];
-    }
-
-    /**
-     * Get all pending packages (for boot sequence).
-     *
-     * @internal
-     */
-    getPending(): Array<{ npmName: string; opts?: PackageOpts }> {
-        return [...this.pending];
     }
 
     /**
@@ -104,8 +68,13 @@ export class PackageAPI {
      *
      * @param npmName - npm package name (e.g., '@monk-api/httpd')
      * @param opts - Installation options
+     * @throws EINVAL if called before boot()
      */
     async install(npmName: string, opts?: PackageOpts): Promise<void> {
+        if (!this.host.isBooted()) {
+            throw new EINVAL('Cannot call pkg.install() before boot()');
+        }
+
         // Resolve the package path
         const hostPath = await this.resolvePackagePath(npmName);
 

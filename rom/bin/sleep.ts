@@ -16,8 +16,8 @@
  *   sleep 0.5     # Sleep 500 milliseconds
  */
 
-import { getargs, eprintln, exit, onSignal, SIGTERM, sleep } from '@rom/lib/process';
-import { parseDuration } from '@rom/lib/args';
+import { getargs, eprintln, exit, onSignal, SIGTERM, sleep } from '@os/process';
+import { parseDuration } from '@os/args';
 
 async function main(): Promise<void> {
     const args = await getargs();

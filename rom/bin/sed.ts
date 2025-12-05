@@ -54,8 +54,8 @@ import {
     println,
     eprintln,
     exit,
-} from '@rom/lib/process';
-import { resolvePath } from '@rom/lib/shell';
+} from '@os/process';
+import { resolvePath } from '@os/shell';
 
 // ============================================================================
 // Types
