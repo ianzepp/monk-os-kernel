@@ -109,6 +109,13 @@ export function createProcess(
          */
         parent: opts.parent?.id ?? '',
 
+        /**
+         * User identity for VFS access control.
+         * WHY INHERIT: Child processes run as the same user as parent.
+         * DEFAULT: 'root' - the only user until multi-user support is added.
+         */
+        user: opts.parent?.user ?? 'root',
+
         // =====================================================================
         // WORKER THREAD
         // =====================================================================

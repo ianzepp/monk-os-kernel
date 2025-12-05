@@ -118,11 +118,10 @@ import { allocHandle } from './alloc-handle.js';
  * WHY ASYNC: VFS operations are async (path resolution, entity lookup, permission
  * checks, database operations for create/truncate).
  *
- * DESIGN CHOICE: Why pass proc.id to vfs.open?
- * - VFS needs to know which process is accessing file
- * - For permission checks (ACL evaluation)
- * - For filesystem watches (ownership tracking)
- * - For process-specific resources (/proc/self/* resolution)
+ * DESIGN CHOICE: Why pass proc.user to vfs.open?
+ * - VFS needs user identity for permission checks (ACL evaluation)
+ * - All processes running as same user share file permissions
+ * - proc.id is process-specific, proc.user is identity (e.g., 'root')
  *
  * DESIGN CHOICE: Why allocate fd after VFS open?
  * - VFS open might fail (ENOENT, EPERM, etc.)
@@ -163,7 +162,7 @@ export async function openFile(
     // Open file through VFS (ASYNC - process could die here)
     // Performs: path resolution, entity lookup, permission checks,
     // optional creation/truncation
-    const vfsHandle = await self.vfs.open(path, flags, proc.id);
+    const vfsHandle = await self.vfs.open(path, flags, proc.user);
 
     // RACE FIX: Check process still running after await (TODO)
     // If process died while opening, close VFS handle and bail
