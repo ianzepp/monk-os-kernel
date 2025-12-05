@@ -36,6 +36,38 @@
 
 > **Quick Context**: Monk OS reframes API architecture as an operating system where **Bun is the hardware**. The single-executable deployment (`bun build --compile`) isn't packaging an app—it's burning firmware.
 
+---
+
+## ⚠️ CRITICAL: Message-Based I/O (NOT Unix Byte Streams)
+
+**This is the #1 thing that trips up AI agents and developers familiar with Unix.**
+
+Monk OS processes communicate via **structured Response messages**, NOT byte streams:
+
+| Unix | Monk OS |
+|------|---------|
+| `read(fd)` → bytes | `recv(fd)` → Response messages |
+| `write(fd, bytes)` | `send(fd, respond.item({text}))` |
+| Pipes carry bytes | MessagePipe carries Response objects |
+| `> file` redirects bytes | Redirect must convert messages → bytes |
+
+**Standard file descriptors (fd 0/1/2):**
+- fd 0 = `recv()` — receive Response messages
+- fd 1 = `send()` — send Response messages
+- fd 2 = `warn()` — diagnostic messages
+
+**The message↔byte boundary:**
+- Files store **bytes** (via `read()`/`write()`)
+- Processes emit **messages** (via `recv()`/`send()`)
+- ConsoleHandleAdapter bridges this at I/O boundaries
+- Shell redirects (`> file`) must handle message→byte conversion
+
+**Before assuming Unix behavior, ask:** "Is this fd message-based or byte-based?"
+
+See `rom/lib/process/pipe.ts` for MessagePipe and `rom/lib/process/io.ts` for the message I/O API.
+
+---
+
 ## 1. Core Philosophy & Architecture
 
 ### System Design Principles
