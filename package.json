@@ -9,7 +9,8 @@
     ],
     "exports": {
         ".": "./src/index.ts",
-        "./*": "./src/*"
+        "./*": "./src/*",
+        "./rom/*": "./rom/*"
     },
     "scripts": {
         "start": "bun scripts/startup.ts",
