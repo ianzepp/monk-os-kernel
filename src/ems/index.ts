@@ -1,6 +1,8 @@
 /**
  * Entity Model System (EMS) - Public Exports
  *
+ * The main entry point is the EMS class, which encapsulates all components.
+ *
  * This module re-exports the public API for the EMS, which provides:
  * - Database schema and connection management
  * - Model and field metadata classes
@@ -57,6 +59,12 @@
  *
  * @module ems
  */
+
+// =============================================================================
+// UNIFIED ENTRY POINT
+// =============================================================================
+
+export { EMS, type EMSConfig } from './ems.js';
 
 // =============================================================================
 // CONNECTION / SCHEMA

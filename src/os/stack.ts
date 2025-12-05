@@ -40,11 +40,7 @@ import type { HAL, HALConfig } from '@src/hal/index.js';
 import { BunHAL } from '@src/hal/index.js';
 import { VFS } from '@src/vfs/vfs.js';
 import { Kernel } from '@src/kernel/kernel.js';
-import { createDatabase, type DatabaseConnection } from '@src/ems/connection.js';
-import { EntityOps } from '@src/ems/entity-ops.js';
-import { ModelCache } from '@src/ems/model-cache.js';
-import { EntityCache } from '@src/ems/entity-cache.js';
-import { createObserverRunner, type ObserverRunner } from '@src/ems/observers/registry.js';
+import { EMS } from '@src/ems/ems.js';
 
 // =============================================================================
 // TYPES
@@ -106,20 +102,8 @@ export interface OsStack {
     /** Whether we own the HAL (should shutdown) */
     ownsHal: boolean;
 
-    /** Database connection (if ems enabled) */
-    db?: DatabaseConnection;
-
-    /** Model cache (if ems enabled) */
-    modelCache?: ModelCache;
-
-    /** Observer runner (if ems enabled) */
-    observerRunner?: ObserverRunner;
-
-    /** Entity operations (if ems enabled) */
-    entityOps?: EntityOps;
-
-    /** Entity cache (if ems enabled) */
-    entityCache?: EntityCache;
+    /** Entity Management System (if ems enabled) */
+    ems?: EMS;
 
     /** Virtual file system (if vfs enabled) */
     vfs?: VFS;
@@ -197,11 +181,7 @@ export async function createOsStack(opts: OsStackOptions = {}): Promise<OsStack>
     // Track what we create for shutdown
     let hal: HAL | undefined;
     let ownsHal = false;
-    let db: DatabaseConnection | undefined;
-    let modelCache: ModelCache | undefined;
-    let observerRunner: ObserverRunner | undefined;
-    let entityOps: EntityOps | undefined;
-    let entityCache: EntityCache | undefined;
+    let ems: EMS | undefined;
     let vfs: VFS | undefined;
     let kernel: Kernel | undefined;
     let isShutdown = false;
@@ -216,8 +196,8 @@ export async function createOsStack(opts: OsStackOptions = {}): Promise<OsStack>
             await kernel.shutdown();
         }
 
-        if (db) {
-            await db.close();
+        if (ems) {
+            await ems.shutdown();
         }
 
         if (ownsHal && hal) {
@@ -247,22 +227,15 @@ export async function createOsStack(opts: OsStackOptions = {}): Promise<OsStack>
         // EMS Layer
         // =====================================================================
         if (needEms && hal) {
-            db = await createDatabase(hal.channel, hal.file);
-            modelCache = new ModelCache(db);
-            observerRunner = createObserverRunner();
-            entityOps = new EntityOps(db, modelCache, observerRunner);
-            entityCache = new EntityCache();
-            await entityCache.loadFromDatabase(db);
-
-            // Wire entityCache to entityOps for Ring 8 EntityCacheSync observer
-            entityOps.setEntityCache(entityCache);
+            ems = new EMS(hal);
+            await ems.init();
         }
 
         // =====================================================================
         // VFS Layer
         // =====================================================================
-        if (needVfs && hal && entityCache && entityOps) {
-            vfs = new VFS(hal, entityCache, entityOps);
+        if (needVfs && hal && ems) {
+            vfs = new VFS(hal, ems);
             await vfs.init();
         }
 
@@ -270,18 +243,14 @@ export async function createOsStack(opts: OsStackOptions = {}): Promise<OsStack>
         // Kernel Layer
         // =====================================================================
         if (needKernel && hal && vfs) {
-            kernel = new Kernel(hal, vfs);
+            kernel = new Kernel(hal, ems, vfs);
         }
 
         // Return the stack
         return {
             hal: hal!,
             ownsHal,
-            db,
-            modelCache,
-            observerRunner,
-            entityOps,
-            entityCache,
+            ems,
             vfs,
             kernel,
             shutdown,

@@ -52,7 +52,7 @@
 import type { HAL } from '@src/hal/index.js';
 import { EINVAL } from '@src/hal/errors.js';
 import type { VFS } from '@src/vfs/index.js';
-import type { EntityOps } from '@src/ems/entity-ops.js';
+import type { EMS } from '@src/ems/ems.js';
 import type { ExitStatus, BootEnv } from '@src/kernel/types.js';
 import { SIGTERM, SIGKILL, TERM_GRACE_MS } from '@src/kernel/types.js';
 import { poll } from '@src/kernel/poll.js';
@@ -99,9 +99,6 @@ export interface KernelDeps {
 
     /** Cancel a scheduled callback (default: clearTimeout) */
     clearTimeout: (id: ReturnType<typeof setTimeout>) => void;
-
-    /** Entity operations for EMS syscalls (optional) */
-    entityOps?: EntityOps;
 }
 
 /**
@@ -268,6 +265,14 @@ export class Kernel {
      * - Process info (/proc/*)
      */
     readonly vfs: VFS;
+
+    /**
+     * Entity Management System - provides:
+     * - Entity CRUD operations
+     * - Observer pipeline
+     * - Model/entity caching
+     */
+    readonly ems?: EMS;
 
     /**
      * Injectable dependencies for testability.
@@ -441,11 +446,13 @@ export class Kernel {
      * This allows configuration and hook registration before boot.
      *
      * @param hal - Hardware abstraction layer
+     * @param ems - Entity management system (optional)
      * @param vfs - Virtual file system
      * @param deps - Optional injectable dependencies for testing
      */
-    constructor(hal: HAL, vfs: VFS, deps?: Partial<KernelDeps>) {
+    constructor(hal: HAL, ems: EMS | undefined, vfs: VFS, deps?: Partial<KernelDeps>) {
         this.hal = hal;
+        this.ems = ems;
         this.vfs = vfs;
         this.deps = { ...createDefaultDeps(), ...deps };
         this.processes = new ProcessTable();

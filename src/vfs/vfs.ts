@@ -61,6 +61,7 @@
  */
 
 import type { HAL } from '@src/hal/index.js';
+import type { EMS } from '@src/ems/ems.js';
 import type { Model, ModelStat, ModelContext, WatchEvent } from '@src/vfs/model.js';
 import type { FileHandle, OpenFlags, OpenOptions } from '@src/vfs/handle.js';
 import type { ACL } from '@src/vfs/acl.js';
@@ -70,8 +71,6 @@ import { FolderModel } from '@src/vfs/models/folder.js';
 import { DeviceModel, initStandardDevices } from '@src/vfs/models/device.js';
 import { LinkModel } from '@src/vfs/models/link.js';
 import { ENOENT, EEXIST, ENOTDIR, EACCES, EINVAL } from '@src/hal/index.js';
-import type { EntityCache } from '@src/ems/entity-cache.js';
-import type { EntityOps } from '@src/ems/entity-ops.js';
 import type { HostMount, HostMountOptions } from '@src/vfs/mounts/host.js';
 import {
     createHostMount,
@@ -101,7 +100,6 @@ import {
     entityOpen,
 } from '@src/vfs/mounts/entity.js';
 import type { ProcessTable } from '@src/kernel/process-table.js';
-import type { ModelCache } from '@src/ems/model-cache.js';
 
 // =============================================================================
 // CONSTANTS
@@ -232,16 +230,10 @@ export class VFS {
     private readonly hal: HAL;
 
     /**
-     * Entity cache for path resolution.
-     * Optional for backwards compatibility.
+     * Entity Management System.
+     * Provides EntityCache, EntityOps, and ModelCache.
      */
-    private readonly cache?: EntityCache;
-
-    /**
-     * Entity operations for database access.
-     * Optional for backwards compatibility.
-     */
-    private readonly entityOps?: EntityOps;
+    private readonly ems?: EMS;
 
     // =========================================================================
     // MOUNT MANAGEMENT
@@ -287,11 +279,6 @@ export class VFS {
      */
     private entityMounts: EntityMount[] = [];
 
-    /**
-     * Model cache for entity mounts.
-     * Required for entity mount field validation.
-     */
-    private modelCache: ModelCache | null = null;
 
     // =========================================================================
     // STATE
@@ -315,19 +302,17 @@ export class VFS {
      * NOTE: Does NOT initialize the filesystem. Call init() after construction.
      *
      * @param hal - Hardware abstraction layer
-     * @param cache - Entity cache for path resolution (optional for backwards compat)
-     * @param entityOps - Entity operations (optional for backwards compat)
+     * @param ems - Entity Management System (optional for backwards compat)
      */
-    constructor(hal: HAL, cache?: EntityCache, entityOps?: EntityOps) {
+    constructor(hal: HAL, ems?: EMS) {
         this.hal = hal;
-        this.cache = cache;
-        this.entityOps = entityOps;
+        this.ems = ems;
 
         // Register built-in models
         // FileModel and FolderModel require EMS dependencies
-        if (cache && entityOps) {
-            this.registerModel(new FileModel(cache, entityOps));
-            this.registerModel(new FolderModel(cache, entityOps));
+        if (ems) {
+            this.registerModel(new FileModel(ems.cache, ems.ops));
+            this.registerModel(new FolderModel(ems.cache, ems.ops));
         }
         this.registerModel(new DeviceModel());
         this.registerModel(new LinkModel());
@@ -379,8 +364,8 @@ export class VFS {
     private async ensureRootExists(): Promise<void> {
         // Root is seeded in schema.sql and loaded into EntityCache.
         // Just verify it exists in cache.
-        if (this.cache) {
-            const root = this.cache.getEntity(ROOT_ID);
+        if (this.ems) {
+            const root = this.ems.cache.getEntity(ROOT_ID);
             if (!root) {
                 throw new EINVAL('Root entity not found in EntityCache. Database may not be initialized.');
             }
@@ -538,17 +523,6 @@ export class VFS {
     }
 
     /**
-     * Set the model cache for entity mounts.
-     *
-     * Must be called before mounting entity filesystems if field validation is needed.
-     *
-     * @param modelCache - Model cache instance
-     */
-    setModelCache(modelCache: ModelCache): void {
-        this.modelCache = modelCache;
-    }
-
-    /**
      * Mount an entity filesystem.
      *
      * Creates a synthetic mount backed by EMS entity data.
@@ -559,18 +533,15 @@ export class VFS {
      * @throws EINVAL if field is not unique or model not found
      */
     async mountEntity(vfsPath: string, options: EntityMountOptions = {}): Promise<void> {
-        if (!this.cache || !this.entityOps) {
-            throw new Error('VFS requires EntityCache and EntityOps for entity mounts');
-        }
-        if (!this.modelCache) {
-            throw new Error('VFS requires ModelCache for entity mounts (call setModelCache first)');
+        if (!this.ems) {
+            throw new Error('VFS requires EMS for entity mounts');
         }
 
         const mount = await createEntityMount(
             vfsPath,
-            this.cache,
-            this.entityOps,
-            this.modelCache,
+            this.ems.cache,
+            this.ems.ops,
+            this.ems.models,
             options
         );
         this.entityMounts.push(mount);
@@ -1270,8 +1241,8 @@ export class VFS {
      */
     private async findChild(parentId: string, name: string): Promise<string | null> {
         // Try EntityCache first (EMS entities: file, folder)
-        if (this.cache) {
-            const childId = this.cache.getChild(parentId, name);
+        if (this.ems) {
+            const childId = this.ems.cache.getChild(parentId, name);
             if (childId) {
                 return childId;
             }
@@ -1466,11 +1437,11 @@ export class VFS {
              */
             async getEntity(id: string): Promise<ModelStat | null> {
                 // EMS entities: EntityCache → EntityOps
-                if (self.cache && self.entityOps) {
-                    const cached = self.cache.getEntity(id);
+                if (self.ems) {
+                    const cached = self.ems.cache.getEntity(id);
                     if (cached) {
                         // Query detail table for full record
-                        for await (const record of self.entityOps.selectAny(
+                        for await (const record of self.ems.ops.selectAny(
                             cached.model,
                             { where: { id }, limit: 1 }
                         )) {
@@ -1513,8 +1484,8 @@ export class VFS {
 
                 while (currentId && currentId !== ROOT_ID) {
                     // EMS entities: use EntityCache
-                    if (self.cache) {
-                        const cached = self.cache.getEntity(currentId);
+                    if (self.ems) {
+                        const cached = self.ems.cache.getEntity(currentId);
                         if (cached) {
                             parts.unshift(cached.pathname);
                             currentId = cached.parent;

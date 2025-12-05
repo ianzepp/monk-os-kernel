@@ -392,8 +392,8 @@ export function registerSyscalls(kernel: Kernel): void {
     // Entity Management System: CRUD operations on entities
     // -------------------------------------------------------------------------
 
-    if (kernel.deps.entityOps) {
-        kernel.syscalls.registerAll(createEmsSyscalls(kernel.deps.entityOps));
+    if (kernel.ems) {
+        kernel.syscalls.registerAll(createEmsSyscalls(kernel.ems.ops));
     }
 
     // -------------------------------------------------------------------------

@@ -18,11 +18,8 @@ import { ProcessAPI } from './process.js';
 import { ServiceAPI } from './service.js';
 import { PackageAPI } from './pkg.js';
 import { EntityAPI } from './ems.js';
-import { createDatabase, type DatabaseConnection } from '@src/ems/connection.js';
-import { EntityOps } from '@src/ems/entity-ops.js';
-import { ModelCache } from '@src/ems/model-cache.js';
-import { EntityCache } from '@src/ems/entity-cache.js';
-import { createObserverRunner } from '@src/ems/observers/registry.js';
+import { EMS } from '@src/ems/ems.js';
+import type { EntityOps } from '@src/ems/entity-ops.js';
 
 /**
  * Type for storing event listeners
@@ -37,10 +34,9 @@ type EventListeners = {
 export class OS {
     private config: OSConfig;
     private hal: HAL | null = null;
+    private _ems: EMS | null = null;
     private vfs: VFS | null = null;
     private kernel: Kernel | null = null;
-    private db: DatabaseConnection | null = null;
-    private entityOps: EntityOps | null = null;
     private booted = false;
 
     // Path aliases
@@ -227,22 +223,15 @@ export class OS {
         // 2. Emit 'hal' event
         await this.emit('hal', this);
 
-        // 3. Create Entity Model System (EMS)
-        this.db = await createDatabase(this.hal.channel, this.hal.file);
-        const modelCache = new ModelCache(this.db);
-        const runner = createObserverRunner();
-        this.entityOps = new EntityOps(this.db, modelCache, runner);
-        const entityCache = new EntityCache();
-        await entityCache.loadFromDatabase(this.db);
-
-        // Wire entityCache to entityOps for Ring 8 EntityCacheSync observer
-        this.entityOps.setEntityCache(entityCache);
+        // 3. Create and initialize EMS
+        this._ems = new EMS(this.hal);
+        await this._ems.init();
 
         // 4. Emit 'ems' event - os.ems.* available
         await this.emit('ems', this);
 
         // 5. Create and initialize VFS
-        this.vfs = new VFS(this.hal, entityCache, this.entityOps);
+        this.vfs = new VFS(this.hal, this._ems);
         await this.vfs.init();
 
         // 6. Emit 'vfs' event - os.fs.* available
@@ -254,10 +243,8 @@ export class OS {
         // 8. Install queued packages
         await this.pkg.installQueued();
 
-        // 8. Create Kernel (with EMS for entity syscalls)
-        this.kernel = new Kernel(this.hal, this.vfs, {
-            entityOps: this.entityOps ?? undefined,
-        });
+        // 8. Create Kernel
+        this.kernel = new Kernel(this.hal, this._ems, this.vfs);
 
         // 9. Emit 'kernel' event
         await this.emit('kernel', this);
@@ -328,8 +315,8 @@ export class OS {
             await this.kernel.shutdown();
         }
 
-        if (this.db) {
-            await this.db.close();
+        if (this._ems) {
+            await this._ems.shutdown();
         }
 
         if (this.hal) {
@@ -338,10 +325,9 @@ export class OS {
 
         this.booted = false;
         this.hal = null;
+        this._ems = null;
         this.vfs = null;
         this.kernel = null;
-        this.db = null;
-        this.entityOps = null;
     }
 
     /**
@@ -389,13 +375,23 @@ export class OS {
     }
 
     /**
+     * Get the EMS instance (for testing/advanced use).
+     */
+    getEMS(): EMS {
+        if (!this._ems) {
+            throw new EINVAL('OS not booted');
+        }
+        return this._ems;
+    }
+
+    /**
      * Get the EntityOps instance (for EntityAPI).
      */
     getEntityOps(): EntityOps {
-        if (!this.entityOps) {
+        if (!this._ems) {
             throw new EINVAL('OS not booted');
         }
-        return this.entityOps;
+        return this._ems.ops;
     }
 
     /**
