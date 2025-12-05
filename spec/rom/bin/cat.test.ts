@@ -23,7 +23,7 @@ const EXIT = {
     FAILURE: 1,
 } as const;
 
-describe.skip('cat', () => {
+describe('cat', () => {
     let os: OS;
 
     beforeEach(async () => {

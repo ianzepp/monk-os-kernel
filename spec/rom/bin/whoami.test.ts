@@ -1,14 +1,14 @@
 /**
- * echo Command Tests
+ * whoami Command Tests
  *
- * Tests for the `echo` command which displays text to stdout.
+ * Tests for the `whoami` command which prints the current user name.
  *
  * GNU BEHAVIOR
  * ============
- * - Outputs arguments separated by spaces
- * - Adds trailing newline by default
- * - -n flag suppresses trailing newline
- * - Only leading flags are parsed
+ * - Prints the effective user name
+ * - Gets username from USER environment variable
+ * - Defaults to 'unknown' if USER is not set
+ * - No flags or options supported
  *
  * NOTE: These tests are currently skipped because shell external command
  * execution has issues. Enable when shell is fixed.
@@ -23,7 +23,7 @@ const EXIT = {
     FAILURE: 1,
 } as const;
 
-describe('echo', () => {
+describe('whoami', () => {
     let os: OS;
 
     beforeEach(async () => {
@@ -54,66 +54,50 @@ describe('echo', () => {
     // -------------------------------------------------------------------------
 
     describe('basic output', () => {
-        it('should output single argument with newline', async () => {
-            const result = await run('echo hello');
+        it('should output current user name', async () => {
+            const result = await run('whoami');
 
             expect(result.exitCode).toBe(EXIT.SUCCESS);
-            expect(result.stdout).toBe('hello\n');
+            expect(result.stdout).toBeTruthy();
+            expect(result.stdout).toMatch(/\w+\n/);
         });
 
-        it('should output multiple arguments with spaces', async () => {
-            const result = await run('echo hello world');
+        it('should output user from USER env variable', async () => {
+            // TODO: This test will likely need env variable setup support
+            const result = await run('USER=testuser whoami');
 
             expect(result.exitCode).toBe(EXIT.SUCCESS);
-            expect(result.stdout).toBe('hello world\n');
+            expect(result.stdout).toBe('testuser\n');
         });
 
-        it('should output blank line with no arguments', async () => {
-            const result = await run('echo');
+        it('should default to unknown if USER not set', async () => {
+            // TODO: This test will likely need env variable manipulation support
+            const result = await run('env -u USER whoami');
 
             expect(result.exitCode).toBe(EXIT.SUCCESS);
-            expect(result.stdout).toBe('\n');
-        });
-    });
-
-    // -------------------------------------------------------------------------
-    // Flags
-    // -------------------------------------------------------------------------
-
-    describe('flags', () => {
-        it('should suppress newline with -n flag', async () => {
-            const result = await run('echo -n hello');
-
-            expect(result.exitCode).toBe(EXIT.SUCCESS);
-            expect(result.stdout).toBe('hello');
-        });
-
-        it('should treat -n after text as literal', async () => {
-            // GNU behavior: only leading flags are parsed
-            const result = await run('echo hello -n');
-
-            expect(result.exitCode).toBe(EXIT.SUCCESS);
-            expect(result.stdout).toBe('hello -n\n');
+            expect(result.stdout).toBe('unknown\n');
         });
     });
 
     // -------------------------------------------------------------------------
-    // Quoted Strings
+    // No Options
     // -------------------------------------------------------------------------
 
-    describe('quoted strings', () => {
-        it('should preserve spaces in double quotes', async () => {
-            const result = await run('echo "hello   world"');
+    describe('no options', () => {
+        it('should ignore unknown flags and still output username', async () => {
+            // GNU whoami ignores unknown flags
+            const result = await run('whoami -v');
 
             expect(result.exitCode).toBe(EXIT.SUCCESS);
-            expect(result.stdout).toBe('hello   world\n');
+            expect(result.stdout).toBeTruthy();
         });
 
-        it('should preserve spaces in single quotes', async () => {
-            const result = await run("echo 'hello   world'");
+        it('should ignore extra arguments', async () => {
+            // GNU whoami ignores extra arguments
+            const result = await run('whoami extra args');
 
             expect(result.exitCode).toBe(EXIT.SUCCESS);
-            expect(result.stdout).toBe('hello   world\n');
+            expect(result.stdout).toBeTruthy();
         });
     });
 
@@ -123,17 +107,19 @@ describe('echo', () => {
 
     describe('pipeline', () => {
         it('should work as pipe source', async () => {
-            const result = await run('echo hello | cat');
+            const result = await run('whoami | cat');
 
             expect(result.exitCode).toBe(EXIT.SUCCESS);
-            expect(result.stdout).toBe('hello\n');
+            expect(result.stdout).toBeTruthy();
+            expect(result.stdout).toMatch(/\w+\n/);
         });
 
         it('should work through multiple pipes', async () => {
-            const result = await run('echo hello | cat | cat');
+            const result = await run('whoami | cat | cat');
 
             expect(result.exitCode).toBe(EXIT.SUCCESS);
-            expect(result.stdout).toBe('hello\n');
+            expect(result.stdout).toBeTruthy();
+            expect(result.stdout).toMatch(/\w+\n/);
         });
     });
 });
