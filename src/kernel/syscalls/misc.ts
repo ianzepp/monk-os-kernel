@@ -205,7 +205,7 @@ export function createMiscSyscalls(vfs: VFS): SyscallRegistry {
             // Verify path exists and is a directory
             try {
                 // RC-1: Check existence and type before modifying process state
-                const stat = await vfs.stat(resolvedPath, proc.id);
+                const stat = await vfs.stat(resolvedPath, proc.user);
 
                 // Directory check ensures proc.cwd always points to valid directory
                 if (stat.model !== 'folder') {

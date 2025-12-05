@@ -25,7 +25,7 @@
  * INV-4: File handles support seek, socket handles do not
  * INV-5: Stream responses (readdir) must not exceed MAX_STREAM_ENTRIES
  * INV-6: Handle operations must check handle existence before delegation
- * INV-7: Process identity (proc.id) is passed to VFS for permission checks
+ * INV-7: User identity (proc.user) is passed to VFS for permission checks
  *
  * CONCURRENCY MODEL
  * =================
@@ -303,7 +303,7 @@ export function createFileSyscalls(
                 return;
             }
 
-            const statResult = await vfs.stat(path, proc.id);
+            const statResult = await vfs.stat(path, proc.user);
 
             yield respond.ok(statResult);
         },
@@ -346,7 +346,7 @@ export function createFileSyscalls(
 
             // Use handle's description as path
             // WHY: Description contains the resolved path from open()
-            const statResult = await vfs.stat(handle.description, proc.id);
+            const statResult = await vfs.stat(handle.description, proc.user);
 
             yield respond.ok(statResult);
         },
@@ -372,7 +372,7 @@ export function createFileSyscalls(
 
             const options = opts as MkdirOptions | undefined;
 
-            await vfs.mkdir(path, proc.id, options);
+            await vfs.mkdir(path, proc.user, options);
             yield respond.ok();
         },
 
@@ -392,7 +392,7 @@ export function createFileSyscalls(
                 return;
             }
 
-            await vfs.unlink(path, proc.id);
+            await vfs.unlink(path, proc.user);
             yield respond.ok();
         },
 
@@ -415,7 +415,7 @@ export function createFileSyscalls(
                 return;
             }
 
-            await vfs.unlink(path, proc.id);
+            await vfs.unlink(path, proc.user);
             yield respond.ok();
         },
 
@@ -445,7 +445,7 @@ export function createFileSyscalls(
             let count = 0;
 
             try {
-                for await (const entry of vfs.readdir(path, proc.id)) {
+                for await (const entry of vfs.readdir(path, proc.user)) {
                     count++;
                     // Enforce stream size limit
                     // WHY: Prevents unbounded memory growth from huge directories
@@ -513,7 +513,7 @@ export function createFileSyscalls(
                 return;
             }
 
-            await vfs.symlink(target, linkPath, proc.id);
+            await vfs.symlink(target, linkPath, proc.user);
             yield respond.ok();
         },
 
@@ -543,14 +543,14 @@ export function createFileSyscalls(
             if (acl !== undefined) {
                 // Set ACL
                 // WHY null is allowed: Clears ACL (back to default permissions)
-                await vfs.setAccess(path, proc.id, acl as import('@src/vfs/index.js').ACL | null);
+                await vfs.setAccess(path, proc.user, acl as import('@src/vfs/index.js').ACL | null);
                 yield respond.ok();
 
                 return;
             }
 
             // Get ACL
-            const result = await vfs.access(path, proc.id);
+            const result = await vfs.access(path, proc.user);
 
             yield respond.ok(result);
         },

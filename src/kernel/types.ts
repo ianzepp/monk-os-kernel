@@ -24,6 +24,9 @@ export interface Process {
     /** Parent process UUID (empty for init) */
     parent: string;
 
+    /** User identity for ACL checks (e.g., 'root', 'kernel') */
+    user: string;
+
     /** Bun Worker instance */
     worker: Worker;
 
