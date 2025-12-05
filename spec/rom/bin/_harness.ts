@@ -151,6 +151,7 @@ export async function createTestContext(): Promise<TestContext> {
 async function waitForInitExit(kernel: Kernel, timeout = 5000): Promise<boolean> {
     return await poll(() => {
         const init = kernel.getProcessTable().getInit();
+
         return !init || init.state === 'zombie';
     }, { timeout });
 }
@@ -165,7 +166,7 @@ async function runShellCommand(
     kernel: Kernel,
     vfs: import('@src/vfs/vfs.js').VFS,
     command: string,
-    opts?: RunOptions
+    opts?: RunOptions,
 ): Promise<RunResult> {
     const timeout = opts?.timeout ?? DEFAULT_TIMEOUT;
 
@@ -179,6 +180,7 @@ async function runShellCommand(
     });
 
     const exited = await waitForInitExit(kernel, timeout);
+
     if (!exited) {
         throw new Error(`Shell command '${command}' timed out after ${timeout}ms`);
     }
@@ -190,7 +192,31 @@ async function runShellCommand(
     let stdout = '';
 
     try {
-        const stdoutData = await vfs.readFile(STDOUT_FILE, 'kernel');
+        const handle = await vfs.open(STDOUT_FILE, { read: true }, 'kernel');
+        const chunks: Uint8Array[] = [];
+
+        while (true) {
+            const chunk = await handle.read(65536);
+
+            if (chunk.length === 0) {
+                break;
+            }
+
+            chunks.push(chunk);
+        }
+
+        await handle.close();
+
+        // Concatenate chunks
+        const totalLength = chunks.reduce((sum, c) => sum + c.length, 0);
+        const stdoutData = new Uint8Array(totalLength);
+        let offset = 0;
+
+        for (const chunk of chunks) {
+            stdoutData.set(chunk, offset);
+            offset += chunk.length;
+        }
+
         stdout = new TextDecoder().decode(stdoutData);
     }
     catch {

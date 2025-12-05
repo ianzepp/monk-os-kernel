@@ -27,17 +27,20 @@ describe('true', () => {
 
     it('should exit with code 0', async () => {
         const result = await ctx.run('true');
+
         expect(result.exitCode).toBe(EXIT.SUCCESS);
     });
 
     it('should produce no output', async () => {
         const result = await ctx.run('true');
+
         expect(result.stdout).toBe('');
         expect(result.stderr).toBe('');
     });
 
     it('should ignore arguments', async () => {
         const result = await ctx.run('true ignored args --flag');
+
         expect(result.exitCode).toBe(EXIT.SUCCESS);
     });
 

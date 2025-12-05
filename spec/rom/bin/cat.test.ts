@@ -35,12 +35,14 @@ describe.skip('cat', () => {
     describe('stdin passthrough', () => {
         it('should pass through piped input', async () => {
             const result = await ctx.run('echo hello | cat');
+
             expect(result.exitCode).toBe(EXIT.SUCCESS);
             expect(result.stdout).toBe('hello\n');
         });
 
         it('should pass through multiple lines', async () => {
             const result = await ctx.run('echo -n "line1\nline2\nline3" | cat');
+
             expect(result.exitCode).toBe(EXIT.SUCCESS);
             expect(result.stdout).toBe('line1\nline2\nline3');
         });
@@ -53,24 +55,28 @@ describe.skip('cat', () => {
     describe('pipe chains', () => {
         it('should pipe through 2 cats', async () => {
             const result = await ctx.run('echo hello | cat | cat');
+
             expect(result.exitCode).toBe(EXIT.SUCCESS);
             expect(result.stdout).toBe('hello\n');
         });
 
         it('should pipe through 3 cats', async () => {
             const result = await ctx.run('echo hello | cat | cat | cat');
+
             expect(result.exitCode).toBe(EXIT.SUCCESS);
             expect(result.stdout).toBe('hello\n');
         });
 
         it('should pipe through 5 cats', async () => {
             const result = await ctx.run('echo hello | cat | cat | cat | cat | cat');
+
             expect(result.exitCode).toBe(EXIT.SUCCESS);
             expect(result.stdout).toBe('hello\n');
         }, { timeout: 10000 });
 
         it('should preserve longer text through pipes', async () => {
             const result = await ctx.run('echo "the quick brown fox" | cat | cat | cat');
+
             expect(result.exitCode).toBe(EXIT.SUCCESS);
             expect(result.stdout).toBe('the quick brown fox\n');
         });
@@ -86,6 +92,7 @@ describe.skip('cat', () => {
             // Note: We need to write file first, then read it
             // Using a single command that creates and reads
             const result = await ctx.run('echo "test content" | cat');
+
             expect(result.exitCode).toBe(EXIT.SUCCESS);
             expect(result.stdout).toBe('test content\n');
         });
@@ -98,6 +105,7 @@ describe.skip('cat', () => {
     describe('error handling', () => {
         it('should fail on non-existent file', async () => {
             const result = await ctx.run('cat /nonexistent/file.txt');
+
             expect(result.exitCode).toBe(EXIT.FAILURE);
             // stderr goes to console (not captured)
         });
@@ -110,6 +118,7 @@ describe.skip('cat', () => {
     describe('help', () => {
         it('should display help with --help', async () => {
             const result = await ctx.run('cat --help');
+
             expect(result.exitCode).toBe(EXIT.SUCCESS);
             expect(result.stdout).toContain('Usage:');
             expect(result.stdout).toContain('cat');

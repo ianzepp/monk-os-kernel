@@ -6,7 +6,8 @@
  * Runs typecheck, lint, tests, and build in optimized order.
  * Outputs filtered results to tmp/audit-{timestamp}.md
  *
- * Phase 1 (parallel): typecheck (all 3), lint, test, perf
+ * Phase 0 (parallel): lint, typecheck (all 3)
+ * Phase 1 (parallel, only if Phase 0 passes): test, perf
  * Phase 2 (sequential, only if Phase 1 passes): build, build:warn
  *
  * @module scripts/audit
@@ -30,7 +31,13 @@ interface CommandResult {
 // Configuration
 // =============================================================================
 
-const PHASE1_COMMANDS: Array<{ name: string; cmd: string[]; filter: (out: string) => string }> = [
+// Phase 0: lint + typecheck (all 3) - must pass before tests
+const PHASE0_COMMANDS: Array<{ name: string; cmd: string[]; filter: (out: string) => string }> = [
+    {
+        name: 'lint',
+        cmd: ['bun', 'run', 'lint'],
+        filter: filterLint,
+    },
     {
         name: 'typecheck',
         cmd: ['bun', 'x', 'tsc', '--noEmit'],
@@ -46,11 +53,10 @@ const PHASE1_COMMANDS: Array<{ name: string; cmd: string[]; filter: (out: string
         cmd: ['bun', 'x', 'tsc', '--noEmit', '-p', 'tsconfig.perf.json'],
         filter: filterTypecheck,
     },
-    {
-        name: 'lint',
-        cmd: ['bun', 'run', 'lint'],
-        filter: filterLint,
-    },
+];
+
+// Phase 1: test + perf - only if Phase 0 passes
+const PHASE1_COMMANDS: Array<{ name: string; cmd: string[]; filter: (out: string) => string }> = [
     {
         name: 'test',
         cmd: ['bun', 'run', 'test'],
@@ -63,6 +69,7 @@ const PHASE1_COMMANDS: Array<{ name: string; cmd: string[]; filter: (out: string
     },
 ];
 
+// Phase 2: build - only if Phase 1 passes
 const PHASE2_COMMANDS: Array<{ name: string; cmd: string[]; filter: (out: string) => string }> = [
     {
         name: 'build',
@@ -336,9 +343,10 @@ async function runCommand(
 // =============================================================================
 
 function generateReport(
+    phase0Results: CommandResult[],
     phase1Results: CommandResult[],
     phase2Results: CommandResult[],
-    phase1Passed: boolean
+    allTestsPassed: boolean
 ): string {
     const now = new Date();
     const timestamp = now.toISOString().replace('T', ' ').substring(0, 19);
@@ -357,13 +365,30 @@ function generateReport(
     lines.push('| Check | Status | Time |');
     lines.push('|-------|--------|------|');
 
-    for (const r of phase1Results) {
+    // Phase 0 results (lint + typecheck)
+    for (const r of phase0Results) {
         const status = r.passed ? '✓ PASS' : '✗ FAIL';
         const time = `${(r.duration / 1000).toFixed(1)}s`;
         lines.push(`| ${r.name} | ${status} | ${time} |`);
     }
 
-    if (phase1Passed) {
+    const phase0Passed = phase0Results.every(r => r.passed);
+
+    // Phase 1 results (test + perf)
+    if (phase0Passed) {
+        for (const r of phase1Results) {
+            const status = r.passed ? '✓ PASS' : '✗ FAIL';
+            const time = `${(r.duration / 1000).toFixed(1)}s`;
+            lines.push(`| ${r.name} | ${status} | ${time} |`);
+        }
+    }
+    else {
+        lines.push('| test | ⏭ SKIPPED | - |');
+        lines.push('| perf | ⏭ SKIPPED | - |');
+    }
+
+    // Phase 2 results (build)
+    if (allTestsPassed) {
         for (const r of phase2Results) {
             const status = r.passed ? '✓ PASS' : '✗ FAIL';
             const time = `${(r.duration / 1000).toFixed(1)}s`;
@@ -378,16 +403,33 @@ function generateReport(
     lines.push('');
 
     // -------------------------------------------------------------------------
-    // Phase 1 Details
+    // Phase 0 Details (lint + typecheck failures)
+    // -------------------------------------------------------------------------
+
+    const phase0Failures = phase0Results.filter(r => !r.passed);
+
+    if (phase0Failures.length > 0) {
+        lines.push('## Phase 0 Failures (Lint/Typecheck)');
+        lines.push('');
+
+        for (const r of phase0Failures) {
+            lines.push(`### ${r.name}`);
+            lines.push('');
+            lines.push('```');
+            lines.push(r.filtered);
+            lines.push('```');
+            lines.push('');
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Phase 1 Details (test + perf failures)
     // -------------------------------------------------------------------------
 
     const phase1Failures = phase1Results.filter(r => !r.passed);
-    const phase1Warnings = phase1Results.filter(
-        r => r.passed && r.filtered !== 'No errors' && r.filtered !== 'No issues'
-    );
 
     if (phase1Failures.length > 0) {
-        lines.push('## Phase 1 Failures');
+        lines.push('## Phase 1 Failures (Tests)');
         lines.push('');
 
         for (const r of phase1Failures) {
@@ -404,7 +446,7 @@ function generateReport(
     // Phase 2 Details (build warnings are always shown if run)
     // -------------------------------------------------------------------------
 
-    if (phase1Passed && phase2Results.length > 0) {
+    if (allTestsPassed && phase2Results.length > 0) {
         const buildWarn = phase2Results.find(r => r.name === 'build:warn');
 
         if (buildWarn && buildWarn.filtered !== 'No warnings output captured') {
@@ -480,21 +522,47 @@ async function main() {
     console.log('');
 
     // -------------------------------------------------------------------------
-    // Phase 1: Run all checks in parallel
+    // Phase 0: Run lint + typecheck in parallel
     // -------------------------------------------------------------------------
 
-    console.log('[PHASE 1] Running typecheck, lint, test, perf in parallel...');
+    console.log('[PHASE 0] Running lint, typecheck in parallel...');
 
-    const phase1Promises = PHASE1_COMMANDS.map(c => runCommand(c.name, c.cmd, c.filter));
-    const phase1Results = await Promise.all(phase1Promises);
+    const phase0Promises = PHASE0_COMMANDS.map(c => runCommand(c.name, c.cmd, c.filter));
+    const phase0Results = await Promise.all(phase0Promises);
 
-    for (const r of phase1Results) {
+    for (const r of phase0Results) {
         const status = r.passed ? '✓' : '✗';
         const time = `${(r.duration / 1000).toFixed(1)}s`;
         console.log(`  ${status} ${r.name} (${time})`);
     }
 
-    const phase1Passed = phase1Results.every(r => r.passed);
+    const phase0Passed = phase0Results.every(r => r.passed);
+
+    console.log('');
+
+    // -------------------------------------------------------------------------
+    // Phase 1: Run test + perf in parallel (only if Phase 0 passed)
+    // -------------------------------------------------------------------------
+
+    let phase1Results: CommandResult[] = [];
+
+    if (phase0Passed) {
+        console.log('[PHASE 1] Running test, perf in parallel...');
+
+        const phase1Promises = PHASE1_COMMANDS.map(c => runCommand(c.name, c.cmd, c.filter));
+        phase1Results = await Promise.all(phase1Promises);
+
+        for (const r of phase1Results) {
+            const status = r.passed ? '✓' : '✗';
+            const time = `${(r.duration / 1000).toFixed(1)}s`;
+            console.log(`  ${status} ${r.name} (${time})`);
+        }
+    }
+    else {
+        console.log('[PHASE 1] Skipped (Phase 0 had failures)');
+    }
+
+    const phase1Passed = phase0Passed && phase1Results.every(r => r.passed);
 
     console.log('');
 
@@ -531,7 +599,7 @@ async function main() {
     // Generate Report
     // -------------------------------------------------------------------------
 
-    const report = generateReport(phase1Results, phase2Results, phase1Passed);
+    const report = generateReport(phase0Results, phase1Results, phase2Results, phase1Passed);
 
     // Ensure tmp/ exists
     await $`mkdir -p tmp`.quiet();

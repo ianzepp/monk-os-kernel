@@ -35,18 +35,21 @@ describe.skip('echo', () => {
     describe('basic output', () => {
         it('should output single argument with newline', async () => {
             const result = await ctx.run('echo hello');
+
             expect(result.exitCode).toBe(EXIT.SUCCESS);
             expect(result.stdout).toBe('hello\n');
         });
 
         it('should output multiple arguments with spaces', async () => {
             const result = await ctx.run('echo hello world');
+
             expect(result.exitCode).toBe(EXIT.SUCCESS);
             expect(result.stdout).toBe('hello world\n');
         });
 
         it('should output blank line with no arguments', async () => {
             const result = await ctx.run('echo');
+
             expect(result.exitCode).toBe(EXIT.SUCCESS);
             expect(result.stdout).toBe('\n');
         });
@@ -59,6 +62,7 @@ describe.skip('echo', () => {
     describe('flags', () => {
         it('should suppress newline with -n flag', async () => {
             const result = await ctx.run('echo -n hello');
+
             expect(result.exitCode).toBe(EXIT.SUCCESS);
             expect(result.stdout).toBe('hello');
         });
@@ -66,6 +70,7 @@ describe.skip('echo', () => {
         it('should treat -n after text as literal', async () => {
             // GNU behavior: only leading flags are parsed
             const result = await ctx.run('echo hello -n');
+
             expect(result.exitCode).toBe(EXIT.SUCCESS);
             expect(result.stdout).toBe('hello -n\n');
         });
@@ -78,12 +83,14 @@ describe.skip('echo', () => {
     describe('quoted strings', () => {
         it('should preserve spaces in double quotes', async () => {
             const result = await ctx.run('echo "hello   world"');
+
             expect(result.exitCode).toBe(EXIT.SUCCESS);
             expect(result.stdout).toBe('hello   world\n');
         });
 
         it('should preserve spaces in single quotes', async () => {
             const result = await ctx.run("echo 'hello   world'");
+
             expect(result.exitCode).toBe(EXIT.SUCCESS);
             expect(result.stdout).toBe('hello   world\n');
         });
@@ -96,12 +103,14 @@ describe.skip('echo', () => {
     describe('pipeline', () => {
         it('should work as pipe source', async () => {
             const result = await ctx.run('echo hello | cat');
+
             expect(result.exitCode).toBe(EXIT.SUCCESS);
             expect(result.stdout).toBe('hello\n');
         });
 
         it('should work through multiple pipes', async () => {
             const result = await ctx.run('echo hello | cat | cat');
+
             expect(result.exitCode).toBe(EXIT.SUCCESS);
             expect(result.stdout).toBe('hello\n');
         });
