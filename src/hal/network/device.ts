@@ -76,6 +76,7 @@ import type {
     NetworkDevice,
     ServeOpts,
     Socket,
+    UpgradeServer,
 } from './types.js';
 import { BunSocket } from './socket.js';
 import { BunListener } from './listener.js';
@@ -341,8 +342,15 @@ export class BunNetworkDevice implements NetworkDevice {
             // Wrap handler to pass server for WebSocket upgrades
             // WHY: Our HttpHandler expects UpgradeServer, Bun provides Server
             fetch(req, server) {
-                // Pass server as UpgradeServer (it implements the interface)
-                return handler(req, server as any) as Response | Promise<Response>;
+                // WHY: Bun's upgrade(req, { data }) differs from our upgrade(req, data)
+                // Wrap to adapt the signature so handlers use our simpler interface
+                const upgradeServer: UpgradeServer<T> = {
+                    upgrade(req: Request, data?: T) {
+                        return server.upgrade(req, { data });
+                    },
+                };
+
+                return handler(req, upgradeServer) as Response | Promise<Response>;
             },
         };
 

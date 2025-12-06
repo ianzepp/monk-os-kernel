@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS display (
     -- Display-specific fields
     width       INTEGER NOT NULL,
     height      INTEGER NOT NULL,
-    dpi         INTEGER DEFAULT 1,
+    dpi         REAL DEFAULT 1,
     connected   INTEGER DEFAULT 0,
     session_id  TEXT,
     user_agent  TEXT,
@@ -309,7 +309,7 @@ INSERT OR IGNORE INTO models (model_name, status, description, pathname, passthr
 INSERT OR IGNORE INTO fields (model_name, field_name, type, required, default_value, description) VALUES
     ('display', 'width', 'integer', 1, NULL, 'Screen width in pixels'),
     ('display', 'height', 'integer', 1, NULL, 'Screen height in pixels'),
-    ('display', 'dpi', 'integer', 0, '1', 'Device pixel ratio'),
+    ('display', 'dpi', 'numeric', 0, '1', 'Device pixel ratio'),
     ('display', 'connected', 'boolean', 0, '0', 'Browser currently connected'),
     ('display', 'session_id', 'text', 0, NULL, 'Browser session identifier'),
     ('display', 'user_agent', 'text', 0, NULL, 'Browser user agent string'),

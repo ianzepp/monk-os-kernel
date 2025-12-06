@@ -311,7 +311,7 @@ async function handleConnect(
         const results = await collect(ems.ops.createAll('display', [{
             width: data.width,
             height: data.height,
-            dpi: data.dpi ?? 96,
+            dpi: data.dpi ?? 1,
             connected: true,
             session_id: sessionId,
             user_agent: data.userAgent ?? null,
