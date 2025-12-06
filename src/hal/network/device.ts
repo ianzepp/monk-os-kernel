@@ -67,7 +67,16 @@
  */
 
 import { ETIMEDOUT } from '../errors.js';
-import type { ConnectOpts, HttpHandler, HttpServer, Listener, ListenOpts, NetworkDevice, Socket } from './types.js';
+import type {
+    ConnectOpts,
+    HttpHandler,
+    HttpServer,
+    Listener,
+    ListenOpts,
+    NetworkDevice,
+    ServeOpts,
+    Socket,
+} from './types.js';
 import { BunSocket } from './socket.js';
 import { BunListener } from './listener.js';
 
@@ -294,15 +303,20 @@ export class BunNetworkDevice implements NetworkDevice {
     // =========================================================================
 
     /**
-     * Create an HTTP server.
+     * Create an HTTP server with optional WebSocket support.
      *
      * ALGORITHM:
-     * 1. Call Bun.serve() with port and handler
+     * 1. Call Bun.serve() with port, handler, and optional websocket config
      * 2. Wrap in HttpServer interface with close() method
      * 3. Return immediately (server is listening)
      *
      * WHY: Bun.serve() returns immediately with a started server. We wrap it
      * to provide a consistent interface with close() and addr() methods.
+     *
+     * WEBSOCKET SUPPORT:
+     * When opts.websocket is provided, the HTTP handler receives an UpgradeServer
+     * that can upgrade connections to WebSocket. Bun handles the protocol upgrade
+     * internally - we just pass through the configuration.
      *
      * MEMORY MANAGEMENT:
      * Server maintains internal state until stop() is called. close() delegates
@@ -310,13 +324,37 @@ export class BunNetworkDevice implements NetworkDevice {
      *
      * @param port - Port number to listen on
      * @param handler - Request handler function
+     * @param opts - Optional server options (hostname, websocket handlers)
      * @returns Promise resolving to HTTP server handle
      */
-    async serve(port: number, handler: HttpHandler): Promise<HttpServer> {
-        const server = Bun.serve({
+    async serve<T = unknown>(
+        port: number,
+        handler: HttpHandler<T>,
+        opts?: ServeOpts<T>,
+    ): Promise<HttpServer> {
+        // Build Bun.serve() config
+        // WHY type assertion: Bun's types are complex, our abstraction is simpler
+        const config: Parameters<typeof Bun.serve>[0] = {
             port,
-            fetch: handler,
-        });
+            hostname: opts?.hostname,
+
+            // Wrap handler to pass server for WebSocket upgrades
+            // WHY: Our HttpHandler expects UpgradeServer, Bun provides Server
+            fetch(req, server) {
+                // Pass server as UpgradeServer (it implements the interface)
+                return handler(req, server as any) as Response | Promise<Response>;
+            },
+        };
+
+        // Add WebSocket handlers if configured
+        // WHY: Only add websocket config when handlers provided, keeps HTTP-only
+        // servers simple and avoids Bun allocating WebSocket infrastructure
+        if (opts?.websocket) {
+            // WHY type assertion: Our types match Bun's but TypeScript can't verify
+            config.websocket = opts.websocket as any;
+        }
+
+        const server = Bun.serve(config);
 
         return {
             /**

@@ -1,14 +1,18 @@
 /**
- * displayd - Type definitions
+ * Display Subsystem - Type Definitions
  *
  * TypeScript interfaces for display system entities.
- * These match the YAML model definitions in models/*.yaml
+ * These match the SQL schema in schema.sql.
  *
- * @module @monk-api/displayd/types
+ * @module display/types
  */
 
+// =============================================================================
+// BASE TYPES
+// =============================================================================
+
 /**
- * Base entity fields (from EMS)
+ * Base entity fields (from EMS).
  */
 interface EntityBase {
     id: string;
@@ -18,8 +22,15 @@ interface EntityBase {
     expired_at: string | null;
 }
 
+// =============================================================================
+// DISPLAY
+// =============================================================================
+
 /**
- * Display - Browser session/connection
+ * Display - Browser session/connection.
+ *
+ * One display entity per connected browser tab. The display owns windows,
+ * cursor, and receives events.
  */
 export interface Display extends EntityBase {
     width: number;
@@ -31,8 +42,15 @@ export interface Display extends EntityBase {
     last_ping: string | null;
 }
 
+// =============================================================================
+// WINDOW
+// =============================================================================
+
 /**
- * Window - Application window
+ * Window - Application window owned by a process.
+ *
+ * Windows belong to a display and contain elements. Each window has position,
+ * size, focus state, and chrome controls (minimize, maximize, close).
  */
 export interface Window extends EntityBase {
     display_id: string;
@@ -58,8 +76,18 @@ export interface Window extends EntityBase {
     opacity: number;
 }
 
+// =============================================================================
+// ELEMENT
+// =============================================================================
+
 /**
- * Element - UI element within a window
+ * Element - UI element within a window.
+ *
+ * Elements form a tree structure within a window. Each element has a tag,
+ * properties (like React props), and optional text content.
+ *
+ * Uses passthrough mode for performance - high-frequency updates skip
+ * most of the observer pipeline.
  */
 export interface Element extends EntityBase {
     window_id: string;
@@ -79,8 +107,12 @@ export interface Element extends EntityBase {
     autofocus: boolean;
 }
 
+// =============================================================================
+// EVENT
+// =============================================================================
+
 /**
- * Event types
+ * Event types - all supported browser events.
  */
 export type EventType =
     // Mouse events
@@ -130,7 +162,10 @@ export type EventType =
     | 'custom';
 
 /**
- * Event - Input event from browser
+ * Event - Input event from browser.
+ *
+ * Events are created by the browser client and consumed by processes.
+ * Uses passthrough mode for performance.
  */
 export interface Event extends EntityBase {
     display_id: string;
@@ -152,8 +187,12 @@ export interface Event extends EntityBase {
     prevented: boolean;
 }
 
+// =============================================================================
+// CURSOR
+// =============================================================================
+
 /**
- * Cursor styles
+ * Cursor styles - CSS cursor values.
  */
 export type CursorStyle =
     | 'default'
@@ -187,7 +226,10 @@ export type CursorStyle =
     | 'none';
 
 /**
- * Cursor - Mouse cursor state
+ * Cursor - Mouse cursor state per display.
+ *
+ * One cursor per display. Tracks position, style, and hover target.
+ * Uses passthrough mode for high-frequency position updates.
  */
 export interface Cursor extends EntityBase {
     display_id: string;
@@ -199,13 +241,19 @@ export interface Cursor extends EntityBase {
     element_id: string | null;
 }
 
+// =============================================================================
+// SELECTION
+// =============================================================================
+
 /**
- * Selection direction
+ * Selection direction.
  */
 export type SelectionDirection = 'forward' | 'backward' | 'none';
 
 /**
- * Selection - Text selection state
+ * Selection - Text selection state within a window.
+ *
+ * Tracks text selection for copy/paste and text editing operations.
  */
 export interface Selection extends EntityBase {
     window_id: string;
@@ -217,4 +265,19 @@ export interface Selection extends EntityBase {
     direction: SelectionDirection;
     start_element_id: string | null;
     end_element_id: string | null;
+}
+
+// =============================================================================
+// CONFIGURATION
+// =============================================================================
+
+/**
+ * Display subsystem configuration.
+ */
+export interface DisplayConfig {
+    /** WebSocket port for browser connections (default: 8080) */
+    port?: number;
+
+    /** Host to bind to (default: '0.0.0.0') */
+    host?: string;
 }

@@ -483,6 +483,163 @@ export interface Listener extends AsyncDisposable {
 }
 
 // -------------------------------------------------------------------------
+// WebSocket Server
+// -------------------------------------------------------------------------
+
+/**
+ * Server-side WebSocket connection.
+ *
+ * WHY: Abstracts Bun's ServerWebSocket for platform independence.
+ * Provides bidirectional message exchange with connected clients.
+ *
+ * DESIGN: Matches Bun's ServerWebSocket interface closely to minimize
+ * abstraction overhead while enabling future platform portability.
+ */
+export interface ServerWebSocket<T = unknown> {
+    /**
+     * Custom data attached to this connection.
+     *
+     * WHY: Enables associating application state (session ID, user info)
+     * with each connection without external maps.
+     */
+    readonly data: T;
+
+    /**
+     * Remote IP address.
+     */
+    readonly remoteAddress: string;
+
+    /**
+     * Send data to the client.
+     *
+     * @param data - String or binary data to send
+     * @param compress - Whether to compress (default: false)
+     * @returns Bytes sent, or -1 if dropped due to backpressure
+     */
+    send(data: string | Uint8Array, compress?: boolean): number;
+
+    /**
+     * Close the connection.
+     *
+     * @param code - Close code (default: 1000)
+     * @param reason - Close reason
+     */
+    close(code?: number, reason?: string): void;
+
+    /**
+     * Subscribe to a topic for pub/sub messaging.
+     *
+     * @param topic - Topic name
+     */
+    subscribe(topic: string): void;
+
+    /**
+     * Unsubscribe from a topic.
+     *
+     * @param topic - Topic name
+     */
+    unsubscribe(topic: string): void;
+
+    /**
+     * Publish message to all subscribers of a topic.
+     *
+     * @param topic - Topic name
+     * @param data - Data to publish
+     * @param compress - Whether to compress
+     */
+    publish(topic: string, data: string | Uint8Array, compress?: boolean): void;
+
+    /**
+     * Check if subscribed to a topic.
+     *
+     * @param topic - Topic name
+     */
+    isSubscribed(topic: string): boolean;
+}
+
+/**
+ * WebSocket event handlers for server-side connections.
+ *
+ * WHY: Callback-based API matches Bun's model. Each handler is optional
+ * to allow handling only events of interest.
+ *
+ * @template T - Type of custom data attached to each connection
+ */
+export interface WebSocketHandler<T = unknown> {
+    /**
+     * Called when a new WebSocket connection is established.
+     *
+     * WHY: Initialize per-connection state, add to tracking structures.
+     *
+     * @param ws - The connected WebSocket
+     */
+    open?(ws: ServerWebSocket<T>): void;
+
+    /**
+     * Called when a message is received from the client.
+     *
+     * WHY: Handle incoming data (commands, events, queries).
+     *
+     * @param ws - The WebSocket that sent the message
+     * @param message - The message data (string or binary)
+     */
+    message?(ws: ServerWebSocket<T>, message: string | Uint8Array): void;
+
+    /**
+     * Called when the connection is closed.
+     *
+     * WHY: Clean up per-connection state, remove from tracking structures.
+     *
+     * @param ws - The WebSocket that closed
+     * @param code - Close code
+     * @param reason - Close reason
+     */
+    close?(ws: ServerWebSocket<T>, code: number, reason: string): void;
+
+    /**
+     * Called when a ping is received.
+     *
+     * @param ws - The WebSocket
+     * @param data - Ping data
+     */
+    ping?(ws: ServerWebSocket<T>, data: Uint8Array): void;
+
+    /**
+     * Called when a pong is received.
+     *
+     * @param ws - The WebSocket
+     * @param data - Pong data
+     */
+    pong?(ws: ServerWebSocket<T>, data: Uint8Array): void;
+
+    /**
+     * Called when backpressure is relieved (drain event).
+     *
+     * WHY: Resume sending after send() returned -1.
+     *
+     * @param ws - The WebSocket
+     */
+    drain?(ws: ServerWebSocket<T>): void;
+}
+
+/**
+ * Server interface for WebSocket upgrades.
+ *
+ * WHY: Enables HTTP handlers to upgrade connections to WebSocket.
+ * Passed to HttpHandler so it can trigger upgrades.
+ */
+export interface UpgradeServer<T = unknown> {
+    /**
+     * Upgrade an HTTP request to a WebSocket connection.
+     *
+     * @param req - The HTTP request to upgrade
+     * @param data - Custom data to attach to the WebSocket
+     * @returns true if upgrade succeeded, false otherwise
+     */
+    upgrade(req: Request, data?: T): boolean;
+}
+
+// -------------------------------------------------------------------------
 // HTTP Server
 // -------------------------------------------------------------------------
 
@@ -492,9 +649,39 @@ export interface Listener extends AsyncDisposable {
  * WHY: Matches Web Standards fetch() API. Enables using standard Request/Response
  * types without Monk-specific wrappers.
  *
+ * When WebSocket is configured, the handler receives an UpgradeServer that can
+ * be used to upgrade connections. Return undefined after calling upgrade().
+ *
  * TESTABILITY: Easy to test with mock Request objects.
+ *
+ * @template T - Type of custom data for WebSocket connections
  */
-export type HttpHandler = (req: Request) => Response | Promise<Response>;
+export type HttpHandler<T = unknown> = (
+    req: Request,
+    server?: UpgradeServer<T>,
+) => Response | Promise<Response> | undefined | Promise<undefined>;
+
+/**
+ * Options for HTTP server creation.
+ *
+ * WHY: Enables optional WebSocket support without changing serve() signature.
+ *
+ * @template T - Type of custom data for WebSocket connections
+ */
+export interface ServeOpts<T = unknown> {
+    /**
+     * Hostname to bind to (default: '0.0.0.0').
+     */
+    hostname?: string;
+
+    /**
+     * WebSocket handlers for upgraded connections.
+     *
+     * WHY: When present, enables HTTP → WebSocket upgrades.
+     * The HTTP handler receives an UpgradeServer to trigger upgrades.
+     */
+    websocket?: WebSocketHandler<T>;
+}
 
 /**
  * HTTP server interface.
@@ -625,21 +812,46 @@ export interface NetworkDevice {
     connect(host: string, port: number, opts?: ConnectOpts): Promise<Socket>;
 
     /**
-     * Create an HTTP server.
+     * Create an HTTP server with optional WebSocket support.
      *
      * Returns immediately with a listening server. Requests are handled by the
-     * provided handler function.
+     * provided handler function. If WebSocket handlers are provided, the HTTP
+     * handler can upgrade connections to WebSocket.
      *
      * ALGORITHM:
      * 1. Bind to port
      * 2. Start HTTP server with handler
-     * 3. Return server handle
+     * 3. If websocket configured, enable upgrade support
+     * 4. Return server handle
      *
-     * Bun implementation: Bun.serve() with fetch-style handler.
+     * Bun implementation: Bun.serve() with fetch-style handler and optional
+     * websocket config.
      *
      * @param port - Port to listen on
      * @param handler - Request handler function
+     * @param opts - Optional server options (hostname, websocket handlers)
      * @returns Promise resolving to HTTP server handle
+     *
+     * @example
+     * ```typescript
+     * // HTTP only
+     * const server = await network.serve(8080, (req) => new Response('Hello'));
+     *
+     * // HTTP + WebSocket
+     * const server = await network.serve(8080, (req, server) => {
+     *     if (req.url.endsWith('/ws')) {
+     *         server.upgrade(req, { userId: '123' });
+     *         return;
+     *     }
+     *     return new Response('Hello');
+     * }, {
+     *     websocket: {
+     *         open(ws) { console.log('connected', ws.data.userId); },
+     *         message(ws, msg) { ws.send(`echo: ${msg}`); },
+     *         close(ws) { console.log('disconnected'); },
+     *     },
+     * });
+     * ```
      */
-    serve(port: number, handler: HttpHandler): Promise<HttpServer>;
+    serve<T = unknown>(port: number, handler: HttpHandler<T>, opts?: ServeOpts<T>): Promise<HttpServer>;
 }

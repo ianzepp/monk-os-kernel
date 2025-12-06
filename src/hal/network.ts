@@ -55,7 +55,11 @@ export type {
     Socket,
     ListenerAcceptOpts,
     Listener,
+    ServerWebSocket,
+    WebSocketHandler,
+    UpgradeServer,
     HttpHandler,
+    ServeOpts,
     HttpServer,
     NetworkDevice,
 } from './network/types.js';
