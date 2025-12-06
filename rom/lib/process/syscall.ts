@@ -94,9 +94,9 @@ import type {
     SignalMessage,
     StreamPingMessage,
     StreamCancelMessage,
-} from '@src/kernel/types.js';
-import type { Response } from '@src/message.js';
-import { fromCode } from '@src/hal/errors.js';
+    Response,
+} from './types.js';
+import { fromCode } from '../errors.js';
 
 // =============================================================================
 // CONSTANTS

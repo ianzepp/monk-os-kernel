@@ -76,9 +76,9 @@
  * @module process/channel
  */
 
-import { syscall, syscallStream } from '@src/process/syscall.js';
-import { withTypedErrors } from '@src/process/errors.js';
-import type { Message, Response } from '@src/message.js';
+import { syscall, syscallStream } from './syscall.js';
+import { withTypedErrors } from './errors.js';
+import type { Message, Response } from './types.js';
 
 // =============================================================================
 // TYPES

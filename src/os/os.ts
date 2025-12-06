@@ -247,7 +247,7 @@ export class OS {
         await this.emit('kernel', this);
 
         // 7. Init process (if main provided)
-        const initPath = opts?.main ? this.resolvePath(opts.main) : '/bin/true.ts';
+        const initPath = opts?.main ? this.resolvePath(opts.main) : '/svc/init.ts';
 
         await this.kernel.boot({
             initPath,
@@ -255,7 +255,6 @@ export class OS {
             env: this.config.env ?? {
                 HOME: '/',
                 USER: 'root',
-                SHELL: '/bin/shell',
             },
             debug,
         });

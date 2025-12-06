@@ -70,8 +70,8 @@
  * @module process
  */
 
-import { syscall } from '@src/process/syscall.js';
-import { withTypedErrors } from '@src/process/errors.js';
+import { syscall } from './syscall.js';
+import { withTypedErrors } from './errors.js';
 
 // =============================================================================
 // RE-EXPORTS
@@ -82,18 +82,18 @@ import { withTypedErrors } from '@src/process/errors.js';
  *
  * WHY: Single import point for all process-related types.
  */
-export * from '@src/process/errors.js';
+export * from './errors.js';
 
 /**
  * Re-export signal registration.
  */
-export { onSignal } from '@src/process/syscall.js';
+export { onSignal } from './syscall.js';
 
 /**
  * Re-export channel API.
  */
-export { channel, httpRequest, sqlQuery, sqlExecute } from '@src/process/channel.js';
-export type { ChannelOpts, HttpRequest } from '@src/process/channel.js';
+export { channel, httpRequest, sqlQuery, sqlExecute } from './channel.js';
+export type { ChannelOpts, HttpRequest } from './channel.js';
 
 // =============================================================================
 // TYPES

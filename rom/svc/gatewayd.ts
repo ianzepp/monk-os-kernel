@@ -43,8 +43,8 @@ import {
     pclose,
     println,
     eprintln,
-} from '@src/process/index.js';
-import { syscall } from '@src/process/syscall.js';
+} from '@rom/lib/process/index.js';
+import { syscall } from '@rom/lib/process/syscall.js';
 
 // Default socket path
 const SOCKET_PATH = process.env.MONK_SOCKET ?? '/tmp/monk.sock';
@@ -75,7 +75,7 @@ async function main(): Promise<void> {
 
     // Remove existing socket file if present
     try {
-        const { unlink } = await import('@src/process/index.js');
+        const { unlink } = await import('@rom/lib/process/index.js');
         await unlink(SOCKET_PATH);
     }
     catch {

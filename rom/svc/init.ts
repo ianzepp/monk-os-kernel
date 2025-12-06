@@ -17,7 +17,7 @@ import {
     println,
     eprintln,
     ESRCH,
-} from '@src/process/index.js';
+} from '@rom/lib/process/index.js';
 
 /**
  * Child process tracking

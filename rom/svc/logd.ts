@@ -11,7 +11,7 @@
  * the routing based on the service's io configuration.
  */
 
-import { read, println } from '@src/process/index.js';
+import { read, println } from '@rom/lib/process/index.js';
 
 // Format: [timestamp] [topic] message
 function formatLogLine(topic: string, payload: string): string {

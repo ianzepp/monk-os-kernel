@@ -115,14 +115,14 @@ export {
     // Type guards
     isHALError,
     hasErrorCode,
-} from '@src/hal/errors.js';
+} from '../errors.js';
 
 // =============================================================================
 // IMPORTS (for local use)
 // =============================================================================
 
 import type {
-    HALError } from '@src/hal/errors.js';
+    HALError } from '../errors.js';
 import {
     EACCES,
     EAGAIN,
@@ -161,7 +161,7 @@ import {
     ENOTSUP,
     EOVERFLOW,
     ERANGE,
-} from '@src/hal/errors.js';
+} from '../errors.js';
 
 // =============================================================================
 // TYPES
