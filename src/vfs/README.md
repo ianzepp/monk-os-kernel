@@ -1,6 +1,6 @@
 # VFS Module
 
-The Virtual File System provides a unified interface for file and directory operations. All VFS operations are exposed as `file:*` syscalls.
+The Virtual File System provides a unified interface for file and directory operations. VFS operations are exposed as `file:*` syscalls (for file/directory operations) and `fs:*` syscalls (for mount operations).
 
 ## Syscall Reference
 
@@ -311,6 +311,58 @@ await os.vfs('access', '/path/to/file', null);
 **Errors:**
 - `ENOENT` - Path not found
 - `EACCES` - Permission denied
+
+---
+
+### Mount Operations
+
+These syscalls use `fs:` prefix (not `file:`) and are subject to mount policy rules.
+
+#### `fs:mount`
+
+Mount a filesystem to a target path.
+
+```typescript
+// Mount host directory
+await os.syscall('fs:mount', 'host:/path/on/host', '/mnt/data');
+
+// With options
+await os.syscall('fs:mount', 'host:./src', '/app', { readonly: true });
+```
+
+**Parameters:**
+- `source: string` - Mount source with type prefix
+- `target: string` - Target path in VFS (absolute)
+- `opts?: object` - Mount-specific options
+
+**Mount Sources:**
+| Prefix | Description | Example |
+|--------|-------------|---------|
+| `host:` | Host filesystem directory | `host:/home/user/data` |
+| `tmpfs` | In-memory filesystem | `tmpfs` (not yet implemented) |
+
+**Errors:**
+- `EPERM` - Mount policy denies operation
+- `EACCES` - Missing required grant on target
+- `EINVAL` - Unknown mount source type
+- `ENOTSUP` - Mount type not yet supported
+
+---
+
+#### `fs:umount`
+
+Unmount a filesystem.
+
+```typescript
+await os.syscall('fs:umount', '/mnt/data');
+```
+
+**Parameters:**
+- `target: string` - Path to unmount
+
+**Errors:**
+- `EPERM` - Mount policy denies operation
+- `EINVAL` - Target not mounted
 
 ---
 
