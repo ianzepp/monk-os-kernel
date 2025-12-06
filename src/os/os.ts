@@ -412,46 +412,60 @@ export class OS {
 
     /**
      * Copy a single file from host to VFS.
+     *
+     * WHY: Uses VFS directly instead of syscalls to support being called
+     * during boot before the kernel is initialized.
      */
     private async copyFile(hostPath: string, vfsPath: string): Promise<void> {
+        const vfs = this._vfs;
+
+        if (!vfs) {
+            throw new EINVAL('VFS not initialized');
+        }
+
         // Ensure parent directory exists
         const parent = vfsPath.substring(0, vfsPath.lastIndexOf('/')) || '/';
 
         try {
-            await this.vfs('stat', parent);
+            await vfs.stat(parent, 'kernel');
         }
         catch {
-            await this.vfs('mkdir', parent, { recursive: true });
+            await vfs.mkdir(parent, 'kernel', { recursive: true });
         }
 
         // Read from host
         const content = await fs.readFile(hostPath);
 
-        // Write to VFS
-        const fd = await this.vfs<number>('open', vfsPath, {
-            write: true,
-            create: true,
-            truncate: true,
-        });
+        // Write to VFS using handle API
+        const handle = await vfs.open(vfsPath, { write: true, create: true, truncate: true }, 'kernel');
 
         try {
-            await this.vfs('write', fd, new Uint8Array(content));
+            await handle.write(new Uint8Array(content));
         }
         finally {
-            await this.vfs('close', fd);
+            await handle.close();
         }
     }
 
     /**
      * Recursively copy a directory from host to VFS.
+     *
+     * WHY: Uses VFS directly instead of syscalls to support being called
+     * during boot before the kernel is initialized.
      */
     private async copyDir(hostPath: string, vfsPath: string): Promise<void> {
+        const vfs = this._vfs;
+
+        if (!vfs) {
+            throw new EINVAL('VFS not initialized');
+        }
+
         // Create target directory
         try {
-            await this.vfs('stat', vfsPath);
+            await vfs.stat(vfsPath, 'kernel');
         }
         catch {
-            await this.vfs('mkdir', vfsPath, { recursive: true });
+            await vfs.mkdir(vfsPath, 'kernel', { recursive: true });
         }
 
         // Read directory entries

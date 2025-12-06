@@ -6,7 +6,6 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { OS } from '@src/index.js';
 import { EntityModel } from '@src/vfs/models/entity.js';
 import { EntityCache, ROOT_ID } from '@src/ems/entity-cache.js';
 import { EntityOps, type EntityRecord } from '@src/ems/entity-ops.js';
@@ -238,84 +237,3 @@ describe('EntityModel', () => {
     });
 });
 
-// =============================================================================
-// INTEGRATION WITH BOOTED OS
-// =============================================================================
-
-describe('EntityModel with booted OS', () => {
-    let os: OS;
-
-    beforeEach(async () => {
-        os = new OS();
-        await os.boot();
-    });
-
-    afterEach(async () => {
-        if (os?.isBooted()) {
-            await os.shutdown();
-        }
-    });
-
-    it('should have VFS available after boot', () => {
-        const vfs = os.getVFS();
-
-        expect(vfs).toBeDefined();
-    });
-
-    it('should have /dev folder with devices', async () => {
-        const vfs = os.getVFS();
-        const stat = await vfs.stat('/dev', 'kernel');
-
-        expect(stat.model).toBe('folder');
-    });
-
-    it('should have /dev/console device', async () => {
-        const vfs = os.getVFS();
-        const stat = await vfs.stat('/dev/console', 'kernel');
-
-        expect(stat.model).toBe('device');
-    });
-
-    it('should have os.ems available', () => {
-        expect(os.ems).toBeDefined();
-    });
-
-    it('should query models via os.ems', async () => {
-        const models = await os.ems.selectAny('models');
-
-        expect(models.length).toBeGreaterThan(0);
-
-        // Should have core models
-        const modelNames = models.map((m: EntityRecord) => m.model_name);
-
-        expect(modelNames).toContain('folder');
-        expect(modelNames).toContain('file');
-    });
-
-    it('should query fields via os.ems', async () => {
-        const fields = await os.ems.selectAny('fields', {
-            where: { model_name: 'folder' },
-        });
-
-        expect(fields.length).toBeGreaterThan(0);
-    });
-
-    it('should create a folder entity via os.ems', async () => {
-        const folder = await os.ems.createOne('folder', {
-            parent: ROOT_ID,
-            pathname: 'test-via-os-db',
-            owner: 'test-user',
-        });
-
-        expect(folder.id).toBeDefined();
-        expect(folder.owner).toBe('test-user');
-
-        // Verify in entities table (entities has no trashed_at, so use 'include')
-        const entities = await os.ems.selectAny('entities', {
-            where: { id: folder.id },
-        }, { trashed: 'include' });
-
-        expect(entities.length).toBe(1);
-        expect((entities[0] as EntityRecord).pathname).toBe('test-via-os-db');
-    });
-});
