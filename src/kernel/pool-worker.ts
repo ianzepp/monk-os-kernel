@@ -7,6 +7,10 @@
  * - State reset between uses
  */
 
+// WHY: This file runs in a Web Worker context where `self` is the global.
+// TypeScript doesn't know this without explicit declaration.
+declare const self: Worker;
+
 import { EINVAL } from '@src/hal/errors.js';
 
 /** Currently loaded handler */

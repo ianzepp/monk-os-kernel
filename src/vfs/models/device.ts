@@ -464,7 +464,7 @@ class ByteDeviceHandle implements FileHandle {
      *
      * WHY: Data is written here to be transformed.
      */
-    private streamWriter?: WritableStreamDefaultWriter<BufferSource>;
+    private streamWriter?: WritableStreamDefaultWriter<Uint8Array>;
 
     /**
      * Reader for compression output.
@@ -557,8 +557,11 @@ class ByteDeviceHandle implements FileHandle {
         }
 
         // Get handles to stream endpoints
-        this.streamWriter = this.compressionStream.writable.getWriter();
-        this.streamReader = this.compressionStream.readable.getReader();
+        // WHY cast: getWriter() returns WritableStreamDefaultWriter<BufferSource>, but we only write Uint8Array
+        this.streamWriter = this.compressionStream.writable.getWriter() as WritableStreamDefaultWriter<Uint8Array>;
+
+        // WHY cast: getReader() returns a generic type, but we know it produces Uint8Array
+        this.streamReader = this.compressionStream.readable.getReader() as ReadableStreamDefaultReader<Uint8Array>;
 
         // Start background pump to collect output
         this.pumpReader();

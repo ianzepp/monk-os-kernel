@@ -31,9 +31,9 @@ describe('IPC Device', () => {
 
                 const received: unknown[] = [];
 
-                b.onmessage = event => {
-                    received.push(event.data);
-                };
+                b.addEventListener('message', event => {
+                    received.push((event as MessageEvent).data);
+                });
 
                 b.start();
 

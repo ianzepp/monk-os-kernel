@@ -30,7 +30,7 @@ describe('HTTP Channel', () => {
                 // POST endpoint
                 if (url.pathname === '/users' && req.method === 'POST') {
                     return req.json().then(body => {
-                        return Response.json({ id: 3, ...body }, { status: 201 });
+                        return Response.json({ id: 3, ...(body as Record<string, unknown>) }, { status: 201 });
                     });
                 }
 

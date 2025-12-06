@@ -23,6 +23,7 @@ function createMockProcess(overrides: Partial<Process> = {}): Process {
     return {
         id: crypto.randomUUID(),
         parent: '',
+        user: 'test',
         worker: {} as Worker,
         state: 'running',
         cmd: '/bin/test',

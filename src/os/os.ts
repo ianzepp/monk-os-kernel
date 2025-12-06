@@ -531,10 +531,12 @@ export class OS {
      * @param encoding - Text encoding (default: 'utf-8')
      * @returns File contents as string
      */
-    async text(path: string, encoding: string = 'utf-8'): Promise<string> {
+    async text(path: string, encoding = 'utf-8'): Promise<string> {
         const bytes = await this.read(path);
 
-        return new TextDecoder(encoding).decode(bytes);
+        // WHY cast: TextDecoder accepts any valid encoding string, but TypeScript
+        // has a strict Encoding type. We trust the caller to provide valid encodings.
+        return new TextDecoder(encoding as 'utf-8').decode(bytes);
     }
 
     /**
