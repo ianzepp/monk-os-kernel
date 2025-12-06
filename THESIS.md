@@ -257,43 +257,100 @@ await call('proc:setenv', 'DEBUG', '1');
 
 ## Migration Path
 
+### Dependency Graph
+
+```
+Phase 1: Reorganize rom/
+    │
+    ▼
+Phase 2: Implement gatewayd
+    │
+    ▼
+Phase 3: Create os-sdk
+    │
+    ├────────────────────┬────────────────────┐
+    ▼                    ▼                    ▼
+Phase 4:             Phase 5:             Phase 6:
+Display schema       os-coreutils         (parallel work)
+    │                    │
+    ▼                    ▼
+Phase 7:             Phase 8:
+Fix displayd         os-shell
+    │
+    ▼
+Phase 8:
+Fix displayd-client
+    │
+    ▼
+Phase 9: Cleanup & OS 1.0
+```
+
+**Critical path**: Phases 1-3. Once gatewayd + os-sdk work, everything else unblocks.
+
+---
+
 ### Phase 1: Reorganize rom/
 - Rename `rom/bin/` → `rom/svc/` for kernel services
 - Keep only kernel services: logd, init (if needed)
 - Move user utilities out (prepare for os-coreutils)
+- Move `spec/rom/bin/*` tests out (will go to os-coreutils)
 
 ### Phase 2: Implement gatewayd
 - Create `rom/svc/gatewayd.ts` - Unix socket listener
 - Accept connections, create virtual process context
 - Proxy syscalls to kernel, stream responses
 - Boot gatewayd as a kernel service
+- Test: can external process connect and make syscall?
 
 ### Phase 3: Create os-sdk
-- Extract syscall wrappers from `rom/lib/`
-- Add Unix socket transport (connect to gatewayd)
-- Publish as `@monk-api/os-sdk`
-- Test external process connectivity
+- Create `@monk-api/os-sdk` package
+- Mirror `rom/lib/` API with Unix socket transport
+- Connect to gatewayd, same message format as Workers
+- Publish package
+- Test: external process → gatewayd → kernel → response
 
-### Phase 4: Extract Utilities
+**────── External apps now possible ──────**
+
+### Phase 4: Display schema (parallel with 5, 6)
+- Move `schema.sql` entities into OS EMS schema
+- Display/window/element/event/cursor/selection models
+- Available via `ems:*` syscalls
+- Test: can create/query display entities via syscalls?
+
+### Phase 5: os-coreutils (parallel with 4, 6)
 - Create `@monk-api/os-coreutils` package
-- Move user utilities (cat, ls, grep, awk, etc.)
-- Import os-sdk for syscalls
-- Adapt to work as executables and library
+- Move utilities from `rom/bin/` (cat, ls, grep, awk, etc.)
+- Move tests from `spec/rom/bin/`
+- Import `@monk-api/os-sdk` for syscalls
+- Work as both executables and importable library
 
-### Phase 5: Extract Shell
-- Create `@monk-api/os-shell` package
-- Interactive REPL using os-coreutils
-- Command parsing, job control, history
+### Phase 6: Other parallel work
+- Any kernel service development (authd, scheduled, etc.)
+- Documentation updates
+- Performance testing
 
-### Phase 6: Extract Display
-- Move `src/display/schema.sql` into OS EMS schema
-- Create `@monk-api/displayd` package (WebSocket bridge using os-sdk)
-- Create `@monk-api/displayd-client` package (browser UI)
-- Remove `src/display/` and `packages/display-client/` from OS
+### Phase 7: Fix displayd (after Phase 4)
+- Initialize `@monk-api/displayd` package (already extracted)
+- Add package.json, tsconfig, etc.
+- Import `@monk-api/os-sdk`, connect via gatewayd
+- WebSocket server for browsers
+- Bridge: WebSocket messages ↔ `ems:*` syscalls
 
-### Phase 7: Cleanup
-- Remove extracted code from OS
+### Phase 8: Fix displayd-client + os-shell
+- **displayd-client** (after Phase 7):
+  - Initialize `@monk-api/displayd-client` package
+  - Connect to displayd WebSocket
+  - Render windows, capture events
+
+- **os-shell** (after Phase 5):
+  - Create `@monk-api/os-shell` package
+  - Interactive REPL using os-coreutils
+  - Command parsing, job control, history
+
+### Phase 9: Cleanup & Release
+- Remove extracted code from OS (already done for display)
 - Update AGENTS.md documentation
+- Final test pass
 - Tag OS 1.0 release
 
 ---
