@@ -123,6 +123,16 @@ await os.mount('host', '/data', '/mnt/data', { readonly: true });
 await os.unmount('/app');
 ```
 
+### Host-to-VFS Copy
+
+```typescript
+// Copy a single file from host to VFS
+await os.copy('./config.json', '/etc/app/config.json');
+
+// Copy a directory tree (recursive, auto-creates directories)
+await os.copy('./src', '/app/src');
+```
+
 ### Service Management
 
 Services are defined in `/etc/services/*.json` and loaded at boot (but not auto-started).

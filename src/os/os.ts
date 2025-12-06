@@ -7,6 +7,8 @@
  * @see planning/OS_BOOT_EXEC.md for the full specification
  */
 
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import type { HAL, HALConfig } from '@src/hal/index.js';
 import { BunHAL, EINVAL, EBUSY } from '@src/hal/index.js';
 import { VFS } from '@src/vfs/vfs.js';
@@ -428,6 +430,98 @@ export class OS {
         const resolved = this.resolvePath(target);
 
         return this.syscall<void>('fs:umount', resolved);
+    }
+
+    /**
+     * Copy from host filesystem to VFS.
+     *
+     * Copies a file or directory tree from the host filesystem into the VFS.
+     * Directories are copied recursively. Target directories are created
+     * automatically.
+     *
+     * @param hostSource - Source path on host filesystem
+     * @param vfsTarget - Target path in VFS (aliases resolved)
+     *
+     * @example
+     * ```typescript
+     * // Copy a single file
+     * await os.copy('./config.json', '/etc/app/config.json');
+     *
+     * // Copy a directory tree
+     * await os.copy('./src', '/app/src');
+     * ```
+     */
+    async copy(hostSource: string, vfsTarget: string): Promise<void> {
+        const resolved = this.resolvePath(vfsTarget);
+        const stat = await fs.stat(hostSource);
+
+        if (stat.isDirectory()) {
+            await this.copyDir(hostSource, resolved);
+        }
+        else {
+            await this.copyFile(hostSource, resolved);
+        }
+    }
+
+    /**
+     * Copy a single file from host to VFS.
+     */
+    private async copyFile(hostPath: string, vfsPath: string): Promise<void> {
+        // Ensure parent directory exists
+        const parent = vfsPath.substring(0, vfsPath.lastIndexOf('/')) || '/';
+
+        try {
+            await this.vfs('stat', parent);
+        }
+        catch {
+            await this.vfs('mkdir', parent, { recursive: true });
+        }
+
+        // Read from host
+        const content = await fs.readFile(hostPath);
+
+        // Write to VFS
+        const fd = await this.vfs<number>('open', vfsPath, {
+            write: true,
+            create: true,
+            truncate: true,
+        });
+
+        try {
+            await this.vfs('write', fd, new Uint8Array(content));
+        }
+        finally {
+            await this.vfs('close', fd);
+        }
+    }
+
+    /**
+     * Recursively copy a directory from host to VFS.
+     */
+    private async copyDir(hostPath: string, vfsPath: string): Promise<void> {
+        // Create target directory
+        try {
+            await this.vfs('stat', vfsPath);
+        }
+        catch {
+            await this.vfs('mkdir', vfsPath, { recursive: true });
+        }
+
+        // Read directory entries
+        const entries = await fs.readdir(hostPath, { withFileTypes: true });
+
+        for (const entry of entries) {
+            const srcPath = path.join(hostPath, entry.name);
+            const dstPath = `${vfsPath}/${entry.name}`;
+
+            if (entry.isDirectory()) {
+                await this.copyDir(srcPath, dstPath);
+            }
+            else if (entry.isFile()) {
+                await this.copyFile(srcPath, dstPath);
+            }
+            // Skip symlinks, sockets, etc. for now
+        }
     }
 
     /**
