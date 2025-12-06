@@ -290,4 +290,3 @@ export interface HostServiceDef {
     /** Default configuration values */
     defaults?: Record<string, unknown>;
 }
-

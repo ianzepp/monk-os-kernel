@@ -737,7 +737,7 @@ export class OS {
         await this.boot({ main: opts?.main });
 
         // Create shutdown promise that resolves on signal
-        const shutdownPromise = new Promise<number>((resolve) => {
+        const shutdownPromise = new Promise<number>(resolve => {
             const shutdown = async (signal: string) => {
                 console.log(`\nReceived ${signal}, shutting down...`);
                 await this.shutdown();

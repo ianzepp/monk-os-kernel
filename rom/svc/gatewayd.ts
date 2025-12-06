@@ -76,6 +76,7 @@ async function main(): Promise<void> {
     // Remove existing socket file if present
     try {
         const { unlink } = await import('@rom/lib/process/index.js');
+
         await unlink(SOCKET_PATH);
     }
     catch {
@@ -144,6 +145,7 @@ async function handleClient(state: ClientState): Promise<void> {
 
             while ((newlineIdx = state.readBuffer.indexOf('\n')) !== -1) {
                 const line = state.readBuffer.slice(0, newlineIdx);
+
                 state.readBuffer = state.readBuffer.slice(newlineIdx + 1);
 
                 if (line.trim()) {
@@ -171,11 +173,13 @@ async function processMessage(state: ClientState, line: string): Promise<void> {
     }
     catch {
         await sendError(state, 'parse', 'EINVAL', 'Invalid JSON');
+
         return;
     }
 
     if (msg.type !== 'syscall') {
         await sendError(state, msg.id ?? 'unknown', 'EINVAL', `Unknown message type: ${msg.type}`);
+
         return;
     }
 
@@ -191,6 +195,7 @@ async function processMessage(state: ClientState, line: string): Promise<void> {
     catch (err: unknown) {
         // Send error response
         const error = err as Error & { code?: string };
+
         await sendError(state, id, error.code ?? 'EIO', error.message);
     }
 }

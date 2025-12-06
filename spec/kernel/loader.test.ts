@@ -479,4 +479,3 @@ describe('VFSLoader', () => {
         loader.revokeBlobURL(url);
     });
 });
-

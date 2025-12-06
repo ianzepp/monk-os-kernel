@@ -197,4 +197,3 @@ describe('OS with aliases', () => {
         expect(os.resolvePath('@src/main.ts')).toBe('/vol/src/main.ts');
     });
 });
-

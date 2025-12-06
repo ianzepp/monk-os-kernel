@@ -219,7 +219,7 @@ export class BunListener implements Listener {
         }
 
         listenConfig.socket = {
-                /**
+            /**
                  * New connection accepted.
                  *
                  * ALGORITHM:
@@ -238,45 +238,45 @@ export class BunListener implements Listener {
                  * Check connectionResolve before queueing. If accept() is waiting,
                  * deliver connection immediately instead of queueing.
                  */
-                open(socket: any) {
-                    /**
+            open(socket: any) {
+                /**
                      * Data queue for this socket.
                      * WHY: Buffers incoming bytes until read() consumes them.
                      */
-                    const dataQueue: Uint8Array[] = [];
+                const dataQueue: Uint8Array[] = [];
 
-                    /**
+                /**
                      * Pending read() resolver for this socket.
                      * WHY: Wakes blocked read() when data arrives.
                      */
-                    let dataResolve: ((data: Uint8Array) => void) | null = null;
+                let dataResolve: ((data: Uint8Array) => void) | null = null;
 
-                    /**
+                /**
                      * Socket closed flag.
                      * WHY: Prevents write() after close, signals EOF to read().
                      */
-                    let closed = false;
+                let closed = false;
 
-                    /**
+                /**
                      * Create BunSocket wrapper with state access closures.
                      * WHY: BunSocket needs to mutate dataResolve and closed, but
                      * we don't want to expose them directly. Closures provide
                      * controlled access.
                      */
-                    const wrappedSocket = new BunSocket(
-                        socket,
-                        dataQueue,
-                        () => dataResolve,
-                        r => {
-                            dataResolve = r;
-                        },
-                        () => closed,
-                        c => {
-                            closed = c;
-                        },
-                    );
+                const wrappedSocket = new BunSocket(
+                    socket,
+                    dataQueue,
+                    () => dataResolve,
+                    r => {
+                        dataResolve = r;
+                    },
+                    () => closed,
+                    c => {
+                        closed = c;
+                    },
+                );
 
-                    /**
+                /**
                      * Attach state to Bun socket for handler access.
                      * WHY: data/close/error handlers need to access the socket's
                      * state. Rather than maintaining a separate map, we attach
@@ -284,70 +284,70 @@ export class BunListener implements Listener {
                      *
                      * INVARIANT: Each socket has exactly one set of state.
                      */
-                    (socket as any)._halSocket = wrappedSocket;
-                    (socket as any)._dataQueue = dataQueue;
-                    (socket as any)._getDataResolve = () => dataResolve;
-                    (socket as any)._setDataResolve = (r: any) => {
-                        dataResolve = r;
-                    };
+                (socket as any)._halSocket = wrappedSocket;
+                (socket as any)._dataQueue = dataQueue;
+                (socket as any)._getDataResolve = () => dataResolve;
+                (socket as any)._setDataResolve = (r: any) => {
+                    dataResolve = r;
+                };
 
-                    (socket as any)._setClosed = (c: boolean) => {
-                        closed = c;
-                    };
+                (socket as any)._setClosed = (c: boolean) => {
+                    closed = c;
+                };
 
-                    /**
+                /**
                      * Deliver connection to pending accept() or queue it.
                      * RACE FIX: Check connectionResolve to decide. If accept()
                      * is waiting, deliver immediately. Otherwise queue.
                      */
-                    if (self.connectionResolve) {
-                        self.connectionResolve(wrappedSocket);
-                        self.connectionResolve = null;
-                    }
-                    else {
-                        self.connectionQueue.push(wrappedSocket);
-                    }
-                },
+                if (self.connectionResolve) {
+                    self.connectionResolve(wrappedSocket);
+                    self.connectionResolve = null;
+                }
+                else {
+                    self.connectionQueue.push(wrappedSocket);
+                }
+            },
 
-                /**
+            /**
                  * Data received on socket.
                  *
                  * WHY: Forward to socket's data queue. If read() is blocked,
                  * wake it. Otherwise buffer.
                  */
-                data(socket: any, data: any) {
-                    const bytes = new Uint8Array(data);
-                    const dataQueue = (socket as any)._dataQueue as Uint8Array[];
-                    const dataResolve = (socket as any)._getDataResolve() as ((data: Uint8Array) => void) | null;
+            data(socket: any, data: any) {
+                const bytes = new Uint8Array(data);
+                const dataQueue = (socket as any)._dataQueue as Uint8Array[];
+                const dataResolve = (socket as any)._getDataResolve() as ((data: Uint8Array) => void) | null;
 
-                    if (dataResolve) {
-                        // Pending read() - wake it
-                        dataResolve(bytes);
-                        (socket as any)._setDataResolve(null);
-                    }
-                    else {
-                        // No pending read - buffer
-                        dataQueue.push(bytes);
-                    }
-                },
+                if (dataResolve) {
+                    // Pending read() - wake it
+                    dataResolve(bytes);
+                    (socket as any)._setDataResolve(null);
+                }
+                else {
+                    // No pending read - buffer
+                    dataQueue.push(bytes);
+                }
+            },
 
-                /**
+            /**
                  * Socket closed by peer.
                  *
                  * WHY: Mark socket closed and wake any pending read() with EOF.
                  */
-                close(socket: any) {
-                    (socket as any)._setClosed(true);
-                    const dataResolve = (socket as any)._getDataResolve() as ((data: Uint8Array) => void) | null;
+            close(socket: any) {
+                (socket as any)._setClosed(true);
+                const dataResolve = (socket as any)._getDataResolve() as ((data: Uint8Array) => void) | null;
 
-                    if (dataResolve) {
-                        // Pending read() - wake with EOF
-                        dataResolve(new Uint8Array(0));
-                        (socket as any)._setDataResolve(null);
-                    }
-                },
+                if (dataResolve) {
+                    // Pending read() - wake with EOF
+                    dataResolve(new Uint8Array(0));
+                    (socket as any)._setDataResolve(null);
+                }
+            },
 
-                /**
+            /**
                  * Socket error.
                  *
                  * WHY: Log error and mark socket closed. In production, this should
@@ -355,11 +355,11 @@ export class BunListener implements Listener {
                  *
                  * TODO: Replace console.error with kernel logger.
                  */
-                error(socket: any, error: any) {
-                    console.error('Socket error:', error);
-                    (socket as any)._setClosed(true);
-                },
-            };
+            error(socket: any, error: any) {
+                console.error('Socket error:', error);
+                (socket as any)._setClosed(true);
+            },
+        };
 
         this.server = Bun.listen(listenConfig);
     }
