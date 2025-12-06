@@ -76,9 +76,55 @@
  * @module process/channel
  */
 
-import { syscall, syscallStream } from './syscall.js';
-import { withTypedErrors } from './errors.js';
+import { syscall } from './syscall.js';
+import { fromCode } from '../errors.js';
 import type { Message, Response } from './types.js';
+
+// =============================================================================
+// SYSCALL RESPONSE HELPERS
+// =============================================================================
+
+/**
+ * Consume a syscall stream expecting a single value response.
+ */
+async function unwrap<T>(stream: AsyncIterable<Response>): Promise<T> {
+    for await (const r of stream) {
+        if (r.op === 'ok') {
+            return r.data as T;
+        }
+
+        if (r.op === 'error') {
+            const err = r.data as { code: string; message: string };
+
+            throw fromCode(err.code, err.message);
+        }
+
+        throw new Error(`Unexpected response op '${r.op}' for single-value syscall`);
+    }
+
+    throw new Error('Unexpected end of syscall stream');
+}
+
+/**
+ * Consume a syscall stream expecting a void response.
+ */
+async function unwrapVoid(stream: AsyncIterable<Response>): Promise<void> {
+    for await (const r of stream) {
+        if (r.op === 'ok') {
+            return;
+        }
+
+        if (r.op === 'error') {
+            const err = r.data as { code: string; message: string };
+
+            throw fromCode(err.code, err.message);
+        }
+
+        throw new Error(`Unexpected response op '${r.op}' for void syscall`);
+    }
+
+    throw new Error('Unexpected end of syscall stream');
+}
 
 // =============================================================================
 // TYPES
@@ -180,7 +226,7 @@ export const channel = {
      * });
      */
     async open(proto: string, url: string, opts?: ChannelOpts): Promise<number> {
-        return withTypedErrors(syscall<number>('channel:open', proto, url, opts));
+        return unwrap<number>(syscall('channel:open', proto, url, opts));
     },
 
     /**
@@ -210,7 +256,7 @@ export const channel = {
      * }
      */
     async call<T = unknown>(ch: number, msg: Message): Promise<Response & { data?: T }> {
-        return withTypedErrors(syscall<Response & { data?: T }>('channel:call', ch, msg));
+        return unwrap<Response & { data?: T }>(syscall('channel:call', ch, msg));
     },
 
     /**
@@ -242,7 +288,7 @@ export const channel = {
      * }
      */
     stream(ch: number, msg: Message): AsyncIterable<Response> {
-        return syscallStream('channel:stream', ch, msg);
+        return syscall('channel:stream', ch, msg);
     },
 
     /**
@@ -264,7 +310,7 @@ export const channel = {
      * });
      */
     async push(ch: number, response: Response): Promise<void> {
-        return withTypedErrors(syscall<void>('channel:push', ch, response));
+        return unwrapVoid(syscall('channel:push', ch, response));
     },
 
     /**
@@ -289,7 +335,7 @@ export const channel = {
      * }
      */
     async recv(ch: number): Promise<Message> {
-        return withTypedErrors(syscall<Message>('channel:recv', ch));
+        return unwrap<Message>(syscall('channel:recv', ch));
     },
 
     /**
@@ -304,7 +350,7 @@ export const channel = {
      * await channel.close(ch);
      */
     async close(ch: number): Promise<void> {
-        return withTypedErrors(syscall<void>('channel:close', ch));
+        return unwrapVoid(syscall('channel:close', ch));
     },
 };
 

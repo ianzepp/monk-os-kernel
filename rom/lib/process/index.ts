@@ -71,7 +71,67 @@
  */
 
 import { syscall } from './syscall.js';
-import { withTypedErrors } from './errors.js';
+import { fromCode } from '../errors.js';
+import type { Response } from './types.js';
+
+// =============================================================================
+// SYSCALL RESPONSE HELPERS
+// =============================================================================
+
+/**
+ * Consume a syscall stream expecting a single value response.
+ *
+ * For syscalls that return a single 'ok' response with a value.
+ *
+ * @param stream - AsyncIterable from syscall()
+ * @returns The unwrapped data from the 'ok' response
+ * @throws Typed HAL error if syscall returns 'error'
+ */
+async function unwrap<T>(stream: AsyncIterable<Response>): Promise<T> {
+    for await (const r of stream) {
+        if (r.op === 'ok') {
+            return r.data as T;
+        }
+
+        if (r.op === 'error') {
+            const err = r.data as { code: string; message: string };
+
+            throw fromCode(err.code, err.message);
+        }
+
+        // Any other response type is a bug (kernel/wrapper mismatch)
+        throw new Error(`Unexpected response op '${r.op}' for single-value syscall`);
+    }
+
+    throw new Error('Unexpected end of syscall stream');
+}
+
+/**
+ * Consume a syscall stream expecting a void response.
+ *
+ * For syscalls that return 'ok' with no meaningful value.
+ *
+ * @param stream - AsyncIterable from syscall()
+ * @throws Typed HAL error if syscall returns 'error'
+ */
+async function unwrapVoid(stream: AsyncIterable<Response>): Promise<void> {
+    for await (const r of stream) {
+        if (r.op === 'ok') {
+            return;
+        }
+
+        if (r.op === 'error') {
+            const err = r.data as { code: string; message: string };
+
+            throw fromCode(err.code, err.message);
+        }
+
+        // Any other response type is a bug (kernel/wrapper mismatch)
+        throw new Error(`Unexpected response op '${r.op}' for void syscall`);
+    }
+
+    throw new Error('Unexpected end of syscall stream');
+}
 
 // =============================================================================
 // RE-EXPORTS
@@ -243,7 +303,7 @@ export const SIGKILL = 9;
  * await close(fd);
  */
 export function open(path: string, flags?: OpenFlags): Promise<number> {
-    return withTypedErrors(syscall<number>('file:open', path, flags ?? { read: true }));
+    return unwrap<number>(syscall('file:open', path, flags ?? { read: true }));
 }
 
 /**
@@ -255,22 +315,35 @@ export function open(path: string, flags?: OpenFlags): Promise<number> {
  * @throws EBADF - If fd is invalid
  */
 export function close(fd: number): Promise<void> {
-    return withTypedErrors(syscall<void>('file:close', fd));
+    return unwrapVoid(syscall('file:close', fd));
 }
 
 /**
  * Read from a file descriptor.
  *
- * Reads up to size bytes from current position. Returns empty array at EOF.
+ * Reads bytes from current position. Returns empty Uint8Array at EOF.
+ * This is a streaming syscall - it yields data chunks until done.
  *
  * @param fd - File descriptor
- * @param size - Maximum bytes to read (optional, reads all if omitted)
- * @returns Data read (may be less than size)
+ * @param size - Chunk size hint (optional)
+ * @returns AsyncIterable of byte chunks
  * @throws EBADF - If fd is invalid
  * @throws EACCES - If not opened for reading
  */
-export function read(fd: number, size?: number): Promise<Uint8Array> {
-    return withTypedErrors(syscall<Uint8Array>('file:read', fd, size));
+export async function* read(fd: number, size?: number): AsyncIterable<Uint8Array> {
+    for await (const r of syscall('file:read', fd, size)) {
+        if (r.op === 'data' && r.bytes) {
+            yield r.bytes;
+        }
+        else if (r.op === 'done') {
+            return;
+        }
+        else if (r.op === 'error') {
+            const err = r.data as { code: string; message: string };
+
+            throw fromCode(err.code, err.message);
+        }
+    }
 }
 
 /**
@@ -286,7 +359,7 @@ export function read(fd: number, size?: number): Promise<Uint8Array> {
  * @throws ENOSPC - If storage quota exceeded
  */
 export function write(fd: number, data: Uint8Array): Promise<number> {
-    return withTypedErrors(syscall<number>('file:write', fd, data));
+    return unwrap<number>(syscall('file:write', fd, data));
 }
 
 /**
@@ -300,7 +373,7 @@ export function write(fd: number, data: Uint8Array): Promise<number> {
  * @throws EINVAL - If resulting position would be negative
  */
 export function seek(fd: number, offset: number, whence?: SeekWhence): Promise<number> {
-    return withTypedErrors(syscall<number>('file:seek', fd, offset, whence ?? 'start'));
+    return unwrap<number>(syscall('file:seek', fd, offset, whence ?? 'start'));
 }
 
 /**
@@ -311,7 +384,7 @@ export function seek(fd: number, offset: number, whence?: SeekWhence): Promise<n
  * @throws ENOENT - If file doesn't exist
  */
 export function stat(path: string): Promise<Stat> {
-    return withTypedErrors(syscall<Stat>('file:stat', path));
+    return unwrap<Stat>(syscall('file:stat', path));
 }
 
 /**
@@ -322,7 +395,7 @@ export function stat(path: string): Promise<Stat> {
  * @throws EBADF - If fd is invalid
  */
 export function fstat(fd: number): Promise<Stat> {
-    return withTypedErrors(syscall<Stat>('file:fstat', fd));
+    return unwrap<Stat>(syscall('file:fstat', fd));
 }
 
 /**
@@ -339,7 +412,7 @@ export interface MkdirOpts {
 }
 
 export function mkdir(path: string, opts?: MkdirOpts): Promise<void> {
-    return withTypedErrors(syscall<void>('file:mkdir', path, opts));
+    return unwrapVoid(syscall('file:mkdir', path, opts));
 }
 
 /**
@@ -350,7 +423,7 @@ export function mkdir(path: string, opts?: MkdirOpts): Promise<void> {
  * @throws EISDIR - If path is a directory
  */
 export function unlink(path: string): Promise<void> {
-    return withTypedErrors(syscall<void>('file:unlink', path));
+    return unwrapVoid(syscall('file:unlink', path));
 }
 
 /**
@@ -361,19 +434,33 @@ export function unlink(path: string): Promise<void> {
  * @throws ENOTEMPTY - If directory not empty
  */
 export function rmdir(path: string): Promise<void> {
-    return withTypedErrors(syscall<void>('file:rmdir', path));
+    return unwrapVoid(syscall('file:rmdir', path));
 }
 
 /**
  * List directory contents.
  *
+ * This is a streaming syscall - it yields entry names until done.
+ *
  * @param path - Directory path
- * @returns Array of entry names
+ * @returns AsyncIterable of entry names
  * @throws ENOENT - If directory doesn't exist
  * @throws ENOTDIR - If path is not a directory
  */
-export function readdir(path: string): Promise<string[]> {
-    return withTypedErrors(syscall<string[]>('file:readdir', path));
+export async function* readdir(path: string): AsyncIterable<string> {
+    for await (const r of syscall('file:readdir', path)) {
+        if (r.op === 'item') {
+            yield r.data as string;
+        }
+        else if (r.op === 'done') {
+            return;
+        }
+        else if (r.op === 'error') {
+            const err = r.data as { code: string; message: string };
+
+            throw fromCode(err.code, err.message);
+        }
+    }
 }
 
 /**
@@ -384,7 +471,7 @@ export function readdir(path: string): Promise<string[]> {
  * @throws ENOENT - If source doesn't exist
  */
 export function rename(oldPath: string, newPath: string): Promise<void> {
-    return withTypedErrors(syscall<void>('file:rename', oldPath, newPath));
+    return unwrapVoid(syscall('file:rename', oldPath, newPath));
 }
 
 // =============================================================================
@@ -445,10 +532,10 @@ export function access(path: string): Promise<ACL>;
 export function access(path: string, acl: ACL | null): Promise<void>;
 export function access(path: string, acl?: ACL | null): Promise<ACL | void> {
     if (acl === undefined) {
-        return withTypedErrors(syscall<ACL>('file:access', path));
+        return unwrap<ACL>(syscall('file:access', path));
     }
 
-    return withTypedErrors(syscall<void>('file:access', path, acl));
+    return unwrapVoid(syscall('file:access', path, acl));
 }
 
 // =============================================================================
@@ -471,7 +558,7 @@ export function access(path: string, acl?: ACL | null): Promise<ACL | void> {
  * const data = await read(readFd);
  */
 export function pipe(): Promise<[number, number]> {
-    return withTypedErrors(syscall<[number, number]>('ipc:pipe'));
+    return unwrap<[number, number]>(syscall('ipc:pipe'));
 }
 
 /**
@@ -492,12 +579,10 @@ export function pipe(): Promise<[number, number]> {
  * await close(fd);
  */
 export async function redirect(targetFd: number, sourceFd: number): Promise<() => Promise<void>> {
-    const saved = await withTypedErrors(
-        syscall<string>('redirect', { target: targetFd, source: sourceFd }),
-    );
+    const saved = await unwrap<string>(syscall('redirect', { target: targetFd, source: sourceFd }));
 
     return async () => {
-        await withTypedErrors(syscall('restore', { target: targetFd, saved }));
+        await unwrapVoid(syscall('restore', { target: targetFd, saved }));
     };
 }
 
@@ -515,7 +600,7 @@ export async function redirect(targetFd: number, sourceFd: number): Promise<() =
  * @throws ETIMEDOUT - If connection timed out
  */
 export function connect(host: string, port: number): Promise<number> {
-    return withTypedErrors(syscall<number>('net:connect', 'tcp', host, port));
+    return unwrap<number>(syscall('net:connect', 'tcp', host, port));
 }
 
 // =============================================================================
@@ -533,7 +618,7 @@ export function connect(host: string, port: number): Promise<number> {
  * @throws EADDRINUSE - If port already in use
  */
 export function listen(opts: TcpListenOpts): Promise<number> {
-    return withTypedErrors(syscall<number>('port:create', 'tcp:listen', opts));
+    return unwrap<number>(syscall('port:create', 'tcp:listen', opts));
 }
 
 /**
@@ -547,7 +632,7 @@ export function listen(opts: TcpListenOpts): Promise<number> {
  * @throws EBADF - If port is closed
  */
 export function recv(portId: number): Promise<PortMessage> {
-    return withTypedErrors(syscall<PortMessage>('port:recv', portId));
+    return unwrap<PortMessage>(syscall('port:recv', portId));
 }
 
 /**
@@ -558,7 +643,7 @@ export function recv(portId: number): Promise<PortMessage> {
  * @param data - Data to send
  */
 export function send(portId: number, to: string, data: Uint8Array): Promise<void> {
-    return withTypedErrors(syscall<void>('port:send', portId, to, data));
+    return unwrapVoid(syscall('port:send', portId, to, data));
 }
 
 /**
@@ -567,7 +652,7 @@ export function send(portId: number, to: string, data: Uint8Array): Promise<void
  * @param portId - Port ID
  */
 export function pclose(portId: number): Promise<void> {
-    return withTypedErrors(syscall<void>('port:close', portId));
+    return unwrapVoid(syscall('port:close', portId));
 }
 
 // =============================================================================
@@ -589,7 +674,7 @@ export function pclose(portId: number): Promise<void> {
  * const status = await wait(pid);
  */
 export function spawn(entry: string, opts?: SpawnOpts): Promise<number> {
-    return withTypedErrors(syscall<number>('proc:spawn', entry, opts));
+    return unwrap<number>(syscall('proc:spawn', entry, opts));
 }
 
 /**
@@ -599,8 +684,18 @@ export function spawn(entry: string, opts?: SpawnOpts): Promise<number> {
  *
  * @param code - Exit code (0 = success, non-zero = failure)
  */
-export function exit(code: number): Promise<never> {
-    return syscall<never>('proc:exit', code);
+export async function exit(code: number): Promise<never> {
+    // exit syscall never returns - process terminates
+    for await (const r of syscall('proc:exit', code)) {
+        if (r.op === 'error') {
+            const err = r.data as { code: string; message: string };
+
+            throw fromCode(err.code, err.message);
+        }
+    }
+
+    // This should never be reached
+    throw new Error('exit() returned unexpectedly');
 }
 
 /**
@@ -612,7 +707,7 @@ export function exit(code: number): Promise<never> {
  * @throws EPERM - If not permitted to signal process
  */
 export function kill(pid: number, signal?: number): Promise<void> {
-    return withTypedErrors(syscall<void>('proc:kill', pid, signal ?? SIGTERM));
+    return unwrapVoid(syscall('proc:kill', pid, signal ?? SIGTERM));
 }
 
 /**
@@ -625,7 +720,7 @@ export function kill(pid: number, signal?: number): Promise<void> {
  * @throws ECHILD - If not a child of this process
  */
 export function wait(pid: number): Promise<ExitStatus> {
-    return withTypedErrors(syscall<ExitStatus>('proc:wait', pid));
+    return unwrap<ExitStatus>(syscall('proc:wait', pid));
 }
 
 /**
@@ -634,7 +729,7 @@ export function wait(pid: number): Promise<ExitStatus> {
  * @returns PID
  */
 export function getpid(): Promise<number> {
-    return withTypedErrors(syscall<number>('proc:getpid'));
+    return unwrap<number>(syscall('proc:getpid'));
 }
 
 /**
@@ -643,7 +738,7 @@ export function getpid(): Promise<number> {
  * @returns Parent PID
  */
 export function getppid(): Promise<number> {
-    return withTypedErrors(syscall<number>('proc:getppid'));
+    return unwrap<number>(syscall('proc:getppid'));
 }
 
 /**
@@ -652,7 +747,7 @@ export function getppid(): Promise<number> {
  * @returns Argument array (argv[0] is the command)
  */
 export function getargs(): Promise<string[]> {
-    return withTypedErrors(syscall<string[]>('proc:getargs'));
+    return unwrap<string[]>(syscall('proc:getargs'));
 }
 
 // =============================================================================
@@ -665,7 +760,7 @@ export function getargs(): Promise<string[]> {
  * @returns Directory path
  */
 export function getcwd(): Promise<string> {
-    return withTypedErrors(syscall<string>('proc:getcwd'));
+    return unwrap<string>(syscall('proc:getcwd'));
 }
 
 /**
@@ -676,7 +771,7 @@ export function getcwd(): Promise<string> {
  * @throws ENOTDIR - If path is not a directory
  */
 export function chdir(path: string): Promise<void> {
-    return withTypedErrors(syscall<void>('proc:chdir', path));
+    return unwrapVoid(syscall('proc:chdir', path));
 }
 
 /**
@@ -686,7 +781,7 @@ export function chdir(path: string): Promise<void> {
  * @returns Value or undefined if not set
  */
 export function getenv(name: string): Promise<string | undefined> {
-    return withTypedErrors(syscall<string | undefined>('proc:getenv', name));
+    return unwrap<string | undefined>(syscall('proc:getenv', name));
 }
 
 /**
@@ -696,7 +791,7 @@ export function getenv(name: string): Promise<string | undefined> {
  * @param value - Value to set
  */
 export function setenv(name: string, value: string): Promise<void> {
-    return withTypedErrors(syscall<void>('proc:setenv', name, value));
+    return unwrapVoid(syscall('proc:setenv', name, value));
 }
 
 // =============================================================================
@@ -721,13 +816,7 @@ export async function readFile(path: string): Promise<string> {
     try {
         const chunks: Uint8Array[] = [];
 
-        while (true) {
-            const chunk = await read(fd, 65536);
-
-            if (chunk.length === 0) {
-                break;
-            }
-
+        for await (const chunk of read(fd)) {
             chunks.push(chunk);
         }
 

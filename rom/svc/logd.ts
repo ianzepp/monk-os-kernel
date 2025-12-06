@@ -28,18 +28,7 @@ async function* readLines(fd: number): AsyncGenerator<string> {
     const decoder = new TextDecoder();
     let buffer = '';
 
-    while (true) {
-        const chunk = await read(fd);
-
-        if (chunk.length === 0) {
-            // EOF - yield any remaining buffer
-            if (buffer.length > 0) {
-                yield buffer;
-            }
-
-            break;
-        }
-
+    for await (const chunk of read(fd)) {
         buffer += decoder.decode(chunk, { stream: true });
 
         // Yield complete lines
@@ -49,6 +38,11 @@ async function* readLines(fd: number): AsyncGenerator<string> {
             yield buffer.slice(0, newlineIdx);
             buffer = buffer.slice(newlineIdx + 1);
         }
+    }
+
+    // EOF - yield any remaining buffer
+    if (buffer.length > 0) {
+        yield buffer;
     }
 }
 

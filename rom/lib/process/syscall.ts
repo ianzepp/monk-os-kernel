@@ -12,7 +12,7 @@
  *   ┌─────────────────────────────────────────────────────────────────┐
  *   │                     User Process (Worker)                       │
  *   │  ┌─────────────────────────────────────────────────────────┐   │
- *   │  │  syscall('open', '/foo')  →  Promise<number>            │   │
+ *   │  │  for await (const r of syscall('open', '/foo')) { ... } │   │
  *   │  └─────────────────────────────────────────────────────────┘   │
  *   │                          │                                      │
  *   │                          ▼                                      │
@@ -20,8 +20,8 @@
  *   │  │              Syscall Transport (this module)             │   │
  *   │  │  - Serializes request with UUID                          │   │
  *   │  │  - Posts to main thread                                  │   │
- *   │  │  - Correlates response by UUID                           │   │
- *   │  │  - Resolves/rejects Promise                              │   │
+ *   │  │  - Correlates responses by UUID                          │   │
+ *   │  │  - Yields Response objects to caller                     │   │
  *   │  └─────────────────────────────────────────────────────────┘   │
  *   └─────────────────────────────────────────────────────────────────┘
  *                          │ postMessage
@@ -30,52 +30,46 @@
  *   │                     Kernel (Main Thread)                        │
  *   │  - Receives syscall request                                     │
  *   │  - Dispatches to syscall handler                                │
- *   │  - Sends response with matching UUID                            │
+ *   │  - Sends response(s) with matching UUID                         │
  *   └─────────────────────────────────────────────────────────────────┘
  *
- * TWO REQUEST MODES
- * =================
- * 1. Single-response (syscall): Request returns one response, then completes
- * 2. Streaming (syscallStream): Request yields multiple responses until terminal
+ * STREAMING-FIRST DESIGN
+ * ======================
+ * All syscalls return AsyncIterable<Response>, matching the kernel's native
+ * response type. This eliminates the bug class where callers use the wrong
+ * transport function (Promise vs stream) for a given syscall.
  *
- * STATE MACHINE (Single Request)
- * ==============================
+ * Wrapper functions in the process library decide how to consume the stream:
+ * - Single-value syscalls: await first ok/error response
+ * - Streaming syscalls: yield data/item responses until done
  *
- *   syscall() ──────> PENDING ──────> RESOLVED/REJECTED
- *                        │                   │
- *                        │ (kernel response) │
- *                        │ (or timeout)      │
- *                        └───────────────────┘
+ * STATE MACHINE
+ * =============
  *
- * STATE MACHINE (Streaming Request)
- * =================================
- *
- *   syscallStream() ──────> STREAMING ──────> ENDED
- *                              │   ▲           │
- *                              │   │           │ (done/error/ok/redirect)
- *                              │   │           │ (or cancellation)
- *                              ▼   │           │
- *                           yield response ────┘
+ *   syscall() ──────> STREAMING ──────> ENDED
+ *                        │   ▲           │
+ *                        │   │           │ (done/error/ok/redirect)
+ *                        │   │           │ (or cancellation)
+ *                        ▼   │           │
+ *                     yield response ────┘
  *
  * INVARIANTS (must always hold true)
  * ===================================
  * INV-1: Every request UUID is unique (crypto.randomUUID)
  *        VIOLATED BY: UUID collision (astronomically unlikely)
- * INV-2: Every pending request is resolved or rejected exactly once
- *        VIOLATED BY: Missing cleanup, double response from kernel
- * INV-3: Streaming requests end on 'ok', 'done', 'error', or 'redirect' response
+ * INV-2: Streams end on 'ok', 'done', 'error', or 'redirect' response
  *        VIOLATED BY: Kernel yielding after terminal op
- * INV-4: Signal handler is optional; default behavior is exit on SIGTERM
+ * INV-3: Signal handler is optional; default behavior is exit on SIGTERM
  *        VIOLATED BY: N/A (by design)
- * INV-5: Transport auto-initializes on first syscall
+ * INV-4: Transport auto-initializes on first syscall
  *        VIOLATED BY: Calling onSignal before any syscall (harmless)
- * INV-6: Cancelled streams wake blocked consumers with error
+ * INV-5: Cancelled streams wake blocked consumers with error
  *        VIOLATED BY: cancelStream not setting error/calling wakeup
  *
  * CONCURRENCY MODEL
  * =================
  * JavaScript event loop serializes message handling. Multiple concurrent
- * syscalls are safe - each has a unique UUID and independent Promise.
+ * syscalls are safe - each has a unique UUID and independent stream state.
  * Streaming requests yield to the event loop between items, allowing
  * other messages to be processed.
  *
@@ -86,28 +80,19 @@
  * RACE CONDITION MITIGATIONS
  * ==========================
  * RC-1: UUID correlation prevents response mismatch
- * RC-2: pending/pendingStreams maps are modified atomically (single-threaded)
+ * RC-2: pendingStreams map is modified atomically (single-threaded)
  * RC-3: Stream cleanup in finally block ensures map cleanup even on exception
- * RC-4: Timeout ensures single-response syscalls don't hang forever
- * RC-5: cancelStream sets error state and wakes consumer before deleting
- * RC-6: initTransport is idempotent (safe to call multiple times)
+ * RC-4: cancelStream sets error state and wakes consumer before deleting
+ * RC-5: initTransport is idempotent (safe to call multiple times)
  *
  * MEMORY MANAGEMENT
  * =================
- * - Pending requests are removed from map on response/rejection/timeout
  * - Streaming requests are removed from map when iteration completes
- * - Timeout handles are cleared on response to prevent leaks
  * - Signal handler reference is module-level (persists for process lifetime)
  *
  * TIMEOUT BEHAVIOR
  * ================
- * Single-response syscalls have a configurable timeout (default 30s).
- * If kernel doesn't respond within timeout:
- * - Request is removed from pending map
- * - Promise is rejected with ETIMEDOUT
- * - Late responses are ignored (logged as warning)
- *
- * Streaming syscalls don't have an overall timeout, but the kernel implements
+ * Syscalls don't have an overall timeout, but the kernel implements
  * stall detection (STREAM_STALL_TIMEOUT = 5s) if consumer stops pinging.
  *
  * @module process/syscall
@@ -128,17 +113,6 @@ import { fromCode } from '../errors.js';
 // =============================================================================
 // CONSTANTS
 // =============================================================================
-
-/**
- * Default timeout for single-response syscalls (30 seconds).
- *
- * WHY 30s: Long enough for slow operations (large file reads, network),
- * short enough to detect hung kernels. Can be overridden per-call.
- *
- * COMPARISON: Linux has no syscall timeout (can block forever), but we're
- * in userspace where hangs are more problematic for debugging.
- */
-const DEFAULT_SYSCALL_TIMEOUT = 30_000;
 
 /**
  * Backpressure ping interval.
@@ -171,45 +145,12 @@ const SIGTERM = 15;
 declare const self: DedicatedWorkerGlobalScope;
 
 /**
- * Pending syscall request (single response mode).
- *
- * Holds the Promise resolve/reject functions and timeout handle for cleanup.
- *
- * LIFECYCLE:
- * 1. Created when syscall() is called
- * 2. Stored in pending Map by UUID
- * 3. Resolved/rejected when response arrives OR timeout fires
- * 4. Removed from Map on completion
- */
-interface PendingRequest {
-    /**
-     * Resolve function for successful response.
-     *
-     * WHY unknown: Syscalls return various types; caller casts via generic.
-     */
-    resolve: (result: unknown) => void;
-
-    /**
-     * Reject function for error response or timeout.
-     */
-    reject: (error: Error) => void;
-
-    /**
-     * Timeout handle for cleanup on response.
-     *
-     * WHY track: Must clear timeout when response arrives to prevent
-     * rejecting an already-resolved Promise.
-     */
-    timeoutId: ReturnType<typeof setTimeout> | null;
-}
-
-/**
- * Pending stream request (multiple response mode).
+ * Pending syscall request.
  *
  * Maintains queue and synchronization state for streaming responses.
  *
  * LIFECYCLE:
- * 1. Created when syscallStream() is called
+ * 1. Created when syscall() is called
  * 2. Responses queued as they arrive from kernel
  * 3. Consumer drains queue via for-await iteration
  * 4. Ended on terminal op or cancellation
@@ -261,40 +202,19 @@ interface PendingStream {
  */
 export type SignalHandler = (signal: number) => void;
 
-/**
- * Options for syscall timeout behavior.
- */
-export interface SyscallOptions {
-    /**
-     * Timeout in milliseconds. Set to 0 to disable timeout.
-     * Default: DEFAULT_SYSCALL_TIMEOUT (30s)
-     */
-    timeout?: number;
-}
-
 // =============================================================================
 // STATE
 // =============================================================================
 
 /**
- * Pending single-response requests.
+ * Pending syscall requests.
  *
  * WHY Map: O(1) lookup by UUID for response correlation.
- *
- * INVARIANT: Entries are removed when response is received OR timeout fires.
- * MEMORY: Bounded by timeout - stale entries are cleaned up.
- */
-const pending = new Map<string, PendingRequest>();
-
-/**
- * Pending streaming requests.
- *
- * WHY separate from pending: Different handling (queue vs single resolve).
  *
  * INVARIANT: Entries are removed when stream iteration completes.
  * MEMORY: Bounded by kernel backpressure and stall timeout.
  */
-const pendingStreams = new Map<string, PendingStream>();
+const pending = new Map<string, PendingStream>();
 
 /**
  * User-registered signal handler.
@@ -362,88 +282,12 @@ export function initTransport(): void {
  * Handle syscall response from kernel.
  *
  * ALGORITHM:
- * 1. Check if response is for a streaming request
- * 2. If streaming, delegate to handleStreamResponse
- * 3. Otherwise, look up pending request by UUID
- * 4. If not found, log warning (late response after timeout/cancel)
- * 5. Clear timeout to prevent double-rejection
- * 6. Resolve or reject based on response content
- * 7. Remove from pending map
- *
- * @param msg - Response message from kernel
- */
-function handleResponse(msg: SyscallResponse): void {
-    // -------------------------------------------------------------------------
-    // Check for streaming request first
-    // -------------------------------------------------------------------------
-    const stream = pendingStreams.get(msg.id);
-
-    if (stream) {
-        handleStreamResponse(stream, msg);
-
-        return;
-    }
-
-    // -------------------------------------------------------------------------
-    // Single-response request
-    // -------------------------------------------------------------------------
-    const req = pending.get(msg.id);
-
-    if (!req) {
-        // Response for unknown request
-        // WHY warn: Could be late response after timeout, or kernel bug.
-        // Logging helps debug but isn't fatal.
-        console.warn(`syscall: response for unknown request ${msg.id}`);
-
-        return;
-    }
-
-    // INVARIANT: Remove from map before resolving to prevent double-handling
-    pending.delete(msg.id);
-
-    // Clear timeout to prevent rejecting after resolve
-    // WHY: If response arrives, timeout shouldn't fire
-    if (req.timeoutId !== null) {
-        clearTimeout(req.timeoutId);
-    }
-
-    // -------------------------------------------------------------------------
-    // Handle response content
-    // -------------------------------------------------------------------------
-    if (msg.error) {
-        // Transport-level error (kernel couldn't dispatch)
-        req.reject(fromCode(msg.error.code, msg.error.message));
-    }
-    else {
-        // Unwrap the Response to extract the actual value
-        const response = msg.result as Response;
-
-        if (response.op === 'ok') {
-            // Success - resolve with unwrapped data
-            req.resolve(response.data);
-        }
-        else if (response.op === 'error') {
-            // Syscall-level error (handler returned error)
-            const err = response.data as { code: string; message: string };
-
-            req.reject(fromCode(err.code, err.message));
-        }
-        else {
-            // Unexpected op for single-response syscall
-            // WHY reject: Caller expects single value, not stream
-            req.reject(new Error(`Unexpected response op for single syscall: ${response.op}`));
-        }
-    }
-}
-
-/**
- * Handle streaming response from kernel.
- *
- * ALGORITHM:
- * 1. If kernel-level error, set stream error state and mark ended
- * 2. Otherwise, queue the response
- * 3. Check for terminal ops (ok, done, error, redirect) to mark ended
- * 4. Wake up consumer if waiting
+ * 1. Look up pending request by UUID
+ * 2. If not found, log warning (late response after cancel)
+ * 3. If kernel-level error, set stream error state and mark ended
+ * 4. Otherwise, queue the response
+ * 5. Check for terminal ops (ok, done, error, redirect) to mark ended
+ * 6. Wake up consumer if waiting
  *
  * TERMINAL OPS:
  * - 'ok': Success with optional final value
@@ -451,10 +295,20 @@ function handleResponse(msg: SyscallResponse): void {
  * - 'error': Operation failed
  * - 'redirect': Follow redirect (symlinks, mounts)
  *
- * @param stream - Stream state object
  * @param msg - Response message from kernel
  */
-function handleStreamResponse(stream: PendingStream, msg: SyscallResponse): void {
+function handleResponse(msg: SyscallResponse): void {
+    const stream = pending.get(msg.id);
+
+    if (!stream) {
+        // Response for unknown request
+        // WHY warn: Could be late response after cancel, or kernel bug.
+        // Logging helps debug but isn't fatal.
+        console.warn(`syscall: response for unknown request ${msg.id}`);
+
+        return;
+    }
+
     // Already ended - ignore late responses
     // WHY: Kernel may send responses after we've cancelled
     if (stream.ended) {
@@ -548,116 +402,19 @@ export function onSignal(handler: SignalHandler): void {
 }
 
 // =============================================================================
-// PUBLIC API - SINGLE-RESPONSE SYSCALLS
+// PUBLIC API - SYSCALLS
 // =============================================================================
 
 /**
- * Make a syscall to the kernel (single response).
+ * Make a syscall to the kernel.
  *
- * ALGORITHM:
- * 1. Auto-initialize transport if needed
- * 2. Generate unique UUID for request
- * 3. Create Promise with resolve/reject and optional timeout
- * 4. Store in pending map
- * 5. Post request message to kernel
- * 6. Return Promise (resolved when kernel responds or timeout fires)
+ * Returns an async iterable that yields Response objects as they arrive from
+ * the kernel. This matches the kernel's native response type and eliminates
+ * the bug class where callers use the wrong transport function.
  *
- * TIMEOUT BEHAVIOR:
- * - Default timeout is 30 seconds
- * - On timeout, Promise rejects with ETIMEDOUT
- * - Request is removed from pending map
- * - Late responses are logged and ignored
- * - Set timeout to 0 to disable (not recommended)
- *
- * WHY Promise: Matches modern async JavaScript patterns. Syscalls are
- * inherently async (cross-thread communication).
- *
- * @param name - Syscall name (e.g., 'open', 'read', 'write')
- * @param args - Syscall arguments (varies by syscall)
- * @returns Promise resolving to syscall result
- * @throws ETIMEDOUT if kernel doesn't respond within timeout
- *
- * @example
- * const fd = await syscall<number>('open', '/etc/passwd', { read: true });
- */
-export function syscall<T>(name: string, ...args: unknown[]): Promise<T> {
-    return syscallWithOptions<T>(name, args, {});
-}
-
-/**
- * Make a syscall with custom options (timeout, etc.).
- *
- * @param name - Syscall name
- * @param args - Syscall arguments as array
- * @param options - Syscall options (timeout)
- * @returns Promise resolving to syscall result
- */
-export function syscallWithOptions<T>(
-    name: string,
-    args: unknown[],
-    options: SyscallOptions,
-): Promise<T> {
-    // Auto-initialize on first syscall
-    if (!initialized) {
-        initTransport();
-    }
-
-    const id = crypto.randomUUID();
-    const timeout = options.timeout ?? DEFAULT_SYSCALL_TIMEOUT;
-
-    return new Promise((resolve, reject) => {
-        // -------------------------------------------------------------------------
-        // Setup timeout (RC-4 mitigation)
-        // -------------------------------------------------------------------------
-        let timeoutId: ReturnType<typeof setTimeout> | null = null;
-
-        if (timeout > 0) {
-            timeoutId = setTimeout(() => {
-                // Check if still pending (response may have arrived)
-                const req = pending.get(id);
-
-                if (req) {
-                    pending.delete(id);
-                    reject(fromCode('ETIMEDOUT', `Syscall '${name}' timed out after ${timeout}ms`));
-                }
-            }, timeout);
-        }
-
-        // -------------------------------------------------------------------------
-        // Register pending request
-        // -------------------------------------------------------------------------
-        const entry: PendingRequest = {
-            resolve: resolve as (v: unknown) => void,
-            reject,
-            timeoutId,
-        };
-
-        pending.set(id, entry);
-
-        // -------------------------------------------------------------------------
-        // Send request to kernel
-        // -------------------------------------------------------------------------
-        const request: SyscallRequest = {
-            type: 'syscall',
-            id,
-            name,
-            args,
-        };
-
-        self.postMessage(request);
-    });
-}
-
-// =============================================================================
-// PUBLIC API - STREAMING SYSCALLS
-// =============================================================================
-
-/**
- * Make a streaming syscall to the kernel.
- *
- * Returns an async iterable that yields responses as they arrive from the
- * kernel. Handles backpressure by periodically pinging the kernel with
- * progress updates.
+ * Wrapper functions in the process library decide how to consume the stream:
+ * - Single-value syscalls: await first ok/error response
+ * - Streaming syscalls: yield data/item responses until done
  *
  * ALGORITHM:
  * 1. Auto-initialize transport if needed
@@ -682,18 +439,25 @@ export function syscallWithOptions<T>(
  * Call cancelStream(id) to abort. Consumer will receive an error on next
  * iteration attempt.
  *
- * @param name - Syscall name
- * @param args - Syscall arguments
+ * @param name - Syscall name (e.g., 'file:open', 'file:read', 'file:write')
+ * @param args - Syscall arguments (varies by syscall)
  * @yields Response objects from kernel
  *
  * @example
- * for await (const response of syscallStream('readdir', '/home')) {
- *     if (response.op === 'item') {
- *         console.log(response.data);
- *     }
+ * // Single-value syscall (wrapper consumes first response)
+ * for await (const r of syscall('file:open', '/etc/passwd', { read: true })) {
+ *     if (r.op === 'ok') return r.data as number;
+ *     if (r.op === 'error') throw toError(r);
+ * }
+ *
+ * // Streaming syscall (wrapper yields items)
+ * for await (const r of syscall('file:readdir', '/home')) {
+ *     if (r.op === 'item') yield r.data as string;
+ *     if (r.op === 'done') return;
+ *     if (r.op === 'error') throw toError(r);
  * }
  */
-export async function* syscallStream(name: string, ...args: unknown[]): AsyncIterable<Response> {
+export async function* syscall(name: string, ...args: unknown[]): AsyncIterable<Response> {
     // Auto-initialize on first syscall
     if (!initialized) {
         initTransport();
@@ -711,7 +475,7 @@ export async function* syscallStream(name: string, ...args: unknown[]): AsyncIte
         error: null,
     };
 
-    pendingStreams.set(id, stream);
+    pending.set(id, stream);
 
     // -------------------------------------------------------------------------
     // Send the syscall request
@@ -802,12 +566,12 @@ export async function* syscallStream(name: string, ...args: unknown[]): AsyncIte
             // Worker may be terminating - ignore postMessage errors
         }
 
-        pendingStreams.delete(id);
+        pending.delete(id);
     }
 }
 
 /**
- * Cancel a streaming syscall.
+ * Cancel a syscall.
  *
  * Sends cancellation message to kernel and wakes blocked consumer with error.
  * Kernel will stop sending responses for this request.
@@ -820,20 +584,20 @@ export async function* syscallStream(name: string, ...args: unknown[]): AsyncIte
  * 5. Send cancel message to kernel
  * 6. Remove from pending map
  *
- * RACE CONDITION (RC-5 mitigation):
+ * RACE CONDITION (RC-4 mitigation):
  * Consumer may be blocked in await when cancel is called.
  * We set error and call wakeup BEFORE deleting from map.
  * Consumer will wake, see error, and throw.
  *
  * @param id - Request UUID to cancel
  */
-export function cancelStream(id: string): void {
-    const stream = pendingStreams.get(id);
+export function cancelSyscall(id: string): void {
+    const stream = pending.get(id);
 
     if (stream) {
         // Set error state so consumer knows it was cancelled
         // WHY ECANCELED: POSIX error code for operation cancelled
-        stream.error = fromCode('ECANCELED', 'Stream cancelled');
+        stream.error = fromCode('ECANCELED', 'Syscall cancelled');
         stream.ended = true;
 
         // Wake consumer if blocked waiting for data
@@ -845,7 +609,7 @@ export function cancelStream(id: string): void {
     }
 
     // Send cancel message to kernel
-    // WHY always send: Stream may have completed but kernel might still be yielding
+    // WHY always send: Syscall may have completed but kernel might still be yielding
     const cancel: StreamCancelMessage = {
         type: 'stream_cancel',
         id,
@@ -854,7 +618,7 @@ export function cancelStream(id: string): void {
     self.postMessage(cancel);
 
     // Remove from map (safe even if not present)
-    pendingStreams.delete(id);
+    pending.delete(id);
 }
 
 // =============================================================================
@@ -862,7 +626,7 @@ export function cancelStream(id: string): void {
 // =============================================================================
 
 /**
- * Get count of pending single-response syscalls.
+ * Get count of pending syscalls.
  *
  * TESTING: Allows tests to verify no leaked requests.
  *
@@ -873,32 +637,27 @@ export function getPendingCount(): number {
 }
 
 /**
- * Get count of pending streaming syscalls.
- *
- * TESTING: Allows tests to verify no leaked streams.
- *
- * @returns Number of pending streams
- */
-export function getPendingStreamCount(): number {
-    return pendingStreams.size;
-}
-
-/**
  * Reset transport state for testing.
  *
- * TESTING: Clears all pending requests and streams.
+ * TESTING: Clears all pending requests.
  * WARNING: Only use in tests - will orphan any in-flight syscalls.
  */
 export function resetTransportForTesting(): void {
-    // Clear timeouts for pending requests
-    for (const req of pending.values()) {
-        if (req.timeoutId !== null) {
-            clearTimeout(req.timeoutId);
-        }
-    }
-
     pending.clear();
-    pendingStreams.clear();
     signalHandler = null;
     // Note: Don't reset initialized - onmessage handler persists
 }
+
+/**
+ * Alias for cancelSyscall for backward compatibility.
+ *
+ * @deprecated Use cancelSyscall instead
+ */
+export const cancelStream = cancelSyscall;
+
+/**
+ * Alias for syscall for backward compatibility.
+ *
+ * @deprecated Use syscall instead
+ */
+export const syscallStream = syscall;

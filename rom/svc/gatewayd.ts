@@ -305,7 +305,7 @@ async function safeWrite(state: ClientState, data: Uint8Array): Promise<boolean>
 
         return true;
     }
-    catch (err) {
+    catch (_err) {
         // Socket closed or errored - mark as disconnecting to stop other streams
         state.disconnecting = true;
 
@@ -559,17 +559,10 @@ async function handleClient(state: ClientState): Promise<void> {
     const { socketFd, clientId } = state;
 
     try {
-        while (true) {
-            // -----------------------------------------------------------------
-            // Read from socket
-            // -----------------------------------------------------------------
-            const chunk = await read(socketFd);
-
-            if (chunk.length === 0) {
-                // EOF - client closed connection gracefully
-                break;
-            }
-
+        // -----------------------------------------------------------------
+        // Read from socket (streaming)
+        // -----------------------------------------------------------------
+        for await (const chunk of read(socketFd)) {
             // -----------------------------------------------------------------
             // Accumulate in buffer
             // -----------------------------------------------------------------
