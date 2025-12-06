@@ -75,8 +75,9 @@ const DEFAULT_HOST = '0.0.0.0';
 /**
  * Default client path.
  * WHY: Client is a separate package in packages/display-client
+ * Path: src/display/server/index.ts → ../../../ → repo root → packages/...
  */
-const DEFAULT_CLIENT_PATH = new URL('../../../../packages/display-client/dist', import.meta.url).pathname;
+const DEFAULT_CLIENT_PATH = new URL('../../../packages/display-client/dist', import.meta.url).pathname;
 
 // =============================================================================
 // FACTORY
