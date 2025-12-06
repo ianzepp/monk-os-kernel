@@ -36,6 +36,8 @@
  * @module os/stack
  */
 
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 import type { HAL, HALConfig } from '@src/hal/index.js';
 import { BunHAL } from '@src/hal/index.js';
 import { VFS } from '@src/vfs/vfs.js';
@@ -87,6 +89,13 @@ export interface OsStackOptions {
      * Implies: vfs
      */
     kernel?: boolean;
+
+    /**
+     * ROM path to copy into VFS.
+     * Default: './rom'
+     * Set to false to skip ROM copy.
+     */
+    rom?: string | false;
 }
 
 /**
@@ -242,6 +251,13 @@ export async function createOsStack(opts: OsStackOptions = {}): Promise<OsStack>
         if (needVfs && hal && ems) {
             vfs = new VFS(hal, ems);
             await vfs.init();
+
+            // Copy ROM to VFS if kernel requested (unless explicitly disabled)
+            if (needKernel && opts.rom !== false) {
+                const romPath = typeof opts.rom === 'string' ? opts.rom : './rom';
+
+                await copyRomToVfs(vfs, romPath);
+            }
         }
 
         // =====================================================================
@@ -265,5 +281,80 @@ export async function createOsStack(opts: OsStackOptions = {}): Promise<OsStack>
         // Clean up on error
         await shutdown();
         throw error;
+    }
+}
+
+// =============================================================================
+// ROM COPY HELPERS
+// =============================================================================
+
+/**
+ * Copy ROM directory into VFS.
+ *
+ * Copies the ROM directory tree from host filesystem into the VFS root.
+ * This provides userland code (bin, lib, svc, etc.) for the kernel.
+ */
+async function copyRomToVfs(vfs: VFS, romPath: string): Promise<void> {
+    try {
+        await fs.access(romPath);
+    }
+    catch {
+        // ROM path doesn't exist, skip silently
+        return;
+    }
+
+    await copyDirToVfs(vfs, romPath, '/');
+}
+
+/**
+ * Recursively copy a host directory into VFS.
+ */
+async function copyDirToVfs(vfs: VFS, hostPath: string, vfsPath: string): Promise<void> {
+    // Ensure target directory exists
+    try {
+        await vfs.stat(vfsPath, 'kernel');
+    }
+    catch {
+        await vfs.mkdir(vfsPath, 'kernel', { recursive: true });
+    }
+
+    const entries = await fs.readdir(hostPath, { withFileTypes: true });
+
+    for (const entry of entries) {
+        const srcPath = path.join(hostPath, entry.name);
+        const dstPath = vfsPath === '/' ? `/${entry.name}` : `${vfsPath}/${entry.name}`;
+
+        if (entry.isDirectory()) {
+            await copyDirToVfs(vfs, srcPath, dstPath);
+        }
+        else if (entry.isFile()) {
+            await copyFileToVfs(vfs, srcPath, dstPath);
+        }
+    }
+}
+
+/**
+ * Copy a single file from host to VFS.
+ */
+async function copyFileToVfs(vfs: VFS, hostPath: string, vfsPath: string): Promise<void> {
+    // Ensure parent directory exists
+    const parent = vfsPath.substring(0, vfsPath.lastIndexOf('/')) || '/';
+
+    try {
+        await vfs.stat(parent, 'kernel');
+    }
+    catch {
+        await vfs.mkdir(parent, 'kernel', { recursive: true });
+    }
+
+    // Read from host, write to VFS
+    const content = await fs.readFile(hostPath);
+    const handle = await vfs.open(vfsPath, { write: true, create: true, truncate: true }, 'kernel');
+
+    try {
+        await handle.write(new Uint8Array(content));
+    }
+    finally {
+        await handle.close();
     }
 }
