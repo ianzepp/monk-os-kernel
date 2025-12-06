@@ -8,7 +8,7 @@ This enables clean separation between kernel infrastructure and user-facing appl
 
 ---
 
-## Current State (After Phase 1)
+## Current State (After Phase 2)
 
 The OS has been reorganized into a clean kernel-only structure:
 
@@ -16,19 +16,28 @@ The OS has been reorganized into a clean kernel-only structure:
 os/
 ├── src/           # Kernel (hal, vfs, ems, kernel, os)
 ├── rom/
-│   ├── svc/       # Kernel services only (init, logd, telnetd, gatewayd)
-│   └── etc/       # Configuration
+│   ├── lib/       # Syscall SDK for internal Workers (postMessage transport)
+│   ├── svc/       # Kernel services (init, logd, telnetd, gatewayd)
+│   └── etc/       # Configuration (services/*.json, mounts.json)
 ```
 
 External packages (already extracted):
-- `../os-sdk/` - Syscall SDK for external apps
+- `../os-sdk/` - Syscall SDK for external apps (needs Unix socket transport)
 - `../os-coreutils/` - User utilities (cat, ls, grep, awk, shell, etc.)
 - `../displayd/` - Display server (WebSocket ↔ EMS bridge)
 - `../displayd-client/` - Browser UI
 
-Remaining work:
-1. **No external access yet** - Only Workers can make syscalls (postMessage transport)
-2. **gatewayd not implemented** - Unix socket bridge needed for external apps
+**gatewayd implemented** (~80%):
+- ✓ Unix socket listener at `/tmp/monk.sock`
+- ✓ Proxies syscalls to kernel, streams responses back
+- ✓ Wire protocol: newline-delimited JSON
+- ✓ Boots as kernel service via `rom/etc/services/gatewayd.json`
+- ✗ Virtual process isolation (TODO - clients share gatewayd's context)
+
+**Blocking issue**:
+- `os-sdk` still uses Worker transport (`self.postMessage`)
+- Must rewrite to use Unix socket client connecting to gatewayd
+- Until then, external apps cannot make syscalls
 
 ---
 
@@ -292,26 +301,39 @@ Phase 9: Cleanup & OS 1.0
 
 ### Phase 1: Reorganize rom/ ✓ COMPLETE
 - ✓ Renamed `rom/bin/` → `rom/svc/` for kernel services
-- ✓ Kept only kernel services: init, logd, telnetd
+- ✓ Kept only kernel services: init, logd, telnetd, gatewayd
 - ✓ Moved user utilities to `../os-coreutils/`
 - ✓ Moved tests to `../os-coreutils/spec/`
 - ✓ Extracted `rom/lib/` to `../os-sdk/` and `../os-coreutils/lib/`
 
-### Phase 2: Implement gatewayd
-- Create `rom/svc/gatewayd.ts` - Unix socket listener
-- Accept connections, create virtual process context
-- Proxy syscalls to kernel, stream responses
-- Boot gatewayd as a kernel service
-- Test: can external process connect and make syscall?
+### Phase 2: Implement gatewayd ~80% COMPLETE
+- ✓ Create `rom/svc/gatewayd.ts` - Unix socket listener
+- ✓ Accept connections, track per-client state
+- ✓ Proxy syscalls to kernel via `syscallStream()`, stream responses back
+- ✓ Service config `rom/etc/services/gatewayd.json` (boot activation)
+- ✓ Backpressure flows naturally through async pipeline
+- ✓ Comprehensive documentation (architecture, invariants, race mitigations)
+- ✓ Binary data base64-encoded for JSON wire protocol
+- ✓ Concurrency limits (MAX_CONCURRENT_STREAMS=100, MAX_READ_BUFFER=1MB)
+- ✗ Virtual process isolation (all clients share gatewayd's context) - TODO
+- ✗ End-to-end integration test - BLOCKED on Phase 3
 
-### Phase 3: Create os-sdk
-- Create `@monk-api/os-sdk` package
-- Mirror `rom/lib/` API with Unix socket transport
-- Connect to gatewayd, same message format as Workers
-- Publish package
-- Test: external process → gatewayd → kernel → response
+### Phase 3: Create os-sdk - NOT STARTED
+- ✗ `@monk-api/os-sdk` package exists but still uses Worker transport (postMessage)
+- Need to replace transport with Unix socket client:
+  ```typescript
+  // Current (Worker-based, won't work for external apps):
+  self.postMessage({ type: 'syscall', id, name, args });
 
-**────── External apps now possible ──────**
+  // Needed (Unix socket to gatewayd):
+  const socket = await connect({ unix: '/tmp/monk.sock' });
+  socket.write(JSON.stringify({ type: 'syscall', id, name, args }) + '\n');
+  ```
+- Wire protocol matches gatewayd: newline-delimited JSON
+- Must handle streaming responses (same as syscallStream in rom/lib)
+- Test: external Bun process → Unix socket → gatewayd → kernel → response
+
+**────── External apps possible after Phase 3 ──────**
 
 ### Phase 4: Display schema (parallel with 5, 6)
 - Move `schema.sql` entities into OS EMS schema
