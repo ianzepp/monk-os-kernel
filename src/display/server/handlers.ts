@@ -41,6 +41,7 @@ import {
     parseClientMessage,
     sendMessage,
 } from './session.js';
+import { registerConnection, unregisterConnection } from './registry.js';
 
 // =============================================================================
 // CONSTANTS
@@ -265,8 +266,11 @@ export function createWebSocketHandler(ems: EMS): WebSocketHandler<SessionData> 
 
             console.log(`[display] WebSocket closed: ${sessionId} (code=${code}, reason=${reason})`);
 
-            // Delete display entity if it exists
+            // Clean up display entity if it exists
             if (displayId) {
+                // Unregister from connection registry
+                unregisterConnection(displayId);
+
                 try {
                     // WHY: deleteIds is a generator, must consume to execute
                     await collect(ems.ops.deleteIds('display', [displayId]));
@@ -326,6 +330,9 @@ async function handleConnect(
 
         // Store display ID in session
         ws.data.displayId = display.id;
+
+        // Register connection for message routing from Unix socket
+        registerConnection(display.id, ws as ServerWebSocket<SessionData>);
 
         console.log(`[display] Created display: ${display.id} (${data.width}x${data.height})`);
 

@@ -30,6 +30,7 @@ import type { EMS } from '@src/ems/ems.js';
 import type { HttpServer } from '@src/hal/network.js';
 import { createHttpHandler, createWebSocketHandler } from './handlers.js';
 import type { SessionData } from './session.js';
+import { startIpcServer, stopIpcServer, SOCKET_PATH } from './ipc.js';
 
 // =============================================================================
 // TYPES
@@ -115,19 +116,38 @@ export async function createDisplayServer(
     const httpHandler = createHttpHandler(hal, clientPath);
     const wsHandler = createWebSocketHandler(ems);
 
-    // Start server
-    const server = await hal.network.serve<SessionData>(port, httpHandler, {
+    // Start HTTP/WebSocket server
+    const httpServer = await hal.network.serve<SessionData>(port, httpHandler, {
         hostname: host,
         websocket: wsHandler,
     });
 
-    const addr = server.addr();
+    // Start IPC Unix socket server for internal communication
+    await startIpcServer();
+
+    const addr = httpServer.addr();
 
     console.log(`[display] Server listening on http://${addr.hostname}:${addr.port}`);
     console.log(`[display] WebSocket endpoint: ws://${addr.hostname}:${addr.port}/ws`);
+    console.log(`[display] IPC socket: ${SOCKET_PATH}`);
     console.log(`[display] Serving client from: ${clientPath}`);
 
-    return server;
+    // Return wrapper that closes both servers
+    return {
+        async close() {
+            await stopIpcServer();
+            await httpServer.close();
+        },
+
+        async [Symbol.asyncDispose]() {
+            await stopIpcServer();
+            await httpServer.close();
+        },
+
+        addr() {
+            return httpServer.addr();
+        },
+    };
 }
 
 // =============================================================================
