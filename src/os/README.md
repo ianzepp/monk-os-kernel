@@ -1,17 +1,18 @@
-# OS Boot Modes
+# OS Module
 
-Monk OS supports two distinct boot modes depending on your use case.
+The OS class is the main entry point for Monk OS. It provides a unified interface for booting, configuring, and interacting with the operating system.
 
-## Standalone Mode (`exec`)
+## Boot Modes
 
-Use this when Monk OS *is* your application. The OS takes over, runs until shutdown signal.
+### Standalone Mode (`exec`)
+
+Use when Monk OS *is* your application. Blocks until shutdown signal.
 
 ```typescript
 import { OS } from '@monk-api/os';
 
 const os = new OS({
     storage: { type: 'sqlite', path: '.data/monk.db' },
-    display: { enabled: true, port: 8080 },
     debug: true,
 });
 
@@ -20,61 +21,184 @@ const exitCode = await os.exec();
 process.exit(exitCode);
 ```
 
-This is what `bun start` uses. The display server starts, browsers can connect, and the process runs until you press Ctrl+C.
+### Library Mode (`boot`)
 
-### CLI Options
-
-```bash
-bun start                    # In-memory, display on :8080
-bun start --sqlite           # SQLite persistence
-bun start --port 3000        # Custom display port
-bun start --no-display       # Headless (no display server)
-bun start --debug            # Kernel debug logging
-```
-
-## Library Mode (`boot`)
-
-Use this when Monk OS is a component within your larger application. Boot returns immediately, you keep control.
+Use when Monk OS is a component within your application. Returns immediately.
 
 ```typescript
 import { OS } from '@monk-api/os';
 
-const os = new OS({
-    storage: { type: 'memory' },
-});
+const os = new OS({ storage: { type: 'memory' } });
 
-// Returns immediately after boot completes
 await os.boot();
 
-// Now use the OS APIs
-await os.fs.mount('./src', '/app');
-await os.process.spawn('/app/main.ts');
+// Use the OS APIs...
+const content = await os.text('/etc/config.json');
 
-// Your application continues running...
 // When done:
 await os.shutdown();
 ```
 
-### Lifecycle Hooks
+## Syscall API
 
-Library mode supports lifecycle hooks for setup at specific boot stages:
+The OS provides direct syscall access to the kernel. All syscalls execute in the context of the init process (PID 1).
+
+### Core Methods
+
+```typescript
+// Direct syscall - returns unwrapped result
+const result = await os.syscall<T>(name, ...args);
+
+// Raw response stream for advanced use cases
+const stream = os.syscallStream(name, ...args);
+for await (const response of stream) {
+    // Handle response.op: 'ok', 'item', 'data', 'error', 'done'
+}
+```
+
+### Domain Wrappers
+
+```typescript
+// Entity Management System (ems:*)
+await os.ems('select', 'User', { where: { active: true } });
+await os.ems('create', 'User', { name: 'Alice' });
+await os.ems('update', 'User', id, { name: 'Bob' });
+await os.ems('delete', 'User', id);
+
+// Virtual File System (file:*)
+const fd = await os.vfs('open', '/path/to/file', { read: true });
+await os.vfs('write', fd, data);
+await os.vfs('close', fd);
+const stat = await os.vfs('stat', '/path/to/file');
+
+// Process Management (proc:*)
+const pid = await os.process('spawn', '/bin/script.ts', { args: ['--flag'] });
+await os.process('kill', pid, 15);
+await os.process('wait', pid);
+```
+
+### Aliases
+
+```typescript
+os.file(...)   // Alias for os.vfs()
+os.entity(...) // Alias for os.ems()
+```
+
+## Convenience Helpers
+
+### File Operations
+
+```typescript
+// Read file as bytes
+const bytes: Uint8Array = await os.read('/path/to/file');
+
+// Read file as text
+const text: string = await os.text('/path/to/file');
+const utf16: string = await os.text('/path/to/file', 'utf-16');
+```
+
+### Process Operations
+
+```typescript
+// Spawn a process (returns PID)
+const pid = await os.spawn('/bin/script.ts', {
+    args: ['--port', '8080'],
+    env: { DEBUG: '1' },
+    cwd: '/app',
+});
+
+// Kill a process
+await os.kill(pid);           // SIGTERM (15)
+await os.kill(pid, 9);        // SIGKILL
+```
+
+### Service Management
+
+Services are defined in `/etc/services/*.json` and loaded at boot (but not auto-started).
+
+```typescript
+// List registered services
+const services = await os.service('list');
+
+// Get service definition
+const def = await os.service('status', 'httpd');
+
+// Start a service
+await os.service('start', 'httpd');
+
+// Stop a service
+await os.service('stop', 'httpd');
+
+// Restart a service
+await os.service('restart', 'httpd');
+```
+
+## Path Aliases
+
+Configure path aliases for convenience:
+
+```typescript
+const os = new OS({
+    aliases: {
+        '@app': '/vol/app',
+        '@config': '/etc/app',
+    },
+});
+
+// Or use the fluent API
+os.alias('@app', '/vol/app');
+
+// Aliases are resolved automatically
+await os.text('@app/config.json');
+await os.spawn('@app/server.ts');
+```
+
+## Lifecycle Events
+
+Register callbacks for boot stages:
 
 ```typescript
 const os = new OS()
+    .on('hal', async (os) => {
+        // HAL initialized
+    })
+    .on('ems', async (os) => {
+        // Entity management ready
+    })
     .on('vfs', async (os) => {
-        // VFS is ready, mount directories
-        await os.fs.mount('./src', '/app');
+        // Filesystem ready
+    })
+    .on('kernel', async (os) => {
+        // Kernel ready, before init starts
     })
     .on('boot', (os) => {
-        console.log('OS fully booted');
+        // Fully booted
+    })
+    .on('shutdown', (os) => {
+        // Shutting down
     });
 
 await os.boot();
 ```
 
-Available events: `hal`, `ems`, `vfs`, `kernel`, `boot`, `shutdown`
+## Package Installation
 
-## Configuration
+Install packages at boot or runtime:
+
+```typescript
+// Via config
+const os = new OS({
+    packages: ['@monk/httpd', '@monk/shell'],
+});
+
+// Via fluent API (queued for boot)
+os.install('@monk/httpd');
+
+// Runtime installation
+await os.pkg.install('@monk/httpd');
+```
+
+## Configuration Reference
 
 ```typescript
 interface OSConfig {
@@ -83,13 +207,6 @@ interface OSConfig {
         type: 'memory' | 'sqlite' | 'postgres';
         path?: string;  // For sqlite
         url?: string;   // For postgres
-    };
-
-    // Display server (standalone mode)
-    display?: {
-        enabled?: boolean;  // Default: false
-        port?: number;      // Default: 8080
-        host?: string;      // Default: '0.0.0.0'
     };
 
     // Environment variables for all processes
@@ -108,23 +225,53 @@ interface OSConfig {
 
 ## Boot Sequence
 
-Both modes follow the same boot sequence:
-
-1. **HAL** - Hardware abstraction layer
+1. **HAL** - Hardware abstraction layer (entropy, storage, network)
 2. **EMS** - Entity management system (database)
-3. **Display** - HTTP/WebSocket server (if enabled)
-4. **VFS** - Virtual filesystem
-5. **Standard directories** - /bin, /etc, /home, /tmp, /var, /vol
-6. **Packages** - Install queued packages
-7. **Kernel** - Process management
-8. **Init** - Spawn init process (if `main` provided)
+3. **VFS** - Virtual filesystem
+4. **Standard directories** - /app, /bin, /etc, /home, /tmp, /usr, /var, /vol
+5. **Packages** - Install queued packages
+6. **Kernel** - Process management, syscall dispatch
+7. **Init** - Spawn init process (PID 1)
+8. **Services** - Load service definitions (not auto-started)
 
-## When to Use Which
+## Accessing Subsystems
 
-| Scenario | Mode |
-|----------|------|
-| Building a desktop-like OS with browser UI | Standalone (`exec`) |
-| Running Monk as a service/daemon | Standalone (`exec`) |
-| Embedding Monk in an Electron app | Library (`boot`) |
-| Using Monk for testing/CI | Library (`boot`) |
-| Building a web app that uses Monk internally | Library (`boot`) |
+For advanced use cases, access internal subsystems directly:
+
+```typescript
+const hal = os.getHAL();       // Hardware abstraction
+const vfs = os.getVFS();       // Virtual filesystem
+const kernel = os.getKernel(); // Process/syscall management
+const ems = os.getEMS();       // Entity management
+```
+
+## Example: Complete Application
+
+```typescript
+import { OS } from '@monk-api/os';
+
+const os = new OS({
+    storage: { type: 'sqlite', path: '.data/app.db' },
+    aliases: { '@app': '/vol/app' },
+})
+    .on('vfs', async (os) => {
+        // Mount host directory into VFS
+        os.getVFS().mount('./src', '/vol/app', 'kernel');
+    });
+
+await os.boot();
+
+// Start services
+await os.service('start', 'httpd');
+await os.service('start', 'worker');
+
+// Application logic...
+const users = await os.ems('select', 'User', { where: { active: true } });
+const config = JSON.parse(await os.text('@app/config.json'));
+
+// Spawn background process
+const pid = await os.spawn('@app/background-job.ts');
+
+// Cleanup
+await os.shutdown();
+```
