@@ -67,6 +67,7 @@ import {
 
 // Kernel functions
 import { spawn } from '../kernel/spawn.js';
+import { createVirtualProcess } from '../kernel/create-virtual-process.js';
 import { exit } from '../kernel/exit.js';
 import { kill } from '../kernel/kill.js';
 import { wait } from '../kernel/wait.js';
@@ -297,6 +298,28 @@ export function registerSyscalls(kernel: Kernel): void {
          * Get the PID of the parent process (in grandparent's namespace).
          */
         'proc:getppid': wrapSyscall(proc => getppid(kernel, proc)),
+
+        /**
+         * proc:create(opts?) -> { pid, id }
+         *
+         * Create a virtual process. Returns PID in parent's namespace and
+         * the process UUID for syscall proxying.
+         *
+         * Virtual processes share the parent's Worker thread but have isolated
+         * state (handles, cwd, env). This enables gatewayd to create isolated
+         * contexts for external clients without spawning new Worker threads.
+         *
+         * USAGE:
+         * 1. Parent calls proc:create to get { pid, id }
+         * 2. Parent uses setProcessId(id) before making syscalls
+         * 3. Kernel validates worker matches and executes in virtual context
+         * 4. Parent calls proc:exit or proc:kill to clean up
+         *
+         * @param opts - Optional: { cwd, env, args }
+         */
+        'proc:create': wrapSyscall((proc, opts) =>
+            createVirtualProcess(kernel, proc, opts as { cwd?: string; env?: Record<string, string> } | undefined),
+        ),
     });
 
     // -------------------------------------------------------------------------

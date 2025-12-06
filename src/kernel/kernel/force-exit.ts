@@ -166,7 +166,10 @@ export function forceExit(self: Kernel, proc: Process, code: number): void {
     // WHY IMMEDIATE: Don't wait for I/O or cleanup
     // EFFECT: Worker thread stops executing, memory released
     // NOTE: Synchronous operation, just sends termination signal
-    proc.worker.terminate();
+    // VIRTUAL: Skip for virtual processes - they share parent's Worker
+    if (!proc.virtual) {
+        proc.worker.terminate();
+    }
 
     // =========================================================================
     // STEP 4: Abort all active syscall streams

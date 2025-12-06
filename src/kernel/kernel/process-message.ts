@@ -10,6 +10,12 @@
  * - stream_ping: Backpressure acknowledgement (handled by on-stream-ping.ts)
  * - stream_cancel: Consumer abort request (handled by on-stream-cancel.ts)
  *
+ * VIRTUAL PROCESS SUPPORT:
+ * Syscall messages include a `pid` field identifying which process context
+ * to use. The kernel looks up the process by pid and validates that
+ * proc.worker === sourceWorker. This enables virtual processes where
+ * multiple process contexts share a single Worker thread.
+ *
  * RACE CONDITION: Process may be in zombie state but still have messages in
  * flight. We check process state before dispatching to avoid processing
  * syscalls from dead processes.
@@ -18,42 +24,120 @@
  */
 
 import type { Kernel } from '../kernel.js';
-import type { Process, KernelMessage, SyscallRequest } from '../types.js';
+import type { KernelMessage, SyscallRequest } from '../types.js';
+import { EPERM } from '@src/hal/errors.js';
 import { handleSyscall } from './dispatch-syscall.js';
 import { handleStreamPing } from './on-stream-ping.js';
 import { handleStreamCancel } from './on-stream-cancel.js';
+import { sendResponse } from './send-response.js';
+import { printk } from './printk.js';
 
 /**
  * Handle message from process worker.
  *
  * ALGORITHM:
- * 1. Check if process is zombie (ignore messages from dead processes)
- * 2. Switch on message type and dispatch to appropriate handler
- * 3. Handlers are responsible for error handling and responses
+ * 1. For syscall messages:
+ *    a. Look up process by pid from message
+ *    b. Validate proc.worker === sourceWorker
+ *    c. Check if process is zombie
+ *    d. Dispatch to syscall handler
+ * 2. For stream messages (ping/cancel):
+ *    a. Look up process by pid
+ *    b. Validate worker and dispatch
  *
- * RACE CONDITION: Process may transition to zombie between receiving message
- * and handling it. We check state early to avoid unnecessary work, but handlers
- * must also be defensive (e.g., sendResponse catches postMessage errors).
+ * VIRTUAL PROCESS SUPPORT:
+ * Syscalls include pid to identify which process context to use. This enables
+ * gatewayd to create virtual processes and proxy syscalls on their behalf.
+ * The kernel validates that the Worker making the syscall matches the process's
+ * Worker (for regular processes) or the parent's Worker (for virtual processes).
  *
- * WHY: Early zombie check prevents processing syscalls from terminated processes.
- * Zombie processes may still have messages in the worker's message queue due to
- * async message delivery. We ignore these to avoid resurrecting dead state.
+ * SECURITY:
+ * A process cannot impersonate another process because the kernel validates
+ * that the message came from the correct Worker. Virtual processes share their
+ * creator's Worker, so the creator can act on their behalf.
  *
  * @param self - Kernel instance
- * @param proc - Source process (may be zombie)
+ * @param sourceWorker - Worker that sent the message
  * @param msg - Message from process worker
  */
 export async function handleMessage(
     self: Kernel,
-    proc: Process,
+    sourceWorker: Worker,
     msg: KernelMessage,
 ): Promise<void> {
+    // -------------------------------------------------------------------------
+    // Look up process by pid
+    // -------------------------------------------------------------------------
+
+    // For syscall messages, pid is in the message
+    // For stream messages, we need to find the process that owns this stream
+    let pid: string | undefined;
+
+    if (msg.type === 'syscall') {
+        pid = (msg as SyscallRequest).pid;
+    }
+    else if (msg.type === 'stream_ping' || msg.type === 'stream_cancel') {
+        // Stream messages reference an existing syscall - find the process
+        // that owns this stream by searching all processes
+        // WHY SEARCH: Stream messages don't include pid (protocol compatibility)
+        // This is O(n) but stream operations are infrequent
+        for (const proc of self.processes.all()) {
+            if (proc.activeStreams.has(msg.id)) {
+                pid = proc.id;
+                break;
+            }
+        }
+    }
+
+    if (!pid) {
+        printk(self, 'warn', `Message without process ID: ${msg.type}`);
+
+        return;
+    }
+
+    const proc = self.processes.get(pid);
+
+    if (!proc) {
+        printk(self, 'warn', `Message for unknown process: ${pid}`);
+
+        return;
+    }
+
+    // -------------------------------------------------------------------------
+    // Validate worker ownership
+    // -------------------------------------------------------------------------
+
+    // SECURITY: Verify the message came from the correct Worker
+    // - For regular processes: proc.worker === sourceWorker
+    // - For virtual processes: proc.worker === parent's worker === sourceWorker
+    if (proc.worker !== sourceWorker) {
+        printk(self, 'warn', `Worker mismatch for process ${pid}`);
+
+        if (msg.type === 'syscall') {
+            // Send error response for syscalls
+            sendResponse(self, proc, (msg as SyscallRequest).id, {
+                op: 'error',
+                data: { code: 'EPERM', message: 'Worker mismatch' },
+            });
+        }
+
+        return;
+    }
+
+    // -------------------------------------------------------------------------
+    // Check process state
+    // -------------------------------------------------------------------------
+
     // RACE FIX: Check process state before handling
     // WHY: A zombie process may still have messages in flight from before
     // termination. Ignore these to avoid operating on dead process state.
     if (proc.state === 'zombie') {
         return;
     }
+
+    // -------------------------------------------------------------------------
+    // Dispatch by message type
+    // -------------------------------------------------------------------------
 
     switch (msg.type) {
         case 'syscall':

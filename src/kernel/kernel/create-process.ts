@@ -88,8 +88,18 @@ export function createProcess(
         cwd?: string;
         env?: Record<string, string>;
         args?: string[];
+        /**
+         * Create as virtual process (shares parent's Worker).
+         *
+         * WHY: Enables gatewayd to create isolated process contexts for
+         * external clients without spawning new Worker threads.
+         */
+        virtual?: boolean;
     },
 ): Process {
+    // Generate process ID first - needed for MONK_PID env var
+    const id = self.hal.entropy.uuid();
+
     return {
         // =====================================================================
         // IDENTITY
@@ -100,7 +110,7 @@ export function createProcess(
          * WHY UUID: Allows distributed process tracking across multiple kernels.
          * INVARIANT: Must be unique across all processes in the system.
          */
-        id: self.hal.entropy.uuid(),
+        id,
 
         /**
          * Parent process UUID (empty string for init).
@@ -121,19 +131,34 @@ export function createProcess(
         // =====================================================================
 
         /**
-         * Bun Worker instance (null until spawnWorker completes).
-         * WHY NULL: Worker is created asynchronously, this placeholder ensures
-         * TypeScript doesn't complain about undefined.
+         * Bun Worker instance.
+         *
+         * For regular processes: null until spawnWorker completes, then own Worker.
+         * For virtual processes: set to parent's Worker immediately.
+         *
+         * WHY NULL FOR REGULAR: Worker is created asynchronously.
+         * WHY PARENT FOR VIRTUAL: Virtual processes share parent's Worker for transport.
          * RACE FIX: Must check state='running' before accessing worker.
          */
-        worker: null as unknown as Worker,
+        worker: opts.virtual && opts.parent ? opts.parent.worker : null as unknown as Worker,
+
+        /**
+         * Whether this is a virtual process (shares parent's Worker).
+         *
+         * WHY: Enables gatewayd to create isolated process contexts without
+         * spawning new Worker threads.
+         *
+         * INVARIANT: If virtual=true, worker === parent's worker
+         * EFFECT: On exit, don't call worker.terminate()
+         */
+        virtual: opts.virtual ?? false,
 
         /**
          * Process lifecycle state.
          * WHY STARTING: Process is not yet ready to receive syscalls.
          * TRANSITIONS: starting -> running -> stopped -> zombie
          */
-        state: 'starting',
+        state: opts.virtual ? 'running' : 'starting',
 
         // =====================================================================
         // EXECUTION CONTEXT
@@ -156,8 +181,13 @@ export function createProcess(
          * Environment variables.
          * WHY MERGE: Parent env is base, child opts override specific keys.
          * WHY COPY: Prevents child from mutating parent's environment.
+         * WHY MONK_PID: Process needs to know its own ID to include in syscalls.
          */
-        env: opts.parent ? { ...opts.parent.env, ...opts.env } : (opts.env ?? {}),
+        env: {
+            ...(opts.parent?.env ?? {}),
+            ...opts.env,
+            MONK_PID: id,
+        },
 
         /**
          * Command arguments.

@@ -169,8 +169,11 @@ export async function spawnWorker(
 
     // WHY BEFORE AWAIT: Worker may start executing immediately
     // HANDLER: Routes syscalls to dispatcher, manages streaming responses
+    // WHY PASS WORKER: handleMessage looks up process by pid from message,
+    // then validates that proc.worker === this worker. This enables virtual
+    // processes where multiple process contexts share a single Worker.
     worker.onmessage = (event: MessageEvent<KernelMessage>) => {
-        handleMessage(self, proc, event.data);
+        handleMessage(self, worker, event.data);
     };
 
     // =========================================================================

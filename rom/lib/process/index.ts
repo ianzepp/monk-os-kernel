@@ -150,6 +150,15 @@ export * from './errors.js';
 export { onSignal } from './syscall.js';
 
 /**
+ * Re-export process identity functions for virtual process support.
+ *
+ * WHY: These enable gatewayd and other proxies to:
+ * - Get the current process ID (getProcessId)
+ * - Switch to a virtual process context (setProcessId)
+ */
+export { getProcessId, setProcessId } from './syscall.js';
+
+/**
  * Re-export channel API.
  */
 export { channel, httpRequest, sqlQuery, sqlExecute } from './channel.js';
@@ -748,6 +757,49 @@ export function getppid(): Promise<number> {
  */
 export function getargs(): Promise<string[]> {
     return unwrap<string[]>(syscall('proc:getargs'));
+}
+
+/**
+ * Create a virtual process.
+ *
+ * Virtual processes share the caller's Worker thread but have isolated state:
+ * - File descriptor table (handles)
+ * - Current working directory (cwd)
+ * - Environment variables (env)
+ *
+ * This enables proxies like gatewayd to create isolated contexts for external
+ * clients without spawning new Worker threads.
+ *
+ * USAGE:
+ * 1. Call create() to get { pid, id }
+ * 2. Use setProcessId(id) before making syscalls on behalf of virtual process
+ * 3. Kernel validates worker matches and executes in virtual context
+ * 4. Call kill(pid) or let virtual process call exit() to clean up
+ *
+ * @param opts - Optional: { cwd, env }
+ * @returns { pid, id } - PID in caller's namespace and process UUID
+ *
+ * @example
+ * // Create isolated context for a client
+ * const { pid, id } = await create({ cwd: '/', env: { USER: 'guest' } });
+ *
+ * // Make syscalls on behalf of virtual process
+ * setProcessId(id);
+ * const fd = await open('/tmp/file');
+ * // ...
+ *
+ * // Clean up
+ * await kill(pid);
+ */
+export interface CreateOpts {
+    /** Working directory for virtual process */
+    cwd?: string;
+    /** Environment variables for virtual process */
+    env?: Record<string, string>;
+}
+
+export function create(opts?: CreateOpts): Promise<{ pid: number; id: string }> {
+    return unwrap<{ pid: number; id: string }>(syscall('proc:create', opts));
 }
 
 // =============================================================================

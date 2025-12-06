@@ -169,7 +169,10 @@ export async function exit(self: Kernel, proc: Process, code: number): Promise<n
     // WHY AFTER HANDLES: Handles may need worker alive for final operations
     // NOTE: terminate() is synchronous - just sends termination signal
     // EFFECT: Worker thread stops executing, memory is released
-    proc.worker.terminate();
+    // VIRTUAL: Skip for virtual processes - they share parent's Worker
+    if (!proc.virtual) {
+        proc.worker.terminate();
+    }
 
     // =========================================================================
     // STEP 4: Reparent orphaned children to init (synchronous)

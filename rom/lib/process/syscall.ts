@@ -232,6 +232,18 @@ let signalHandler: SignalHandler | null = null;
  */
 let initialized = false;
 
+/**
+ * Current process ID (UUID).
+ *
+ * WHY: Every syscall must include the process ID so the kernel knows which
+ * process context to use. This enables virtual processes where multiple
+ * process contexts share a single Worker thread.
+ *
+ * Read from MONK_PID environment variable on first syscall.
+ * Throws if MONK_PID is not set (indicates kernel bug).
+ */
+let processId: string | null = null;
+
 // =============================================================================
 // INITIALIZATION
 // =============================================================================
@@ -239,23 +251,37 @@ let initialized = false;
 /**
  * Initialize the syscall transport.
  *
- * Sets up the message handler for kernel responses. Called automatically
- * on first syscall, but can be called explicitly for early initialization.
+ * Sets up the message handler for kernel responses and reads process ID.
+ * Called automatically on first syscall, but can be called explicitly for
+ * early initialization.
  *
  * ALGORITHM:
  * 1. Check if already initialized (idempotent)
- * 2. Register onmessage handler
- * 3. Set initialized flag
+ * 2. Read MONK_PID from environment
+ * 3. Register onmessage handler
+ * 4. Set initialized flag
  *
  * WHY auto-initialize: Simplifies userland code - no explicit init needed.
  * WHY idempotent: Safe to call multiple times (RC-6 mitigation).
+ * WHY MONK_PID: Syscalls must include process ID for virtual process support.
  *
  * RACE CONDITION: Two concurrent syscalls before init both call this.
  * SAFE: Function is synchronous and sets initialized before returning.
+ *
+ * @throws Error if MONK_PID environment variable is not set (kernel bug)
  */
 export function initTransport(): void {
     if (initialized) {
         return;
+    }
+
+    // Read process ID from environment
+    // WHY: Every syscall must include pid so kernel knows which process context
+    // to use. This is set by the kernel in create-process.ts.
+    processId = process.env.MONK_PID ?? null;
+
+    if (!processId) {
+        throw new Error('MONK_PID environment variable not set (kernel bug)');
     }
 
     self.onmessage = (event: MessageEvent) => {
@@ -480,9 +506,17 @@ export async function* syscall(name: string, ...args: unknown[]): AsyncIterable<
     // -------------------------------------------------------------------------
     // Send the syscall request
     // -------------------------------------------------------------------------
+
+    // INVARIANT: processId is set by initTransport() above
+    // WHY assert: TypeScript doesn't know initTransport sets processId
+    if (!processId) {
+        throw new Error('Process ID not initialized');
+    }
+
     const request: SyscallRequest = {
         type: 'syscall',
         id,
+        pid: processId,
         name,
         args,
     };
@@ -661,3 +695,47 @@ export const cancelStream = cancelSyscall;
  * @deprecated Use syscall instead
  */
 export const syscallStream = syscall;
+
+// =============================================================================
+// PROCESS IDENTITY
+// =============================================================================
+
+/**
+ * Get the current process ID.
+ *
+ * WHY EXPORT: Allows userland code to get its own process ID without
+ * making a syscall. Useful for logging, debugging, or implementing
+ * virtual process proxying (like gatewayd).
+ *
+ * @returns Process UUID
+ * @throws Error if transport not initialized (call any syscall first)
+ */
+export function getProcessId(): string {
+    if (!processId) {
+        // Auto-initialize if needed
+        initTransport();
+    }
+
+    if (!processId) {
+        throw new Error('Process ID not available');
+    }
+
+    return processId;
+}
+
+/**
+ * Set the process ID for syscalls.
+ *
+ * WHY: Enables virtual process proxying. When gatewayd creates a virtual
+ * process, it can set the process ID before making syscalls on behalf
+ * of the virtual process.
+ *
+ * SECURITY: This is safe because the kernel validates that the Worker
+ * making the syscall matches the process's Worker. A malicious process
+ * cannot impersonate another process.
+ *
+ * @param pid - Process UUID to use for syscalls
+ */
+export function setProcessId(pid: string): void {
+    processId = pid;
+}

@@ -16,6 +16,17 @@ export type ProcessState = 'starting' | 'running' | 'stopped' | 'zombie';
  *
  * Represents a running process in the kernel.
  * Processes are Bun Workers providing isolation.
+ *
+ * VIRTUAL PROCESSES:
+ * A virtual process is a process table entry without its own Worker thread.
+ * Instead, it shares its creator's Worker. This enables gatewayd to proxy
+ * syscalls for external clients, with each client getting isolated state
+ * (handles, cwd, env) while sharing gatewayd's Worker for transport.
+ *
+ * When virtual=true:
+ * - worker points to the creator's Worker (for response delivery)
+ * - No worker.terminate() on exit (Worker belongs to creator)
+ * - Syscalls specify pid explicitly (Worker → Process mapping is N:1)
  */
 export interface Process {
     /** Process UUID (internal identity) */
@@ -27,8 +38,19 @@ export interface Process {
     /** User identity for ACL checks (e.g., 'root', 'kernel') */
     user: string;
 
-    /** Bun Worker instance */
+    /** Bun Worker instance (shared with creator if virtual=true) */
     worker: Worker;
+
+    /**
+     * Whether this is a virtual process (shares parent's Worker).
+     *
+     * WHY: Enables gatewayd to create isolated process contexts for external
+     * clients without spawning new Worker threads.
+     *
+     * INVARIANT: If virtual=true, worker === parent's worker
+     * EFFECT: On exit, don't call worker.terminate() (Worker belongs to creator)
+     */
+    virtual: boolean;
 
     /** Current state */
     state: ProcessState;
@@ -183,11 +205,35 @@ export const STREAM_STALL_TIMEOUT = 5000; // Abort if no ping for this long
 
 /**
  * Syscall message from process to kernel
+ *
+ * VIRTUAL PROCESS SUPPORT:
+ * The `pid` field identifies which process context to use for execution.
+ * This enables a single Worker to make syscalls on behalf of multiple
+ * virtual processes (each with isolated handles, cwd, env).
+ *
+ * The kernel validates that the message came from the correct Worker:
+ * - Look up process by pid
+ * - Verify proc.worker === messageSourceWorker
+ *
+ * For regular processes, pid matches the Worker's process.
+ * For virtual processes, pid identifies the virtual process, and
+ * Worker matches the creator's Worker.
  */
 export interface SyscallRequest {
     type: 'syscall';
+    /** Request correlation ID (for response matching) */
     id: string;
+    /**
+     * Process ID making the syscall.
+     *
+     * WHY REQUIRED: Enables virtual processes where multiple process contexts
+     * share a single Worker thread. The kernel uses pid to look up process
+     * context (handles, cwd, env) and validates the Worker matches.
+     */
+    pid: string;
+    /** Syscall name (e.g., 'file:open', 'proc:spawn') */
     name: string;
+    /** Syscall arguments */
     args: unknown[];
 }
 

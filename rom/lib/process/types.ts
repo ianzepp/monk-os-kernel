@@ -17,11 +17,20 @@
 
 /**
  * Syscall request message sent from process to kernel via postMessage.
+ *
+ * VIRTUAL PROCESS SUPPORT:
+ * The `pid` field identifies which process context to use. This enables
+ * a single Worker to make syscalls on behalf of multiple virtual processes.
  */
 export interface SyscallRequest {
     type: 'syscall';
+    /** Request correlation ID */
     id: string;
+    /** Process ID making the syscall */
+    pid: string;
+    /** Syscall name */
     name: string;
+    /** Syscall arguments */
     args: unknown[];
 }
 
