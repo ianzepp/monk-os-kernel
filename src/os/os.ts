@@ -12,12 +12,12 @@ import { BunHAL, EINVAL, EBUSY } from '@src/hal/index.js';
 import { VFS } from '@src/vfs/vfs.js';
 import { Kernel } from '@src/kernel/kernel.js';
 import type { ServiceDef } from '@src/kernel/services.js';
+import { activateService } from '@src/kernel/kernel/activate-service.js';
+import type { Process } from '@src/kernel/types.js';
+import type { Response } from '@src/message.js';
+import { fromCode } from '@src/hal/errors.js';
 import type { OSConfig, BootOpts, ExecOpts, OSEvents, OSEventName, PackageOpts } from './types.js';
-import { FilesystemAPI } from './fs.js';
-import { ProcessAPI } from './process.js';
-import { ServiceAPI } from './service.js';
 import { PackageAPI } from './pkg.js';
-import { EntityAPI } from './ems.js';
 import { EMS } from '@src/ems/ems.js';
 import type { EntityOps } from '@src/ems/entity-ops.js';
 
@@ -35,7 +35,7 @@ export class OS {
     private config: OSConfig;
     private hal: HAL | null = null;
     private _ems: EMS | null = null;
-    private vfs: VFS | null = null;
+    private _vfs: VFS | null = null;
     private kernel: Kernel | null = null;
     private booted = false;
 
@@ -53,36 +53,15 @@ export class OS {
     };
 
     /**
-     * Filesystem API for file operations.
-     */
-    readonly fs: FilesystemAPI;
-
-    /**
-     * Process API for spawning and running processes.
-     */
-    readonly process: ProcessAPI;
-
-    /**
-     * Service API for managing services.
-     */
-    readonly service: ServiceAPI;
-
-    /**
      * Package API for managing OS packages.
+     *
+     * WHY KEPT: Package installation is a complex host-side operation
+     * that doesn't map to simple syscalls.
      */
     readonly pkg: PackageAPI;
 
-    /**
-     * Entity Model System API for entity operations.
-     */
-    readonly ems: EntityAPI;
-
     constructor(config?: OSConfig) {
-        this.fs = new FilesystemAPI(this);
-        this.process = new ProcessAPI(this);
-        this.service = new ServiceAPI(this);
         this.pkg = new PackageAPI(this);
-        this.ems = new EntityAPI(this);
         this.config = config ?? {};
 
         // Initialize aliases from config
@@ -197,6 +176,381 @@ export class OS {
         return path;
     }
 
+    // =========================================================================
+    // SYSCALL API
+    // =========================================================================
+
+    /**
+     * Get the init process for syscall context.
+     *
+     * WHY INIT: External syscalls execute in the context of PID 1.
+     * This provides proper process identity for permission checks
+     * and resource tracking.
+     */
+    private getInitProcess(): Process {
+        if (!this.kernel) {
+            throw new EINVAL('OS not booted');
+        }
+
+        const init = this.kernel.processes.getInit();
+
+        if (!init) {
+            throw new EINVAL('Init process not found');
+        }
+
+        return init;
+    }
+
+    /**
+     * Make a syscall to the kernel.
+     *
+     * Low-level interface for direct kernel communication.
+     * Executes in the context of the init process (PID 1).
+     *
+     * @param name - Syscall name (e.g., 'file:open', 'ems:select')
+     * @param args - Syscall arguments
+     * @returns Unwrapped result (single value or array of items)
+     *
+     * @example
+     * ```typescript
+     * // Single-value syscall
+     * const fd = await os.syscall<number>('file:open', '/etc/config.json', { read: true });
+     *
+     * // Streaming syscall (items collected into array)
+     * const users = await os.syscall<User[]>('ems:select', 'User', { where: { active: true } });
+     * ```
+     */
+    async syscall<T = unknown>(name: string, ...args: unknown[]): Promise<T> {
+        const init = this.getInitProcess();
+        const stream = this.kernel!.syscalls.dispatch(init, name, args);
+
+        // Collect response - handles both single-value and streaming syscalls
+        const items: unknown[] = [];
+        let singleResult: unknown = undefined;
+        let hasOk = false;
+
+        for await (const response of stream) {
+            if (response.op === 'ok') {
+                singleResult = response.data;
+                hasOk = true;
+                break;
+            }
+
+            if (response.op === 'item') {
+                items.push(response.data);
+                continue;
+            }
+
+            if (response.op === 'done') {
+                break;
+            }
+
+            if (response.op === 'error') {
+                const err = response.data as { code: string; message: string };
+
+                throw fromCode(err.code, err.message);
+            }
+
+            // data, event, progress - collect for special cases
+            if (response.op === 'data' && response.bytes) {
+                items.push(response.bytes);
+            }
+        }
+
+        // Return single value or collected items
+        if (hasOk) {
+            return singleResult as T;
+        }
+
+        return items as T;
+    }
+
+    /**
+     * Make a syscall and return the raw response stream.
+     *
+     * Use this for syscalls where you need full control over
+     * response processing (progress events, streaming data, etc.).
+     *
+     * @param name - Syscall name
+     * @param args - Syscall arguments
+     * @returns AsyncIterable of Response objects
+     */
+    syscallStream(name: string, ...args: unknown[]): AsyncIterable<Response> {
+        const init = this.getInitProcess();
+
+        return this.kernel!.syscalls.dispatch(init, name, args);
+    }
+
+    // =========================================================================
+    // DOMAIN SYSCALL WRAPPERS
+    // =========================================================================
+
+    /**
+     * Entity Management System syscall.
+     *
+     * @param method - EMS method (select, create, update, delete, revert, expire)
+     * @param args - Method arguments
+     * @returns Syscall result
+     *
+     * @example
+     * ```typescript
+     * // Select users
+     * const users = await os.ems<User[]>('select', 'User', { where: { active: true } });
+     *
+     * // Create a user
+     * const user = await os.ems<User>('create', 'User', { name: 'Alice' });
+     * ```
+     */
+    async ems<T = unknown>(method: string, ...args: unknown[]): Promise<T> {
+        return this.syscall<T>(`ems:${method}`, ...args);
+    }
+
+    /**
+     * Virtual File System syscall.
+     *
+     * @param method - VFS method (open, close, read, write, stat, mkdir, etc.)
+     * @param args - Method arguments
+     * @returns Syscall result
+     *
+     * @example
+     * ```typescript
+     * // Open a file
+     * const fd = await os.vfs<number>('open', '/etc/config.json', { read: true });
+     *
+     * // Get file stats
+     * const stat = await os.vfs<Stat>('stat', '/etc/config.json');
+     * ```
+     */
+    async vfs<T = unknown>(method: string, ...args: unknown[]): Promise<T> {
+        return this.syscall<T>(`file:${method}`, ...args);
+    }
+
+    /**
+     * Process syscall.
+     *
+     * @param method - Process method (spawn, kill, wait, getpid, etc.)
+     * @param args - Method arguments
+     * @returns Syscall result
+     *
+     * @example
+     * ```typescript
+     * // Spawn a process
+     * const pid = await os.process<number>('spawn', '/bin/worker.ts', { args: ['--port', '9000'] });
+     *
+     * // Kill a process
+     * await os.process('kill', pid, 15);
+     * ```
+     */
+    async process<T = unknown>(method: string, ...args: unknown[]): Promise<T> {
+        return this.syscall<T>(`proc:${method}`, ...args);
+    }
+
+    // =========================================================================
+    // ALIASES
+    // =========================================================================
+
+    /**
+     * Alias for vfs() - file system operations.
+     */
+    file<T = unknown>(method: string, ...args: unknown[]): Promise<T> {
+        return this.vfs<T>(method, ...args);
+    }
+
+    /**
+     * Alias for ems() - entity operations.
+     */
+    entity<T = unknown>(method: string, ...args: unknown[]): Promise<T> {
+        return this.ems<T>(method, ...args);
+    }
+
+    // =========================================================================
+    // CONVENIENCE HELPERS
+    // =========================================================================
+
+    /**
+     * Spawn a new process.
+     *
+     * @param path - Path to script (aliases resolved)
+     * @param opts - Spawn options
+     * @returns Process ID
+     */
+    async spawn(path: string, opts?: { args?: string[]; env?: Record<string, string>; cwd?: string }): Promise<number> {
+        const resolved = this.resolvePath(path);
+
+        return this.process<number>('spawn', resolved, opts);
+    }
+
+    /**
+     * Kill a process.
+     *
+     * @param pid - Process ID
+     * @param signal - Signal number (default: 15 = SIGTERM)
+     */
+    async kill(pid: number, signal = 15): Promise<void> {
+        return this.process<void>('kill', pid, signal);
+    }
+
+    /**
+     * Read a file as raw bytes.
+     *
+     * @param path - File path (aliases resolved)
+     * @returns File contents as Uint8Array
+     */
+    async read(path: string): Promise<Uint8Array> {
+        const resolved = this.resolvePath(path);
+        const fd = await this.vfs<number>('open', resolved, { read: true });
+
+        try {
+            // Collect all data chunks
+            const chunks = await this.syscall<Uint8Array[]>('file:read', fd);
+
+            // Concatenate chunks
+            if (chunks.length === 0) {
+                return new Uint8Array(0);
+            }
+
+            if (chunks.length === 1) {
+                return chunks[0]!;
+            }
+
+            const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+            const result = new Uint8Array(totalLength);
+            let offset = 0;
+
+            for (const chunk of chunks) {
+                result.set(chunk, offset);
+                offset += chunk.length;
+            }
+
+            return result;
+        }
+        finally {
+            await this.vfs('close', fd);
+        }
+    }
+
+    /**
+     * Read a file as text.
+     *
+     * @param path - File path (aliases resolved)
+     * @param encoding - Text encoding (default: 'utf-8')
+     * @returns File contents as string
+     */
+    async text(path: string, encoding: string = 'utf-8'): Promise<string> {
+        const bytes = await this.read(path);
+
+        return new TextDecoder(encoding).decode(bytes);
+    }
+
+    /**
+     * Service management operations.
+     *
+     * @param action - Action to perform (start, stop, status, list)
+     * @param nameOrPid - Service name or PID
+     * @returns Action result
+     *
+     * @example
+     * ```typescript
+     * // Start a service
+     * await os.service('start', 'httpd');
+     *
+     * // Stop a service
+     * await os.service('stop', 'httpd');
+     *
+     * // Get service status
+     * const info = await os.service('status', 'httpd');
+     * ```
+     */
+    async service(action: string, nameOrPid?: string | number): Promise<unknown> {
+        // Service management operates on kernel service registry
+        if (!this.kernel) {
+            throw new EINVAL('OS not booted');
+        }
+
+        const services = this.kernel.getServices();
+
+        switch (action) {
+            case 'list':
+                return Array.from(services.values());
+
+            case 'status': {
+                if (!nameOrPid) {
+                    throw new EINVAL('Service name required');
+                }
+
+                const svc = services.get(String(nameOrPid));
+
+                if (!svc) {
+                    throw new EINVAL(`Service not found: ${nameOrPid}`);
+                }
+
+                return svc;
+            }
+
+            case 'start': {
+                if (!nameOrPid) {
+                    throw new EINVAL('Service name required');
+                }
+
+                const name = String(nameOrPid);
+                const def = services.get(name);
+
+                if (!def) {
+                    throw new EINVAL(`Service not found: ${name}`);
+                }
+
+                // Check if already activated
+                if (this.kernel.activationPorts.has(name) || this.kernel.activationAborts.has(name)) {
+                    throw new EINVAL(`Service already running: ${name}`);
+                }
+
+                await activateService(this.kernel, name, def);
+
+                return { started: name };
+            }
+
+            case 'stop': {
+                if (!nameOrPid) {
+                    throw new EINVAL('Service name required');
+                }
+
+                const name = String(nameOrPid);
+
+                // Abort activation loop if running
+                const abort = this.kernel.activationAborts.get(name);
+
+                if (abort) {
+                    abort.abort();
+                    this.kernel.activationAborts.delete(name);
+                }
+
+                // Close activation port if exists
+                const port = this.kernel.activationPorts.get(name);
+
+                if (port) {
+                    await port.close();
+                    this.kernel.activationPorts.delete(name);
+                }
+
+                return { stopped: name };
+            }
+
+            case 'restart': {
+                if (!nameOrPid) {
+                    throw new EINVAL('Service name required');
+                }
+
+                await this.service('stop', nameOrPid);
+                await this.service('start', nameOrPid);
+
+                return { restarted: String(nameOrPid) };
+            }
+
+            default:
+                throw new EINVAL(`Unknown service action: ${action}`);
+        }
+    }
+
     /**
      * Boot the OS.
      *
@@ -232,8 +586,8 @@ export class OS {
         await this.emit('ems', this);
 
         // 3. VFS
-        this.vfs = new VFS(this.hal, this._ems);
-        await this.vfs.init();
+        this._vfs = new VFS(this.hal, this._ems);
+        await this._vfs.init();
         await this.emit('vfs', this);
 
         // 4. Standard directories
@@ -243,7 +597,7 @@ export class OS {
         await this.pkg.installQueued();
 
         // 6. Kernel
-        this.kernel = new Kernel(this.hal, this._ems, this.vfs);
+        this.kernel = new Kernel(this.hal, this._ems, this._vfs);
         await this.emit('kernel', this);
 
         // 7. Init process (if main provided)
@@ -331,7 +685,7 @@ export class OS {
 
         this.booted = false;
         this.kernel = null;
-        this.vfs = null;
+        this._vfs = null;
         this._ems = null;
         this.hal = null;
     }
@@ -358,11 +712,11 @@ export class OS {
      * Get the VFS instance (for testing/advanced use).
      */
     getVFS(): VFS {
-        if (!this.vfs) {
+        if (!this._vfs) {
             throw new EINVAL('OS not booted');
         }
 
-        return this.vfs;
+        return this._vfs;
     }
 
     /**
@@ -374,13 +728,6 @@ export class OS {
         }
 
         return this.kernel;
-    }
-
-    /**
-     * Get the ProcessAPI instance.
-     */
-    getProcessAPI(): ProcessAPI {
-        return this.process;
     }
 
     /**
@@ -466,7 +813,7 @@ export class OS {
      * and general OS operation.
      */
     private async createStandardDirectories(): Promise<void> {
-        if (!this.vfs) {
+        if (!this._vfs) {
             return;
         }
 
@@ -484,7 +831,7 @@ export class OS {
 
         for (const dir of standardDirs) {
             try {
-                await this.vfs.mkdir(dir, 'kernel', { recursive: true });
+                await this._vfs.mkdir(dir, 'kernel', { recursive: true });
             }
             catch (err) {
                 // EEXIST is fine - directory already exists

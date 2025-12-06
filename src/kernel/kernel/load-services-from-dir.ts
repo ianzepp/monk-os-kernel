@@ -57,7 +57,6 @@
 
 import type { Kernel } from '../kernel.js';
 import type { ServiceDef } from '../services.js';
-import { activateService } from './activate-service.js';
 import { logServiceError } from './log-service-error.js';
 
 // =============================================================================
@@ -162,14 +161,16 @@ export async function loadServicesFromDir(self: Kernel, dir: string): Promise<vo
             }
 
             // -------------------------------------------------------------------------
-            // Register and activate service
+            // Register service (activation disabled)
             // -------------------------------------------------------------------------
 
-            // WHY: Register before activation (activation may need to lookup service)
+            // WHY: Register service definition for later manual activation
             self.services.set(serviceName, def);
 
-            // WHY: Activation spawns handler or starts activation loop
-            await activateService(self, serviceName, def);
+            // NOTE: Auto-activation disabled. Services can be started via:
+            // - os.service('start', serviceName)
+            // - Direct syscall
+            // This prevents interference with tests and gives explicit control.
         }
         catch (err) {
             // -------------------------------------------------------------------------
