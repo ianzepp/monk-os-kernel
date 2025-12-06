@@ -20,7 +20,6 @@ import { PackageAPI } from './pkg.js';
 import { EntityAPI } from './ems.js';
 import { EMS } from '@src/ems/ems.js';
 import type { EntityOps } from '@src/ems/entity-ops.js';
-import { Display } from '@src/display/index.js';
 
 /**
  * Type for storing event listeners
@@ -38,7 +37,6 @@ export class OS {
     private _ems: EMS | null = null;
     private vfs: VFS | null = null;
     private kernel: Kernel | null = null;
-    private _display: Display | null = null;
     private booted = false;
 
     // Path aliases
@@ -208,12 +206,11 @@ export class OS {
      * Boot sequence:
      * 1. HAL (hardware abstraction)
      * 2. EMS (entity management)
-     * 3. Display (if enabled)
-     * 4. VFS (virtual filesystem)
-     * 5. Standard directories
-     * 6. Queued packages
-     * 7. Kernel
-     * 8. Init process (if main provided)
+     * 3. VFS (virtual filesystem)
+     * 4. Standard directories
+     * 5. Queued packages
+     * 6. Kernel
+     * 7. Init process (if main provided)
      *
      * @param opts - Optional boot options
      */
@@ -234,31 +231,22 @@ export class OS {
         await this._ems.init();
         await this.emit('ems', this);
 
-        // 3. Display (if enabled)
-        if (this.config.display?.enabled) {
-            this._display = new Display(this.hal, this._ems, {
-                port: this.config.display.port,
-                host: this.config.display.host,
-            });
-            await this._display.init();
-        }
-
-        // 4. VFS
+        // 3. VFS
         this.vfs = new VFS(this.hal, this._ems);
         await this.vfs.init();
         await this.emit('vfs', this);
 
-        // 5. Standard directories
+        // 4. Standard directories
         await this.createStandardDirectories();
 
-        // 6. Queued packages
+        // 5. Queued packages
         await this.pkg.installQueued();
 
-        // 7. Kernel
+        // 6. Kernel
         this.kernel = new Kernel(this.hal, this._ems, this.vfs);
         await this.emit('kernel', this);
 
-        // 8. Init process (if main provided)
+        // 7. Init process (if main provided)
         const initPath = opts?.main ? this.resolvePath(opts.main) : '/bin/true.ts';
 
         await this.kernel.boot({
@@ -287,9 +275,7 @@ export class OS {
      *
      * @example
      * ```typescript
-     * const os = new OS({
-     *     display: { enabled: true, port: 8080 },
-     * });
+     * const os = new OS();
      *
      * // Blocks until SIGINT/SIGTERM
      * const exitCode = await os.exec();
@@ -313,14 +299,6 @@ export class OS {
         });
 
         // Log ready state
-        if (this._display) {
-            const addr = this._display.addr();
-
-            if (addr) {
-                console.log(`Display server: http://${addr.hostname}:${addr.port}`);
-            }
-        }
-
         console.log('Monk OS running. Press Ctrl+C to stop.');
 
         // Block until shutdown signal
@@ -331,7 +309,7 @@ export class OS {
      * Shutdown the OS gracefully.
      *
      * Shuts down in reverse boot order:
-     * Kernel → Display → VFS → EMS → HAL
+     * Kernel → VFS → EMS → HAL
      */
     async shutdown(): Promise<void> {
         if (!this.booted) {
@@ -344,10 +322,6 @@ export class OS {
             await this.kernel.shutdown();
         }
 
-        if (this._display) {
-            await this._display.shutdown();
-        }
-
         if (this._ems) {
             await this._ems.shutdown();
         }
@@ -358,7 +332,6 @@ export class OS {
 
         this.booted = false;
         this.kernel = null;
-        this._display = null;
         this.vfs = null;
         this._ems = null;
         this.hal = null;

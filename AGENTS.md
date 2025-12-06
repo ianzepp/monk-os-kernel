@@ -48,7 +48,7 @@
 ### Layered Architecture
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  Userland Applications (rom/bin/*, user services)           │
+│  External Applications (via gatewayd - os-coreutils, etc.)  │
 ├─────────────────────────────────────────────────────────────┤
 │  Process Library & Syscall API (rom/lib/process/)           │
 ├─────────────────────────────────────────────────────────────┤
@@ -696,22 +696,25 @@ Streams of `Response` objects are the fundamental data flow unit. Arrays are a c
 └── bunfig.toml
 ```
 
-### ROM Utilities (`rom/bin/`)
+### ROM Services (`rom/svc/`)
 
-UNIX-like utilities available:
+Kernel services that run as Workers inside the OS:
+- **init.ts**: PID 1, reaps zombie children
+- **logd.ts**: System log daemon, subscribes to log.* pubsub
+- **telnetd.ts**: Telnet daemon for shell access
+- **gatewayd.ts**: Unix socket bridge for external apps (TODO)
+
+### External Utilities (os-coreutils)
+
+User utilities have been moved to `../os-coreutils/`. See that package for:
 - **File**: cat, cp, mv, rm, touch, ln, chmod, head, tail, tee, wc, file
 - **Directory**: ls, mkdir, rmdir, cd, pwd, stat
 - **Text**: echo, printf, sed, awk, tr, cut, sort, uniq, nl, yes
 - **Path**: basename, dirname, realpath
 - **Info**: date, uname, whoami, df, du
-- **Process**: sleep
-- **Misc**: true, false, seq, grant
-- **Daemons**: shell, init, telnetd, logd
+- **Shell**: Interactive shell
 
-**Streaming utilities** (cat, head, tail, sort, wc, uniq, tee, tr, cut, nl) use message-based I/O:
-- Stdin: `recv(0)` for Response items
-- Stdout: `send(1, msg)` for Response items
-- File input: still byte-based via `readFile()` (disk is a byte boundary)
+These will connect to the OS via gatewayd once Phase 2-3 are complete.
 
 ---
 

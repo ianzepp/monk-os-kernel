@@ -8,26 +8,27 @@ This enables clean separation between kernel infrastructure and user-facing appl
 
 ---
 
-## Current State
+## Current State (After Phase 1)
 
-The OS currently bundles everything:
+The OS has been reorganized into a clean kernel-only structure:
 
 ```
 os/
 ├── src/           # Kernel (hal, vfs, ems, kernel, os)
 ├── rom/
-│   ├── lib/       # Syscall wrappers (process library)
-│   ├── bin/       # 45+ UNIX utilities (cat, ls, shell, etc.)
+│   ├── svc/       # Kernel services only (init, logd, telnetd, gatewayd)
 │   └── etc/       # Configuration
-├── src/display/   # Display server (proof of concept)
-└── packages/display-client/  # Browser UI
 ```
 
-Problems:
-1. **Display server in kernelspace** - `src/display/` runs alongside kernel internals
-2. **Mixed concerns in rom/bin** - Kernel services (logd) alongside user utilities (cat, ls)
-3. **No external access** - Only Workers can make syscalls (postMessage transport)
-4. **Tight coupling** - Display, shell, and kernel evolve together
+External packages (already extracted):
+- `../os-sdk/` - Syscall SDK for external apps
+- `../os-coreutils/` - User utilities (cat, ls, grep, awk, shell, etc.)
+- `../displayd/` - Display server (WebSocket ↔ EMS bridge)
+- `../displayd-client/` - Browser UI
+
+Remaining work:
+1. **No external access yet** - Only Workers can make syscalls (postMessage transport)
+2. **gatewayd not implemented** - Unix socket bridge needed for external apps
 
 ---
 
@@ -289,11 +290,12 @@ Phase 9: Cleanup & OS 1.0
 
 ---
 
-### Phase 1: Reorganize rom/
-- Rename `rom/bin/` → `rom/svc/` for kernel services
-- Keep only kernel services: logd, init (if needed)
-- Move user utilities out (prepare for os-coreutils)
-- Move `spec/rom/bin/*` tests out (will go to os-coreutils)
+### Phase 1: Reorganize rom/ ✓ COMPLETE
+- ✓ Renamed `rom/bin/` → `rom/svc/` for kernel services
+- ✓ Kept only kernel services: init, logd, telnetd
+- ✓ Moved user utilities to `../os-coreutils/`
+- ✓ Moved tests to `../os-coreutils/spec/`
+- ✓ Extracted `rom/lib/` to `../os-sdk/` and `../os-coreutils/lib/`
 
 ### Phase 2: Implement gatewayd
 - Create `rom/svc/gatewayd.ts` - Unix socket listener
@@ -317,11 +319,11 @@ Phase 9: Cleanup & OS 1.0
 - Available via `ems:*` syscalls
 - Test: can create/query display entities via syscalls?
 
-### Phase 5: os-coreutils (parallel with 4, 6)
-- Create `@monk-api/os-coreutils` package
-- Move utilities from `rom/bin/` (cat, ls, grep, awk, etc.)
-- Move tests from `spec/rom/bin/`
-- Import `@monk-api/os-sdk` for syscalls
+### Phase 5: os-coreutils ✓ COMPLETE (parallel with 4, 6)
+- ✓ Created `@monk-api/os-coreutils` package at `../os-coreutils/`
+- ✓ Moved utilities (cat, ls, grep, awk, shell, etc.)
+- ✓ Moved tests
+- ✓ Will import `@monk-api/os-sdk` for syscalls (after Phase 3)
 - Work as both executables and importable library
 
 ### Phase 6: Other parallel work

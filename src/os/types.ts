@@ -71,23 +71,6 @@ export interface StorageConfig {
 }
 
 /**
- * Display configuration for standalone mode.
- *
- * When enabled, the OS boots an HTTP/WebSocket server that browsers
- * can connect to for the graphical interface.
- */
-export interface DisplayConfig {
-    /** Enable display server (default: false) */
-    enabled?: boolean;
-
-    /** HTTP/WebSocket port (default: 8080) */
-    port?: number;
-
-    /** Host to bind to (default: '0.0.0.0') */
-    host?: string;
-}
-
-/**
  * OS configuration options
  */
 export interface OSConfig {
@@ -121,12 +104,6 @@ export interface OSConfig {
      * ```
      */
     packages?: PackageSpec[];
-
-    /**
-     * Display server configuration.
-     * Enable for standalone mode with browser-based UI.
-     */
-    display?: DisplayConfig;
 
     /**
      * Enable kernel debug logging.

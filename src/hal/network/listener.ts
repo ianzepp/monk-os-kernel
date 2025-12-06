@@ -114,37 +114,55 @@ export class BunListener implements Listener {
     private closed = false;
 
     /**
-     * Bound hostname.
+     * Bound hostname (TCP mode).
      * WHY: Stored for addr() method. May differ from requested (e.g., '0.0.0.0').
+     * Undefined for Unix socket listeners.
      */
     private hostname: string;
 
     /**
-     * Bound port.
+     * Bound port (TCP mode).
      * WHY: Stored for addr() method. May differ from requested (e.g., port 0 auto-assigns).
+     * 0 for Unix socket listeners.
      */
     private port: number;
+
+    /**
+     * Unix socket path (Unix mode).
+     * WHY: Stored for addr() method. Undefined for TCP listeners.
+     */
+    private unixPath?: string;
 
     // =========================================================================
     // LIFECYCLE
     // =========================================================================
 
     /**
-     * Create and start TCP listener.
+     * Create and start TCP or Unix socket listener.
      *
      * ALGORITHM:
-     * 1. Store hostname and port
+     * 1. Store hostname/port (TCP) or unixPath (Unix)
      * 2. Call start() to initialize Bun.listen()
      * 3. Return immediately (listener is active)
      *
      * WHY: Constructor pattern enables immediate use. No separate init() call needed.
      *
-     * @param port - Port number to listen on
-     * @param opts - Optional listen configuration
+     * @param port - Port number to listen on (ignored if opts.unix is set)
+     * @param opts - Optional listen configuration (including unix socket path)
      */
     constructor(port: number, opts?: ListenOpts) {
-        this.port = port;
-        this.hostname = opts?.hostname ?? '0.0.0.0';
+        if (opts?.unix) {
+            // Unix socket mode
+            this.unixPath = opts.unix;
+            this.hostname = 'unix';
+            this.port = 0;
+        }
+        else {
+            // TCP mode
+            this.port = port;
+            this.hostname = opts?.hostname ?? '0.0.0.0';
+        }
+
         this.start(opts);
     }
 
@@ -179,15 +197,28 @@ export class BunListener implements Listener {
     private start(opts?: ListenOpts): void {
         const self = this;
 
-        this.server = Bun.listen({
-            hostname: this.hostname,
-            port: this.port,
-            tls: opts?.tls ? {
-                key: Bun.file(opts.tls.key),
-                cert: Bun.file(opts.tls.cert),
-            } : undefined,
+        // Build Bun.listen() config based on mode
+        const listenConfig: any = {
+            socket: {},
+        };
 
-            socket: {
+        if (opts?.unix) {
+            // Unix socket mode
+            listenConfig.unix = opts.unix;
+        }
+        else {
+            // TCP mode
+            listenConfig.hostname = this.hostname;
+            listenConfig.port = this.port;
+            if (opts?.tls) {
+                listenConfig.tls = {
+                    key: Bun.file(opts.tls.key),
+                    cert: Bun.file(opts.tls.cert),
+                };
+            }
+        }
+
+        listenConfig.socket = {
                 /**
                  * New connection accepted.
                  *
@@ -207,7 +238,7 @@ export class BunListener implements Listener {
                  * Check connectionResolve before queueing. If accept() is waiting,
                  * deliver connection immediately instead of queueing.
                  */
-                open(socket) {
+                open(socket: any) {
                     /**
                      * Data queue for this socket.
                      * WHY: Buffers incoming bytes until read() consumes them.
@@ -284,7 +315,7 @@ export class BunListener implements Listener {
                  * WHY: Forward to socket's data queue. If read() is blocked,
                  * wake it. Otherwise buffer.
                  */
-                data(socket, data) {
+                data(socket: any, data: any) {
                     const bytes = new Uint8Array(data);
                     const dataQueue = (socket as any)._dataQueue as Uint8Array[];
                     const dataResolve = (socket as any)._getDataResolve() as ((data: Uint8Array) => void) | null;
@@ -305,7 +336,7 @@ export class BunListener implements Listener {
                  *
                  * WHY: Mark socket closed and wake any pending read() with EOF.
                  */
-                close(socket) {
+                close(socket: any) {
                     (socket as any)._setClosed(true);
                     const dataResolve = (socket as any)._getDataResolve() as ((data: Uint8Array) => void) | null;
 
@@ -324,12 +355,13 @@ export class BunListener implements Listener {
                  *
                  * TODO: Replace console.error with kernel logger.
                  */
-                error(socket, error) {
+                error(socket: any, error: any) {
                     console.error('Socket error:', error);
                     (socket as any)._setClosed(true);
                 },
-            },
-        });
+            };
+
+        this.server = Bun.listen(listenConfig);
     }
 
     // =========================================================================

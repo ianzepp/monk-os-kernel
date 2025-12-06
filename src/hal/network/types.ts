@@ -121,7 +121,7 @@ export interface TlsOpts {
 // -------------------------------------------------------------------------
 
 /**
- * Options for creating a TCP listener.
+ * Options for creating a TCP or Unix socket listener.
  *
  * WHY: Listen operations have multiple optional parameters. Grouping them in
  * an options object prevents parameter explosion and enables incremental feature
@@ -132,8 +132,17 @@ export interface ListenOpts {
      * Hostname to bind to (default: 0.0.0.0).
      * WHY: Enables binding to specific interfaces (e.g., localhost only for
      * development, specific IP for multi-homed servers).
+     * IGNORED if `unix` is specified.
      */
     hostname?: string;
+
+    /**
+     * Unix socket path for IPC.
+     * WHY: Enables local process communication without TCP overhead.
+     * Essential for gatewayd which bridges external apps to kernel syscalls.
+     * When set, `port` and `hostname` are ignored.
+     */
+    unix?: string;
 
     /**
      * Enable TLS for secure connections.

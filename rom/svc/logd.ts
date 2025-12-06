@@ -11,13 +11,45 @@
  * the routing based on the service's io configuration.
  */
 
-import { readLines, println } from '@rom/lib/process';
+import { read, println } from '@src/process/index.js';
 
 // Format: [timestamp] [topic] message
 function formatLogLine(topic: string, payload: string): string {
     const ts = new Date().toISOString();
 
     return `[${ts}] [${topic}] ${payload}`;
+}
+
+/**
+ * Read lines from stdin.
+ * Simple line reader that yields complete lines.
+ */
+async function* readLines(fd: number): AsyncGenerator<string> {
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+        const chunk = await read(fd);
+
+        if (chunk.length === 0) {
+            // EOF - yield any remaining buffer
+            if (buffer.length > 0) {
+                yield buffer;
+            }
+
+            break;
+        }
+
+        buffer += decoder.decode(chunk, { stream: true });
+
+        // Yield complete lines
+        let newlineIdx: number;
+
+        while ((newlineIdx = buffer.indexOf('\n')) !== -1) {
+            yield buffer.slice(0, newlineIdx);
+            buffer = buffer.slice(newlineIdx + 1);
+        }
+    }
 }
 
 // Read log messages from stdin (wired to pubsub by kernel)

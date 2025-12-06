@@ -147,7 +147,7 @@ export interface ServiceIO {
  * Service definition (matches /etc/services/*.json)
  */
 export interface ServiceDef {
-    /** Handler path (e.g., "/bin/telnetd") */
+    /** Handler path (e.g., "/svc/telnetd") */
     handler: string;
 
     /** What triggers the service */
@@ -166,10 +166,10 @@ export interface ServiceDef {
  * Maps symbolic handler paths to actual Worker entry points.
  */
 export interface HandlerEntry {
-    /** Symbolic path (e.g., "/bin/telnetd") */
+    /** Symbolic path (e.g., "/svc/telnetd") */
     path: string;
 
-    /** Actual Worker entry file (e.g., "./src/bin/telnetd.ts") */
+    /** Actual Worker entry file (e.g., "./rom/svc/telnetd.ts") */
     entry: string;
 }
 
@@ -185,7 +185,7 @@ export class HandlerRegistry {
     /**
      * Register a handler.
      *
-     * @param path - Symbolic path (e.g., "/bin/telnetd")
+     * @param path - Symbolic path (e.g., "/svc/telnetd")
      * @param entry - Worker entry file path
      */
     register(path: string, entry: string): void {
@@ -225,9 +225,8 @@ export class HandlerRegistry {
 export function createDefaultRegistry(): HandlerRegistry {
     const registry = new HandlerRegistry();
 
-    // Built-in handlers
-    // These paths are relative to the compiled executable's context
-    registry.register('/bin/telnetd', './src/bin/telnetd.ts');
+    // Built-in handlers registered here
+    // Kernel services (init, logd, gatewayd) are loaded from rom/svc/
 
     return registry;
 }

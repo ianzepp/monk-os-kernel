@@ -16,8 +16,8 @@ import {
     getpid,
     println,
     eprintln,
-    SyscallError,
-} from '@rom/lib/process';
+    ESRCH,
+} from '@src/process/index.js';
 
 /**
  * Child process tracking
@@ -55,9 +55,9 @@ async function reapLoop(): Promise<void> {
                 await println(`init: reaped ${entry} (pid ${pid}) with code ${status.code}`);
                 children.delete(pid);
             }
-            catch (error) {
+            catch (error: unknown) {
                 // ESRCH = No such process (already exited)
-                if (!(error instanceof SyscallError && error.code === 'ESRCH')) {
+                if (!(error instanceof ESRCH)) {
                     await eprintln(`init: wait error for pid ${pid}: ${error}`);
                 }
             }

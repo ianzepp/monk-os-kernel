@@ -1,5 +1,5 @@
 {
-  "handler": "/bin/logd",
+  "handler": "/svc/logd",
   "activate": {
     "type": "boot"
   },
