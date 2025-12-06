@@ -172,16 +172,18 @@ export async function createPort(
         // TCP listener (accept incoming connections)
         // ---------------------------------------------------------------------
         case 'tcp:listen': {
-            const listenOpts = opts as { port: number; host?: string; backlog?: number } | undefined;
+            const listenOpts = opts as { port: number; host?: string; backlog?: number; unix?: string } | undefined;
 
-            if (!listenOpts || typeof listenOpts.port !== 'number') {
-                throw new EINVAL('tcp:listen requires port option');
+            // Unix socket or TCP - one must be valid
+            if (!listenOpts || (typeof listenOpts.port !== 'number' && !listenOpts.unix)) {
+                throw new EINVAL('tcp:listen requires port or unix option');
             }
 
-            // Bind socket to port (ASYNC - process could die here)
+            // Bind socket (ASYNC - process could die here)
             const listener = await self.hal.network.listen(listenOpts.port, {
                 hostname: listenOpts.host,
                 backlog: listenOpts.backlog,
+                unix: listenOpts.unix,
             });
 
             // RACE FIX: Check process still running after await
@@ -190,7 +192,9 @@ export async function createPort(
 
             const portId = self.hal.entropy.uuid();
             const addr = listener.addr();
-            const description = `tcp:listen:${addr.hostname}:${addr.port}`;
+            const description = listenOpts.unix
+                ? `unix:listen:${listenOpts.unix}`
+                : `tcp:listen:${addr.hostname}:${addr.port}`;
 
             port = new ListenerPort(portId, listener, description);
             break;

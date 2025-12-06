@@ -83,11 +83,10 @@ async function main(): Promise<void> {
     }
 
     // Listen on Unix socket
-    // Note: listen() syscall needs to support Unix sockets via opts.unix
     const portFd = await listen({
         port: 0,
         unix: SOCKET_PATH,
-    } as any);
+    });
 
     await println(`gatewayd: listening on ${SOCKET_PATH}`);
 

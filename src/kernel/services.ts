@@ -225,8 +225,8 @@ export class HandlerRegistry {
 export function createDefaultRegistry(): HandlerRegistry {
     const registry = new HandlerRegistry();
 
-    // Built-in handlers registered here
-    // Kernel services (init, logd, gatewayd) are loaded from rom/svc/
+    // Built-in kernel services
+    registry.register('/svc/gatewayd', './rom/svc/gatewayd.ts');
 
     return registry;
 }

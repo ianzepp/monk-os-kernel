@@ -192,12 +192,14 @@ export interface PortMessage {
  * TCP listen options.
  */
 export interface TcpListenOpts {
-    /** Port number to listen on */
+    /** Port number to listen on (ignored if unix is set) */
     port: number;
     /** Host to bind to (default: all interfaces) */
     host?: string;
     /** Connection backlog size */
     backlog?: number;
+    /** Unix socket path (if set, port/host are ignored) */
+    unix?: string;
 }
 
 // =============================================================================
