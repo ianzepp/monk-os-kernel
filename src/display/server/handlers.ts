@@ -335,8 +335,51 @@ async function handleConnect(
             data: { displayId: display.id },
         });
 
-        // TODO: Send initial sync with existing windows/elements for this display
-        // This would be relevant if windows persist across reconnects
+        // Create demo windows for testing
+        // WHY: owner_pid uses 'system' as placeholder - real windows would be owned by a process
+        const windows = await collect(ems.ops.createAll('window', [
+            {
+                display_id: display.id,
+                owner_pid: 'system',
+                title: 'Welcome',
+                x: 50 + Math.floor(Math.random() * 100),
+                y: 50 + Math.floor(Math.random() * 100),
+                width: 400,
+                height: 300,
+                z_index: 1,
+                focused: true,
+                visible: true,
+                resizable: true,
+                movable: true,
+                closable: true,
+            },
+            {
+                display_id: display.id,
+                owner_pid: 'system',
+                title: 'Settings',
+                x: 200 + Math.floor(Math.random() * 100),
+                y: 150 + Math.floor(Math.random() * 100),
+                width: 350,
+                height: 250,
+                z_index: 0,
+                focused: false,
+                visible: true,
+                resizable: true,
+                movable: true,
+                closable: true,
+            },
+        ]));
+
+        console.log(`[display] Created ${windows.length} demo windows`);
+
+        // Send initial sync
+        sendMessage(ws as any, {
+            op: 'sync',
+            data: {
+                windows,
+                elements: [],
+            },
+        });
     }
     catch (err) {
         console.error(`[display] Failed to create display:`, err);
@@ -375,8 +418,10 @@ async function handleEvent(
         // WHY: createAll is a generator, collect to execute
         await collect(ems.ops.createAll('event', [{
             display_id: displayId,
-            window_id: data.windowId ?? null,
-            element_id: data.elementId ?? null,
+            // WHY: Don't set window_id/element_id if not provided - avoids FK issues
+            // and the event can still be processed at display level
+            ...(data.windowId ? { window_id: data.windowId } : {}),
+            ...(data.elementId ? { element_id: data.elementId } : {}),
             type: data.type,
             timestamp: data.timestamp ?? Date.now(),
             x: data.x ?? null,
@@ -387,7 +432,8 @@ async function handleEvent(
             ctrl: data.ctrl ?? false,
             alt: data.alt ?? false,
             meta: data.meta ?? false,
-            data: data.data ?? null,
+            // WHY: jsonb field needs JSON string, not object
+            data: data.data ? JSON.stringify(data.data) : null,
             handled: false,
             prevented: false,
         }]));

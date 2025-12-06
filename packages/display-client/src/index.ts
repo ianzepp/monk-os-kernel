@@ -8,6 +8,8 @@
  */
 
 import { Connection } from './connection.js';
+import { WindowManager } from './window-manager.js';
+import type { SyncData, UpdateData, DeleteData } from './types.js';
 
 // =============================================================================
 // INITIALIZATION
@@ -19,15 +21,46 @@ import { Connection } from './connection.js';
 function init(): void {
     console.log('[display-client] Initializing...');
 
+    const displayEl = document.getElementById('display');
+
+    if (!displayEl) {
+        console.error('[display-client] No #display element found');
+        return;
+    }
+
+    // Create window manager
+    let windowManager: WindowManager | null = null;
+
     const connection = new Connection({}, {
         onConnected(displayId) {
             console.log('[display-client] Ready with display:', displayId);
             renderStatus('connected', displayId);
+
+            // Hide welcome, create window manager
+            const welcome = document.getElementById('welcome');
+
+            if (welcome) {
+                welcome.style.display = 'none';
+            }
+
+            windowManager = new WindowManager({
+                container: displayEl,
+                onEvent: (event) => connection.sendEvent(event),
+            });
         },
 
         onDisconnected() {
             console.log('[display-client] Disconnected');
             renderStatus('disconnected');
+
+            // Show welcome again
+            const welcome = document.getElementById('welcome');
+
+            if (welcome) {
+                welcome.style.display = '';
+            }
+
+            windowManager = null;
         },
 
         onError(message) {
@@ -37,24 +70,24 @@ function init(): void {
 
         onSync(data) {
             console.log('[display-client] Sync:', data);
-            // TODO: Render windows and elements
+            windowManager?.sync(data as SyncData);
         },
 
         onUpdate(data) {
             console.log('[display-client] Update:', data);
-            // TODO: Apply incremental updates
+            windowManager?.update(data as UpdateData);
         },
 
         onDelete(data) {
             console.log('[display-client] Delete:', data);
-            // TODO: Remove deleted entities
+            windowManager?.delete(data as DeleteData);
         },
     });
 
     connection.connect();
 
     // Expose for debugging
-    (window as any).monkDisplay = { connection };
+    (window as any).monkDisplay = { connection, get windowManager() { return windowManager; } };
 }
 
 /**

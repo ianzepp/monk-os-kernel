@@ -129,8 +129,8 @@ CREATE INDEX IF NOT EXISTS idx_window_focused
 -- UI element within a window. Passthrough for performance.
 
 CREATE TABLE IF NOT EXISTS element (
-    -- Identity: FK to entities table
-    id          TEXT PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+    -- Identity: No FK to entities - passthrough model inserts directly
+    id          TEXT PRIMARY KEY,
     created_at  TEXT DEFAULT (datetime('now')),
     updated_at  TEXT DEFAULT (datetime('now')),
     trashed_at  TEXT,
@@ -175,8 +175,8 @@ CREATE INDEX IF NOT EXISTS idx_element_hidden
 -- Input event from browser. Passthrough for performance.
 
 CREATE TABLE IF NOT EXISTS event (
-    -- Identity: FK to entities table
-    id          TEXT PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+    -- Identity: No FK to entities - passthrough model inserts directly
+    id          TEXT PRIMARY KEY,
     created_at  TEXT DEFAULT (datetime('now')),
     updated_at  TEXT DEFAULT (datetime('now')),
     trashed_at  TEXT,
@@ -237,8 +237,8 @@ CREATE INDEX IF NOT EXISTS idx_event_timestamp
 -- Mouse cursor state. One per display. Passthrough for performance.
 
 CREATE TABLE IF NOT EXISTS cursor (
-    -- Identity: FK to entities table
-    id          TEXT PRIMARY KEY REFERENCES entities(id) ON DELETE CASCADE,
+    -- Identity: No FK to entities - passthrough model inserts directly
+    id          TEXT PRIMARY KEY,
     created_at  TEXT DEFAULT (datetime('now')),
     updated_at  TEXT DEFAULT (datetime('now')),
     trashed_at  TEXT,
