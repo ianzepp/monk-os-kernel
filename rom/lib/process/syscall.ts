@@ -301,11 +301,27 @@ function handleResponse(msg: SyscallResponse): void {
     pending.delete(msg.id);
 
     if (msg.error) {
-        // Create typed HAL error from response error code
+        // Transport-level error
         req.reject(fromCode(msg.error.code, msg.error.message));
     }
     else {
-        req.resolve(msg.result);
+        // Unwrap the Response to extract the actual value
+        const response = msg.result as Response;
+
+        if (response.op === 'ok') {
+            // Success - resolve with unwrapped data
+            req.resolve(response.data);
+        }
+        else if (response.op === 'error') {
+            // Syscall-level error
+            const err = response.data as { code: string; message: string };
+
+            req.reject(fromCode(err.code, err.message));
+        }
+        else {
+            // Unexpected op for single-response syscall
+            req.reject(new Error(`Unexpected response op: ${response.op}`));
+        }
     }
 }
 
