@@ -75,6 +75,7 @@ import { setupInitStdio } from '@src/kernel/kernel/setup-init-stdio.js';
 import { loadServices } from '@src/kernel/kernel/load-services.js';
 import { printk } from '@src/kernel/kernel/printk.js';
 import { formatError } from '@src/kernel/kernel/format-error.js';
+import { interruptProcess } from '@src/kernel/kernel/interrupt-process.js';
 
 // =============================================================================
 // TYPES
@@ -699,6 +700,20 @@ export class Kernel {
 
         printk(this, 'shutdown', 'Closing activation ports');
         for (const [name, port] of this.activationPorts) {
+            // -----------------------------------------------------------------
+            // ERROR SWALLOWING: port.close() with .catch()
+            // -----------------------------------------------------------------
+            //
+            // WHAT: We await the close but swallow errors via .catch().
+            //
+            // WHY: During shutdown, we must close all ports regardless of
+            // individual failures. Propagating errors would abort shutdown
+            // and leave remaining ports unclosed.
+            //
+            // TRADE-OFF: A port close failure is logged but not actionable.
+            // If the port fails to close, its resources may leak until the
+            // process exits. This is acceptable during kernel shutdown.
+            //
             await port.close().catch((err: unknown) => {
                 printk(this, 'cleanup', `activation port ${name} close failed: ${formatError(err)}`);
             });
@@ -789,7 +804,31 @@ export class Kernel {
                     return; // Already dead
                 }
 
+                if (signal === SIGKILL) {
+                    // SIGKILL: Immediate termination, no grace period
+                    forceExit(self, target, 128 + SIGKILL);
+
+                    return;
+                }
+
+                // SIGTERM: Interrupt blocked syscalls, deliver signal, schedule forceExit
+                // WHY INTERRUPT FIRST: Process may be blocked in a syscall and unable
+                // to process the signal. Closing handles unblocks the syscall.
+                await interruptProcess(self, target);
+
+                // Deliver signal (process can now receive it)
                 deliverSignal(self, target, signal);
+
+                // Schedule forceExit as safety net
+                // WHY SHORT TIMEOUT: Process is already unblocked, should respond quickly
+                const EXTERNAL_GRACE_MS = 500;
+
+                self.deps.setTimeout(() => {
+                    if (target.state === 'running') {
+                        printk(self, 'signal', `Grace period expired for ${target.cmd}, force killing`);
+                        forceExit(self, target, 128 + signal);
+                    }
+                }, EXTERNAL_GRACE_MS);
             },
 
             wait(): Promise<{ code: number }> {

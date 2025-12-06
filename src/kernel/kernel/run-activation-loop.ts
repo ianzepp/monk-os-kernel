@@ -122,8 +122,19 @@ export async function runActivationLoop(
 
             // RACE FIX: Check if service was stopped while waiting for event
             if (signal.aborted) {
-                // WHY: Cleanup socket if present - service is stopping
                 if (msg.socket) {
+                    // ---------------------------------------------------------
+                    // FIRE-AND-FORGET: socket.close() on service abort
+                    // ---------------------------------------------------------
+                    //
+                    // WHAT: Close the accepted socket without propagating errors.
+                    //
+                    // WHY: Service is stopping. We received a connection but can't
+                    // handle it. Must close to avoid leaking the socket.
+                    //
+                    // TRADE-OFF: If close fails, socket may leak until OS cleanup.
+                    // Acceptable because service is stopping anyway.
+                    //
                     await msg.socket.close().catch(err => {
                         printk(self, 'cleanup', `socket close on abort: ${formatError(err)}`);
                     });
@@ -141,16 +152,30 @@ export async function runActivationLoop(
             const input = transform(msg);
 
             if (input) {
-                // -------------------------------------------------------------------------
-                // Spawn handler (async, fire-and-forget)
-                // -------------------------------------------------------------------------
-
-                // WHY: Don't await spawn - allows concurrent handlers for same service
-                //      Catch spawn errors to prevent loop crash
+                // ---------------------------------------------------------------------
+                // FIRE-AND-FORGET: spawnServiceHandler()
+                // ---------------------------------------------------------------------
+                //
+                // WHAT: Spawn a handler process for this event without awaiting.
+                // Multiple handlers can run concurrently for the same service.
+                //
+                // WHY: The activation loop must remain responsive. If we awaited each
+                // handler, we could only process one event at a time. Fire-and-forget
+                // allows the loop to immediately accept the next connection.
+                //
+                // TRADE-OFF: Handler failures don't block the loop, but they also
+                // don't stop the service. A repeatedly crashing handler will keep
+                // accepting connections and failing.
+                //
+                // MITIGATION: Errors are logged for visibility. On spawn failure, we
+                // close the socket to prevent resource leaks. The handler process
+                // itself manages its own lifecycle.
+                //
                 spawnServiceHandler(self, name, def, input.socket, input.activation).catch(err => {
                     logServiceError(self, name, 'spawn failed', err);
 
-                    // RACE FIX: Close socket on spawn failure (prevent leak)
+                    // Close socket on spawn failure to prevent leak
+                    // This is also fire-and-forget - we're in an error path already
                     if (input.socket) {
                         input.socket.close().catch(closeErr => {
                             printk(self, 'cleanup', `socket close on error: ${formatError(closeErr)}`);

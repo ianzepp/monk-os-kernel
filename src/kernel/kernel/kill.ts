@@ -164,20 +164,32 @@ export function kill(
         // SIGTERM: Graceful termination with grace period
         // ---------------------------------------------------------------------
 
-        // Step 3a: Deliver signal to process
+        // Step 3a: Abort active streams to unblock syscalls
+        // WHY: Process may be blocked in a syscall, unable to receive signal.
+        // Aborting streams sets the abort flag, allowing dispatcher to exit.
+        for (const abort of target.activeStreams.values()) {
+            abort.abort();
+        }
+
+        target.streamPingHandlers.clear();
+
+        // Step 3b: Deliver signal to process
         // WHY: Gives process chance to cleanup gracefully
         deliverSignal(self, target, SIGTERM);
 
-        // Step 3b: Schedule force kill after grace period
+        // Step 3c: Schedule force kill after grace period
         // WHY: Process may ignore SIGTERM, we enforce termination
         // RACE FIX: Check state before forcing exit (process may exit early)
+        // NOTE: Using shorter grace period since we already aborted streams
+        const INTERNAL_GRACE_MS = 1000;
+
         self.deps.setTimeout(() => {
             if (target.state === 'running') {
                 printk(self, 'signal', `Grace period expired for ${target.cmd}, force killing`);
                 forceExit(self, target, 128 + SIGTERM);
             }
             // Otherwise: Process exited gracefully, no action needed
-        }, TERM_GRACE_MS);
+        }, INTERNAL_GRACE_MS);
     }
     // NOTE: Other signals not yet implemented (SIGHUP, SIGINT, etc.)
 }

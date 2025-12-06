@@ -84,13 +84,29 @@ export function releaseProcessWorkers(self: Kernel, proc: Process): void {
         return;
     }
 
-    // Release each worker back to its pool (fire-and-forget)
+    // -------------------------------------------------------------------------
+    // FIRE-AND-FORGET: worker.release()
+    // -------------------------------------------------------------------------
+    //
+    // WHAT: Release workers back to pool without awaiting. Each release runs
+    // in background and we continue immediately.
+    //
+    // WHY: This is called from forceExit() which must be synchronous. The
+    // process is already dead - we're just returning borrowed resources.
+    //
+    // TRADE-OFF: If release fails, the worker may be "leaked" from the pool's
+    // perspective (marked as leased but never returned). This could eventually
+    // exhaust the pool if it happens repeatedly.
+    //
+    // MITIGATION: Errors are logged so pool exhaustion can be diagnosed. The
+    // pool itself has a maximum size, so exhaustion will surface as spawn
+    // failures rather than silent resource leak.
+    //
+    // TODO: Consider adding a background cleanup queue that retries failed
+    // releases, or a pool health check that reclaims orphaned workers.
+    //
     for (const [workerId, worker] of procWorkers.entries()) {
-        // Fire-and-forget: Don't await, just log errors
-        // WHY: Process is exiting, can't wait for async cleanup
         worker.release().catch((err: unknown) => {
-            // Log failure for debugging
-            // WHY: Release errors indicate pool issues, should be visible
             printk(self, 'cleanup', `worker ${workerId} release failed: ${formatError(err)}`);
         });
     }

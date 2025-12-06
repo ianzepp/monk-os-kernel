@@ -193,10 +193,31 @@ export function forceExit(self: Kernel, proc: Process, code: number): void {
     // STEP 6: Clean up handles with refcounting
     // =========================================================================
 
-    // WHY REFCOUNT: Async close might hang on unresponsive I/O
-    // FIRE-AND-FORGET: unrefHandle decrements immediately, close happens later
-    // NOTE: unrefHandle is synchronous for refcount decrement
-    // NOTE: Async close() is best-effort (we log failures)
+    // -------------------------------------------------------------------------
+    // FIRE-AND-FORGET: unrefHandle -> handle.close()
+    // -------------------------------------------------------------------------
+    //
+    // WHAT: unrefHandle decrements refcount synchronously, then calls
+    // handle.close() without awaiting. Close runs in background.
+    //
+    // WHY: forceExit must be synchronous and non-blocking. This function is
+    // called in emergency situations:
+    // - SIGKILL (immediate termination)
+    // - SIGTERM grace period expired (process unresponsive)
+    // - Worker errors (process in invalid state)
+    // - Kernel shutdown
+    //
+    // If we awaited close(), a stuck I/O operation could hang the kernel
+    // indefinitely. Since the worker is already terminated (step 3), there's
+    // no process to use these handles anyway.
+    //
+    // TRADE-OFF: Handles may not be fully closed when forceExit returns.
+    // This is acceptable because:
+    // 1. Worker is terminated - no code can use the handles
+    // 2. Handles are removed from tables - no new references possible
+    // 3. OS will clean up leaked resources on kernel exit
+    // 4. For graceful shutdown (SIGTERM), use interruptProcess() first
+    //
     for (const handleId of proc.handles.values()) {
         unrefHandle(self, handleId);
     }

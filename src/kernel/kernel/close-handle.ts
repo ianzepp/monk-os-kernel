@@ -97,9 +97,25 @@ export async function closeHandle(self: Kernel, proc: Process, h: number): Promi
     // This prevents race where fd number could be reused before cleanup completes
     proc.handles.delete(h);
 
-    // Decrement refcount (triggers close if last reference)
+    // -------------------------------------------------------------------------
+    // FIRE-AND-FORGET: unrefHandle -> handle.close()
+    // -------------------------------------------------------------------------
+    //
+    // WHAT: unrefHandle decrements refcount and may trigger close(). The close
+    // is fire-and-forget - we return immediately without waiting.
+    //
+    // WHY: The close syscall should return quickly. Most callers don't care
+    // about the actual I/O completion, just that the fd is released. Awaiting
+    // would block the process on potentially slow I/O (network flush, disk
+    // sync, etc.).
+    //
+    // TRADE-OFF: Caller can't detect close failures. If the underlying
+    // resource fails to close (network error, disk full), the error is logged
+    // but not reported to the process.
+    //
+    // This matches POSIX close() semantics - errors are reported but often
+    // ignored by callers. The important invariant is that the fd is released
+    // and won't be reused until the close completes.
+    //
     unrefHandle(self, handleId);
-
-    // Note: We don't await handle.close() because unrefHandle() is fire-and-forget
-    // This is intentional - keeps close() fast, errors are logged not propagated
 }

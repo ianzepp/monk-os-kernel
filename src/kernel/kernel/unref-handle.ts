@@ -107,10 +107,36 @@ export function unrefHandle(self: Kernel, handleId: string): void {
 
     // If handle exists, close it (async, fire-and-forget)
     if (handle) {
-        // Fire-and-forget: Don't await, don't propagate errors
-        // WHY: Prevents blocking kernel on slow I/O cleanup
+        // =====================================================================
+        // FIRE-AND-FORGET: handle.close()
+        // =====================================================================
+        //
+        // WHAT: We call close() but don't await it. The close runs in the
+        // background and we return immediately.
+        //
+        // WHY: This function is called from forceExit() which must be
+        // synchronous for emergency cleanup. Awaiting could hang indefinitely
+        // if the handle's I/O is stuck (e.g., network timeout, disk error).
+        //
+        // TRADE-OFF: Fire-and-forget means we can't guarantee the underlying
+        // resource is released before this function returns. This can cause:
+        // - Blocked syscalls not being interrupted immediately
+        // - Resource cleanup happening out of order
+        // - Errors being silently swallowed
+        //
+        // MITIGATION: For process termination via SIGTERM, use interruptProcess()
+        // which awaits handle closes before delivering the signal. This ensures
+        // blocked syscalls are interrupted. unrefHandle's fire-and-forget is
+        // only used in forceExit (emergency) and normal close syscalls (where
+        // the process isn't blocked).
+        //
+        // TODO: Consider splitting into two functions:
+        // - unrefHandleSync() for forceExit (fire-and-forget, current behavior)
+        // - unrefHandleAsync() for normal close paths (awaited)
+        // This would make the trade-off explicit at call sites.
+        //
         handle.close().catch(err => {
-            // Log failure but don't propagate (handle is already gone)
+            // Log failure but don't propagate (handle is already gone from tables)
             printk(
                 self,
                 'cleanup',
