@@ -391,6 +391,46 @@ export class OS {
     }
 
     /**
+     * Mount a filesystem.
+     *
+     * @param type - Mount type ('host' for host filesystem)
+     * @param source - Source path (host path for 'host' type)
+     * @param target - Target path in VFS (aliases resolved)
+     * @param opts - Mount options
+     *
+     * @example
+     * ```typescript
+     * // Mount host directory
+     * await os.mount('host', './src', '/app');
+     *
+     * // Mount with options
+     * await os.mount('host', '/data', '/mnt/data', { readonly: true });
+     * ```
+     */
+    async mount(type: string, source: string, target: string, opts?: Record<string, unknown>): Promise<void> {
+        const resolved = this.resolvePath(target);
+        const fullSource = `${type}:${source}`;
+
+        return this.syscall<void>('fs:mount', fullSource, resolved, opts);
+    }
+
+    /**
+     * Unmount a filesystem.
+     *
+     * @param target - Target path to unmount (aliases resolved)
+     *
+     * @example
+     * ```typescript
+     * await os.unmount('/app');
+     * ```
+     */
+    async unmount(target: string): Promise<void> {
+        const resolved = this.resolvePath(target);
+
+        return this.syscall<void>('fs:umount', resolved);
+    }
+
+    /**
      * Read a file as raw bytes.
      *
      * @param path - File path (aliases resolved)

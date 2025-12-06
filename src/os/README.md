@@ -112,6 +112,17 @@ await os.kill(pid);           // SIGTERM (15)
 await os.kill(pid, 9);        // SIGKILL
 ```
 
+### Filesystem Mounting
+
+```typescript
+// Mount host directory into VFS
+await os.mount('host', './src', '/app');
+await os.mount('host', '/data', '/mnt/data', { readonly: true });
+
+// Unmount
+await os.unmount('/app');
+```
+
 ### Service Management
 
 Services are defined in `/etc/services/*.json` and loaded at boot (but not auto-started).
