@@ -64,7 +64,6 @@ import type { Port } from '@src/kernel/resource.js';
 import type { PubsubPort } from '@src/kernel/resource.js';
 import type { ServiceDef } from '@src/kernel/services.js';
 import { loadMounts } from '@src/kernel/mounts.js';
-import { copyRomToVfs } from '@src/kernel/boot.js';
 import { VFSLoader } from '@src/kernel/loader.js';
 import { PoolManager, type LeasedWorker } from '@src/kernel/pool.js';
 // Extracted kernel functions (used by boot, shutdown, spawnExternal)
@@ -518,17 +517,8 @@ export class Kernel {
         await this.createStandardDirectories();
 
         // ---------------------------------------------------------------------
-        // PHASE 2: ROM COPY
-        // Copy bundled userspace code into VFS with proper UUIDs and ACLs
-        // ---------------------------------------------------------------------
-
-        const romPath = env.romPath ?? './rom';
-
-        printk(this, 'boot', `Copying ROM to VFS from: ${romPath}`);
-        await copyRomToVfs({ vfs: this.vfs }, romPath);
-
-        // ---------------------------------------------------------------------
-        // PHASE 3: MOUNTS, POLICY, AND POOLS
+        // PHASE 2: MOUNTS, POLICY, AND POOLS
+        // NOTE: ROM copy moved to OS.boot() - kernel shouldn't handle userspace
         // ---------------------------------------------------------------------
 
         printk(this, 'boot', 'Loading mounts');
@@ -538,7 +528,7 @@ export class Kernel {
         await this.poolManager.loadConfig(this.vfs);
 
         // ---------------------------------------------------------------------
-        // PHASE 4: INIT PROCESS CREATION
+        // PHASE 3: INIT PROCESS CREATION
         // Init must be created first to be PID 1
         // ---------------------------------------------------------------------
 
@@ -552,16 +542,16 @@ export class Kernel {
         this.processes.register(init);
 
         // ---------------------------------------------------------------------
-        // PHASE 5: SERVICE ACTIVATION
+        // PHASE 4: SERVICE LOADING
         // Services are loaded after init exists but before it starts
-        // This allows boot-activated services to run alongside init
+        // NOTE: Services are registered but not auto-activated
         // ---------------------------------------------------------------------
 
         printk(this, 'boot', 'Loading services');
         await loadServices(this);
 
         // ---------------------------------------------------------------------
-        // PHASE 6: INIT STARTUP
+        // PHASE 5: INIT STARTUP
         // ---------------------------------------------------------------------
 
         printk(this, 'boot', 'Setting up init stdio');

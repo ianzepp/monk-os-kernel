@@ -15,11 +15,9 @@
 // OS public API
 export {
     OS,
-    FilesystemAPI,
     type StorageConfig,
     type OSConfig,
     type BootOpts,
     type MountOpts,
     type Stat,
-    type FilesystemAPIHost,
 } from './os/index.js';

@@ -335,16 +335,4 @@ export interface BootEnv {
     /** Enable kernel debug logging (printk) */
     debug?: boolean;
 
-    /**
-     * Path to ROM directory on host filesystem.
-     *
-     * The ROM contains bundled userspace code that is copied into VFS at boot.
-     * Defaults to './rom' if not specified.
-     *
-     * WHY CONFIGURABLE: Allows different ROMs for:
-     * - Testing (minimal ROM with test fixtures)
-     * - Production (full ROM with signed binaries)
-     * - Development (ROM with debug symbols)
-     */
-    romPath?: string;
 }

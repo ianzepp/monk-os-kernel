@@ -202,23 +202,6 @@ const os = new OS()
 await os.boot();
 ```
 
-## Package Installation
-
-Install packages at boot or runtime:
-
-```typescript
-// Via config
-const os = new OS({
-    packages: ['@monk/httpd', '@monk/shell'],
-});
-
-// Via fluent API (queued for boot)
-os.install('@monk/httpd');
-
-// Runtime installation
-await os.pkg.install('@monk/httpd');
-```
-
 ## Configuration Reference
 
 ```typescript
@@ -233,14 +216,14 @@ interface OSConfig {
     // Environment variables for all processes
     env?: Record<string, string>;
 
-    // Packages to install at boot
-    packages?: Array<string | { name: string; opts?: PackageOpts }>;
-
     // Path aliases
     aliases?: Record<string, string>;
 
     // Kernel debug logging
     debug?: boolean;
+
+    // Path to ROM directory on host filesystem (default: './rom')
+    romPath?: string;
 }
 ```
 
@@ -250,7 +233,7 @@ interface OSConfig {
 2. **EMS** - Entity management system (database)
 3. **VFS** - Virtual filesystem
 4. **Standard directories** - /app, /bin, /etc, /home, /tmp, /usr, /var, /vol
-5. **Packages** - Install queued packages
+5. **ROM copy** - Copy bundled userspace from host to VFS
 6. **Kernel** - Process management, syscall dispatch
 7. **Init** - Spawn init process (PID 1)
 8. **Services** - Load service definitions (not auto-started)
@@ -274,13 +257,12 @@ import { OS } from '@monk-api/os';
 const os = new OS({
     storage: { type: 'sqlite', path: '.data/app.db' },
     aliases: { '@app': '/vol/app' },
-})
-    .on('vfs', async (os) => {
-        // Mount host directory into VFS
-        os.getVFS().mount('./src', '/vol/app', 'kernel');
-    });
+});
 
 await os.boot();
+
+// Mount host directory into VFS
+await os.mount('host', './src', '/vol/app');
 
 // Start services
 await os.service('start', 'httpd');

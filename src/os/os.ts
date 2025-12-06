@@ -18,8 +18,7 @@ import { activateService } from '@src/kernel/kernel/activate-service.js';
 import type { Process } from '@src/kernel/types.js';
 import type { Response } from '@src/message.js';
 import { fromCode } from '@src/hal/errors.js';
-import type { OSConfig, BootOpts, ExecOpts, OSEvents, OSEventName, PackageOpts } from './types.js';
-import { PackageAPI } from './pkg.js';
+import type { OSConfig, BootOpts, ExecOpts, OSEvents, OSEventName } from './types.js';
 import { EMS } from '@src/ems/ems.js';
 import type { EntityOps } from '@src/ems/entity-ops.js';
 
@@ -54,34 +53,13 @@ export class OS {
         shutdown: [],
     };
 
-    /**
-     * Package API for managing OS packages.
-     *
-     * WHY KEPT: Package installation is a complex host-side operation
-     * that doesn't map to simple syscalls.
-     */
-    readonly pkg: PackageAPI;
-
     constructor(config?: OSConfig) {
-        this.pkg = new PackageAPI(this);
         this.config = config ?? {};
 
         // Initialize aliases from config
         if (config?.aliases) {
             for (const [name, path] of Object.entries(config.aliases)) {
                 this.aliases.set(name, path);
-            }
-        }
-
-        // Queue packages from config
-        if (config?.packages) {
-            for (const spec of config.packages) {
-                if (typeof spec === 'string') {
-                    this.pkg.queue(spec);
-                }
-                else {
-                    this.pkg.queue(spec.name, spec.opts);
-                }
             }
         }
     }
@@ -95,37 +73,6 @@ export class OS {
      */
     alias(name: string, path: string): this {
         this.aliases.set(name, path);
-
-        return this;
-    }
-
-    /**
-     * Install a package (pre-boot).
-     *
-     * Queues the package for installation during boot.
-     * For post-boot installation, use `os.pkg.install()`.
-     *
-     * @param npmName - npm package name (e.g., '@monk-api/httpd')
-     * @param opts - Installation options
-     * @returns this for chaining
-     *
-     * @example
-     * ```typescript
-     * const os = new OS()
-     *   .install('@monk-api/httpd')
-     *   .install('@monk-api/redis', { config: { port: 6379 } });
-     *
-     * await os.boot();
-     * ```
-     */
-    install(npmName: string, opts?: PackageOpts): this {
-        if (this.booted) {
-            throw new EINVAL(
-                'Cannot use os.install() after boot. Use os.pkg.install() instead.',
-            );
-        }
-
-        this.pkg.queue(npmName, opts);
 
         return this;
     }
@@ -696,9 +643,9 @@ export class OS {
      * 2. EMS (entity management)
      * 3. VFS (virtual filesystem)
      * 4. Standard directories
-     * 5. Queued packages
+     * 5. ROM copy (userspace code)
      * 6. Kernel
-     * 7. Init process (if main provided)
+     * 7. Init process
      *
      * @param opts - Optional boot options
      */
@@ -727,14 +674,16 @@ export class OS {
         // 4. Standard directories
         await this.createStandardDirectories();
 
-        // 5. Queued packages
-        await this.pkg.installQueued();
+        // 5. ROM copy (userspace code)
+        const romPath = opts?.romPath ?? this.config.romPath ?? './rom';
+
+        await this.copy(romPath, '/');
 
         // 6. Kernel
         this.kernel = new Kernel(this.hal, this._ems, this._vfs);
         await this.emit('kernel', this);
 
-        // 7. Init process (if main provided)
+        // 7. Init process
         const initPath = opts?.main ? this.resolvePath(opts.main) : '/svc/init.ts';
 
         await this.kernel.boot({
@@ -957,7 +906,7 @@ export class OS {
             '/etc',      // System configuration
             '/home',     // User home directories
             '/tmp',      // Temporary files
-            '/usr',      // Installed packages
+            '/usr',      // User programs
             '/var',      // Variable data
             '/var/log',  // Log files
             '/vol',      // Mounted volumes
