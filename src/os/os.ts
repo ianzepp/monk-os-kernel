@@ -8,7 +8,7 @@
  */
 
 import type { HAL, HALConfig } from '@src/hal/index.js';
-import { BunHAL, EINVAL, EBUSY, ENOSYS } from '@src/hal/index.js';
+import { BunHAL, EINVAL, EBUSY } from '@src/hal/index.js';
 import { VFS } from '@src/vfs/vfs.js';
 import { Kernel } from '@src/kernel/kernel.js';
 import type { ServiceDef } from '@src/kernel/services.js';
@@ -20,6 +20,7 @@ import { PackageAPI } from './pkg.js';
 import { EntityAPI } from './ems.js';
 import { EMS } from '@src/ems/ems.js';
 import type { EntityOps } from '@src/ems/entity-ops.js';
+import { Display } from '@src/display/index.js';
 
 /**
  * Type for storing event listeners
@@ -37,6 +38,7 @@ export class OS {
     private _ems: EMS | null = null;
     private vfs: VFS | null = null;
     private kernel: Kernel | null = null;
+    private _display: Display | null = null;
     private booted = false;
 
     // Path aliases
@@ -198,66 +200,65 @@ export class OS {
     }
 
     /**
-     * Boot the OS in headless mode.
+     * Boot the OS.
      *
-     * Initializes HAL, EMS, VFS, and kernel. Returns control to the caller.
-     * The OS runs in the background, accessible via the os.* API.
+     * Initializes all subsystems and returns control to the caller.
+     * For standalone mode, use exec() instead.
      *
      * Boot sequence:
-     * 1. Create and initialize HAL
-     * 2. Emit 'hal' event
-     * 3. Create Entity Model System (EMS)
-     * 4. Emit 'ems' event (os.ems.* available)
-     * 5. Create and initialize VFS
-     * 6. Emit 'vfs' event (os.fs.* available)
-     * 7. Install queued packages
-     * 8. Create Kernel
-     * 9. Emit 'kernel' event
-     * 10. Spawn init process if main provided
-     * 11. Emit 'boot' event
+     * 1. HAL (hardware abstraction)
+     * 2. EMS (entity management)
+     * 3. Display (if enabled)
+     * 4. VFS (virtual filesystem)
+     * 5. Standard directories
+     * 6. Queued packages
+     * 7. Kernel
+     * 8. Init process (if main provided)
      *
-     * @param opts - Optional boot options (e.g., main script)
+     * @param opts - Optional boot options
      */
     async boot(opts?: BootOpts): Promise<void> {
         if (this.booted) {
             throw new EBUSY('OS already booted');
         }
 
-        // 1. Create and initialize HAL
+        const debug = opts?.debug ?? this.config.debug;
+
+        // 1. HAL
         this.hal = new BunHAL(this.buildHALConfig());
         await this.hal.init();
-
-        // 2. Emit 'hal' event
         await this.emit('hal', this);
 
-        // 3. Create and initialize EMS
+        // 2. EMS
         this._ems = new EMS(this.hal);
         await this._ems.init();
-
-        // 4. Emit 'ems' event - os.ems.* available
         await this.emit('ems', this);
 
-        // 5. Create and initialize VFS
+        // 3. Display (if enabled)
+        if (this.config.display?.enabled) {
+            this._display = new Display(this.hal, this._ems, {
+                port: this.config.display.port,
+                host: this.config.display.host,
+            });
+            await this._display.init();
+        }
+
+        // 4. VFS
         this.vfs = new VFS(this.hal, this._ems);
         await this.vfs.init();
-
-        // 6. Emit 'vfs' event - os.fs.* available
         await this.emit('vfs', this);
 
-        // 7. Create standard directories (needed before package install)
+        // 5. Standard directories
         await this.createStandardDirectories();
 
-        // 8. Install queued packages
+        // 6. Queued packages
         await this.pkg.installQueued();
 
-        // 8. Create Kernel
+        // 7. Kernel
         this.kernel = new Kernel(this.hal, this._ems, this.vfs);
-
-        // 9. Emit 'kernel' event
         await this.emit('kernel', this);
 
-        // 10. Boot kernel with init process
-        // Default to /bin/true.ts for headless mode (exits immediately)
+        // 8. Init process (if main provided)
         const initPath = opts?.main ? this.resolvePath(opts.main) : '/bin/true.ts';
 
         await this.kernel.boot({
@@ -268,61 +269,83 @@ export class OS {
                 USER: 'root',
                 SHELL: '/bin/shell',
             },
-            debug: opts?.debug,
+            debug,
         });
 
         this.booted = true;
-
-        // 11. Emit 'boot' event - OS fully booted
         await this.emit('boot', this);
     }
 
     /**
-     * Execute the OS in takeover mode.
+     * Execute the OS in standalone mode.
      *
-     * Boots the OS and blocks the calling thread until the init process exits.
-     * The App's main thread becomes the OS - this is the "takeover" mode.
+     * Boots the OS and blocks until a shutdown signal (SIGINT/SIGTERM).
+     * This is the entry point for `bun run start`.
      *
-     * @param opts - Exec options (main is required)
-     * @returns Exit code from the init process
+     * @param opts - Optional exec options
+     * @returns Exit code (0 for clean shutdown)
      *
      * @example
      * ```typescript
-     * const os = new OS({ aliases: { '@app': '/vol/app' } });
-     * os.mount('./src', '@app');
+     * const os = new OS({
+     *     display: { enabled: true, port: 8080 },
+     * });
      *
-     * // This line blocks until init exits
-     * const exitCode = await os.exec({ main: '@app/init.ts' });
+     * // Blocks until SIGINT/SIGTERM
+     * const exitCode = await os.exec();
      * process.exit(exitCode);
      * ```
      */
-    async exec(opts: ExecOpts): Promise<number> {
-        // 1. Boot the OS with the main script
-        await this.boot({ main: opts.main, debug: opts.debug });
+    async exec(opts?: ExecOpts): Promise<number> {
+        // Boot the OS
+        await this.boot({ main: opts?.main });
 
-        // 2. Wait for init (PID 1) to exit
-        // TODO: Implement init process tracking and wait
-        // - Get handle to init process from kernel
-        // - Block until init exits
-        // - Forward signals (SIGTERM, SIGINT) to init
-        // - Return init's exit code
+        // Create shutdown promise that resolves on signal
+        const shutdownPromise = new Promise<number>((resolve) => {
+            const shutdown = async (signal: string) => {
+                console.log(`\nReceived ${signal}, shutting down...`);
+                await this.shutdown();
+                resolve(0);
+            };
 
-        throw new ENOSYS('os.exec() takeover mode not implemented');
+            process.on('SIGINT', () => shutdown('SIGINT'));
+            process.on('SIGTERM', () => shutdown('SIGTERM'));
+        });
+
+        // Log ready state
+        if (this._display) {
+            const addr = this._display.addr();
+
+            if (addr) {
+                console.log(`Display server: http://${addr.hostname}:${addr.port}`);
+            }
+        }
+
+        console.log('Monk OS running. Press Ctrl+C to stop.');
+
+        // Block until shutdown signal
+        return shutdownPromise;
     }
 
     /**
      * Shutdown the OS gracefully.
+     *
+     * Shuts down in reverse boot order:
+     * Kernel → Display → VFS → EMS → HAL
      */
     async shutdown(): Promise<void> {
         if (!this.booted) {
             return;
         }
 
-        // Emit 'shutdown' event before teardown
         await this.emit('shutdown', this);
 
         if (this.kernel?.isBooted()) {
             await this.kernel.shutdown();
+        }
+
+        if (this._display) {
+            await this._display.shutdown();
         }
 
         if (this._ems) {
@@ -334,10 +357,11 @@ export class OS {
         }
 
         this.booted = false;
-        this.hal = null;
-        this._ems = null;
-        this.vfs = null;
         this.kernel = null;
+        this._display = null;
+        this.vfs = null;
+        this._ems = null;
+        this.hal = null;
     }
 
     /**

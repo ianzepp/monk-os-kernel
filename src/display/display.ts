@@ -49,8 +49,10 @@
 
 import type { HAL } from '@src/hal/index.js';
 import type { EMS } from '@src/ems/ems.js';
+import type { HttpServer } from '@src/hal/network.js';
 import { EINVAL } from '@src/hal/errors.js';
 import type { DisplayConfig } from './types.js';
+import { createDisplayServer } from './server/index.js';
 
 // =============================================================================
 // CONSTANTS
@@ -116,10 +118,7 @@ export class Display {
     private readonly config: DisplayConfig;
 
     private initialized = false;
-
-    // TODO: WebSocket server state
-    // private server: Server | null = null;
-    // private sessions: Map<string, DisplaySession> = new Map();
+    private server: HttpServer | null = null;
 
     // =========================================================================
     // CONSTRUCTOR
@@ -172,10 +171,11 @@ export class Display {
         // Clearing forces reload on next access.
         this.ems.models.clear();
 
-        // 3. Start WebSocket server (TODO)
-        // const port = this.config.port ?? DEFAULT_PORT;
-        // const host = this.config.host ?? DEFAULT_HOST;
-        // this.server = await this.startServer(port, host);
+        // 3. Start HTTP/WebSocket server
+        this.server = await createDisplayServer(this.hal, this.ems, {
+            port: this.config.port ?? DEFAULT_PORT,
+            host: this.config.host ?? DEFAULT_HOST,
+        });
 
         this.initialized = true;
     }
@@ -195,12 +195,12 @@ export class Display {
             return;
         }
 
-        // TODO: Close WebSocket server and sessions
-        // if (this.server) {
-        //     await this.server.stop();
-        //     this.server = null;
-        // }
-        // this.sessions.clear();
+        // Close HTTP/WebSocket server
+        if (this.server) {
+            await this.server.close();
+            this.server = null;
+            console.log('[display] Server stopped');
+        }
 
         this.initialized = false;
     }
@@ -231,47 +231,17 @@ export class Display {
     }
 
     // =========================================================================
-    // ENTITY OPERATIONS
+    // SERVER ACCESS
     // =========================================================================
 
-    // TODO: Convenience methods for display entities
-    //
-    // async createDisplay(fields: Partial<Display>): Promise<Display>
-    // async createWindow(displayId: string, fields: Partial<Window>): Promise<Window>
-    // async createElement(windowId: string, fields: Partial<Element>): Promise<Element>
-    // async updateElement(id: string, changes: Partial<Element>): Promise<void>
-    // async deleteWindow(id: string): Promise<void>
-    //
-    // For now, consumers use ems.ops directly:
-    //   await ems.ops.create('window', { display_id: '...', ... });
-
-    // =========================================================================
-    // WEBSOCKET SERVER
-    // =========================================================================
-
-    // TODO: WebSocket server implementation
-    //
-    // private async startServer(port: number, host: string): Promise<Server>
-    // private handleConnection(ws: WebSocket): void
-    // private handleMessage(session: DisplaySession, msg: Message): void
-    // private handleDisconnect(session: DisplaySession): void
-
-    // =========================================================================
-    // DISPLAY SESSIONS
-    // =========================================================================
-
-    // TODO: Session management
-    //
-    // interface DisplaySession {
-    //     id: string;
-    //     displayId: string;
-    //     ws: WebSocket;
-    //     lastPing: number;
-    // }
-    //
-    // private createSession(ws: WebSocket, connectMsg: ConnectMessage): DisplaySession
-    // private destroySession(session: DisplaySession): void
-    // private syncSession(session: DisplaySession): void
+    /**
+     * Get the server address.
+     *
+     * @returns Server address or null if not initialized
+     */
+    addr(): { hostname: string; port: number } | null {
+        return this.server?.addr() ?? null;
+    }
 }
 
 // =============================================================================

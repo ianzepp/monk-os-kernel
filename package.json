@@ -12,8 +12,8 @@
         "./*": "./src/*"
     },
     "scripts": {
-        "start": "bun scripts/startup.ts",
-        "start:sqlite": "bun scripts/startup.ts --sqlite",
+        "start": "bun scripts/start.ts",
+        "start:sqlite": "bun scripts/start.ts --sqlite",
         "build": "scripts/build.sh",
         "build:warn": "scripts/build-warn.sh",
         "build:standalone": "scripts/build-standalone.sh",

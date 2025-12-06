@@ -48,6 +48,7 @@ import { ModelCache } from './model-cache.js';
 import { EntityCache } from './entity-cache.js';
 import { EntityOps } from './entity-ops.js';
 import { createObserverRunner, type ObserverRunner } from './observers/index.js';
+import { EntityAPI } from '@src/os/ems.js';
 
 // =============================================================================
 // TYPES
@@ -86,6 +87,7 @@ export class EMS {
     private _runner: ObserverRunner | null = null;
     private _ops: EntityOps | null = null;
     private _cache: EntityCache | null = null;
+    private _api: EntityAPI | null = null;
 
     private initialized = false;
 
@@ -163,6 +165,7 @@ export class EMS {
         this._runner = null;
         this._ops = null;
         this._cache = null;
+        this._api = null;
         this.initialized = false;
     }
 
@@ -240,5 +243,27 @@ export class EMS {
         }
 
         return this._runner;
+    }
+
+    /**
+     * Entity API (array-based convenience wrapper).
+     *
+     * Lazily created on first access. Provides methods like createOne(),
+     * deleteOne(), selectAny() that return arrays/promises instead of
+     * async generators.
+     *
+     * @throws EINVAL if not initialized
+     */
+    get api(): EntityAPI {
+        if (!this._ops) {
+            throw new EINVAL('EMS not initialized');
+        }
+
+        // WHY: Lazy creation - only allocate if actually used
+        if (!this._api) {
+            this._api = new EntityAPI({ getEntityOps: () => this.ops });
+        }
+
+        return this._api;
     }
 }

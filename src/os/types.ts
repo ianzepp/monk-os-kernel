@@ -71,6 +71,23 @@ export interface StorageConfig {
 }
 
 /**
+ * Display configuration for standalone mode.
+ *
+ * When enabled, the OS boots an HTTP/WebSocket server that browsers
+ * can connect to for the graphical interface.
+ */
+export interface DisplayConfig {
+    /** Enable display server (default: false) */
+    enabled?: boolean;
+
+    /** HTTP/WebSocket port (default: 8080) */
+    port?: number;
+
+    /** Host to bind to (default: '0.0.0.0') */
+    host?: string;
+}
+
+/**
  * OS configuration options
  */
 export interface OSConfig {
@@ -104,6 +121,17 @@ export interface OSConfig {
      * ```
      */
     packages?: PackageSpec[];
+
+    /**
+     * Display server configuration.
+     * Enable for standalone mode with browser-based UI.
+     */
+    display?: DisplayConfig;
+
+    /**
+     * Enable kernel debug logging.
+     */
+    debug?: boolean;
 }
 
 /**
@@ -123,19 +151,17 @@ export interface BootOpts {
 }
 
 /**
- * Exec options for takeover mode
+ * Exec options for standalone mode.
+ *
+ * In standalone mode, the OS takes over and blocks until shutdown.
+ * Used by `bun run start` and similar entry points.
  */
 export interface ExecOpts {
     /**
      * Path to init script (inside OS).
-     * Required for exec() takeover mode.
+     * Optional - if not provided, no init process is spawned.
      */
-    main: string;
-
-    /**
-     * Enable kernel debug logging (printk).
-     */
-    debug?: boolean;
+    main?: string;
 }
 
 /**
