@@ -1,5 +1,44 @@
 # OS Syscall Layer - Architecture & Implementation Plan
 
+## Implementation Status
+
+| Phase | Description | Status |
+|-------|-------------|--------|
+| Phase 1 | Create `src/syscall/` structure | **COMPLETE** |
+| Phase 2 | Integrate with Kernel | Not started |
+| Phase 3 | Migrate Syscalls | Not started |
+| Phase 4 | Cleanup | Not started |
+
+### Phase 1 Completion Details (2024-12-07)
+
+All files created and TypeScript compilation verified:
+
+```
+src/syscall/
+├── stream/
+│   ├── constants.ts     ✓
+│   ├── types.ts         ✓
+│   ├── controller.ts    ✓
+│   └── index.ts         ✓
+├── types.ts             ✓
+├── vfs.ts               ✓
+├── process.ts           ✓
+├── ems.ts               ✓
+├── hal.ts               ✓
+├── handle.ts            ✓
+├── pool.ts              ✓
+├── dispatcher.ts        ✓
+└── index.ts             ✓
+```
+
+Key implementation notes:
+- Stream module copied from `src/router/stream/` with updated module paths
+- All syscall functions follow the direct dependency pattern from the plan
+- Dispatcher uses switch-based routing as specified
+- TypeScript compiles without errors
+
+---
+
 ## Overview
 
 This document describes the introduction of a dedicated `src/syscall/` layer that separates system call routing and implementation from the kernel. The kernel will be minimized to focus solely on **process management** and **handle management**, while syscalls become an orchestration layer that routes to kernel, VFS, EMS, and HAL as needed.
@@ -1005,7 +1044,7 @@ async *execute(
 
 ## Migration Plan
 
-### Phase 1: Create `src/syscall/` Structure
+### Phase 1: Create `src/syscall/` Structure [COMPLETE]
 
 1. Create directory structure:
    ```
@@ -1032,7 +1071,7 @@ async *execute(
 
 4. Implement `SyscallDispatcher` with switch-based routing
 
-### Phase 2: Integrate with Kernel
+### Phase 2: Integrate with Kernel [NOT STARTED]
 
 1. Add `SyscallDispatcher` to kernel construction
 
@@ -1042,7 +1081,7 @@ async *execute(
 
 4. Keep existing `src/kernel/syscalls/` working (dual-path)
 
-### Phase 3: Migrate Syscalls
+### Phase 3: Migrate Syscalls [NOT STARTED]
 
 For each syscall domain:
 
@@ -1059,7 +1098,7 @@ Order:
 5. `handle.ts` - Handle manipulation
 6. `pool.ts` - Worker pools
 
-### Phase 4: Cleanup
+### Phase 4: Cleanup [NOT STARTED]
 
 1. Delete `src/kernel/syscalls/` directory
 2. Delete `src/router/` directory
