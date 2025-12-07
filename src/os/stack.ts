@@ -43,6 +43,7 @@ import { BunHAL } from '@src/hal/index.js';
 import { VFS } from '@src/vfs/vfs.js';
 import { Kernel } from '@src/kernel/kernel.js';
 import { EMS } from '@src/ems/ems.js';
+import { SyscallDispatcher } from '@src/syscall/index.js';
 
 // =============================================================================
 // TYPES
@@ -265,6 +266,11 @@ export async function createOsStack(opts: OsStackOptions = {}): Promise<OsStack>
         // =====================================================================
         if (needKernel && hal && vfs) {
             kernel = new Kernel(hal, ems, vfs);
+
+            // Wire syscall dispatcher (sits outside kernel, orchestrates syscalls)
+            const dispatcher = new SyscallDispatcher(kernel, vfs, ems, hal);
+
+            kernel.onWorkerMessage = (worker, msg) => dispatcher.handleMessage(worker, msg);
         }
 
         // Return the stack

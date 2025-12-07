@@ -135,7 +135,7 @@ await os.copy('./src', '/app/src');
 
 ### Service Management
 
-Services are defined in `/etc/services/*.json` and loaded at boot (but not auto-started).
+Services are defined in `/etc/services/*.json` and loaded at boot.
 
 ```typescript
 // List registered services
@@ -174,34 +174,6 @@ await os.text('@app/config.json');
 await os.spawn('@app/server.ts');
 ```
 
-## Lifecycle Events
-
-Register callbacks for boot stages:
-
-```typescript
-const os = new OS()
-    .on('hal', async (os) => {
-        // HAL initialized
-    })
-    .on('ems', async (os) => {
-        // Entity management ready
-    })
-    .on('vfs', async (os) => {
-        // Filesystem ready
-    })
-    .on('kernel', async (os) => {
-        // Kernel ready, before init starts
-    })
-    .on('boot', (os) => {
-        // Fully booted
-    })
-    .on('shutdown', (os) => {
-        // Shutting down
-    });
-
-await os.boot();
-```
-
 ## Configuration Reference
 
 ```typescript
@@ -232,11 +204,10 @@ interface OSConfig {
 1. **HAL** - Hardware abstraction layer (entropy, storage, network)
 2. **EMS** - Entity management system (database)
 3. **VFS** - Virtual filesystem
-4. **Standard directories** - /app, /bin, /etc, /home, /tmp, /usr, /var, /vol
+4. **Standard directories** - /app, /bin, /etc, /home, /svc, /tmp, /usr, /var, /vol
 5. **ROM copy** - Copy bundled userspace from host to VFS
-6. **Kernel** - Process management, syscall dispatch
+6. **Kernel + Dispatcher** - Process management, syscall routing
 7. **Init** - Spawn init process (PID 1)
-8. **Services** - Load service definitions (not auto-started)
 
 ## Accessing Subsystems
 
@@ -245,7 +216,7 @@ For advanced use cases, access internal subsystems directly:
 ```typescript
 const hal = os.getHAL();       // Hardware abstraction
 const vfs = os.getVFS();       // Virtual filesystem
-const kernel = os.getKernel(); // Process/syscall management
+const kernel = os.getKernel(); // Process management
 const ems = os.getEMS();       // Entity management
 ```
 

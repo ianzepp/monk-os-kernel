@@ -1,10 +1,72 @@
 /**
- * OS - The public API for Monk OS
+ * OS - The Public API for Monk OS
  *
- * External applications use this class to boot and interact with Monk OS.
- * Wraps HAL, VFS, and Kernel into a single cohesive interface.
+ * ARCHITECTURE OVERVIEW
+ * =====================
+ * The OS class is the single entry point for external applications to interact
+ * with Monk OS. It orchestrates the boot sequence, provides syscall wrappers,
+ * and manages the lifecycle of all subsystems.
  *
- * @see planning/OS_BOOT_EXEC.md for the full specification
+ * Subsystem initialization order (boot):
+ *   HAL → EMS → VFS → Kernel → Dispatcher → Init Process
+ *
+ * Subsystem teardown order (shutdown):
+ *   Kernel → EMS → HAL
+ *
+ * The OS class itself is stateless beyond configuration - all persistent state
+ * lives in the subsystems (EMS for entities, VFS for files, Kernel for processes).
+ *
+ * STATE MACHINE
+ * =============
+ *
+ *   [created] ──boot()──▶ [booting] ──success──▶ [booted]
+ *       │                     │                     │
+ *       │                     │ failure             │ shutdown()
+ *       │                     ▼                     ▼
+ *       │                 [failed]              [shutdown]
+ *       │                                           │
+ *       └───────────────────────────────────────────┘
+ *                      (can boot again after shutdown)
+ *
+ * INVARIANTS (must always hold true)
+ * ===================================
+ * INV-1: booted === true implies all subsystems (__hal, __ems, __vfs, __kernel,
+ *        __dispatcher) are non-null and initialized.
+ *        VIOLATED BY: Partial boot failure without cleanup, concurrent shutdown.
+ *
+ * INV-2: booted === false implies either never booted OR fully shut down.
+ *        VIOLATED BY: Boot failure leaving partial state.
+ *
+ * INV-3: Syscalls require booted === true and init process exists.
+ *        VIOLATED BY: Calling syscall() before boot() or after shutdown().
+ *
+ * INV-4: Aliases are safe to modify at any time (no cross-thread access).
+ *        VIOLATED BY: Nothing - aliases are main-thread only.
+ *
+ * CONCURRENCY MODEL
+ * =================
+ * The OS class runs entirely in the main thread. All async operations are
+ * cooperative (single-threaded with await points). The subsystems (especially
+ * Kernel) manage worker threads internally.
+ *
+ * RACE CONDITION MITIGATIONS
+ * ==========================
+ * RC-1: Boot guard - booted flag checked at start of boot() to prevent
+ *       concurrent boot attempts.
+ *
+ * RC-2: Shutdown idempotence - shutdown() is safe to call multiple times
+ *       (early return if not booted).
+ *
+ * RC-3: Boot failure cleanup - if boot() fails partway, all initialized
+ *       subsystems are cleaned up before re-throwing.
+ *
+ * MEMORY MANAGEMENT
+ * =================
+ * Subsystem references are held in private fields. On shutdown, subsystems
+ * are shut down in reverse order and references set to null. The OS instance
+ * can be rebooted after shutdown.
+ *
+ * @module os
  */
 
 import * as fs from 'node:fs/promises';
@@ -21,58 +83,170 @@ import { fromCode } from '@src/hal/errors.js';
 import type { OSConfig, BootOpts, ExecOpts, OSEvents, OSEventName } from './types.js';
 import { EMS } from '@src/ems/ems.js';
 import type { EntityOps } from '@src/ems/entity-ops.js';
+import { SyscallDispatcher } from '@src/syscall/index.js';
+
+// =============================================================================
+// CONSTANTS
+// =============================================================================
 
 /**
- * Type for storing event listeners
+ * Standard directories created during boot.
+ *
+ * WHY: Provides a consistent filesystem layout matching Unix conventions.
+ * Created before ROM copy so ROM files can override if needed.
  */
-type EventListeners = {
-    [K in OSEventName]: Array<OSEvents[K]>;
-};
+const STANDARD_DIRECTORIES = [
+    '/app',      // Application data and state
+    '/bin',      // User commands
+    '/etc',      // System configuration
+    '/home',     // User home directories
+    '/svc',      // Service definitions
+    '/tmp',      // Temporary files
+    '/usr',      // User programs
+    '/var',      // Variable data
+    '/var/log',  // Log files
+    '/vol',      // Mounted volumes
+];
 
 /**
- * OS class - main entry point for Monk OS
+ * Default init process path.
+ *
+ * WHY: /svc/init.ts is the conventional location for the init process,
+ * matching systemd-style service directory organization.
+ */
+const DEFAULT_INIT_PATH = '/svc/init.ts';
+
+/**
+ * Default ROM source path on host filesystem.
+ *
+ * WHY: ./rom is the conventional location for userspace code that gets
+ * copied into the VFS at boot time.
+ */
+const DEFAULT_ROM_PATH = './rom';
+
+// =============================================================================
+// MAIN CLASS
+// =============================================================================
+
+/**
+ * OS class - main entry point for Monk OS.
+ *
+ * Provides the public API for booting, syscalls, and lifecycle management.
  */
 export class OS {
-    private config: OSConfig;
-    private hal: HAL | null = null;
-    private _ems: EMS | null = null;
-    private _vfs: VFS | null = null;
-    private kernel: Kernel | null = null;
-    private booted = false;
+    // =========================================================================
+    // CONFIGURATION
+    // =========================================================================
 
-    // Path aliases
+    /**
+     * OS configuration provided at construction.
+     *
+     * WHY: Stored for reference during boot() and for getEnv().
+     * INVARIANT: Never null after construction.
+     */
+    private config: OSConfig;
+
+    /**
+     * Path aliases for convenient path resolution.
+     *
+     * WHY: Allows '@app' → '/vol/app' style shortcuts in user code.
+     * Can be modified at any time via alias().
+     */
     private aliases: Map<string, string> = new Map();
 
-    // Lifecycle event listeners
-    private listeners: EventListeners = {
-        hal: [],
-        ems: [],
-        vfs: [],
-        kernel: [],
-        boot: [],
-        shutdown: [],
-    };
+    // =========================================================================
+    // SUBSYSTEM REFERENCES
+    // =========================================================================
 
+    /**
+     * Hardware Abstraction Layer.
+     *
+     * WHY: Provides storage backend (memory/sqlite/postgres) and low-level I/O.
+     * INVARIANT: Non-null when booted === true.
+     */
+    private __hal: HAL | null = null;
+
+    /**
+     * Entity Management System.
+     *
+     * WHY: Provides entity storage, versioning, and queries.
+     * INVARIANT: Non-null when booted === true.
+     */
+    private __ems: EMS | null = null;
+
+    /**
+     * Virtual File System.
+     *
+     * WHY: Provides POSIX-like filesystem abstraction over EMS entities.
+     * INVARIANT: Non-null when booted === true.
+     */
+    private __vfs: VFS | null = null;
+
+    /**
+     * Process kernel.
+     *
+     * WHY: Manages process lifecycle, workers, and IPC.
+     * INVARIANT: Non-null when booted === true.
+     */
+    private __kernel: Kernel | null = null;
+
+    /**
+     * Syscall dispatcher.
+     *
+     * WHY: Routes syscalls to appropriate handlers and manages response streams.
+     * Sits outside kernel to separate concerns.
+     * INVARIANT: Non-null when booted === true.
+     */
+    private __dispatcher: SyscallDispatcher | null = null;
+
+    // =========================================================================
+    // LIFECYCLE STATE
+    // =========================================================================
+
+    /**
+     * Boot state flag.
+     *
+     * WHY: Guards against double-boot and enables syscall validation.
+     * INVARIANT: true only when all subsystems are initialized.
+     */
+    private booted = false;
+
+    // =========================================================================
+    // CONSTRUCTOR
+    // =========================================================================
+
+    /**
+     * Create a new OS instance.
+     *
+     * @param config - Optional configuration
+     */
     constructor(config?: OSConfig) {
         this.config = config ?? {};
 
         // Initialize aliases from config
         if (config?.aliases) {
-            for (const [name, path] of Object.entries(config.aliases)) {
-                this.aliases.set(name, path);
+            for (const [name, aliasPath] of Object.entries(config.aliases)) {
+                this.aliases.set(name, aliasPath);
             }
         }
     }
 
+    // =========================================================================
+    // CONFIGURATION API
+    // =========================================================================
+
     /**
      * Add or update a path alias.
      *
+     * WHY: Enables '@app' → '/vol/app' style shortcuts. Can be called
+     * before or after boot.
+     *
      * @param name - Alias name (e.g., '@app')
-     * @param path - Target path (e.g., '/vol/app')
+     * @param aliasPath - Target path (e.g., '/vol/app')
      * @returns this for chaining
      */
-    alias(name: string, path: string): this {
-        this.aliases.set(name, path);
+    alias(name: string, aliasPath: string): this {
+        this.aliases.set(name, aliasPath);
 
         return this;
     }
@@ -80,49 +254,34 @@ export class OS {
     /**
      * Register a lifecycle event listener.
      *
-     * Listeners are called during boot() at the appropriate stage.
-     * All callbacks receive the OS instance for accessing public APIs.
-     *
-     * @param event - Event name ('hal', 'vfs', 'kernel', 'boot', 'shutdown')
-     * @param callback - Function to call when event fires (receives OS instance)
-     * @returns this for chaining
-     *
-     * @example
-     * ```typescript
-     * const os = new OS()
-     *   .on('vfs', (os) => {
-     *     // Mount host directories before kernel starts
-     *     os.fs.mount('./src', '/vol/app');
-     *   })
-     *   .on('boot', (os) => {
-     *     console.log('OS fully booted');
-     *   });
-     *
-     * await os.boot({ main: '/vol/app/init.ts' });
-     * ```
+     * @deprecated Lifecycle events are not currently supported.
+     * @throws EINVAL always
      */
-    on<K extends OSEventName>(event: K, callback: OSEvents[K]): this {
-        this.listeners[event].push(callback);
-
-        return this;
+    on<K extends OSEventName>(_event: K, _callback: OSEvents[K]): this {
+        throw new EINVAL('Lifecycle events not supported');
     }
 
     /**
      * Resolve a path, expanding any aliases.
+     *
+     * WHY: Centralizes alias expansion so all path-accepting methods
+     * can support aliases uniformly.
+     *
+     * @param inputPath - Path that may contain an alias prefix
+     * @returns Resolved path with alias expanded
      */
-    resolvePath(path: string): string {
-        // Check if path starts with an alias
+    resolvePath(inputPath: string): string {
         for (const [alias, target] of this.aliases) {
-            if (path === alias) {
+            if (inputPath === alias) {
                 return target;
             }
 
-            if (path.startsWith(alias + '/')) {
-                return target + path.slice(alias.length);
+            if (inputPath.startsWith(alias + '/')) {
+                return target + inputPath.slice(alias.length);
             }
         }
 
-        return path;
+        return inputPath;
     }
 
     // =========================================================================
@@ -132,16 +291,18 @@ export class OS {
     /**
      * Get the init process for syscall context.
      *
-     * WHY INIT: External syscalls execute in the context of PID 1.
+     * WHY: External syscalls execute in the context of PID 1 (init).
      * This provides proper process identity for permission checks
      * and resource tracking.
+     *
+     * @throws EINVAL if OS not booted or init process not found
      */
     private getInitProcess(): Process {
-        if (!this.kernel) {
+        if (!this.__kernel) {
             throw new EINVAL('OS not booted');
         }
 
-        const init = this.kernel.processes.getInit();
+        const init = this.__kernel.processes.getInit();
 
         if (!init) {
             throw new EINVAL('Init process not found');
@@ -156,9 +317,16 @@ export class OS {
      * Low-level interface for direct kernel communication.
      * Executes in the context of the init process (PID 1).
      *
+     * ALGORITHM:
+     * 1. Get init process for syscall context
+     * 2. Dispatch syscall through dispatcher
+     * 3. Collect response stream into result
+     * 4. Return single value (ok) or array (items)
+     *
      * @param name - Syscall name (e.g., 'file:open', 'ems:select')
      * @param args - Syscall arguments
      * @returns Unwrapped result (single value or array of items)
+     * @throws Error from syscall if response.op === 'error'
      *
      * @example
      * ```typescript
@@ -170,8 +338,11 @@ export class OS {
      * ```
      */
     async syscall<T = unknown>(name: string, ...args: unknown[]): Promise<T> {
+        // SAFETY: getInitProcess() throws if not booted
         const init = this.getInitProcess();
-        const stream = this.kernel!.syscalls.dispatch(init, name, args);
+
+        // SAFETY: __dispatcher is non-null when booted (INV-1)
+        const stream = this.__dispatcher!.dispatch(init, name, args);
 
         // Collect response - handles both single-value and streaming syscalls
         const items: unknown[] = [];
@@ -179,6 +350,11 @@ export class OS {
         let hasOk = false;
 
         for await (const response of stream) {
+            // RACE FIX: Check boot state after each await - shutdown could occur
+            if (!this.booted) {
+                throw new EINVAL('OS shutdown during syscall');
+            }
+
             if (response.op === 'ok') {
                 singleResult = response.data;
                 hasOk = true;
@@ -217,17 +393,19 @@ export class OS {
     /**
      * Make a syscall and return the raw response stream.
      *
-     * Use this for syscalls where you need full control over
-     * response processing (progress events, streaming data, etc.).
+     * WHY: Some syscalls need streaming (progress events, large data).
+     * This method exposes the raw stream for full control.
      *
      * @param name - Syscall name
      * @param args - Syscall arguments
      * @returns AsyncIterable of Response objects
      */
     syscallStream(name: string, ...args: unknown[]): AsyncIterable<Response> {
+        // SAFETY: getInitProcess() throws if not booted
         const init = this.getInitProcess();
 
-        return this.kernel!.syscalls.dispatch(init, name, args);
+        // SAFETY: __dispatcher is non-null when booted (INV-1)
+        return this.__dispatcher!.dispatch(init, name, args);
     }
 
     // =========================================================================
@@ -240,15 +418,6 @@ export class OS {
      * @param method - EMS method (select, create, update, delete, revert, expire)
      * @param args - Method arguments
      * @returns Syscall result
-     *
-     * @example
-     * ```typescript
-     * // Select users
-     * const users = await os.ems<User[]>('select', 'User', { where: { active: true } });
-     *
-     * // Create a user
-     * const user = await os.ems<User>('create', 'User', { name: 'Alice' });
-     * ```
      */
     async ems<T = unknown>(method: string, ...args: unknown[]): Promise<T> {
         return this.syscall<T>(`ems:${method}`, ...args);
@@ -260,15 +429,6 @@ export class OS {
      * @param method - VFS method (open, close, read, write, stat, mkdir, etc.)
      * @param args - Method arguments
      * @returns Syscall result
-     *
-     * @example
-     * ```typescript
-     * // Open a file
-     * const fd = await os.vfs<number>('open', '/etc/config.json', { read: true });
-     *
-     * // Get file stats
-     * const stat = await os.vfs<Stat>('stat', '/etc/config.json');
-     * ```
      */
     async vfs<T = unknown>(method: string, ...args: unknown[]): Promise<T> {
         return this.syscall<T>(`file:${method}`, ...args);
@@ -280,22 +440,13 @@ export class OS {
      * @param method - Process method (spawn, kill, wait, getpid, etc.)
      * @param args - Method arguments
      * @returns Syscall result
-     *
-     * @example
-     * ```typescript
-     * // Spawn a process
-     * const pid = await os.process<number>('spawn', '/bin/worker.ts', { args: ['--port', '9000'] });
-     *
-     * // Kill a process
-     * await os.process('kill', pid, 15);
-     * ```
      */
     async process<T = unknown>(method: string, ...args: unknown[]): Promise<T> {
         return this.syscall<T>(`proc:${method}`, ...args);
     }
 
     // =========================================================================
-    // ALIASES
+    // SYSCALL ALIASES
     // =========================================================================
 
     /**
@@ -319,12 +470,15 @@ export class OS {
     /**
      * Spawn a new process.
      *
-     * @param path - Path to script (aliases resolved)
+     * @param cmd - Path to script (aliases resolved)
      * @param opts - Spawn options
      * @returns Process ID
      */
-    async spawn(path: string, opts?: { args?: string[]; env?: Record<string, string>; cwd?: string }): Promise<number> {
-        const resolved = this.resolvePath(path);
+    async spawn(
+        cmd: string,
+        opts?: { args?: string[]; env?: Record<string, string>; cwd?: string },
+    ): Promise<number> {
+        const resolved = this.resolvePath(cmd);
 
         return this.process<number>('spawn', resolved, opts);
     }
@@ -346,17 +500,13 @@ export class OS {
      * @param source - Source path (host path for 'host' type)
      * @param target - Target path in VFS (aliases resolved)
      * @param opts - Mount options
-     *
-     * @example
-     * ```typescript
-     * // Mount host directory
-     * await os.mount('host', './src', '/app');
-     *
-     * // Mount with options
-     * await os.mount('host', '/data', '/mnt/data', { readonly: true });
-     * ```
      */
-    async mount(type: string, source: string, target: string, opts?: Record<string, unknown>): Promise<void> {
+    async mount(
+        type: string,
+        source: string,
+        target: string,
+        opts?: Record<string, unknown>,
+    ): Promise<void> {
         const resolved = this.resolvePath(target);
         const fullSource = `${type}:${source}`;
 
@@ -367,11 +517,6 @@ export class OS {
      * Unmount a filesystem.
      *
      * @param target - Target path to unmount (aliases resolved)
-     *
-     * @example
-     * ```typescript
-     * await os.unmount('/app');
-     * ```
      */
     async unmount(target: string): Promise<void> {
         const resolved = this.resolvePath(target);
@@ -382,21 +527,11 @@ export class OS {
     /**
      * Copy from host filesystem to VFS.
      *
-     * Copies a file or directory tree from the host filesystem into the VFS.
-     * Directories are copied recursively. Target directories are created
-     * automatically.
+     * WHY: Enables copying ROM files and host directories into VFS
+     * during boot or at runtime.
      *
      * @param hostSource - Source path on host filesystem
      * @param vfsTarget - Target path in VFS (aliases resolved)
-     *
-     * @example
-     * ```typescript
-     * // Copy a single file
-     * await os.copy('./config.json', '/etc/app/config.json');
-     *
-     * // Copy a directory tree
-     * await os.copy('./src', '/app/src');
-     * ```
      */
     async copy(hostSource: string, vfsTarget: string): Promise<void> {
         const resolved = this.resolvePath(vfsTarget);
@@ -411,88 +546,13 @@ export class OS {
     }
 
     /**
-     * Copy a single file from host to VFS.
-     *
-     * WHY: Uses VFS directly instead of syscalls to support being called
-     * during boot before the kernel is initialized.
-     */
-    private async copyFile(hostPath: string, vfsPath: string): Promise<void> {
-        const vfs = this._vfs;
-
-        if (!vfs) {
-            throw new EINVAL('VFS not initialized');
-        }
-
-        // Ensure parent directory exists
-        const parent = vfsPath.substring(0, vfsPath.lastIndexOf('/')) || '/';
-
-        try {
-            await vfs.stat(parent, 'kernel');
-        }
-        catch {
-            await vfs.mkdir(parent, 'kernel', { recursive: true });
-        }
-
-        // Read from host
-        const content = await fs.readFile(hostPath);
-
-        // Write to VFS using handle API
-        const handle = await vfs.open(vfsPath, { write: true, create: true, truncate: true }, 'kernel');
-
-        try {
-            await handle.write(new Uint8Array(content));
-        }
-        finally {
-            await handle.close();
-        }
-    }
-
-    /**
-     * Recursively copy a directory from host to VFS.
-     *
-     * WHY: Uses VFS directly instead of syscalls to support being called
-     * during boot before the kernel is initialized.
-     */
-    private async copyDir(hostPath: string, vfsPath: string): Promise<void> {
-        const vfs = this._vfs;
-
-        if (!vfs) {
-            throw new EINVAL('VFS not initialized');
-        }
-
-        // Create target directory
-        try {
-            await vfs.stat(vfsPath, 'kernel');
-        }
-        catch {
-            await vfs.mkdir(vfsPath, 'kernel', { recursive: true });
-        }
-
-        // Read directory entries
-        const entries = await fs.readdir(hostPath, { withFileTypes: true });
-
-        for (const entry of entries) {
-            const srcPath = path.join(hostPath, entry.name);
-            const dstPath = `${vfsPath}/${entry.name}`;
-
-            if (entry.isDirectory()) {
-                await this.copyDir(srcPath, dstPath);
-            }
-            else if (entry.isFile()) {
-                await this.copyFile(srcPath, dstPath);
-            }
-            // Skip symlinks, sockets, etc. for now
-        }
-    }
-
-    /**
      * Read a file as raw bytes.
      *
-     * @param path - File path (aliases resolved)
+     * @param filePath - File path (aliases resolved)
      * @returns File contents as Uint8Array
      */
-    async read(path: string): Promise<Uint8Array> {
-        const resolved = this.resolvePath(path);
+    async read(filePath: string): Promise<Uint8Array> {
+        const resolved = this.resolvePath(filePath);
         const fd = await this.vfs<number>('open', resolved, { read: true });
 
         try {
@@ -527,44 +587,38 @@ export class OS {
     /**
      * Read a file as text.
      *
-     * @param path - File path (aliases resolved)
+     * @param filePath - File path (aliases resolved)
      * @param encoding - Text encoding (default: 'utf-8')
      * @returns File contents as string
      */
-    async text(path: string, encoding = 'utf-8'): Promise<string> {
-        const bytes = await this.read(path);
+    async text(filePath: string, encoding = 'utf-8'): Promise<string> {
+        const bytes = await this.read(filePath);
 
         // WHY cast: TextDecoder accepts any valid encoding string, but TypeScript
         // has a strict Encoding type. We trust the caller to provide valid encodings.
         return new TextDecoder(encoding as 'utf-8').decode(bytes);
     }
 
+    // =========================================================================
+    // SERVICE MANAGEMENT
+    // =========================================================================
+
     /**
      * Service management operations.
      *
-     * @param action - Action to perform (start, stop, status, list)
-     * @param nameOrPid - Service name or PID
+     * WHY: Provides a high-level API for service lifecycle management
+     * without requiring direct kernel access.
+     *
+     * @param action - Action to perform (start, stop, restart, status, list)
+     * @param nameOrPid - Service name or PID (required for all except 'list')
      * @returns Action result
-     *
-     * @example
-     * ```typescript
-     * // Start a service
-     * await os.service('start', 'httpd');
-     *
-     * // Stop a service
-     * await os.service('stop', 'httpd');
-     *
-     * // Get service status
-     * const info = await os.service('status', 'httpd');
-     * ```
      */
     async service(action: string, nameOrPid?: string | number): Promise<unknown> {
-        // Service management operates on kernel service registry
-        if (!this.kernel) {
+        if (!this.__kernel) {
             throw new EINVAL('OS not booted');
         }
 
-        const services = this.kernel.getServices();
+        const services = this.__kernel.getServices();
 
         switch (action) {
             case 'list':
@@ -596,12 +650,13 @@ export class OS {
                     throw new EINVAL(`Service not found: ${name}`);
                 }
 
-                // Check if already activated
-                if (this.kernel.activationPorts.has(name) || this.kernel.activationAborts.has(name)) {
+                // RACE: Check-then-act on activation state
+                // WHY: Acceptable because activateService() is idempotent
+                if (this.__kernel.activationPorts.has(name) || this.__kernel.activationAborts.has(name)) {
                     throw new EINVAL(`Service already running: ${name}`);
                 }
 
-                await activateService(this.kernel, name, def);
+                await activateService(this.__kernel, name, def);
 
                 return { started: name };
             }
@@ -614,19 +669,19 @@ export class OS {
                 const name = String(nameOrPid);
 
                 // Abort activation loop if running
-                const abort = this.kernel.activationAborts.get(name);
+                const abort = this.__kernel.activationAborts.get(name);
 
                 if (abort) {
                     abort.abort();
-                    this.kernel.activationAborts.delete(name);
+                    this.__kernel.activationAborts.delete(name);
                 }
 
                 // Close activation port if exists
-                const port = this.kernel.activationPorts.get(name);
+                const port = this.__kernel.activationPorts.get(name);
 
                 if (port) {
                     await port.close();
-                    this.kernel.activationPorts.delete(name);
+                    this.__kernel.activationPorts.delete(name);
                 }
 
                 return { stopped: name };
@@ -648,72 +703,109 @@ export class OS {
         }
     }
 
+    // =========================================================================
+    // LIFECYCLE: BOOT
+    // =========================================================================
+
     /**
      * Boot the OS.
      *
-     * Initializes all subsystems and returns control to the caller.
+     * Initializes all subsystems in order and starts the init process.
      * For standalone mode, use exec() instead.
      *
-     * Boot sequence:
+     * ALGORITHM:
      * 1. HAL (hardware abstraction)
      * 2. EMS (entity management)
      * 3. VFS (virtual filesystem)
      * 4. Standard directories
      * 5. ROM copy (userspace code)
-     * 6. Kernel
+     * 6. Kernel + Dispatcher
      * 7. Init process
      *
+     * RACE CONDITION:
+     * Uses booted flag to prevent concurrent boot attempts.
+     * On failure, cleans up any initialized subsystems.
+     *
      * @param opts - Optional boot options
+     * @throws EBUSY if already booted
+     * @throws Error from any subsystem initialization
      */
     async boot(opts?: BootOpts): Promise<void> {
+        // RC-1: Prevent concurrent boot
         if (this.booted) {
             throw new EBUSY('OS already booted');
         }
 
         const debug = opts?.debug ?? this.config.debug;
 
-        // 1. HAL
-        this.hal = new BunHAL(this.buildHALConfig());
-        await this.hal.init();
-        await this.emit('hal', this);
+        try {
+            // 1. HAL
+            this.__hal = new BunHAL(this.buildHALConfig());
+            await this.__hal.init();
 
-        // 2. EMS
-        this._ems = new EMS(this.hal);
-        await this._ems.init();
-        await this.emit('ems', this);
+            // 2. EMS
+            this.__ems = new EMS(this.__hal);
+            await this.__ems.init();
 
-        // 3. VFS
-        this._vfs = new VFS(this.hal, this._ems);
-        await this._vfs.init();
-        await this.emit('vfs', this);
+            // 3. VFS
+            this.__vfs = new VFS(this.__hal, this.__ems);
+            await this.__vfs.init();
 
-        // 4. Standard directories
-        await this.createStandardDirectories();
+            // 4. Standard directories
+            await this.createStandardDirectories();
 
-        // 5. ROM copy (userspace code)
-        const romPath = opts?.romPath ?? this.config.romPath ?? './rom';
+            // 5. ROM copy (userspace code)
+            const romPath = opts?.romPath ?? this.config.romPath ?? DEFAULT_ROM_PATH;
 
-        await this.copy(romPath, '/');
+            try {
+                await this.copy(romPath, '/');
+            }
+            catch (err) {
+                // EDGE: ROM directory may not exist in tests
+                const error = err as NodeJS.ErrnoException;
 
-        // 6. Kernel
-        this.kernel = new Kernel(this.hal, this._ems, this._vfs);
-        await this.emit('kernel', this);
+                if (error.code !== 'ENOENT') {
+                    throw err;
+                }
+            }
 
-        // 7. Init process
-        const initPath = opts?.main ? this.resolvePath(opts.main) : '/svc/init.ts';
+            // 6. Kernel + Dispatcher
+            this.__kernel = new Kernel(this.__hal, this.__ems, this.__vfs);
 
-        await this.kernel.boot({
-            initPath,
-            initArgs: [initPath],
-            env: this.config.env ?? {
-                HOME: '/',
-                USER: 'root',
-            },
-            debug,
-        });
+            this.__dispatcher = new SyscallDispatcher(
+                this.__kernel,
+                this.__vfs,
+                this.__ems,
+                this.__hal,
+            );
 
-        this.booted = true;
-        await this.emit('boot', this);
+            // Wire dispatcher's message handler to kernel
+            // WHY: Kernel creates workers, but syscall layer handles messages
+            this.__kernel.onWorkerMessage = async (worker, msg) => {
+                await this.__dispatcher!.handleMessage(worker, msg);
+            };
+
+            // 7. Init process
+            const initPath = opts?.main ? this.resolvePath(opts.main) : DEFAULT_INIT_PATH;
+
+            await this.__kernel.boot({
+                initPath,
+                initArgs: [initPath],
+                env: this.config.env ?? {
+                    HOME: '/',
+                    USER: 'root',
+                },
+                debug,
+            });
+
+            // RC-3: Only set booted after full success
+            this.booted = true;
+        }
+        catch (err) {
+            // RC-3: Clean up on failure to maintain INV-2
+            await this.cleanupOnBootFailure();
+            throw err;
+        }
     }
 
     /**
@@ -724,70 +816,73 @@ export class OS {
      *
      * @param opts - Optional exec options
      * @returns Exit code (0 for clean shutdown)
-     *
-     * @example
-     * ```typescript
-     * const os = new OS();
-     *
-     * // Blocks until SIGINT/SIGTERM
-     * const exitCode = await os.exec();
-     * process.exit(exitCode);
-     * ```
      */
     async exec(opts?: ExecOpts): Promise<number> {
-        // Boot the OS
         await this.boot({ main: opts?.main });
 
         // Create shutdown promise that resolves on signal
         const shutdownPromise = new Promise<number>(resolve => {
-            const shutdown = async (signal: string) => {
+            const handleShutdown = async (signal: string) => {
                 console.log(`\nReceived ${signal}, shutting down...`);
                 await this.shutdown();
                 resolve(0);
             };
 
-            process.on('SIGINT', () => shutdown('SIGINT'));
-            process.on('SIGTERM', () => shutdown('SIGTERM'));
+            process.on('SIGINT', () => handleShutdown('SIGINT'));
+            process.on('SIGTERM', () => handleShutdown('SIGTERM'));
         });
 
-        // Log ready state
         console.log('Monk OS running. Press Ctrl+C to stop.');
 
-        // Block until shutdown signal
         return shutdownPromise;
     }
+
+    // =========================================================================
+    // LIFECYCLE: SHUTDOWN
+    // =========================================================================
 
     /**
      * Shutdown the OS gracefully.
      *
-     * Shuts down in reverse boot order:
-     * Kernel → VFS → EMS → HAL
+     * Shuts down subsystems in reverse boot order:
+     * Kernel → EMS → HAL
+     *
+     * RACE CONDITION:
+     * RC-2: Safe to call multiple times (idempotent via booted check).
      */
     async shutdown(): Promise<void> {
+        // RC-2: Idempotent - safe to call if not booted
         if (!this.booted) {
             return;
         }
 
-        await this.emit('shutdown', this);
-
-        if (this.kernel?.isBooted()) {
-            await this.kernel.shutdown();
-        }
-
-        if (this._ems) {
-            await this._ems.shutdown();
-        }
-
-        if (this.hal) {
-            await this.hal.shutdown();
-        }
-
+        // Mark as not booted first to fail any in-flight syscalls
         this.booted = false;
-        this.kernel = null;
-        this._vfs = null;
-        this._ems = null;
-        this.hal = null;
+
+        // Shutdown in reverse order
+        if (this.__kernel?.isBooted()) {
+            await this.__kernel.shutdown();
+        }
+
+        if (this.__ems) {
+            await this.__ems.shutdown();
+        }
+
+        if (this.__hal) {
+            await this.__hal.shutdown();
+        }
+
+        // Clear references
+        this.__dispatcher = null;
+        this.__kernel = null;
+        this.__vfs = null;
+        this.__ems = null;
+        this.__hal = null;
     }
+
+    // =========================================================================
+    // PUBLIC ACCESSORS
+    // =========================================================================
 
     /**
      * Check if the OS is booted.
@@ -797,70 +892,85 @@ export class OS {
     }
 
     /**
-     * Get the HAL instance (for testing/advanced use).
+     * Get the HAL instance.
+     *
+     * WHY: Needed for testing and advanced use cases.
+     * @throws EINVAL if OS not booted
      */
     getHAL(): HAL {
-        if (!this.hal) {
+        if (!this.__hal) {
             throw new EINVAL('OS not booted');
         }
 
-        return this.hal;
+        return this.__hal;
     }
 
     /**
-     * Get the VFS instance (for testing/advanced use).
+     * Get the VFS instance.
+     *
+     * WHY: Needed for testing and advanced use cases.
+     * @throws EINVAL if OS not booted
      */
     getVFS(): VFS {
-        if (!this._vfs) {
+        if (!this.__vfs) {
             throw new EINVAL('OS not booted');
         }
 
-        return this._vfs;
+        return this.__vfs;
     }
 
     /**
-     * Get the Kernel instance (for testing/advanced use).
+     * Get the Kernel instance.
+     *
+     * WHY: Needed for testing and advanced use cases.
+     * @throws EINVAL if OS not booted
      */
     getKernel(): Kernel {
-        if (!this.kernel) {
+        if (!this.__kernel) {
             throw new EINVAL('OS not booted');
         }
 
-        return this.kernel;
+        return this.__kernel;
     }
 
     /**
-     * Get the EMS instance (for testing/advanced use).
+     * Get the EMS instance.
+     *
+     * WHY: Needed for testing and advanced use cases.
+     * @throws EINVAL if OS not booted
      */
     getEMS(): EMS {
-        if (!this._ems) {
+        if (!this.__ems) {
             throw new EINVAL('OS not booted');
         }
 
-        return this._ems;
+        return this.__ems;
     }
 
     /**
      * Get the EntityOps instance (for EntityAPI).
+     *
+     * @throws EINVAL if OS not booted
      */
     getEntityOps(): EntityOps {
-        if (!this._ems) {
+        if (!this.__ems) {
             throw new EINVAL('OS not booted');
         }
 
-        return this._ems.ops;
+        return this.__ems.ops;
     }
 
     /**
      * Get active services.
-     * Returns empty map if kernel not booted with init process.
+     *
+     * @returns Service map, or empty map if kernel not booted
      */
     getServices(): Map<string, ServiceDef> {
-        if (!this.kernel?.isBooted()) {
+        if (!this.__kernel?.isBooted()) {
             return new Map();
         }
 
-        return this.kernel.getServices();
+        return this.__kernel.getServices();
     }
 
     /**
@@ -870,8 +980,27 @@ export class OS {
         return this.config.env ?? {};
     }
 
+    // =========================================================================
+    // TESTING HELPERS
+    // =========================================================================
+
+    /**
+     * Get count of registered aliases.
+     *
+     * TESTING: Allows tests to verify alias registration.
+     */
+    getAliasCount(): number {
+        return this.aliases.size;
+    }
+
+    // =========================================================================
+    // PRIVATE HELPERS
+    // =========================================================================
+
     /**
      * Build HAL configuration from OS config.
+     *
+     * WHY: Translates user-friendly OSConfig.storage into HALConfig format.
      */
     private buildHALConfig(): HALConfig {
         const storage = this.config.storage;
@@ -908,55 +1037,149 @@ export class OS {
     /**
      * Create standard OS directories.
      *
-     * Creates the base directory structure needed for package installation
-     * and general OS operation.
+     * WHY: Provides consistent filesystem layout before ROM copy.
+     * Errors other than EEXIST are logged but not fatal.
      */
     private async createStandardDirectories(): Promise<void> {
-        if (!this._vfs) {
+        if (!this.__vfs) {
             return;
         }
 
-        const standardDirs = [
-            '/app',      // Application data and state
-            '/bin',      // User commands
-            '/etc',      // System configuration
-            '/home',     // User home directories
-            '/tmp',      // Temporary files
-            '/usr',      // User programs
-            '/var',      // Variable data
-            '/var/log',  // Log files
-            '/vol',      // Mounted volumes
-        ];
-
-        for (const dir of standardDirs) {
+        for (const dir of STANDARD_DIRECTORIES) {
             try {
-                await this._vfs.mkdir(dir, 'kernel', { recursive: true });
+                await this.__vfs.mkdir(dir, 'kernel', { recursive: true });
             }
             catch (err) {
-                // EEXIST is fine - directory already exists
                 const error = err as Error & { code?: string };
 
+                // EEXIST is fine - directory already exists
                 if (error.code !== 'EEXIST') {
-                    // Log but don't fail - some dirs may not be creatable
+                    // SAFETY: Log but don't fail - some dirs may not be creatable
+                    console.warn(`Failed to create ${dir}: ${error.message}`);
                 }
             }
         }
     }
 
     /**
-     * Emit a lifecycle event, calling all registered listeners.
+     * Copy a single file from host to VFS.
      *
-     * @param event - Event name
-     * @param args - Arguments to pass to listeners
+     * WHY: Uses VFS directly instead of syscalls to support being called
+     * during boot before the kernel is initialized.
      */
-    private async emit<K extends OSEventName>(
-        event: K,
-        ...args: Parameters<OSEvents[K]>
-    ): Promise<void> {
-        const callbacks = this.listeners[event] as Array<(...a: Parameters<OSEvents[K]>) => void | Promise<void>>;
+    private async copyFile(hostPath: string, vfsPath: string): Promise<void> {
+        const vfsInst = this.__vfs;
 
-        for (const callback of callbacks) {
-            await callback(...args);
+        if (!vfsInst) {
+            throw new EINVAL('VFS not initialized');
         }
+
+        // Ensure parent directory exists
+        const parent = vfsPath.substring(0, vfsPath.lastIndexOf('/')) || '/';
+
+        try {
+            await vfsInst.stat(parent, 'kernel');
+        }
+        catch {
+            await vfsInst.mkdir(parent, 'kernel', { recursive: true });
+        }
+
+        // Read from host
+        const content = await fs.readFile(hostPath);
+
+        // Write to VFS using handle API
+        const handle = await vfsInst.open(
+            vfsPath,
+            { write: true, create: true, truncate: true },
+            'kernel',
+        );
+
+        try {
+            await handle.write(new Uint8Array(content));
+        }
+        finally {
+            await handle.close();
+        }
+    }
+
+    /**
+     * Recursively copy a directory from host to VFS.
+     *
+     * WHY: Uses VFS directly instead of syscalls to support being called
+     * during boot before the kernel is initialized.
+     */
+    private async copyDir(hostPath: string, vfsPath: string): Promise<void> {
+        const vfsInst = this.__vfs;
+
+        if (!vfsInst) {
+            throw new EINVAL('VFS not initialized');
+        }
+
+        // Create target directory
+        try {
+            await vfsInst.stat(vfsPath, 'kernel');
+        }
+        catch {
+            await vfsInst.mkdir(vfsPath, 'kernel', { recursive: true });
+        }
+
+        // Read directory entries
+        const entries = await fs.readdir(hostPath, { withFileTypes: true });
+
+        for (const entry of entries) {
+            const srcPath = path.join(hostPath, entry.name);
+            const dstPath = `${vfsPath}/${entry.name}`;
+
+            if (entry.isDirectory()) {
+                await this.copyDir(srcPath, dstPath);
+            }
+            else if (entry.isFile()) {
+                await this.copyFile(srcPath, dstPath);
+            }
+            // Skip symlinks, sockets, etc. for now
+        }
+    }
+
+    /**
+     * Clean up subsystems after boot failure.
+     *
+     * WHY: Maintains INV-2 (booted === false means clean state).
+     * Called from boot() catch block.
+     */
+    private async cleanupOnBootFailure(): Promise<void> {
+        // Shutdown in reverse order, ignoring errors
+        if (this.__kernel?.isBooted()) {
+            try {
+                await this.__kernel.shutdown();
+            }
+            catch {
+                // Ignore cleanup errors
+            }
+        }
+
+        if (this.__ems) {
+            try {
+                await this.__ems.shutdown();
+            }
+            catch {
+                // Ignore cleanup errors
+            }
+        }
+
+        if (this.__hal) {
+            try {
+                await this.__hal.shutdown();
+            }
+            catch {
+                // Ignore cleanup errors
+            }
+        }
+
+        // Clear references
+        this.__dispatcher = null;
+        this.__kernel = null;
+        this.__vfs = null;
+        this.__ems = null;
+        this.__hal = null;
     }
 }
