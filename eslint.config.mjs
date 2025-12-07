@@ -122,6 +122,12 @@ export default tseslint.config(
         },
     },
     {
+        files: ['spec/**/*.ts', 'perf/**/*.ts'],
+        rules: {
+            '@typescript-eslint/no-explicit-any': 'off',
+        },
+    },
+    {
         ignores: [
             'node_modules/**',
             'dist/**',
