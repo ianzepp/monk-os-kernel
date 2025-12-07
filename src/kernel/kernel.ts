@@ -656,6 +656,10 @@ export class Kernel {
         for (const proc of this.processes.all()) {
             // Skip init - it's killed last
             if (proc !== init && proc.state === 'running') {
+                // WHY: Interrupt blocked syscalls before sending SIGTERM
+                // Processes blocked in recv() or sleep() cannot process signals
+                // until their syscall is interrupted
+                await interruptProcess(this, proc);
                 deliverSignal(this, proc, SIGTERM);
                 runningCount++;
             }
