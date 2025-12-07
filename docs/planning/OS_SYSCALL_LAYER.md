@@ -5,9 +5,9 @@
 | Phase | Description | Status |
 |-------|-------------|--------|
 | Phase 1 | Create `src/syscall/` structure | **COMPLETE** |
-| Phase 2 | Integrate with Kernel | Not started |
-| Phase 3 | Migrate Syscalls | Not started |
-| Phase 4 | Cleanup | Not started |
+| Phase 2 | Integrate with Kernel | **COMPLETE** |
+| Phase 3 | Migrate Syscalls | **COMPLETE** |
+| Phase 4 | Cleanup | **COMPLETE** |
 
 ### Phase 1 Completion Details (2024-12-07)
 
@@ -36,6 +36,42 @@ Key implementation notes:
 - All syscall functions follow the direct dependency pattern from the plan
 - Dispatcher uses switch-based routing as specified
 - TypeScript compiles without errors
+
+### Phase 2-4 Completion Details (2024-12-07)
+
+The syscall layer has been fully integrated with the kernel. Key architectural changes:
+
+1. **Dispatcher sits outside kernel**: The `SyscallDispatcher` is created by the OS layer
+   and receives `(kernel, vfs, ems, hal)` as constructor dependencies. The kernel does NOT
+   reference the dispatcher.
+
+2. **Kernel provides message callback**: The kernel exposes `onWorkerMessage` callback
+   that is set by the OS after creating the dispatcher. When workers spawn, they route
+   messages through this callback to the dispatcher.
+
+3. **Message flow**:
+   ```
+   Worker → kernel.onWorkerMessage → dispatcher.handleMessage()
+                                          ↓
+                                    dispatcher.execute()
+                                          ↓
+                                    dispatcher.dispatch()
+                                          ↓
+                                    syscall handlers
+   ```
+
+4. **Deleted files**:
+   - `src/kernel/syscalls/` directory (old dispatcher and syscall creators)
+   - `src/kernel/syscalls.ts` (re-export file)
+   - `src/kernel/kernel/process-message.ts` (message routing now in dispatcher)
+   - `src/kernel/kernel/dispatch-syscall.ts` (streaming now in dispatcher)
+   - `src/kernel/kernel/on-stream-ping.ts` (handled by dispatcher)
+   - `src/kernel/kernel/on-stream-cancel.ts` (handled by dispatcher)
+   - `src/kernel/kernel/send-response.ts` (inlined in dispatcher)
+   - `src/router/` directory (superseded by src/syscall/)
+
+5. **Moved types**:
+   - `ProcessPortMessage` moved from `src/kernel/syscalls/types.ts` to `src/kernel/types.ts`
 
 ---
 

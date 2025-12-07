@@ -359,6 +359,25 @@ export class VFS {
     }
 
     /**
+     * Shutdown the VFS.
+     *
+     * Cleans up all mounts and resets state. Safe to call multiple times.
+     *
+     * WHY: Future-proofing for network mounts, flushing caches, etc.
+     * Currently just clears in-memory state.
+     */
+    async shutdown(): Promise<void> {
+        // Clear all mounts
+        this.mounts.clear();
+        this.hostMounts = [];
+        this.entityMounts = [];
+        this.procMount = null;
+
+        // Reset initialization flag to allow re-init if needed
+        this.initialized = false;
+    }
+
+    /**
      * Ensure root folder exists.
      *
      * Root is seeded in EMS via schema.sql. This method verifies it's in EntityCache.

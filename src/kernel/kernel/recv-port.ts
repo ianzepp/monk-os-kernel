@@ -92,8 +92,7 @@
  */
 
 import type { Kernel } from '../kernel.js';
-import type { Process } from '../types.js';
-import type { ProcessPortMessage } from '../syscalls.js';
+import type { Process, ProcessPortMessage } from '../types.js';
 import { EBADF, EMFILE } from '../errors.js';
 import { MAX_HANDLES } from '../types.js';
 import { SocketHandleAdapter } from '../handle.js';

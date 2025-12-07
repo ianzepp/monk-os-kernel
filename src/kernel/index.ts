@@ -1,7 +1,8 @@
 /**
  * Kernel Module
  *
- * Monk OS kernel - process management, syscall dispatch, and coordination.
+ * Monk OS kernel - process management and coordination.
+ * Syscall dispatch is handled by the syscall layer (src/syscall/).
  */
 
 // Core kernel
@@ -9,15 +10,6 @@ export { Kernel } from '@src/kernel/kernel.js';
 
 // Process management
 export { ProcessTable } from '@src/kernel/process-table.js';
-
-// Syscall dispatch
-export {
-    SyscallDispatcher,
-    createFileSyscalls,
-    createMiscSyscalls,
-    createNetworkSyscalls,
-} from '@src/kernel/syscalls.js';
-export type { SyscallHandler, SyscallRegistry } from '@src/kernel/syscalls.js';
 
 // Types
 export type {
@@ -29,6 +21,7 @@ export type {
     SyscallResponse,
     SignalMessage,
     KernelMessage,
+    ProcessPortMessage,
     Stat,
     OpenFlags,
     SeekWhence,

@@ -51,6 +51,7 @@ import type { Kernel } from '@src/kernel/kernel.js';
 import type { VFS } from '@src/vfs/index.js';
 import type { EMS } from '@src/ems/ems.js';
 import type { HAL } from '@src/hal/index.js';
+import type { KernelMessage, SyscallRequest } from '@src/kernel/types.js';
 import type { Process, Response } from './types.js';
 import { respond } from './types.js';
 
@@ -82,6 +83,9 @@ import { ipcPipe } from './handle.js';
 
 // Pool/worker syscalls
 import { poolLease, workerLoad, workerSend, workerRecv, workerRelease } from './pool.js';
+
+// Stream controller
+import { StreamController, StallError } from './stream/index.js';
 
 // =============================================================================
 // SYSCALL DISPATCHER
@@ -428,6 +432,218 @@ export class SyscallDispatcher {
 
             default:
                 yield respond.error('ENOSYS', `Unknown syscall: ${name}`);
+        }
+    }
+
+    /**
+     * Execute a syscall with streaming and backpressure.
+     *
+     * This wraps dispatch() with StreamController for backpressure management.
+     * Called by the kernel's message handler.
+     *
+     * ALGORITHM:
+     * 1. Create StreamController and register for ping/cancel
+     * 2. Call dispatch() to get source iterable
+     * 3. Wrap with controller for backpressure
+     * 4. For each response, check process state and send to consumer
+     * 5. Terminal ops (ok/error/done/redirect) end the stream
+     * 6. Clean up ping handler and stream registration on completion
+     *
+     * @param proc - Calling process
+     * @param requestId - Request correlation ID for ping/cancel routing
+     * @param name - Syscall name
+     * @param args - Syscall arguments
+     */
+    async *execute(
+        proc: Process,
+        requestId: string,
+        name: string,
+        args: unknown[],
+    ): AsyncIterable<Response> {
+        const controller = new StreamController();
+
+        // Register for cancellation via stream_cancel message
+        proc.activeStreams.set(requestId, controller.abort);
+
+        // Register ping handler (consumer sends stream_ping with items processed)
+        // WHY: Ping handler runs when consumer acknowledges items, allowing
+        //      backpressure resolution when gap <= LOW_WATER
+        proc.streamPingHandlers.set(requestId, (processed: number) => {
+            controller.onPing(processed);
+        });
+
+        try {
+            const source = this.dispatch(proc, name, args);
+
+            for await (const response of controller.wrap(source)) {
+                // RACE FIX: Check process state after each await
+                // Process may have been killed while handler was yielding
+                if (proc.state === 'zombie') {
+                    break;
+                }
+
+                yield response;
+
+                // Terminal ops end stream
+                if (response.op === 'ok' || response.op === 'error' ||
+                    response.op === 'done' || response.op === 'redirect') {
+                    return;
+                }
+            }
+        }
+        catch (err) {
+            if (err instanceof StallError) {
+                yield respond.error('ETIMEDOUT', err.message);
+
+                return;
+            }
+
+            const error = err as Error & { code?: string };
+
+            yield respond.error(error.code ?? 'EIO', error.message);
+        }
+        finally {
+            // WHY: Must remove handlers to prevent memory leaks
+            proc.activeStreams.delete(requestId);
+            proc.streamPingHandlers.delete(requestId);
+        }
+    }
+
+    /**
+     * Handle message from a worker.
+     *
+     * This is the main entry point for worker messages. It routes messages to
+     * the appropriate handler based on type (syscall, stream_ping, stream_cancel).
+     *
+     * ALGORITHM:
+     * 1. Look up process by pid from message
+     * 2. Validate worker ownership (security check)
+     * 3. Check process state (skip zombies)
+     * 4. Route by message type:
+     *    - syscall: execute() and send responses
+     *    - stream_ping: call registered ping handler
+     *    - stream_cancel: trigger abort controller
+     *
+     * @param worker - Worker that sent the message
+     * @param msg - Message from worker
+     */
+    async onWorkerMessage(worker: Worker, msg: KernelMessage): Promise<void> {
+        // ---------------------------------------------------------------------
+        // Look up process by pid
+        // ---------------------------------------------------------------------
+
+        let pid: string | undefined;
+
+        if (msg.type === 'syscall') {
+            pid = (msg as SyscallRequest).pid;
+        }
+        else if (msg.type === 'stream_ping' || msg.type === 'stream_cancel') {
+            // Stream messages don't include pid - find process by stream ID
+            // WHY: Protocol compatibility - stream messages reference request ID
+            for (const proc of this.kernel.processes.all()) {
+                if (proc.activeStreams.has(msg.id)) {
+                    pid = proc.id;
+                    break;
+                }
+            }
+        }
+
+        if (!pid) {
+            return;
+        }
+
+        const proc = this.kernel.processes.get(pid);
+
+        if (!proc) {
+            return;
+        }
+
+        // ---------------------------------------------------------------------
+        // Validate worker ownership
+        // ---------------------------------------------------------------------
+
+        // SECURITY: Verify message came from correct Worker
+        if (proc.worker !== worker) {
+            if (msg.type === 'syscall') {
+                this.sendResponse(proc, (msg as SyscallRequest).id, {
+                    op: 'error',
+                    data: { code: 'EPERM', message: 'Worker mismatch' },
+                });
+            }
+
+            return;
+        }
+
+        // ---------------------------------------------------------------------
+        // Check process state
+        // ---------------------------------------------------------------------
+
+        // RACE FIX: Skip messages from zombie processes
+        if (proc.state === 'zombie') {
+            return;
+        }
+
+        // ---------------------------------------------------------------------
+        // Route by message type
+        // ---------------------------------------------------------------------
+
+        switch (msg.type) {
+            case 'syscall': {
+                const request = msg as SyscallRequest;
+
+                // Execute syscall and send responses
+                for await (const response of this.execute(proc, request.id, request.name, request.args)) {
+                    this.sendResponse(proc, request.id, response);
+                }
+
+                break;
+            }
+
+            case 'stream_ping': {
+                // Call registered ping handler
+                const handler = proc.streamPingHandlers.get(msg.id);
+
+                if (handler) {
+                    handler(msg.processed);
+                }
+
+                break;
+            }
+
+            case 'stream_cancel': {
+                // Trigger abort controller
+                const abort = proc.activeStreams.get(msg.id);
+
+                if (abort) {
+                    abort.abort();
+                    proc.activeStreams.delete(msg.id);
+                    proc.streamPingHandlers.delete(msg.id);
+                }
+
+                break;
+            }
+        }
+    }
+
+    /**
+     * Send a response to a process via worker.postMessage().
+     *
+     * SAFETY: Catches errors from postMessage (worker may be terminating).
+     *
+     * @param proc - Target process
+     * @param requestId - Request ID for correlation
+     * @param response - Response to send
+     */
+    private sendResponse(proc: Process, requestId: string, response: Response): void {
+        try {
+            proc.worker.postMessage({
+                type: 'response',
+                id: requestId,
+                result: response,
+            });
+        }
+        catch {
+            // Expected during worker termination - ignore
         }
     }
 }

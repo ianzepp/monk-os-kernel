@@ -26,7 +26,7 @@
  */
 
 // Re-export Process type for syscall implementations
-export type { Process, OpenFlags, SpawnOpts, ExitStatus, SeekWhence } from '@src/kernel/types.js';
+export type { Process, OpenFlags, SpawnOpts, ExitStatus, SeekWhence, ProcessPortMessage } from '@src/kernel/types.js';
 
 // Re-export Response type and helpers
 export type { Response, Message } from '@src/message.js';
@@ -34,6 +34,3 @@ export { respond } from '@src/message.js';
 
 // Re-export limits
 export { MAX_STREAM_ENTRIES, MAX_HANDLES, DEFAULT_CHUNK_SIZE } from '@src/kernel/types.js';
-
-// Re-export ProcessPortMessage for HAL syscalls
-export type { ProcessPortMessage } from '@src/kernel/syscalls/types.js';

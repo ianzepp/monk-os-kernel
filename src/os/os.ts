@@ -11,7 +11,7 @@
  *   HAL → EMS → VFS → Kernel → Dispatcher → Init Process
  *
  * Subsystem teardown order (shutdown):
- *   Kernel → EMS → HAL
+ *   Kernel → VFS → EMS → HAL
  *
  * The OS class itself is stateless beyond configuration - all persistent state
  * lives in the subsystems (EMS for entities, VFS for files, Kernel for processes).
@@ -782,7 +782,7 @@ export class OS {
             // Wire dispatcher's message handler to kernel
             // WHY: Kernel creates workers, but syscall layer handles messages
             this.__kernel.onWorkerMessage = async (worker, msg) => {
-                await this.__dispatcher!.handleMessage(worker, msg);
+                await this.__dispatcher!.onWorkerMessage(worker, msg);
             };
 
             // 7. Init process
@@ -845,7 +845,7 @@ export class OS {
      * Shutdown the OS gracefully.
      *
      * Shuts down subsystems in reverse boot order:
-     * Kernel → EMS → HAL
+     * Kernel → VFS → EMS → HAL
      *
      * RACE CONDITION:
      * RC-2: Safe to call multiple times (idempotent via booted check).
@@ -859,9 +859,13 @@ export class OS {
         // Mark as not booted first to fail any in-flight syscalls
         this.booted = false;
 
-        // Shutdown in reverse order
+        // Shutdown in reverse order: Kernel → VFS → EMS → HAL
         if (this.__kernel?.isBooted()) {
             await this.__kernel.shutdown();
+        }
+
+        if (this.__vfs) {
+            await this.__vfs.shutdown();
         }
 
         if (this.__ems) {
@@ -1151,6 +1155,15 @@ export class OS {
         if (this.__kernel?.isBooted()) {
             try {
                 await this.__kernel.shutdown();
+            }
+            catch {
+                // Ignore cleanup errors
+            }
+        }
+
+        if (this.__vfs) {
+            try {
+                await this.__vfs.shutdown();
             }
             catch {
                 // Ignore cleanup errors

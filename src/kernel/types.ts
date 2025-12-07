@@ -287,6 +287,37 @@ export type KernelMessage =
     | StreamCancelMessage;
 
 /**
+ * Port message delivered to a process's port.
+ *
+ * Ports provide async event delivery from I/O sources. When an event occurs
+ * (TCP connection accepted, UDP packet received, file change detected), the
+ * kernel creates a ProcessPortMessage and posts it to the process's worker.
+ *
+ * WHY union of fd/data/meta:
+ * Different event types carry different payloads. TCP accepts return a file
+ * descriptor for the new connection. UDP/pubsub/watch return data bytes.
+ * The discriminated union avoids runtime type checks.
+ *
+ * INVARIANT: Exactly one of fd, data, or meta.data must be present.
+ */
+export interface ProcessPortMessage {
+    /**
+     * Source identifier for the event.
+     * Format: "{protocol}:{address}" (e.g., "tcp:3000", "udp:8080", "watch:/etc")
+     */
+    from: string;
+
+    /** File descriptor for accepted TCP connections (tcp:listen ports only) */
+    fd?: number;
+
+    /** Payload data for UDP, pubsub, and watch events */
+    data?: Uint8Array;
+
+    /** Optional metadata for events */
+    meta?: Record<string, unknown>;
+}
+
+/**
  * File stat structure
  */
 export interface Stat {

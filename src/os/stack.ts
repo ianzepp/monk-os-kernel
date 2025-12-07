@@ -204,9 +204,13 @@ export async function createOsStack(opts: OsStackOptions = {}): Promise<OsStack>
 
         isShutdown = true;
 
-        // Shutdown in reverse order
+        // Shutdown in reverse order: Kernel → VFS → EMS → HAL
         if (kernel?.isBooted()) {
             await kernel.shutdown();
+        }
+
+        if (vfs) {
+            await vfs.shutdown();
         }
 
         if (ems) {
@@ -270,7 +274,7 @@ export async function createOsStack(opts: OsStackOptions = {}): Promise<OsStack>
             // Wire syscall dispatcher (sits outside kernel, orchestrates syscalls)
             const dispatcher = new SyscallDispatcher(kernel, vfs, ems, hal);
 
-            kernel.onWorkerMessage = (worker, msg) => dispatcher.handleMessage(worker, msg);
+            kernel.onWorkerMessage = (worker, msg) => dispatcher.onWorkerMessage(worker, msg);
         }
 
         // Return the stack

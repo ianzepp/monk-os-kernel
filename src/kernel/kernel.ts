@@ -58,7 +58,7 @@ import { SIGTERM, SIGKILL, TERM_GRACE_MS } from '@src/kernel/types.js';
 import { poll } from '@src/kernel/poll.js';
 import { ProcessTable } from '@src/kernel/process-table.js';
 import type { Handle } from '@src/kernel/handle.js';
-import { SyscallDispatcher, registerSyscalls } from '@src/kernel/syscalls.js';
+import type { KernelMessage } from '@src/kernel/types.js';
 import { EBUSY } from '@src/kernel/errors.js';
 import type { Port } from '@src/kernel/resource.js';
 import type { PubsubPort } from '@src/kernel/resource.js';
@@ -328,17 +328,25 @@ export class Kernel {
     readonly handleRefs: Map<string, number> = new Map();
 
     // =========================================================================
-    // SYSCALL DISPATCH
+    // MESSAGE HANDLING
     // =========================================================================
 
     /**
-     * Syscall dispatcher - routes syscall names to handler functions.
+     * External message handler for worker messages.
      *
-     * DESIGN: Syscalls are registered at kernel construction time.
-     * Each handler is an async generator yielding Response objects.
-     * This enables streaming results with backpressure.
+     * DESIGN: The kernel creates workers (process management) but does not
+     * handle syscalls. The syscall layer (src/syscall/) handles messages.
+     * This callback is set by the OS after creating the dispatcher.
+     *
+     * WHY EXTERNAL: Separates syscall orchestration from kernel's core
+     * process/handle management. The kernel manages processes; the syscall
+     * layer handles messages and orchestrates operations.
+     *
+     * SIGNATURE: (worker, message) => Promise<void>
+     * - worker: The Worker that sent the message
+     * - message: The KernelMessage (syscall, ping, cancel, etc.)
      */
-    readonly syscalls: SyscallDispatcher;
+    onWorkerMessage?: (worker: Worker, message: KernelMessage) => Promise<void>;
 
     // =========================================================================
     // PUBSUB ROUTING
@@ -455,13 +463,11 @@ export class Kernel {
         this.vfs = vfs;
         this.deps = { ...createDefaultDeps(), ...deps };
         this.processes = new ProcessTable();
-        this.syscalls = new SyscallDispatcher();
         this.loader = new VFSLoader(vfs, hal);
         this.poolManager = new PoolManager(hal);
 
-        // Register all syscall handlers
-        // WHY HERE: Syscalls are static - they don't change after construction
-        registerSyscalls(this);
+        // NOTE: dispatcher is set externally by OS after construction
+        // The syscall layer (src/syscall/) is responsible for syscall routing
     }
 
     // =========================================================================

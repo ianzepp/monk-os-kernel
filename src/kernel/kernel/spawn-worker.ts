@@ -72,8 +72,8 @@
 
 import type { Kernel } from '../kernel.js';
 import type { Process, KernelMessage } from '../types.js';
-import { handleMessage } from './process-message.js';
 import { forceExit } from './force-exit.js';
+import { printk } from './printk.js';
 
 // =============================================================================
 // CONSTANTS
@@ -164,16 +164,20 @@ export async function spawnWorker(
     }, BLOB_URL_REVOKE_DELAY_MS);
 
     // =========================================================================
-    // STEP 4: Wire up syscall message handler
+    // STEP 4: Wire up message handler (external - provided by syscall layer)
     // =========================================================================
 
     // WHY BEFORE AWAIT: Worker may start executing immediately
-    // HANDLER: Routes syscalls to dispatcher, manages streaming responses
-    // WHY PASS WORKER: handleMessage looks up process by pid from message,
-    // then validates that proc.worker === this worker. This enables virtual
-    // processes where multiple process contexts share a single Worker.
+    // WHY EXTERNAL: Kernel manages processes, syscall layer handles messages
+    // The onWorkerMessage callback is set by OS after creating the dispatcher
     worker.onmessage = (event: MessageEvent<KernelMessage>) => {
-        handleMessage(self, worker, event.data);
+        if (!self.onWorkerMessage) {
+            printk(self, 'error', `No message handler configured for worker: ${proc.cmd}`);
+
+            return;
+        }
+
+        self.onWorkerMessage(worker, event.data);
     };
 
     // =========================================================================
