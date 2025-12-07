@@ -339,21 +339,21 @@ describe('HostMount', () => {
         });
 
         it('should throw ENOENT for non-existent directory', async () => {
-            const iterator = hostReaddir(mount, '/mnt/nonexistent');
+            const iterable = hostReaddir(mount, '/mnt/nonexistent');
 
-            await expect(iterator.next()).rejects.toThrow(ENOENT);
+            await expect(iterable[Symbol.asyncIterator]().next()).rejects.toThrow(ENOENT);
         });
 
         it('should throw ENOTDIR for file path', async () => {
-            const iterator = hostReaddir(mount, '/mnt/file1.txt');
+            const iterable = hostReaddir(mount, '/mnt/file1.txt');
 
-            await expect(iterator.next()).rejects.toThrow(ENOTDIR);
+            await expect(iterable[Symbol.asyncIterator]().next()).rejects.toThrow(ENOTDIR);
         });
 
         it('should throw ENOENT for path outside mount', async () => {
-            const iterator = hostReaddir(mount, '/etc');
+            const iterable = hostReaddir(mount, '/etc');
 
-            await expect(iterator.next()).rejects.toThrow(ENOENT);
+            await expect(iterable[Symbol.asyncIterator]().next()).rejects.toThrow(ENOENT);
         });
 
         it('should include correct VFS paths in entry IDs', async () => {

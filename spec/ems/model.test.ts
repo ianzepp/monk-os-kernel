@@ -268,9 +268,9 @@ describe('Model', () => {
             const result = model.getFields();
 
             expect(result).toHaveLength(3);
-            expect(result).toContain(fields[0]);
-            expect(result).toContain(fields[1]);
-            expect(result).toContain(fields[2]);
+            expect(result).toContain(fields[0]!);
+            expect(result).toContain(fields[1]!);
+            expect(result).toContain(fields[2]!);
         });
 
         it('should return empty array for model with no fields', () => {

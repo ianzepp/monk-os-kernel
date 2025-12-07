@@ -22,7 +22,7 @@ import type { ObserverContext } from '@src/ems/observers/interfaces.js';
  */
 class FastObserver extends BaseObserver {
     readonly name = 'FastObserver';
-    readonly ring = ObserverRing.Validation;
+    readonly ring = ObserverRing.InputValidation;
     readonly priority = 10;
     readonly operations: readonly OperationType[] = ['create', 'update'];
 
@@ -38,7 +38,7 @@ class FastObserver extends BaseObserver {
  */
 class SlowObserver extends BaseObserver {
     readonly name = 'SlowObserver';
-    readonly ring = ObserverRing.Validation;
+    readonly ring = ObserverRing.InputValidation;
     readonly priority = 10;
     readonly operations: readonly OperationType[] = ['create'];
 
@@ -56,7 +56,7 @@ class SlowObserver extends BaseObserver {
  */
 class ObserverErrorThrower extends BaseObserver {
     readonly name = 'ObserverErrorThrower';
-    readonly ring = ObserverRing.Validation;
+    readonly ring = ObserverRing.InputValidation;
     readonly priority = 10;
     readonly operations: readonly OperationType[] = ['create'];
 
@@ -70,7 +70,7 @@ class ObserverErrorThrower extends BaseObserver {
  */
 class GenericErrorThrower extends BaseObserver {
     readonly name = 'GenericErrorThrower';
-    readonly ring = ObserverRing.Validation;
+    readonly ring = ObserverRing.InputValidation;
     readonly priority = 10;
     readonly operations: readonly OperationType[] = ['create'];
 
@@ -84,7 +84,7 @@ class GenericErrorThrower extends BaseObserver {
  */
 class StringThrower extends BaseObserver {
     readonly name = 'StringThrower';
-    readonly ring = ObserverRing.Validation;
+    readonly ring = ObserverRing.InputValidation;
     readonly priority = 10;
     readonly operations: readonly OperationType[] = ['create'];
 
@@ -98,7 +98,7 @@ class StringThrower extends BaseObserver {
  */
 class CustomTimeoutObserver extends BaseObserver {
     readonly name = 'CustomTimeoutObserver';
-    readonly ring = ObserverRing.Validation;
+    readonly ring = ObserverRing.InputValidation;
     readonly priority = 10;
     readonly operations: readonly OperationType[] = ['create'];
 
@@ -114,10 +114,10 @@ class CustomTimeoutObserver extends BaseObserver {
  */
 class ModelFilteredObserver extends BaseObserver {
     readonly name = 'ModelFilteredObserver';
-    readonly ring = ObserverRing.Validation;
+    readonly ring = ObserverRing.InputValidation;
     readonly priority = 10;
     readonly operations: readonly OperationType[] = ['create'];
-    readonly models = ['file', 'folder'] as const;
+    override readonly models = ['file', 'folder'] as const;
 
     async execute(_context: ObserverContext): Promise<void> {
         // Do nothing
@@ -185,7 +185,7 @@ describe('BaseObserver', () => {
             const observer = new FastObserver();
 
             expect(observer.name).toBe('FastObserver');
-            expect(observer.ring).toBe(ObserverRing.Validation);
+            expect(observer.ring).toBe(ObserverRing.InputValidation);
             expect(observer.priority).toBe(10);
             expect(observer.operations).toEqual(['create', 'update']);
         });
@@ -342,7 +342,7 @@ describe('BaseObserver', () => {
         it('should handle observer that throws null', async () => {
             class NullThrower extends BaseObserver {
                 readonly name = 'NullThrower';
-                readonly ring = ObserverRing.Validation;
+                readonly ring = ObserverRing.InputValidation;
                 readonly priority = 10;
                 readonly operations: readonly OperationType[] = ['create'];
 
@@ -368,7 +368,7 @@ describe('BaseObserver', () => {
         it('should handle observer that throws undefined', async () => {
             class UndefinedThrower extends BaseObserver {
                 readonly name = 'UndefinedThrower';
-                readonly ring = ObserverRing.Validation;
+                readonly ring = ObserverRing.InputValidation;
                 readonly priority = 10;
                 readonly operations: readonly OperationType[] = ['create'];
 
@@ -393,7 +393,7 @@ describe('BaseObserver', () => {
         it('should handle observer that throws number', async () => {
             class NumberThrower extends BaseObserver {
                 readonly name = 'NumberThrower';
-                readonly ring = ObserverRing.Validation;
+                readonly ring = ObserverRing.InputValidation;
                 readonly priority = 10;
                 readonly operations: readonly OperationType[] = ['create'];
 
@@ -418,7 +418,7 @@ describe('BaseObserver', () => {
         it('should handle observer that throws object', async () => {
             class ObjectThrower extends BaseObserver {
                 readonly name = 'ObjectThrower';
-                readonly ring = ObserverRing.Validation;
+                readonly ring = ObserverRing.InputValidation;
                 readonly priority = 10;
                 readonly operations: readonly OperationType[] = ['create'];
 
@@ -442,7 +442,7 @@ describe('BaseObserver', () => {
         it('should handle observer that throws empty string', async () => {
             class EmptyStringThrower extends BaseObserver {
                 readonly name = 'EmptyStringThrower';
-                readonly ring = ObserverRing.Validation;
+                readonly ring = ObserverRing.InputValidation;
                 readonly priority = 10;
                 readonly operations: readonly OperationType[] = ['create'];
 
@@ -482,7 +482,7 @@ describe('BaseObserver', () => {
         it('should handle observer with zero timeout', async () => {
             class ZeroTimeoutObserver extends BaseObserver {
                 readonly name = 'ZeroTimeoutObserver';
-                readonly ring = ObserverRing.Validation;
+                readonly ring = ObserverRing.InputValidation;
                 readonly priority = 10;
                 readonly operations: readonly OperationType[] = ['create'];
                 protected override readonly timeout = 0;
@@ -509,7 +509,7 @@ describe('BaseObserver', () => {
         it('should handle observer with negative timeout (treated as 0)', async () => {
             class NegativeTimeoutObserver extends BaseObserver {
                 readonly name = 'NegativeTimeoutObserver';
-                readonly ring = ObserverRing.Validation;
+                readonly ring = ObserverRing.InputValidation;
                 readonly priority = 10;
                 readonly operations: readonly OperationType[] = ['create'];
                 protected override readonly timeout = -100;
@@ -534,7 +534,7 @@ describe('BaseObserver', () => {
         it('should handle observer with very large timeout', async () => {
             class LargeTimeoutObserver extends BaseObserver {
                 readonly name = 'LargeTimeoutObserver';
-                readonly ring = ObserverRing.Validation;
+                readonly ring = ObserverRing.InputValidation;
                 readonly priority = 10;
                 readonly operations: readonly OperationType[] = ['create'];
                 protected override readonly timeout = Number.MAX_SAFE_INTEGER;
@@ -554,7 +554,7 @@ describe('BaseObserver', () => {
         it('should handle observer with empty operations array', () => {
             class EmptyOpsObserver extends BaseObserver {
                 readonly name = 'EmptyOpsObserver';
-                readonly ring = ObserverRing.Validation;
+                readonly ring = ObserverRing.InputValidation;
                 readonly priority = 10;
                 readonly operations: readonly OperationType[] = [];
 
@@ -569,10 +569,10 @@ describe('BaseObserver', () => {
         it('should handle observer with empty models array', () => {
             class EmptyModelsObserver extends BaseObserver {
                 readonly name = 'EmptyModelsObserver';
-                readonly ring = ObserverRing.Validation;
+                readonly ring = ObserverRing.InputValidation;
                 readonly priority = 10;
                 readonly operations: readonly OperationType[] = ['create'];
-                readonly models: readonly string[] = [];
+                override readonly models: readonly string[] = [];
 
                 async execute(): Promise<void> {}
             }
@@ -585,7 +585,7 @@ describe('BaseObserver', () => {
         it('should handle observer with empty name', () => {
             class EmptyNameObserver extends BaseObserver {
                 readonly name = '';
-                readonly ring = ObserverRing.Validation;
+                readonly ring = ObserverRing.InputValidation;
                 readonly priority = 10;
                 readonly operations: readonly OperationType[] = ['create'];
 
@@ -604,7 +604,7 @@ describe('BaseObserver', () => {
         it('should handle observer with special characters in name', async () => {
             class SpecialNameObserver extends BaseObserver {
                 readonly name = 'Observer<with>special&chars"quotes\'';
-                readonly ring = ObserverRing.Validation;
+                readonly ring = ObserverRing.InputValidation;
                 readonly priority = 10;
                 readonly operations: readonly OperationType[] = ['create'];
 
@@ -627,7 +627,7 @@ describe('BaseObserver', () => {
         it('should handle observer with unicode name', async () => {
             class UnicodeNameObserver extends BaseObserver {
                 readonly name = '观察者🔍émoji';
-                readonly ring = ObserverRing.Validation;
+                readonly ring = ObserverRing.InputValidation;
                 readonly priority = 10;
                 readonly operations: readonly OperationType[] = ['create'];
 
@@ -650,7 +650,7 @@ describe('BaseObserver', () => {
         it('should handle Error with no message', async () => {
             class NoMessageErrorThrower extends BaseObserver {
                 readonly name = 'NoMessageErrorThrower';
-                readonly ring = ObserverRing.Validation;
+                readonly ring = ObserverRing.InputValidation;
                 readonly priority = 10;
                 readonly operations: readonly OperationType[] = ['create'];
 

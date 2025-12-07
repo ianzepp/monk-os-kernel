@@ -15,17 +15,20 @@ import type { Message, Response } from '@src/vfs/message.js';
  */
 class MockFileHandle implements FileHandle {
     readonly id = 'mock-handle-id';
+    readonly path = '/mock/path';
+    readonly flags: OpenFlags = { read: true };
+    closed = false;
 
     async read(): Promise<Uint8Array> {
         return new Uint8Array();
     }
 
-    async write(_data: Uint8Array): Promise<void> {
-        // no-op
+    async write(data: Uint8Array): Promise<number> {
+        return data.length;
     }
 
-    async seek(_offset: number, _whence: 'start' | 'current' | 'end'): Promise<void> {
-        // no-op
+    async seek(_offset: number, _whence: 'start' | 'current' | 'end'): Promise<number> {
+        return 0;
     }
 
     async tell(): Promise<number> {
@@ -37,7 +40,11 @@ class MockFileHandle implements FileHandle {
     }
 
     async close(): Promise<void> {
-        // no-op
+        this.closed = true;
+    }
+
+    async [Symbol.asyncDispose](): Promise<void> {
+        await this.close();
     }
 }
 
@@ -143,7 +150,7 @@ class MockPosixModel extends PosixModel {
         }
     }
 
-    async *watch(_ctx: ModelContext, _id: string, _pattern?: string): AsyncIterable<WatchEvent> {
+    override async *watch(_ctx: ModelContext, _id: string, _pattern?: string): AsyncIterable<WatchEvent> {
         this.watchCalled = true;
         yield {
             entity: 'watched-entity',
@@ -262,7 +269,6 @@ describe('PosixModel.handle()', () => {
     describe('op: open', () => {
         it('should dispatch to open() method', async () => {
             const msg: Message = {
-                id: 'msg-1',
                 op: 'open',
                 data: {
                     flags: { read: true },
@@ -289,25 +295,23 @@ describe('PosixModel.handle()', () => {
             };
 
             const msg: Message = {
-                id: 'msg-2',
                 op: 'open',
                 data: {
                     flags: { read: true, write: true },
-                    opts: { encoding: 'utf-8' },
+                    opts: { version: 1 },
                 },
             };
 
             await collectResponses(model.handle(ctx, entityId, msg));
 
             expect(capturedFlags).toEqual({ read: true, write: true });
-            expect(capturedOpts).toEqual({ encoding: 'utf-8' });
+            expect(capturedOpts).toEqual({ version: 1 });
         });
 
         it('should convert thrown errors to error responses', async () => {
             model.shouldThrowOnOpen = true;
 
             const msg: Message = {
-                id: 'msg-3',
                 op: 'open',
                 data: {
                     flags: { read: true },
@@ -330,7 +334,6 @@ describe('PosixModel.handle()', () => {
     describe('op: stat', () => {
         it('should dispatch to stat() method', async () => {
             const msg: Message = {
-                id: 'msg-4',
                 op: 'stat',
             };
 
@@ -346,7 +349,6 @@ describe('PosixModel.handle()', () => {
             model.shouldThrowOnStat = true;
 
             const msg: Message = {
-                id: 'msg-5',
                 op: 'stat',
             };
 
@@ -373,7 +375,6 @@ describe('PosixModel.handle()', () => {
 
             const fields = { name: 'new-name', size: 123 };
             const msg: Message = {
-                id: 'msg-6',
                 op: 'setstat',
                 data: fields,
             };
@@ -390,7 +391,6 @@ describe('PosixModel.handle()', () => {
             model.shouldThrowOnSetstat = true;
 
             const msg: Message = {
-                id: 'msg-7',
                 op: 'setstat',
                 data: { name: 'new-name' },
             };
@@ -410,7 +410,6 @@ describe('PosixModel.handle()', () => {
     describe('op: create', () => {
         it('should dispatch to create() method', async () => {
             const msg: Message = {
-                id: 'msg-8',
                 op: 'create',
                 data: {
                     name: 'new-entity',
@@ -438,7 +437,6 @@ describe('PosixModel.handle()', () => {
 
             const fields = { size: 456, mimetype: 'text/plain' };
             const msg: Message = {
-                id: 'msg-9',
                 op: 'create',
                 data: {
                     name: 'test-file.txt',
@@ -456,7 +454,6 @@ describe('PosixModel.handle()', () => {
             model.shouldThrowOnCreate = true;
 
             const msg: Message = {
-                id: 'msg-10',
                 op: 'create',
                 data: {
                     name: 'new-entity',
@@ -478,7 +475,6 @@ describe('PosixModel.handle()', () => {
     describe('op: delete', () => {
         it('should dispatch to unlink() method', async () => {
             const msg: Message = {
-                id: 'msg-11',
                 op: 'delete',
             };
 
@@ -493,7 +489,6 @@ describe('PosixModel.handle()', () => {
             model.shouldThrowOnUnlink = true;
 
             const msg: Message = {
-                id: 'msg-12',
                 op: 'delete',
             };
 
@@ -512,7 +507,6 @@ describe('PosixModel.handle()', () => {
     describe('op: list', () => {
         it('should dispatch to list() and yield item responses', async () => {
             const msg: Message = {
-                id: 'msg-13',
                 op: 'list',
             };
 
@@ -555,7 +549,6 @@ describe('PosixModel.handle()', () => {
             };
 
             const msg: Message = {
-                id: 'msg-14',
                 op: 'list',
             };
 
@@ -584,7 +577,6 @@ describe('PosixModel.handle()', () => {
             };
 
             const msg: Message = {
-                id: 'msg-15',
                 op: 'list',
             };
 
@@ -601,7 +593,6 @@ describe('PosixModel.handle()', () => {
             model.mockChildren = [];
 
             const msg: Message = {
-                id: 'msg-16',
                 op: 'list',
             };
 
@@ -620,7 +611,6 @@ describe('PosixModel.handle()', () => {
     describe('op: watch', () => {
         it('should dispatch to watch() if defined', async () => {
             const msg: Message = {
-                id: 'msg-17',
                 op: 'watch',
             };
 
@@ -640,15 +630,12 @@ describe('PosixModel.handle()', () => {
         it('should pass pattern to watch()', async () => {
             let capturedPattern: string | undefined;
 
-            model.watch = async (_ctx, _id, pattern) => {
+            model.watch = async function* (_ctx, _id, pattern) {
                 capturedPattern = pattern;
-
-                // Yield nothing - just testing parameter passing
-                return (async function* () {})();
+                // Yields nothing - just testing parameter passing
             };
 
             const msg: Message = {
-                id: 'msg-18',
                 op: 'watch',
                 data: {
                     pattern: '*.txt',
@@ -664,7 +651,6 @@ describe('PosixModel.handle()', () => {
             const modelWithoutWatch = new MockPosixModelNoWatch();
 
             const msg: Message = {
-                id: 'msg-19',
                 op: 'watch',
             };
 
@@ -700,7 +686,6 @@ describe('PosixModel.handle()', () => {
             };
 
             const msg: Message = {
-                id: 'msg-20',
                 op: 'watch',
             };
 
@@ -731,7 +716,6 @@ describe('PosixModel.handle()', () => {
     describe('unknown operation', () => {
         it('should return ENOSYS error for unknown op', async () => {
             const msg: Message = {
-                id: 'msg-21',
                 op: 'unknown-operation' as any,
             };
 
@@ -745,7 +729,6 @@ describe('PosixModel.handle()', () => {
 
         it('should return ENOSYS for empty op', async () => {
             const msg: Message = {
-                id: 'msg-22',
                 op: '' as any,
             };
 
@@ -766,7 +749,6 @@ describe('PosixModel.handle()', () => {
             model.shouldThrowOnStat = true;
 
             const msg: Message = {
-                id: 'msg-23',
                 op: 'stat',
             };
 
@@ -784,7 +766,6 @@ describe('PosixModel.handle()', () => {
             };
 
             const msg: Message = {
-                id: 'msg-24',
                 op: 'open',
                 data: {
                     flags: { read: true },
@@ -810,7 +791,6 @@ describe('PosixModel.handle()', () => {
             };
 
             const msg: Message = {
-                id: 'msg-25',
                 op: 'open',
                 data: {
                     flags: { read: true },
@@ -833,7 +813,6 @@ describe('PosixModel.handle()', () => {
             };
 
             const msg: Message = {
-                id: 'msg-26',
                 op: 'list',
             };
 
@@ -854,7 +833,6 @@ describe('PosixModel.handle()', () => {
     describe('edge cases', () => {
         it('should handle missing data in open message', async () => {
             const msg: Message = {
-                id: 'msg-27',
                 op: 'open',
                 data: {} as any, // Missing flags
             };
@@ -872,7 +850,6 @@ describe('PosixModel.handle()', () => {
 
         it('should handle null data in create message', async () => {
             const msg: Message = {
-                id: 'msg-28',
                 op: 'create',
                 data: null as any,
             };
@@ -899,7 +876,6 @@ describe('PosixModel.handle()', () => {
             };
 
             const msg: Message = {
-                id: 'msg-29',
                 op: 'watch',
                 // No data property
             };
@@ -912,9 +888,9 @@ describe('PosixModel.handle()', () => {
 
         it('should handle multiple operations on same model', async () => {
             // Verify model can handle multiple sequential operations
-            const msg1: Message = { id: 'msg-30', op: 'stat' };
-            const msg2: Message = { id: 'msg-31', op: 'open', data: { flags: { read: true } } };
-            const msg3: Message = { id: 'msg-32', op: 'delete' };
+            const msg1: Message = { op: 'stat' };
+            const msg2: Message = { op: 'open', data: { flags: { read: true } } };
+            const msg3: Message = { op: 'delete' };
 
             await collectResponses(model.handle(ctx, entityId, msg1));
             await collectResponses(model.handle(ctx, entityId, msg2));
@@ -927,8 +903,8 @@ describe('PosixModel.handle()', () => {
 
         it('should handle concurrent operations', async () => {
             // Test concurrent message handling
-            const msg1: Message = { id: 'msg-33', op: 'stat' };
-            const msg2: Message = { id: 'msg-34', op: 'stat' };
+            const msg1: Message = { op: 'stat' };
+            const msg2: Message = { op: 'stat' };
 
             const [responses1, responses2] = await Promise.all([
                 collectResponses(model.handle(ctx, entityId, msg1)),

@@ -51,7 +51,9 @@ beforeEach(async () => {
         caller: 'test-user',
         resolve: async (path: string) => {
             try {
-                return await stack.vfs!.resolve(path, 'kernel');
+                const stat = await stack.vfs!.stat(path, 'kernel');
+
+                return stat.id;
             }
             catch {
                 return null;

@@ -18,7 +18,7 @@ describe('WebSocket Channel', () => {
 
                 // WebSocket upgrade
                 if (url.pathname === '/ws' || url.pathname === '/echo' || url.pathname === '/stream') {
-                    const upgraded = server.upgrade(req, { data: { path: url.pathname } });
+                    const upgraded = server.upgrade(req, { data: { path: url.pathname } } as any);
 
                     if (!upgraded) {
                         return new Response('WebSocket upgrade failed', { status: 400 });
@@ -347,9 +347,9 @@ describe('WebSocket Channel', () => {
             await Bun.sleep(50);
 
             // Push multiple messages
-            await channel.push({ op: 'msg1', data: { n: 1 } });
-            await channel.push({ op: 'msg2', data: { n: 2 } });
-            await channel.push({ op: 'msg3', data: { n: 3 } });
+            await channel.push({ op: 'item', data: { n: 1 } });
+            await channel.push({ op: 'item', data: { n: 2 } });
+            await channel.push({ op: 'item', data: { n: 3 } });
 
             // Give time for echo
             await Bun.sleep(50);
@@ -359,9 +359,9 @@ describe('WebSocket Channel', () => {
             const msg2 = await channel.recv();
             const msg3 = await channel.recv();
 
-            expect(msg1).toEqual({ op: 'msg1', data: { n: 1 } });
-            expect(msg2).toEqual({ op: 'msg2', data: { n: 2 } });
-            expect(msg3).toEqual({ op: 'msg3', data: { n: 3 } });
+            expect(msg1).toEqual({ op: 'item', data: { n: 1 } });
+            expect(msg2).toEqual({ op: 'item', data: { n: 2 } });
+            expect(msg3).toEqual({ op: 'item', data: { n: 3 } });
 
             await channel.close();
         });
@@ -387,10 +387,10 @@ describe('WebSocket Channel', () => {
             // This is harder to test without a custom server that sends raw data
 
             // For now, test that JSON parsing works correctly
-            await channel.push({ op: 'test' });
+            await channel.push({ op: 'ok' });
             const msg = await channel.recv();
 
-            expect(msg.op).toBe('test');
+            expect(msg.op).toBe('ok');
 
             await channel.close();
         });

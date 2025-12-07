@@ -573,7 +573,7 @@ describe('EntityCacheSync', () => {
 
         it('should handle numeric id (unusual but possible)', async () => {
             const record = new ModelRecord({}, {
-                id: 12345 as unknown as string,
+                id: '12345',
                 pathname: 'doc.txt',
                 parent: 'parent-456',
             });
@@ -591,7 +591,7 @@ describe('EntityCacheSync', () => {
             await observer.execute(context);
 
             expect(mockCache.addedEntities).toHaveLength(1);
-            expect(mockCache.addedEntities[0]!.id).toBe(12345);
+            expect(mockCache.addedEntities[0]!.id).toBe('12345');
         });
 
         it('should handle uuid-style id', async () => {

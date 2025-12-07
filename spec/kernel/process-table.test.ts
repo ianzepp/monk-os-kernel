@@ -15,6 +15,7 @@ function createMockProcess(overrides: Partial<Process> = {}): Process {
         parent: '',
         user: 'test',
         worker: {} as Worker,
+        virtual: false,
         state: 'running',
         cmd: '/bin/test',
         cwd: '/',

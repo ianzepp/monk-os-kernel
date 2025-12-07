@@ -874,7 +874,7 @@ describe('Network Device', () => {
             it('should upgrade HTTP to WebSocket', async () => {
                 const port = getTestPort();
                 let wsOpened = false;
-                const _wsMessage = '';
+                let _wsMessage = '';
 
                 const server = await network.serve(
                     port,
@@ -896,7 +896,7 @@ describe('Network Device', () => {
                                 ws.send('welcome');
                             },
                             message(ws, msg) {
-                                wsMessage = String(msg);
+                                _wsMessage = String(msg);
                                 ws.send(`echo: ${msg}`);
                             },
                         },

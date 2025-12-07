@@ -61,7 +61,7 @@ async function createTestModel(
     );
 
     // Insert standard fields (id, model, parent, pathname, owner)
-    const standardFields = [
+    const standardFields: typeof fields = [
         { name: 'id', type: 'text' },
         { name: 'model', type: 'text' },
         { name: 'parent', type: 'text' },
