@@ -117,7 +117,7 @@ const gateway = new Gateway(dispatcher, kernel, hal);
 await gateway.listen('/tmp/monk.sock');
 
 // On shutdown
-await gateway.stop();
+await gateway.shutdown();
 ```
 
 ### Client (os-sdk)

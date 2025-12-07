@@ -882,7 +882,7 @@ export class OS {
 
         // Shutdown in reverse order: Gateway → Kernel → VFS → EMS → HAL
         if (this.__gateway) {
-            await this.__gateway.stop();
+            await this.__gateway.shutdown();
         }
 
         if (this.__kernel?.isBooted()) {
@@ -1180,7 +1180,7 @@ export class OS {
         // Shutdown in reverse order, ignoring errors
         if (this.__gateway) {
             try {
-                await this.__gateway.stop();
+                await this.__gateway.shutdown();
             }
             catch {
                 // Ignore cleanup errors

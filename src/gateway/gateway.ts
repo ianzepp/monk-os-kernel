@@ -124,9 +124,9 @@ export class Gateway {
     }
 
     /**
-     * Stop the gateway and disconnect all clients.
+     * Shutdown the gateway and disconnect all clients.
      */
-    async stop(): Promise<void> {
+    async shutdown(): Promise<void> {
         // Close listener first to prevent new connections
         if (this.listener) {
             await this.listener.close();
