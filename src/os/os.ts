@@ -164,32 +164,36 @@ export class OS {
      *
      * WHY: Provides storage backend (memory/sqlite/postgres) and low-level I/O.
      * INVARIANT: Non-null when booted === true.
+     * NOTE: Protected to allow TestOS subclass to expose internals for testing.
      */
-    private __hal: HAL | null = null;
+    protected __hal: HAL | null = null;
 
     /**
      * Entity Management System.
      *
      * WHY: Provides entity storage, versioning, and queries.
      * INVARIANT: Non-null when booted === true.
+     * NOTE: Protected to allow TestOS subclass to expose internals for testing.
      */
-    private __ems: EMS | null = null;
+    protected __ems: EMS | null = null;
 
     /**
      * Virtual File System.
      *
      * WHY: Provides POSIX-like filesystem abstraction over EMS entities.
      * INVARIANT: Non-null when booted === true.
+     * NOTE: Protected to allow TestOS subclass to expose internals for testing.
      */
-    private __vfs: VFS | null = null;
+    protected __vfs: VFS | null = null;
 
     /**
      * Process kernel.
      *
      * WHY: Manages process lifecycle, workers, and IPC.
      * INVARIANT: Non-null when booted === true.
+     * NOTE: Protected to allow TestOS subclass to expose internals for testing.
      */
-    private __kernel: Kernel | null = null;
+    protected __kernel: Kernel | null = null;
 
     /**
      * Syscall dispatcher.
@@ -197,8 +201,9 @@ export class OS {
      * WHY: Routes syscalls to appropriate handlers and manages response streams.
      * Sits outside kernel to separate concerns.
      * INVARIANT: Non-null when booted === true.
+     * NOTE: Protected to allow TestOS subclass to expose internals for testing.
      */
-    private __dispatcher: SyscallDispatcher | null = null;
+    protected __dispatcher: SyscallDispatcher | null = null;
 
     /**
      * External syscall gateway.
@@ -206,8 +211,9 @@ export class OS {
      * WHY: Provides Unix socket interface for external apps (os-shell, displayd).
      * Runs in kernel context for direct syscall execution without IPC overhead.
      * INVARIANT: Non-null when booted === true.
+     * NOTE: Protected to allow TestOS subclass to expose internals for testing.
      */
-    private __gateway: Gateway | null = null;
+    protected __gateway: Gateway | null = null;
 
     // =========================================================================
     // LIFECYCLE STATE
