@@ -45,8 +45,23 @@
  * INVARIANTS
  * ==========
  * INV-1: Each client connection has exactly one virtual process
+ *        VIOLATED BY: createVirtualProcess failure (handled by early return)
  * INV-2: Virtual process is destroyed when client disconnects
+ *        ENFORCED BY: finally block in handleClient()
  * INV-3: All active streams are cancelled on client disconnect
+ *        ENFORCED BY: finally block in handleClient()
+ * INV-4: readBuffer never exceeds MAX_READ_BUFFER_SIZE
+ *        ENFORCED BY: check in read loop, sends error before disconnect
+ * INV-5: Response "id" always matches request "id"
+ *        ENFORCED BY: id passed through all send methods
+ * INV-6: Terminal ops (ok, error, done, redirect) end response stream
+ *        ENFORCED BY: break after terminal op in processMessage()
+ *
+ * RACE CONDITION MITIGATIONS
+ * ==========================
+ * RC-1: shutdown() copies client Set before iteration to avoid mutation during iteration
+ * RC-2: acceptLoop() stores listener reference to avoid null check after await
+ * RC-3: isDisconnecting closure checked after every await in processMessage()
  *
  * @module gateway
  */
@@ -71,6 +86,30 @@ import { forceExit } from '@src/kernel/kernel/force-exit.js';
 const MAX_READ_BUFFER_SIZE = 1024 * 1024;
 
 // =============================================================================
+// TYPES
+// =============================================================================
+
+/**
+ * Injectable dependencies for testing.
+ *
+ * TESTABILITY: Allows tests to mock filesystem operations and verify behavior
+ * without actual Unix socket creation.
+ */
+export interface GatewayDeps {
+    /** Remove socket file before listening (default: fs.unlink) */
+    unlink: (path: string) => Promise<void>;
+}
+
+/**
+ * Create default production dependencies.
+ */
+function createDefaultDeps(): GatewayDeps {
+    return {
+        unlink: (path: string) => unlink(path).catch(() => {}),
+    };
+}
+
+// =============================================================================
 // GATEWAY CLASS
 // =============================================================================
 
@@ -81,20 +120,70 @@ const MAX_READ_BUFFER_SIZE = 1024 * 1024;
  * Each client connection gets an isolated virtual process.
  */
 export class Gateway {
+    // =========================================================================
+    // CORE DEPENDENCIES
+    // =========================================================================
+
+    /** Injectable dependencies for testing */
+    private readonly deps: GatewayDeps;
+
+    // =========================================================================
+    // STATE
+    // =========================================================================
+
     /** Unix socket listener */
     private listener?: Listener;
 
-    /** Client counter for logging */
+    /** Client counter for unique IDs */
     private nextClientId = 1;
 
-    /** Active clients for cleanup on stop */
+    /** Active clients for cleanup on shutdown */
     private clients = new Set<Socket>();
+
+    /**
+     * Shutdown flag to distinguish clean shutdown from errors.
+     * WHY: acceptLoop() catch block needs to know if error is expected.
+     */
+    private shuttingDown = false;
+
+    // =========================================================================
+    // SHARED ENCODERS
+    // =========================================================================
+
+    /**
+     * Shared TextEncoder instance.
+     * WHY: Avoid creating new encoder for every write operation.
+     */
+    private readonly textEncoder = new TextEncoder();
 
     constructor(
         private readonly dispatcher: SyscallDispatcher,
         private readonly kernel: Kernel,
         private readonly hal: HAL,
-    ) {}
+        deps?: Partial<GatewayDeps>,
+    ) {
+        this.deps = { ...createDefaultDeps(), ...deps };
+    }
+
+    // =========================================================================
+    // PUBLIC ACCESSORS (for testing)
+    // =========================================================================
+
+    /**
+     * Get count of connected clients.
+     * TESTING: Allows tests to verify connection tracking.
+     */
+    getClientCount(): number {
+        return this.clients.size;
+    }
+
+    /**
+     * Check if gateway is listening.
+     * TESTING: Allows tests to verify lifecycle state.
+     */
+    isListening(): boolean {
+        return this.listener !== undefined;
+    }
 
     // =========================================================================
     // LIFECYCLE
@@ -109,12 +198,10 @@ export class Gateway {
         // Remove stale socket file
         // WHY: Unix sockets leave files behind. If we don't remove it,
         // listen() fails with EADDRINUSE.
-        try {
-            await unlink(socketPath);
-        }
-        catch {
-            // May not exist on first run
-        }
+        await this.deps.unlink(socketPath);
+
+        // Reset shutdown flag in case gateway is being restarted
+        this.shuttingDown = false;
 
         // Create listener
         this.listener = await this.hal.network.listen(0, { unix: socketPath });
@@ -125,21 +212,33 @@ export class Gateway {
 
     /**
      * Shutdown the gateway and disconnect all clients.
+     *
+     * ALGORITHM:
+     * 1. Set shuttingDown flag (so acceptLoop knows this is intentional)
+     * 2. Close listener (stops new connections, causes accept() to throw)
+     * 3. Close all client sockets (copy Set first to avoid mutation during iteration)
      */
     async shutdown(): Promise<void> {
-        // Close listener first to prevent new connections
+        // Set flag first so acceptLoop catch block knows this is intentional
+        this.shuttingDown = true;
+
+        // Close listener to prevent new connections
         if (this.listener) {
             await this.listener.close();
             this.listener = undefined;
         }
 
-        // Close all client sockets
-        for (const socket of this.clients) {
+        // RC-1 FIX: Copy Set before iteration to avoid mutation during iteration.
+        // handleClient().finally() deletes from this.clients, which would corrupt
+        // iteration if we iterated directly.
+        const clientsCopy = [...this.clients];
+
+        for (const socket of clientsCopy) {
             try {
                 await socket.close();
             }
             catch {
-                // May already be closed
+                // May already be closed by handleClient
             }
         }
 
@@ -152,13 +251,20 @@ export class Gateway {
 
     /**
      * Accept loop - handles incoming connections.
+     *
+     * RC-2 FIX: Store listener reference before loop to avoid checking
+     * this.listener after await (it could be set to undefined by shutdown()).
      */
     private async acceptLoop(): Promise<void> {
-        if (!this.listener) return;
+        // RC-2: Capture reference before entering loop
+        const listener = this.listener;
+
+        if (!listener) return;
 
         try {
-            while (this.listener) {
-                const socket = await this.listener.accept();
+            // Loop until listener.accept() throws (closed by shutdown)
+            while (true) {
+                const socket = await listener.accept();
                 this.clients.add(socket);
 
                 // Handle client (fire-and-forget)
@@ -167,8 +273,12 @@ export class Gateway {
                 });
             }
         }
-        catch {
-            // Listener closed - normal during shutdown
+        catch (err) {
+            // Only log if this wasn't a clean shutdown
+            if (!this.shuttingDown) {
+                const error = err as Error;
+                console.error(`Gateway accept error: ${error.message}`);
+            }
         }
     }
 
@@ -182,10 +292,17 @@ export class Gateway {
      * Creates a virtual process for isolation, then reads JSON lines and
      * dispatches syscalls.
      *
+     * ALGORITHM:
+     * 1. Create virtual process for isolation
+     * 2. Read loop: accumulate chunks, extract complete lines
+     * 3. For each line: fire-and-forget dispatch to processMessage
+     * 4. On disconnect: cancel streams, destroy process, close socket
+     *
      * @param socket - Client socket
      */
     private async handleClient(socket: Socket): Promise<void> {
-        const clientId = `gateway-${this.nextClientId++}`;
+        // Generate unique client ID (used for debugging/logging)
+        this.nextClientId++;
 
         // Get init process as parent for virtual processes
         const init = this.kernel.processes.getInit();
@@ -209,6 +326,9 @@ export class Gateway {
             return;
         }
 
+        // Create TextDecoder once per client (not per chunk)
+        const textDecoder = new TextDecoder();
+
         let readBuffer = '';
         let disconnecting = false;
 
@@ -222,10 +342,11 @@ export class Gateway {
                     break;
                 }
 
-                readBuffer += new TextDecoder().decode(chunk);
+                readBuffer += textDecoder.decode(chunk, { stream: true });
 
-                // Buffer overflow protection
+                // Buffer overflow protection - send error before disconnecting
                 if (readBuffer.length > MAX_READ_BUFFER_SIZE) {
+                    await this.sendError(socket, 'overflow', 'ENOMEM', 'Read buffer overflow');
                     break;
                 }
 
@@ -239,7 +360,7 @@ export class Gateway {
                     if (line.trim()) {
                         // Fire-and-forget dispatch
                         this.processMessage(socket, proc, line, () => disconnecting).catch(() => {
-                            // Ignore dispatch errors
+                            // Dispatch errors handled inside processMessage
                         });
                     }
                 }
@@ -256,7 +377,7 @@ export class Gateway {
             proc.activeStreams.clear();
             proc.streamPingHandlers.clear();
 
-            // Destroy virtual process
+            // Destroy virtual process (INV-2)
             forceExit(this.kernel, proc, 0);
 
             // Close socket
@@ -378,7 +499,7 @@ export class Gateway {
      */
     private async safeWrite(socket: Socket, data: string): Promise<boolean> {
         try {
-            await socket.write(new TextEncoder().encode(data));
+            await socket.write(this.textEncoder.encode(data));
             return true;
         }
         catch {
@@ -404,15 +525,13 @@ export class Gateway {
         }
 
         // Handle binary data (base64 encode)
-        if ('bytes' in response && (response as any).bytes instanceof Uint8Array) {
-            const bytes = (response as any).bytes as Uint8Array;
-            let binary = '';
+        // PERF: Use Buffer.toString('base64') instead of string concat loop (O(n) vs O(n²))
+        if ('bytes' in response) {
+            const bytes = (response as { bytes?: unknown }).bytes;
 
-            for (let i = 0; i < bytes.length; i++) {
-                binary += String.fromCharCode(bytes[i]!);
+            if (bytes instanceof Uint8Array) {
+                wire.bytes = Buffer.from(bytes).toString('base64');
             }
-
-            wire.bytes = btoa(binary);
         }
 
         // Copy error fields for op: "error" responses from kernel
