@@ -464,12 +464,14 @@ async function dispatchSyscall(
 ): Promise<void> {
     const { deps } = state;
 
-    // DEBUG: Log syscall dispatch
-    await deps.eprintln(`gatewayd: ${state.clientId} dispatching syscall: ${name}`);
+    // DEBUG: Non-blocking logging to avoid yield points before first response
+    // WHY: Awaiting here would let handleClient's finally block run before
+    // we can send any responses, causing a race condition with fire-and-forget dispatch
+    void deps.eprintln(`gatewayd: ${state.clientId} dispatching syscall: ${name}`);
 
     // INVARIANT CHECK: Warn on duplicate stream ID
     if (state.activeStreams.has(id)) {
-        await deps.eprintln(`gatewayd: ${state.clientId} duplicate stream ID: ${id}`);
+        void deps.eprintln(`gatewayd: ${state.clientId} duplicate stream ID: ${id}`);
         // Continue anyway - client's problem
     }
 
@@ -477,25 +479,25 @@ async function dispatchSyscall(
     state.activeStreams.add(id);
 
     try {
-        // DEBUG: Log before iterating
-        await deps.eprintln(`gatewayd: ${state.clientId} starting syscallStream iteration`);
+        // DEBUG: Non-blocking logging
+        void deps.eprintln(`gatewayd: ${state.clientId} starting syscallStream iteration`);
 
         for await (const response of deps.syscallStream(name, ...args)) {
-            // DEBUG: Log each response
-            await deps.eprintln(`gatewayd: ${state.clientId} got response: ${JSON.stringify(response)}`);
+            // DEBUG: Non-blocking logging
+            void deps.eprintln(`gatewayd: ${state.clientId} got response: ${JSON.stringify(response)}`);
             // RACE FIX: Check disconnecting BEFORE writing
             // If disconnect happened during syscallStream yield, exit immediately
             if (state.disconnecting) {
-                await deps.eprintln(`gatewayd: ${state.clientId} disconnecting, cancelling stream`);
+                void deps.eprintln(`gatewayd: ${state.clientId} disconnecting, cancelling stream`);
                 deps.cancelStream(id);
                 break;
             }
 
             // Forward response to client
-            await deps.eprintln(`gatewayd: ${state.clientId} sending response to socket`);
+            void deps.eprintln(`gatewayd: ${state.clientId} sending response to socket`);
             const sent = await sendResponse(state, id, response);
 
-            await deps.eprintln(`gatewayd: ${state.clientId} sent=${sent}`);
+            void deps.eprintln(`gatewayd: ${state.clientId} sent=${sent}`);
 
             if (!sent) {
                 // Socket dead - cancel stream and exit
