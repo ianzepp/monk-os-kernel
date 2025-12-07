@@ -186,6 +186,7 @@ export class BunSocket implements Socket {
          * Slow path: Wait for data or close.
          * WHY: No buffered data and socket open - must wait.
          */
+
         return new Promise((resolve, reject) => {
             let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
@@ -221,6 +222,21 @@ export class BunSocket implements Socket {
 
                 resolve(data);
             });
+
+            /**
+             * RACE FIX: Check if closed AFTER setting resolver.
+             * WHY: Close handler may have fired between isClosed() check above and
+             * here. If so, close handler saw dataResolve as null and did nothing.
+             * We must detect this and resolve with EOF ourselves.
+             */
+            if (this.isClosed()) {
+                this.setDataResolve(null);
+                if (timeoutId) {
+                    clearTimeout(timeoutId);
+                }
+
+                resolve(new Uint8Array(0));
+            }
         });
     }
 

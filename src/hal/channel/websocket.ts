@@ -365,9 +365,26 @@ export class BunWebSocketClientChannel implements Channel {
             return this.responseQueue.shift()!;
         }
 
+        // Handle closed state
+        // WHY: Return error response rather than hanging forever
+        if (this._closed) {
+            return respond.error('ECONNRESET', 'Connection closed');
+        }
+
         // Slow path: wait for onmessage to resolve
         return new Promise(resolve => {
             this.responseResolve = resolve;
+
+            /**
+             * RACE FIX: Check if closed AFTER setting resolver.
+             * WHY: onclose handler may have fired between _closed check above and
+             * here. If so, onclose handler saw responseResolve as null and did nothing.
+             * We must detect this and resolve with error response ourselves.
+             */
+            if (this._closed) {
+                this.responseResolve = null;
+                resolve(respond.error('ECONNRESET', 'Connection closed'));
+            }
         });
     }
 
@@ -427,6 +444,17 @@ export class BunWebSocketClientChannel implements Channel {
         // Slow path: wait for onmessage to resolve
         return new Promise(resolve => {
             this.messageResolve = resolve;
+
+            /**
+             * RACE FIX: Check if closed AFTER setting resolver.
+             * WHY: onclose handler may have fired between _closed check above and
+             * here. If so, onclose handler saw messageResolve as null and did nothing.
+             * We must detect this and resolve with close message ourselves.
+             */
+            if (this._closed) {
+                this.messageResolve = null;
+                resolve({ op: 'close', data: null });
+            }
         });
     }
 
