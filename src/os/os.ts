@@ -8,10 +8,10 @@
  * and manages the lifecycle of all subsystems.
  *
  * Subsystem initialization order (boot):
- *   HAL → EMS → VFS → Kernel → Dispatcher → Init Process
+ *   HAL → EMS → VFS → Kernel → Dispatcher → Gateway → Init Process
  *
  * Subsystem teardown order (shutdown):
- *   Kernel → VFS → EMS → HAL
+ *   Gateway → Kernel → VFS → EMS → HAL
  *
  * The OS class itself is stateless beyond configuration - all persistent state
  * lives in the subsystems (EMS for entities, VFS for files, Kernel for processes).
@@ -84,6 +84,7 @@ import type { OSConfig, BootOpts, ExecOpts, OSEvents, OSEventName } from './type
 import { EMS } from '@src/ems/ems.js';
 import type { EntityOps } from '@src/ems/entity-ops.js';
 import { SyscallDispatcher } from '@src/syscall/index.js';
+import { Gateway } from '@src/gateway/index.js';
 
 // =============================================================================
 // CONSTANTS
@@ -198,6 +199,15 @@ export class OS {
      * INVARIANT: Non-null when booted === true.
      */
     private __dispatcher: SyscallDispatcher | null = null;
+
+    /**
+     * External syscall gateway.
+     *
+     * WHY: Provides Unix socket interface for external apps (os-shell, displayd).
+     * Runs in kernel context for direct syscall execution without IPC overhead.
+     * INVARIANT: Non-null when booted === true.
+     */
+    private __gateway: Gateway | null = null;
 
     // =========================================================================
     // LIFECYCLE STATE
@@ -785,7 +795,18 @@ export class OS {
                 await this.__dispatcher!.onWorkerMessage(worker, msg);
             };
 
-            // 7. Init process
+            // 7. Gateway (external syscall interface)
+            const socketPath = this.config.env?.MONK_SOCKET ?? '/tmp/monk.sock';
+
+            this.__gateway = new Gateway(
+                this.__dispatcher,
+                this.__kernel,
+                this.__hal,
+            );
+
+            await this.__gateway.listen(socketPath);
+
+            // 8. Init process
             const initPath = opts?.main ? this.resolvePath(opts.main) : DEFAULT_INIT_PATH;
 
             await this.__kernel.boot({
@@ -859,7 +880,11 @@ export class OS {
         // Mark as not booted first to fail any in-flight syscalls
         this.booted = false;
 
-        // Shutdown in reverse order: Kernel → VFS → EMS → HAL
+        // Shutdown in reverse order: Gateway → Kernel → VFS → EMS → HAL
+        if (this.__gateway) {
+            await this.__gateway.stop();
+        }
+
         if (this.__kernel?.isBooted()) {
             await this.__kernel.shutdown();
         }
@@ -877,6 +902,7 @@ export class OS {
         }
 
         // Clear references
+        this.__gateway = null;
         this.__dispatcher = null;
         this.__kernel = null;
         this.__vfs = null;
@@ -1152,6 +1178,15 @@ export class OS {
      */
     private async cleanupOnBootFailure(): Promise<void> {
         // Shutdown in reverse order, ignoring errors
+        if (this.__gateway) {
+            try {
+                await this.__gateway.stop();
+            }
+            catch {
+                // Ignore cleanup errors
+            }
+        }
+
         if (this.__kernel?.isBooted()) {
             try {
                 await this.__kernel.shutdown();
@@ -1189,6 +1224,7 @@ export class OS {
         }
 
         // Clear references
+        this.__gateway = null;
         this.__dispatcher = null;
         this.__kernel = null;
         this.__vfs = null;
