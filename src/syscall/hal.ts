@@ -69,11 +69,13 @@ export async function* netConnect(
 ): AsyncIterable<Response> {
     if (typeof proto !== 'string') {
         yield respond.error('EINVAL', 'proto must be a string');
+
         return;
     }
 
     if (typeof host !== 'string') {
         yield respond.error('EINVAL', 'host must be a string');
+
         return;
     }
 
@@ -81,14 +83,18 @@ export async function* netConnect(
         case 'tcp':
             if (typeof port !== 'number') {
                 yield respond.error('EINVAL', 'port must be a number');
+
                 return;
             }
+
             yield respond.ok(await connectTcp(kernel, proc, host, port));
+
             return;
 
         case 'unix':
             // Unix sockets use port=0 as discriminator
             yield respond.ok(await connectTcp(kernel, proc, host, 0));
+
             return;
 
         default:
@@ -116,10 +122,12 @@ export async function* portCreate(
 ): AsyncIterable<Response> {
     if (typeof type !== 'string') {
         yield respond.error('EINVAL', 'type must be a string');
+
         return;
     }
 
     const fd = await createPort(kernel, proc, type, opts);
+
     yield respond.ok(fd);
 }
 
@@ -137,6 +145,7 @@ export async function* portClose(
 ): AsyncIterable<Response> {
     if (typeof fd !== 'number') {
         yield respond.error('EINVAL', 'fd must be a number');
+
         return;
     }
 
@@ -158,16 +167,20 @@ export async function* portRecv(
 ): AsyncIterable<Response> {
     if (typeof fd !== 'number') {
         yield respond.error('EINVAL', 'fd must be a number');
+
         return;
     }
 
     const port = getPortFromHandle(kernel, proc, fd);
+
     if (!port) {
         yield respond.error('EBADF', `Bad port: ${fd}`);
+
         return;
     }
 
     const msg: ProcessPortMessage = await recvPort(kernel, proc, fd);
+
     yield respond.ok(msg);
 }
 
@@ -189,22 +202,27 @@ export async function* portSend(
 ): AsyncIterable<Response> {
     if (typeof fd !== 'number') {
         yield respond.error('EINVAL', 'fd must be a number');
+
         return;
     }
 
     if (typeof to !== 'string') {
         yield respond.error('EINVAL', 'to must be a string');
+
         return;
     }
 
     if (!(data instanceof Uint8Array)) {
         yield respond.error('EINVAL', 'data must be Uint8Array');
+
         return;
     }
 
     const port = getPortFromHandle(kernel, proc, fd);
+
     if (!port) {
         yield respond.error('EBADF', `Bad port: ${fd}`);
+
         return;
     }
 
@@ -236,15 +254,18 @@ export async function* channelOpen(
 ): AsyncIterable<Response> {
     if (typeof proto !== 'string') {
         yield respond.error('EINVAL', 'proto must be a string');
+
         return;
     }
 
     if (typeof url !== 'string') {
         yield respond.error('EINVAL', 'url must be a string');
+
         return;
     }
 
     const fd = await openChannel(kernel, proc, proto, url, opts as ChannelOpts | undefined);
+
     yield respond.ok(fd);
 }
 
@@ -262,6 +283,7 @@ export async function* channelClose(
 ): AsyncIterable<Response> {
     if (typeof fd !== 'number') {
         yield respond.error('EINVAL', 'fd must be a number');
+
         return;
     }
 
@@ -285,12 +307,15 @@ export async function* channelCall(
 ): AsyncIterable<Response> {
     if (typeof fd !== 'number') {
         yield respond.error('EINVAL', 'fd must be a number');
+
         return;
     }
 
     const channel = getChannelFromHandle(kernel, proc, fd);
+
     if (!channel) {
         yield respond.error('EBADF', `Bad channel: ${fd}`);
+
         return;
     }
 
@@ -321,12 +346,15 @@ export async function* channelStream(
 ): AsyncIterable<Response> {
     if (typeof fd !== 'number') {
         yield respond.error('EINVAL', 'fd must be a number');
+
         return;
     }
 
     const channel = getChannelFromHandle(kernel, proc, fd);
+
     if (!channel) {
         yield respond.error('EBADF', `Bad channel: ${fd}`);
+
         return;
     }
 
@@ -349,12 +377,15 @@ export async function* channelPush(
 ): AsyncIterable<Response> {
     if (typeof fd !== 'number') {
         yield respond.error('EINVAL', 'fd must be a number');
+
         return;
     }
 
     const channel = getChannelFromHandle(kernel, proc, fd);
+
     if (!channel) {
         yield respond.error('EBADF', `Bad channel: ${fd}`);
+
         return;
     }
 
@@ -376,15 +407,19 @@ export async function* channelRecv(
 ): AsyncIterable<Response> {
     if (typeof fd !== 'number') {
         yield respond.error('EINVAL', 'fd must be a number');
+
         return;
     }
 
     const channel = getChannelFromHandle(kernel, proc, fd);
+
     if (!channel) {
         yield respond.error('EBADF', `Bad channel: ${fd}`);
+
         return;
     }
 
     const msg = await channel.recv();
+
     yield respond.ok(msg);
 }

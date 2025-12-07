@@ -83,6 +83,7 @@ export async function* fileOpen(
 ): AsyncIterable<Response> {
     if (typeof path !== 'string') {
         yield respond.error('EINVAL', 'path must be a string');
+
         return;
     }
 
@@ -92,6 +93,7 @@ export async function* fileOpen(
         : { read: true };
 
     const fd = await openFile(kernel, proc, path, openFlags);
+
     yield respond.ok(fd);
 }
 
@@ -111,6 +113,7 @@ export async function* fileClose(
 ): AsyncIterable<Response> {
     if (typeof fd !== 'number') {
         yield respond.error('EINVAL', 'fd must be a number');
+
         return;
     }
 
@@ -136,12 +139,15 @@ export async function* fileRead(
 ): AsyncIterable<Response> {
     if (typeof fd !== 'number') {
         yield respond.error('EINVAL', 'fd must be a number');
+
         return;
     }
 
     const handle = getHandle(kernel, proc, fd);
+
     if (!handle) {
         yield respond.error('EBADF', `Bad file descriptor: ${fd}`);
+
         return;
     }
 
@@ -167,12 +173,15 @@ export async function* fileWrite(
 ): AsyncIterable<Response> {
     if (typeof fd !== 'number') {
         yield respond.error('EINVAL', 'fd must be a number');
+
         return;
     }
 
     const handle = getHandle(kernel, proc, fd);
+
     if (!handle) {
         yield respond.error('EBADF', `Bad file descriptor: ${fd}`);
+
         return;
     }
 
@@ -200,18 +209,22 @@ export async function* fileSeek(
 ): AsyncIterable<Response> {
     if (typeof fd !== 'number') {
         yield respond.error('EINVAL', 'fd must be a number');
+
         return;
     }
 
     const handle = getHandle(kernel, proc, fd);
+
     if (!handle) {
         yield respond.error('EBADF', `Bad file descriptor: ${fd}`);
+
         return;
     }
 
     // Only file handles support seek
     if (handle.type !== 'file') {
         yield respond.error('EINVAL', 'Illegal seek on socket');
+
         return;
     }
 
@@ -238,10 +251,12 @@ export async function* fileStat(
 ): AsyncIterable<Response> {
     if (typeof path !== 'string') {
         yield respond.error('EINVAL', 'path must be a string');
+
         return;
     }
 
     const stat = await vfs.stat(path, proc.user);
+
     yield respond.ok(stat);
 }
 
@@ -263,23 +278,28 @@ export async function* fileFstat(
 ): AsyncIterable<Response> {
     if (typeof fd !== 'number') {
         yield respond.error('EINVAL', 'fd must be a number');
+
         return;
     }
 
     const handle = getHandle(kernel, proc, fd);
+
     if (!handle) {
         yield respond.error('EBADF', `Bad file descriptor: ${fd}`);
+
         return;
     }
 
     // Only file handles have path-based stat
     if (handle.type !== 'file') {
         yield respond.error('EINVAL', 'fstat not supported on sockets');
+
         return;
     }
 
     // Use handle's description as path
     const stat = await vfs.stat(handle.description, proc.user);
+
     yield respond.ok(stat);
 }
 
@@ -305,10 +325,12 @@ export async function* fileMkdir(
 ): AsyncIterable<Response> {
     if (typeof path !== 'string') {
         yield respond.error('EINVAL', 'path must be a string');
+
         return;
     }
 
     const options = opts as { recursive?: boolean } | undefined;
+
     await vfs.mkdir(path, proc.user, options);
     yield respond.ok();
 }
@@ -329,6 +351,7 @@ export async function* fileUnlink(
 ): AsyncIterable<Response> {
     if (typeof path !== 'string') {
         yield respond.error('EINVAL', 'path must be a string');
+
         return;
     }
 
@@ -352,6 +375,7 @@ export async function* fileRmdir(
 ): AsyncIterable<Response> {
     if (typeof path !== 'string') {
         yield respond.error('EINVAL', 'path must be a string');
+
         return;
     }
 
@@ -375,6 +399,7 @@ export async function* fileReaddir(
 ): AsyncIterable<Response> {
     if (typeof path !== 'string') {
         yield respond.error('EINVAL', 'path must be a string');
+
         return;
     }
 
@@ -385,10 +410,13 @@ export async function* fileReaddir(
             count++;
             if (count > MAX_STREAM_ENTRIES) {
                 yield respond.error('EFBIG', `Directory listing exceeded ${MAX_STREAM_ENTRIES} entries`);
+
                 return;
             }
+
             yield respond.item(entry.name);
         }
+
         yield respond.done();
     }
     catch (err) {
@@ -412,6 +440,7 @@ export async function* fileRename(
 ): AsyncIterable<Response> {
     if (typeof oldPath !== 'string' || typeof newPath !== 'string') {
         yield respond.error('EINVAL', 'paths must be strings');
+
         return;
     }
 
@@ -442,11 +471,13 @@ export async function* fileSymlink(
 ): AsyncIterable<Response> {
     if (typeof target !== 'string') {
         yield respond.error('EINVAL', 'target must be a string');
+
         return;
     }
 
     if (typeof linkPath !== 'string') {
         yield respond.error('EINVAL', 'linkPath must be a string');
+
         return;
     }
 
@@ -476,6 +507,7 @@ export async function* fileAccess(
 ): AsyncIterable<Response> {
     if (typeof path !== 'string') {
         yield respond.error('EINVAL', 'path must be a string');
+
         return;
     }
 
@@ -483,11 +515,13 @@ export async function* fileAccess(
         // Set ACL
         await vfs.setAccess(path, proc.user, acl as import('@src/vfs/index.js').ACL | null);
         yield respond.ok();
+
         return;
     }
 
     // Get ACL
     const result = await vfs.access(path, proc.user);
+
     yield respond.ok(result);
 }
 
@@ -511,12 +545,15 @@ export async function* fileRecv(
 ): AsyncIterable<Response> {
     if (typeof fd !== 'number') {
         yield respond.error('EINVAL', 'fd must be a number');
+
         return;
     }
 
     const handle = getHandle(kernel, proc, fd);
+
     if (!handle) {
         yield respond.error('EBADF', `Bad file descriptor: ${fd}`);
+
         return;
     }
 
@@ -541,12 +578,15 @@ export async function* fileSend(
 ): AsyncIterable<Response> {
     if (typeof fd !== 'number') {
         yield respond.error('EINVAL', 'fd must be a number');
+
         return;
     }
 
     const handle = getHandle(kernel, proc, fd);
+
     if (!handle) {
         yield respond.error('EBADF', `Bad file descriptor: ${fd}`);
+
         return;
     }
 
@@ -579,11 +619,13 @@ export async function* fsMount(
 ): AsyncIterable<Response> {
     if (typeof source !== 'string') {
         yield respond.error('EINVAL', 'source must be a string');
+
         return;
     }
 
     if (typeof target !== 'string') {
         yield respond.error('EINVAL', 'target must be a string');
+
         return;
     }
 
@@ -609,6 +651,7 @@ export async function* fsUmount(
 ): AsyncIterable<Response> {
     if (typeof target !== 'string') {
         yield respond.error('EINVAL', 'target must be a string');
+
         return;
     }
 

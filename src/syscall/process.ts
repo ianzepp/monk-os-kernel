@@ -105,10 +105,12 @@ export async function* procSpawn(
 ): AsyncIterable<Response> {
     if (typeof entry !== 'string') {
         yield respond.error('EINVAL', 'entry must be a string');
+
         return;
     }
 
     const pid = await spawn(kernel, proc, entry, opts as SpawnOpts);
+
     yield respond.ok(pid);
 }
 
@@ -126,6 +128,7 @@ export async function* procExit(
 ): AsyncIterable<Response> {
     if (typeof code !== 'number' || code < 0) {
         yield respond.error('EINVAL', 'code must be a non-negative number');
+
         return;
     }
 
@@ -149,10 +152,12 @@ export async function* procKill(
 ): AsyncIterable<Response> {
     if (typeof targetPid !== 'number' || targetPid <= 0) {
         yield respond.error('EINVAL', 'pid must be a positive number');
+
         return;
     }
 
     const sig = typeof signal === 'number' ? signal : undefined;
+
     await kill(kernel, proc, targetPid, sig);
     yield respond.ok();
 }
@@ -173,11 +178,13 @@ export async function* procWait(
 ): AsyncIterable<Response> {
     if (typeof targetPid !== 'number' || targetPid <= 0) {
         yield respond.error('EINVAL', 'pid must be a positive number');
+
         return;
     }
 
     const ms = typeof timeout === 'number' ? timeout : undefined;
     const status = await wait(kernel, proc, targetPid, ms);
+
     yield respond.ok(status);
 }
 
@@ -228,6 +235,7 @@ export async function* procCreate(
         proc,
         opts as { cwd?: string; env?: Record<string, string> } | undefined,
     );
+
     yield respond.ok(result);
 }
 
@@ -281,6 +289,7 @@ export async function* procChdir(
 ): AsyncIterable<Response> {
     if (typeof path !== 'string') {
         yield respond.error('EINVAL', 'path must be a string');
+
         return;
     }
 
@@ -290,14 +299,18 @@ export async function* procChdir(
     // Validate directory exists
     try {
         const stat = await vfs.stat(resolved, proc.user);
+
         if (stat.model !== 'folder') {
             yield respond.error('ENOTDIR', `Not a directory: ${path}`);
+
             return;
         }
     }
     catch (err) {
         const code = (err as { code?: string }).code ?? 'ENOENT';
+
         yield respond.error(code, (err as Error).message);
+
         return;
     }
 
@@ -324,6 +337,7 @@ export async function* procGetenv(
 ): AsyncIterable<Response> {
     if (typeof name !== 'string') {
         yield respond.error('EINVAL', 'name must be a string');
+
         return;
     }
 
@@ -346,11 +360,13 @@ export async function* procSetenv(
 ): AsyncIterable<Response> {
     if (typeof name !== 'string') {
         yield respond.error('EINVAL', 'name must be a string');
+
         return;
     }
 
     if (typeof value !== 'string') {
         yield respond.error('EINVAL', 'value must be a string');
+
         return;
     }
 

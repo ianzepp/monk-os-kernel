@@ -187,9 +187,9 @@ export class SyscallDispatcher {
                 yield* fileSend(proc, this.kernel, args[0], args[1]);
                 break;
 
-            // =================================================================
-            // MOUNT SYSCALLS (fs:*)
-            // =================================================================
+                // =================================================================
+                // MOUNT SYSCALLS (fs:*)
+                // =================================================================
 
             case 'fs:mount':
                 yield* fsMount(proc, this.kernel, this.vfs, args[0], args[1], args[2]);
@@ -199,9 +199,9 @@ export class SyscallDispatcher {
                 yield* fsUmount(proc, this.kernel, this.vfs, args[0]);
                 break;
 
-            // =================================================================
-            // PROCESS SYSCALLS (proc:*)
-            // =================================================================
+                // =================================================================
+                // PROCESS SYSCALLS (proc:*)
+                // =================================================================
 
             case 'proc:spawn':
                 yield* procSpawn(proc, this.kernel, args[0], args[1]);
@@ -251,15 +251,16 @@ export class SyscallDispatcher {
                 yield* procSetenv(proc, args[0], args[1]);
                 break;
 
-            // =================================================================
-            // EMS SYSCALLS (ems:*)
-            // =================================================================
+                // =================================================================
+                // EMS SYSCALLS (ems:*)
+                // =================================================================
 
             case 'ems:select':
                 if (!this.ems) {
                     yield respond.error('ENOSYS', 'EMS not available');
                     break;
                 }
+
                 yield* emsSelect(proc, this.ems, args[0], args[1]);
                 break;
 
@@ -268,6 +269,7 @@ export class SyscallDispatcher {
                     yield respond.error('ENOSYS', 'EMS not available');
                     break;
                 }
+
                 yield* emsCreate(proc, this.ems, args[0], args[1]);
                 break;
 
@@ -276,6 +278,7 @@ export class SyscallDispatcher {
                     yield respond.error('ENOSYS', 'EMS not available');
                     break;
                 }
+
                 yield* emsUpdate(proc, this.ems, args[0], args[1], args[2]);
                 break;
 
@@ -284,6 +287,7 @@ export class SyscallDispatcher {
                     yield respond.error('ENOSYS', 'EMS not available');
                     break;
                 }
+
                 yield* emsDelete(proc, this.ems, args[0], args[1]);
                 break;
 
@@ -292,6 +296,7 @@ export class SyscallDispatcher {
                     yield respond.error('ENOSYS', 'EMS not available');
                     break;
                 }
+
                 yield* emsRevert(proc, this.ems, args[0], args[1]);
                 break;
 
@@ -300,12 +305,13 @@ export class SyscallDispatcher {
                     yield respond.error('ENOSYS', 'EMS not available');
                     break;
                 }
+
                 yield* emsExpire(proc, this.ems, args[0], args[1]);
                 break;
 
-            // =================================================================
-            // NETWORK SYSCALLS (net:*, port:*)
-            // =================================================================
+                // =================================================================
+                // NETWORK SYSCALLS (net:*, port:*)
+                // =================================================================
 
             case 'net:connect':
                 yield* netConnect(proc, this.kernel, this.hal, args[0], args[1], args[2]);
@@ -327,9 +333,9 @@ export class SyscallDispatcher {
                 yield* portSend(proc, this.kernel, args[0], args[1], args[2]);
                 break;
 
-            // =================================================================
-            // CHANNEL SYSCALLS (channel:*)
-            // =================================================================
+                // =================================================================
+                // CHANNEL SYSCALLS (channel:*)
+                // =================================================================
 
             case 'channel:open':
                 yield* channelOpen(proc, this.kernel, this.hal, args[0], args[1], args[2]);
@@ -355,9 +361,9 @@ export class SyscallDispatcher {
                 yield* channelRecv(proc, this.kernel, args[0]);
                 break;
 
-            // =================================================================
-            // HANDLE/IPC SYSCALLS (handle:*, ipc:*)
-            // =================================================================
+                // =================================================================
+                // HANDLE/IPC SYSCALLS (handle:*, ipc:*)
+                // =================================================================
 
             case 'handle:redirect':
                 yield* handleRedirect(proc, this.kernel, args[0], args[1]);
@@ -379,9 +385,9 @@ export class SyscallDispatcher {
                 yield* ipcPipe(proc, this.kernel);
                 break;
 
-            // =================================================================
-            // WORKER POOL SYSCALLS (pool:*, worker:*)
-            // =================================================================
+                // =================================================================
+                // WORKER POOL SYSCALLS (pool:*, worker:*)
+                // =================================================================
 
             case 'pool:lease':
                 yield* poolLease(proc, this.kernel, args[0]);
@@ -408,17 +414,17 @@ export class SyscallDispatcher {
                 yield* workerRelease(proc, this.kernel, args[0]);
                 break;
 
-            // =================================================================
-            // SERVICE ACTIVATION
-            // =================================================================
+                // =================================================================
+                // SERVICE ACTIVATION
+                // =================================================================
 
             case 'activation:get':
                 yield* activationGet(proc);
                 break;
 
-            // =================================================================
-            // UNKNOWN SYSCALL
-            // =================================================================
+                // =================================================================
+                // UNKNOWN SYSCALL
+                // =================================================================
 
             default:
                 yield respond.error('ENOSYS', `Unknown syscall: ${name}`);

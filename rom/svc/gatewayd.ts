@@ -494,6 +494,7 @@ async function dispatchSyscall(
             // Forward response to client
             await deps.eprintln(`gatewayd: ${state.clientId} sending response to socket`);
             const sent = await sendResponse(state, id, response);
+
             await deps.eprintln(`gatewayd: ${state.clientId} sent=${sent}`);
 
             if (!sent) {
@@ -811,7 +812,9 @@ export const _test = {
     handleClient,
     cleanupClient,
     clients,
-    resetNextClientId: () => { nextClientId = 1; },
+    resetNextClientId: () => {
+        nextClientId = 1;
+    },
 };
 
 // Run gatewayd (production mode) - only if not imported as module

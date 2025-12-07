@@ -59,6 +59,7 @@ export async function* poolLease(
 ): AsyncIterable<Response> {
     const poolName = typeof pool === 'string' ? pool : undefined;
     const workerId = await kernelLeaseWorker(kernel, proc, poolName);
+
     yield respond.ok(workerId);
 }
 
@@ -95,11 +96,13 @@ export async function* workerLoad(
 ): AsyncIterable<Response> {
     if (typeof workerId !== 'string') {
         yield respond.error('EINVAL', 'workerId must be a string');
+
         return;
     }
 
     if (typeof path !== 'string') {
         yield respond.error('EINVAL', 'path must be a string');
+
         return;
     }
 
@@ -123,6 +126,7 @@ export async function* workerSend(
 ): AsyncIterable<Response> {
     if (typeof workerId !== 'string') {
         yield respond.error('EINVAL', 'workerId must be a string');
+
         return;
     }
 
@@ -144,10 +148,12 @@ export async function* workerRecv(
 ): AsyncIterable<Response> {
     if (typeof workerId !== 'string') {
         yield respond.error('EINVAL', 'workerId must be a string');
+
         return;
     }
 
     const msg = await kernelWorkerRecv(kernel, proc, workerId);
+
     yield respond.ok(msg);
 }
 
@@ -165,6 +171,7 @@ export async function* workerRelease(
 ): AsyncIterable<Response> {
     if (typeof workerId !== 'string') {
         yield respond.error('EINVAL', 'workerId must be a string');
+
         return;
     }
 

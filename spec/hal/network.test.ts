@@ -913,12 +913,14 @@ describe('Network Device', () => {
                         ws.onopen = () => {
                             ws.send('hello');
                         };
+
                         ws.onmessage = event => {
                             messages.push(String(event.data));
                             if (messages.length === 2) {
                                 ws.close();
                             }
                         };
+
                         ws.onclose = () => resolve();
                         ws.onerror = reject;
                     });

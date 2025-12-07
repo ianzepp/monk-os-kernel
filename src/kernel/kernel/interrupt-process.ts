@@ -73,7 +73,7 @@ export async function interruptProcess(self: Kernel, proc: Process): Promise<voi
     // Close all handles, awaiting each one
     // WHY AWAIT ALL: We need all closes to complete before returning, but we
     // can close them in parallel for efficiency.
-    const closePromises = handleIds.map(async (handleId) => {
+    const closePromises = handleIds.map(async handleId => {
         const handle = self.handles.get(handleId);
 
         if (handle) {

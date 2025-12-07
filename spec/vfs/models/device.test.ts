@@ -40,6 +40,7 @@ beforeEach(async () => {
 
     // WHY: /dev is created by VFS initialization, use existing folder
     const devStat = await stack.vfs!.stat('/dev', 'kernel');
+
     devFolderId = devStat.id;
 
     model = new DeviceModel();
@@ -655,11 +656,14 @@ describe('ByteDeviceHandle - gunzip device', () => {
 
         // WHY: Read all chunks from compression stream
         const compressedChunks: Uint8Array[] = [];
+
         while (true) {
             const { value, done } = await reader.read();
+
             if (done) {
                 break;
             }
+
             compressedChunks.push(value);
         }
 
@@ -667,6 +671,7 @@ describe('ByteDeviceHandle - gunzip device', () => {
         const totalLength = compressedChunks.reduce((sum, chunk) => sum + chunk.length, 0);
         const compressed = new Uint8Array(totalLength);
         let offset = 0;
+
         for (const chunk of compressedChunks) {
             compressed.set(chunk, offset);
             offset += chunk.length;
@@ -752,11 +757,14 @@ describe('ByteDeviceHandle - inflate device', () => {
 
         // WHY: Read all chunks from compression stream
         const compressedChunks: Uint8Array[] = [];
+
         while (true) {
             const { value, done } = await reader.read();
+
             if (done) {
                 break;
             }
+
             compressedChunks.push(value);
         }
 
@@ -764,6 +772,7 @@ describe('ByteDeviceHandle - inflate device', () => {
         const totalLength = compressedChunks.reduce((sum, chunk) => sum + chunk.length, 0);
         const compressed = new Uint8Array(totalLength);
         let offset = 0;
+
         for (const chunk of compressedChunks) {
             compressed.set(chunk, offset);
             offset += chunk.length;

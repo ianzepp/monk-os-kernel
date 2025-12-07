@@ -27,6 +27,7 @@ describe('Kernel Shutdown', () => {
         await os.boot();
 
         const start = Date.now();
+
         await os.shutdown();
         const elapsed = Date.now() - start;
 
@@ -53,11 +54,13 @@ describe('Kernel Shutdown', () => {
         `;
 
         const handle = await vfs.open('/tmp/sleeper.ts', { write: true, create: true }, 'kernel');
+
         await handle.write(new TextEncoder().encode(script));
         await handle.close();
 
         // Spawn the sleeping process
         const pid = await os.spawn('/tmp/sleeper.ts');
+
         expect(pid).toBeGreaterThan(0);
 
         // Give it time to start and enter sleep
@@ -66,10 +69,12 @@ describe('Kernel Shutdown', () => {
         // Verify there are running processes (init + sleeper)
         const kernel = os.getKernel();
         const runningCount = Array.from(kernel.processes.all()).filter(p => p.state === 'running').length;
+
         expect(runningCount).toBeGreaterThanOrEqual(2);
 
         // Shutdown should complete quickly despite blocked process
         const start = Date.now();
+
         await os.shutdown();
         const elapsed = Date.now() - start;
 
@@ -99,11 +104,13 @@ describe('Kernel Shutdown', () => {
         `;
 
         const handle = await vfs.open('/tmp/listener.ts', { write: true, create: true }, 'kernel');
+
         await handle.write(new TextEncoder().encode(script));
         await handle.close();
 
         // Spawn the listening process
         const pid = await os.spawn('/tmp/listener.ts');
+
         expect(pid).toBeGreaterThan(0);
 
         // Give it time to start and enter recv
@@ -112,10 +119,12 @@ describe('Kernel Shutdown', () => {
         // Verify there are running processes (init + listener)
         const kernel = os.getKernel();
         const runningCount = Array.from(kernel.processes.all()).filter(p => p.state === 'running').length;
+
         expect(runningCount).toBeGreaterThanOrEqual(2);
 
         // Shutdown should complete quickly despite blocked recv
         const start = Date.now();
+
         await os.shutdown();
         const elapsed = Date.now() - start;
 

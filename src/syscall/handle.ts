@@ -62,15 +62,18 @@ export async function* handleRedirect(
 ): AsyncIterable<Response> {
     if (typeof target !== 'number') {
         yield respond.error('EINVAL', 'target must be a number');
+
         return;
     }
 
     if (typeof source !== 'number') {
         yield respond.error('EINVAL', 'source must be a number');
+
         return;
     }
 
     const saved = kernelRedirectHandle(kernel, proc, target, source);
+
     yield respond.ok(saved);
 }
 
@@ -90,11 +93,13 @@ export async function* handleRestore(
 ): AsyncIterable<Response> {
     if (typeof target !== 'number') {
         yield respond.error('EINVAL', 'target must be a number');
+
         return;
     }
 
     if (typeof saved !== 'string') {
         yield respond.error('EINVAL', 'saved must be a string');
+
         return;
     }
 
@@ -124,18 +129,22 @@ export async function* handleSend(
 ): AsyncIterable<Response> {
     if (typeof fd !== 'number') {
         yield respond.error('EINVAL', 'handle must be a number');
+
         return;
     }
 
     // Check process state
     if (proc.state !== 'running') {
         yield respond.error('ESRCH', 'Process is not running');
+
         return;
     }
 
     const handle = getHandle(kernel, proc, fd);
+
     if (!handle) {
         yield respond.error('EBADF', `Bad handle: ${fd}`);
+
         return;
     }
 
@@ -159,6 +168,7 @@ export async function* handleClose(
 ): AsyncIterable<Response> {
     if (typeof fd !== 'number') {
         yield respond.error('EINVAL', 'fd must be a number');
+
         return;
     }
 
@@ -183,5 +193,6 @@ export async function* ipcPipe(
     kernel: Kernel,
 ): AsyncIterable<Response> {
     const [recvFd, sendFd] = kernelCreatePipe(kernel, proc);
+
     yield respond.ok([recvFd, sendFd]);
 }

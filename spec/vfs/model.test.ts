@@ -96,6 +96,7 @@ class MockPosixModel extends PosixModel {
         if (this.shouldThrowOnOpen) {
             throw new ENOENT('File not found');
         }
+
         return new MockFileHandle();
     }
 
@@ -104,6 +105,7 @@ class MockPosixModel extends PosixModel {
         if (this.shouldThrowOnStat) {
             throw new ENOENT('Entity not found');
         }
+
         return this.mockStat;
     }
 
@@ -124,6 +126,7 @@ class MockPosixModel extends PosixModel {
         if (this.shouldThrowOnCreate) {
             throw new EIO('Create failed');
         }
+
         return this.mockCreatedId;
     }
 
@@ -231,9 +234,11 @@ function createMockContext(): ModelContext {
  */
 async function collectResponses(iterable: AsyncIterable<Response>): Promise<Response[]> {
     const responses: Response[] = [];
+
     for await (const response of iterable) {
         responses.push(response);
     }
+
     return responses;
 }
 
@@ -280,6 +285,7 @@ describe('PosixModel.handle()', () => {
             model.open = async (_ctx, _id, flags, opts) => {
                 capturedFlags = flags;
                 capturedOpts = opts;
+
                 return new MockFileHandle();
             };
 
@@ -427,6 +433,7 @@ describe('PosixModel.handle()', () => {
             model.create = async (_ctx, _parent, name, fields) => {
                 capturedName = name;
                 capturedFields = fields;
+
                 return 'created-id';
             };
 
@@ -521,6 +528,7 @@ describe('PosixModel.handle()', () => {
             for (let i = 0; i < 3; i++) {
                 expect(responses[i]!.op).toBe('item');
                 const itemData = (responses[i] as any).data;
+
                 expect(itemData.id).toBe(`child-${i + 1}`);
                 expect(itemData.name).toBe(`entity-child-${i + 1}`);
             }
@@ -534,6 +542,7 @@ describe('PosixModel.handle()', () => {
 
             ctx.getEntity = async (id: string) => {
                 fetchedIds.push(id);
+
                 return {
                     id,
                     model: 'mock',
@@ -562,6 +571,7 @@ describe('PosixModel.handle()', () => {
                 if (id === 'child-2') {
                     return null;
                 }
+
                 return {
                     id,
                     model: 'mock',
@@ -622,6 +632,7 @@ describe('PosixModel.handle()', () => {
             expect(responses[0]!.op).toBe('event');
 
             const eventData = (responses[0] as any).data;
+
             expect(eventData.type).toBe('create');
             expect(eventData.entity).toBe('watched-entity');
             expect(eventData.path).toBe('/watched/path');
@@ -632,6 +643,7 @@ describe('PosixModel.handle()', () => {
 
             model.watch = async (_ctx, _id, pattern) => {
                 capturedPattern = pattern;
+
                 // Yield nothing - just testing parameter passing
                 return (async function* () {})();
             };
@@ -792,6 +804,7 @@ describe('PosixModel.handle()', () => {
         it('should handle errors without message', async () => {
             model.open = async () => {
                 const err = new Error();
+
                 (err as any).code = 'EACCES';
                 (err as any).message = undefined;
                 throw err;

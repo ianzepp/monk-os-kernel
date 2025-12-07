@@ -106,7 +106,7 @@ function createDefaultDeps(): RouterDeps {
     return {
         now: () => Date.now(),
         setTimeout: (cb, ms) => globalThis.setTimeout(cb, ms),
-        clearTimeout: (id) => globalThis.clearTimeout(id),
+        clearTimeout: id => globalThis.clearTimeout(id),
     };
 }
 

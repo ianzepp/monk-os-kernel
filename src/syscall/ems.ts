@@ -60,6 +60,7 @@ export async function* emsSelect(
 ): AsyncIterable<Response> {
     if (typeof model !== 'string') {
         yield respond.error('EINVAL', 'model must be a string');
+
         return;
     }
 
@@ -71,10 +72,12 @@ export async function* emsSelect(
         for await (const record of ems.ops.selectAny(model, filterData)) {
             yield respond.item(record);
         }
+
         yield respond.done();
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         yield respond.error('EIO', msg);
     }
 }
@@ -99,23 +102,28 @@ export async function* emsCreate(
 ): AsyncIterable<Response> {
     if (typeof model !== 'string') {
         yield respond.error('EINVAL', 'model must be a string');
+
         return;
     }
 
     if (typeof fields !== 'object' || fields === null) {
         yield respond.error('EINVAL', 'fields must be an object');
+
         return;
     }
 
     try {
         for await (const created of ems.ops.createAll(model, [fields as Record<string, unknown>])) {
             yield respond.ok(created);
+
             return;
         }
+
         yield respond.error('EIO', 'No record created');
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         yield respond.error('EIO', msg);
     }
 }
@@ -138,16 +146,19 @@ export async function* emsUpdate(
 ): AsyncIterable<Response> {
     if (typeof model !== 'string') {
         yield respond.error('EINVAL', 'model must be a string');
+
         return;
     }
 
     if (typeof id !== 'string') {
         yield respond.error('EINVAL', 'id must be a string');
+
         return;
     }
 
     if (typeof changes !== 'object' || changes === null) {
         yield respond.error('EINVAL', 'changes must be an object');
+
         return;
     }
 
@@ -156,12 +167,15 @@ export async function* emsUpdate(
 
         for await (const updated of ems.ops.updateAll(model, updates)) {
             yield respond.ok(updated);
+
             return;
         }
+
         yield respond.error('ENOENT', `Entity not found: ${id}`);
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         yield respond.error('EIO', msg);
     }
 }
@@ -182,23 +196,28 @@ export async function* emsDelete(
 ): AsyncIterable<Response> {
     if (typeof model !== 'string') {
         yield respond.error('EINVAL', 'model must be a string');
+
         return;
     }
 
     if (typeof id !== 'string') {
         yield respond.error('EINVAL', 'id must be a string');
+
         return;
     }
 
     try {
         for await (const deleted of ems.ops.deleteIds(model, [id])) {
             yield respond.ok(deleted);
+
             return;
         }
+
         yield respond.error('ENOENT', `Entity not found: ${id}`);
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         yield respond.error('EIO', msg);
     }
 }
@@ -219,23 +238,28 @@ export async function* emsRevert(
 ): AsyncIterable<Response> {
     if (typeof model !== 'string') {
         yield respond.error('EINVAL', 'model must be a string');
+
         return;
     }
 
     if (typeof id !== 'string') {
         yield respond.error('EINVAL', 'id must be a string');
+
         return;
     }
 
     try {
         for await (const reverted of ems.ops.revertAll(model, [{ id }])) {
             yield respond.ok(reverted);
+
             return;
         }
+
         yield respond.error('ENOENT', `Entity not found: ${id}`);
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         yield respond.error('EIO', msg);
     }
 }
@@ -256,23 +280,28 @@ export async function* emsExpire(
 ): AsyncIterable<Response> {
     if (typeof model !== 'string') {
         yield respond.error('EINVAL', 'model must be a string');
+
         return;
     }
 
     if (typeof id !== 'string') {
         yield respond.error('EINVAL', 'id must be a string');
+
         return;
     }
 
     try {
         for await (const expired of ems.ops.expireAll(model, [{ id }])) {
             yield respond.ok(expired);
+
             return;
         }
+
         yield respond.error('ENOENT', `Entity not found: ${id}`);
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         yield respond.error('EIO', msg);
     }
 }
