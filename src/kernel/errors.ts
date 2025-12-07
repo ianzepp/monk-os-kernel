@@ -20,6 +20,8 @@ export {
     EBUSY,
     EIO,
     ENOENT,
+    EEXIST,
+    EFAULT,
 } from '@src/hal/index.js';
 
 /**

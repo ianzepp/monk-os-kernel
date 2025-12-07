@@ -40,7 +40,7 @@
 import type { Kernel } from '../kernel.js';
 import type { Process } from '../types.js';
 import type { Handle } from '../handle.js';
-import { EMFILE } from '../errors.js';
+import { EMFILE, EEXIST } from '../errors.js';
 import { MAX_HANDLES } from '../types.js';
 
 /**
@@ -82,7 +82,7 @@ export function allocHandle(self: Kernel, proc: Process, handle: Handle): number
     if (self.handles.has(handle.id)) {
         // CRITICAL: This should never happen - indicates caller bug
         // If handle already exists, caller should use refHandle() instead
-        throw new Error(`Handle ${handle.id} already exists in kernel table`);
+        throw new EEXIST(`Handle ${handle.id} already exists in kernel table`);
     }
 
     self.handles.set(handle.id, handle);

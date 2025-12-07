@@ -30,6 +30,7 @@
 import type { Kernel } from '../kernel.js';
 import type { Process } from '../types.js';
 import type { Handle } from '../handle.js';
+import { EBADF } from '../errors.js';
 
 /**
  * Get a handle by process-local file descriptor.
@@ -71,7 +72,7 @@ export function getHandle(self: Kernel, proc: Process, h: number): Handle | unde
         // CRITICAL BUG: Process table and kernel table are out of sync
         // This means unrefHandle() deleted the kernel entry but process
         // still has the fd mapping. This is a refcount accounting error.
-        throw new Error(
+        throw new EBADF(
             `Invariant violation: Process ${proc.id} has fd ${h} → ${handleId} ` +
             `but kernel has no such handle. This indicates a refcount bug.`,
         );

@@ -53,6 +53,7 @@ import type { Kernel } from '../kernel.js';
 import type { Process } from '../types.js';
 import { createProcess } from './create-process.js';
 import { printk } from './printk.js';
+import { EFAULT } from '../errors.js';
 
 /**
  * Create a virtual process.
@@ -97,11 +98,11 @@ export function createVirtualProcess(
 
     // INVARIANT CHECK: Verify virtual flag and worker inheritance
     if (!proc.virtual) {
-        throw new Error('createProcess did not set virtual flag');
+        throw new EFAULT('createProcess did not set virtual flag');
     }
 
     if (proc.worker !== parent.worker) {
-        throw new Error('createProcess did not inherit parent worker');
+        throw new EFAULT('createProcess did not inherit parent worker');
     }
 
     // =========================================================================

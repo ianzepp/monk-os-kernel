@@ -28,7 +28,7 @@
  * @module hal/yaml
  */
 
-import { EIO } from './errors.js';
+import { EIO, EINVAL } from './errors.js';
 
 // =============================================================================
 // TYPES
@@ -227,7 +227,7 @@ function serializeYaml(data: unknown, indent: number): string {
     }
 
     // Handle other types
-    throw new Error(`Cannot serialize type: ${typeof data}`);
+    throw new EINVAL(`Cannot serialize type: ${typeof data}`);
 }
 
 /**

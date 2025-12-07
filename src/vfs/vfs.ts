@@ -563,7 +563,7 @@ export class VFS {
      */
     async mountEntity(vfsPath: string, options: EntityMountOptions = {}): Promise<void> {
         if (!this.ems) {
-            throw new Error('VFS requires EMS for entity mounts');
+            throw new EINVAL('VFS requires EMS for entity mounts');
         }
 
         const mount = await createEntityMount(

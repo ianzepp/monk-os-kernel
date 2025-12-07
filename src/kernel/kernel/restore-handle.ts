@@ -137,7 +137,7 @@ export function restoreHandle(
         // INVARIANT VIOLATION: Refcount went negative
         // This indicates more unrefs than refs (double-restore or missing redirect)
         self.handleRefs.delete(currentHandleId);
-        throw new Error(
+        throw new EBADF(
             `Handle ${currentHandleId} refcount went negative during restore. ` +
             `This indicates double-restore or restore without redirect.`,
         );
