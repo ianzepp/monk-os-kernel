@@ -48,41 +48,62 @@
 ### Layered Architecture
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  External Applications (via gatewayd - os-coreutils, etc.)  │
+│  External Applications (via gatewayd Unix socket)           │
 ├─────────────────────────────────────────────────────────────┤
 │  Process Library & Syscall API (rom/lib/process/)           │
 ├─────────────────────────────────────────────────────────────┤
 │  OS Public API (src/os/)                                    │
-│  ├── OS class (boot, exec, shutdown, lifecycle hooks)       │
-│  ├── FilesystemAPI (host mounts, file operations)           │
-│  ├── ProcessAPI (spawn, run, shell) [stub]                  │
-│  └── ServiceAPI (start, stop, list, register) [stub]        │
+│  ├── OS class (boot, exec, shutdown, syscall wrappers)      │
+│  ├── Domain wrappers (ems, vfs, process)                    │
+│  ├── Convenience helpers (read, text, spawn, mount, copy)   │
+│  └── Service management (start, stop, restart, list)        │
+├─────────────────────────────────────────────────────────────┤
+│  Syscall Layer (src/syscall/)                               │
+│  ├── SyscallDispatcher (switch-based routing, outside kernel)│
+│  ├── StreamController (backpressure, ping/cancel protocol)  │
+│  ├── Domain handlers (vfs, ems, hal, process, handle, pool) │
+│  └── Worker message handling (onWorkerMessage callback)     │
 ├─────────────────────────────────────────────────────────────┤
 │  Kernel Layer (src/kernel/)                                 │
-│  ├── Syscall Dispatcher & Execution                         │
-│  ├── Process Manager (Worker scheduling, lifecycle)         │
-│  ├── Handle System (file, socket, pipe, port, channel)     │
-│  ├── Worker Pools (PoolManager, auto-scaling)              │
-│  └── Service Activation (boot, tcp, udp, pubsub, watch)    │
+│  ├── Process Manager (Worker lifecycle, signals)            │
+│  ├── Handle System (file, socket, pipe, port, channel)      │
+│  ├── Worker Pools (PoolManager, auto-scaling)               │
+│  ├── Service Activation (boot, tcp, udp, pubsub, watch)     │
+│  └── Extracted functions (kernel/kernel/ subdirectory)      │
 ├─────────────────────────────────────────────────────────────┤
 │  VFS - Virtual File System (src/vfs/)                       │
 │  ├── Path resolution, mount table, model coordination       │
-│  └── Models: File, Folder, Device, Proc, Link              │
+│  └── Models: File, Folder, Device, Proc, Link               │
 ├─────────────────────────────────────────────────────────────┤
 │  EMS - Entity Model System (src/ems/)                       │
-│  ├── Database abstraction (SQLite, PostgreSQL planned)      │
+│  ├── Database abstraction (SQLite, PostgreSQL)              │
 │  ├── Observer pipeline (8 rings for mutation processing)    │
 │  ├── EntityOps, ModelCache, EntityCache                     │
 │  └── Streaming queries with backpressure                    │
 ├─────────────────────────────────────────────────────────────┤
 │  HAL - Hardware Abstraction (src/hal/)                      │
 │  ├── BlockDevice, StorageEngine, NetworkDevice, FileDevice  │
-│  ├── Timer, Clock, Entropy, Crypto, Console                │
-│  ├── DNS, Host, IPC, Channel, Compression                  │
+│  ├── Timer, Clock, Entropy, Crypto, Console                 │
+│  ├── DNS, Host, IPC, Channel, Compression                   │
 │  └── BunHAL implementation                                  │
 ├─────────────────────────────────────────────────────────────┤
 │  Bun Runtime (Host OS, Workers, primitives)                 │
 └─────────────────────────────────────────────────────────────┘
+```
+
+### Message Flow (Syscall Dispatch)
+```
+Worker ──postMessage──▶ kernel.onWorkerMessage ──▶ dispatcher.handleMessage()
+                                                          │
+                                                          ▼
+                                                   dispatcher.execute()
+                                                          │
+                                                          ▼
+                                                   dispatcher.dispatch()
+                                                          │
+                                                          ▼
+                                                   syscall handlers
+                                                   (vfs, ems, hal, etc.)
 ```
 
 ---
@@ -99,17 +120,11 @@
 - Signals: SIGTERM (graceful), SIGKILL (immediate)
 
 **Key Directory Structure**:
-- `kernel.ts` - Boot sequence, syscall dispatch, resource lifecycle
+- `kernel.ts` - Boot sequence, resource lifecycle, exposes `onWorkerMessage` callback
 - `process-table.ts` - Process registry
-- `types.ts` - Process, SpawnOpts, ExitStatus, etc.
+- `types.ts` - Process, SpawnOpts, ExitStatus, ProcessPortMessage, etc.
 - `errors.ts` - Re-exports HAL errors + ProcessExited
-- `syscalls/` - Syscall handlers organized by domain:
-  - `dispatcher.ts` - Central syscall routing
-  - `file.ts` - File syscalls (open, read, write, stat, etc.)
-  - `network.ts` - Network syscalls (connect, listen, recv, send)
-  - `channel.ts` - Channel syscalls (HTTP, WebSocket, PostgreSQL)
-  - `misc.ts` - Miscellaneous syscalls (chdir, getcwd, getenv)
-  - `types.ts` - Syscall handler types
+- `kernel/` - Extracted kernel functions (modular organization)
 - `handle/` - Unified handle architecture:
   - `types.ts` - Handle interface and HandleType
   - `file.ts` - FileHandleAdapter (VFS files)
@@ -131,15 +146,75 @@
   - `cache.ts` - Module caching
 - `services.ts` - Service definitions (activation types, I/O config)
 - `pool.ts` - Worker pool management (PoolManager, WorkerPool)
+- `pool-worker.ts` - Individual worker management
 - `boot.ts` - ROM → VFS copy at boot
 - `mounts.ts` - Mount configuration loader
+- `poll.ts` - Event polling
+- `validate.ts` - Input validation utilities
+
+**Note**: Syscall handlers have been moved to `src/syscall/`. The kernel now focuses solely on process management, handle management, and resource lifecycle. See "Syscall Layer" section below.
 
 **Execution Model**:
 - Syscalls return `AsyncIterable<Response>` (generators)
 - Each `Response` is: `{ op: 'ok'|'error'|'item'|'data'|'event'|'progress'|'done'|'redirect', data?: object }`
 - Terminal ops (`ok`, `error`, `done`) signal stream completion
 - Non-terminal ops (`item`, `event`, `progress`, `data`) may yield multiple times
-- Kernel implements backpressure via `stream_ping` every 100ms
+- Backpressure via `stream_ping` every 100ms (managed by StreamController)
+
+### A.1 Syscall Layer (`src/syscall/`)
+
+**Purpose**: Separates syscall routing and implementation from the kernel. The kernel focuses on process/handle management while syscalls orchestrate operations across kernel, VFS, EMS, and HAL.
+
+**Architecture**:
+- **Dispatcher sits outside kernel**: `SyscallDispatcher` is created by OS layer, receives `(kernel, vfs, ems, hal)` as constructor dependencies
+- **Kernel provides callback**: The kernel exposes `onWorkerMessage` callback set by OS after creating the dispatcher
+- **Direct dependencies**: Each syscall function receives exactly what it needs as parameters—no context objects
+
+**Directory Structure**:
+```
+src/syscall/
+├── index.ts           # Exports SyscallDispatcher
+├── dispatcher.ts      # Switch-based routing, StreamController wrapping
+├── types.ts           # Shared types
+├── stream/            # Backpressure protocol
+│   ├── index.ts
+│   ├── controller.ts  # StreamController (ping/cancel, high/low water)
+│   ├── constants.ts   # STREAM_HIGH_WATER, STREAM_STALL_TIMEOUT, etc.
+│   └── types.ts
+├── vfs.ts             # file:* syscalls → VFS + Kernel (for handles)
+├── ems.ts             # ems:* syscalls → EMS
+├── hal.ts             # net:*, port:*, channel:* syscalls → HAL + Kernel
+├── process.ts         # proc:*, activation:* syscalls → Kernel
+├── handle.ts          # handle:*, ipc:* syscalls → Kernel
+└── pool.ts            # pool:*, worker:* syscalls → Kernel
+```
+
+**Syscall Function Pattern**:
+```typescript
+export async function* fileOpen(
+    proc: Process,      // Always first (except pool:stats)
+    kernel: Kernel,     // For handle/process operations
+    vfs: VFS,           // For filesystem operations
+    path: unknown,      // Syscall-specific args (validated internally)
+    flags?: unknown,
+): AsyncIterable<Response> {
+    // Validate arguments
+    if (typeof path !== 'string') {
+        yield respond.error('EINVAL', 'path must be a string');
+        return;
+    }
+    // Execute operation
+    const handle = await vfs.open(path, proc.user, flags);
+    const fd = kernel.assignHandle(proc, handle);
+    yield respond.ok(fd);
+}
+```
+
+**Key Design Decisions**:
+1. **Yield errors, don't throw**: All syscalls return `AsyncIterable<Response>`, validation errors are yielded
+2. **Switch-based routing**: Dispatcher uses switch statement for O(1) syscall lookup
+3. **StreamController wrapping**: Each syscall execution is wrapped for backpressure management
+4. **Dependency argument order**: `proc`, `kernel`, `vfs`, `ems`, `hal`, then syscall-specific args
 
 ### B. Hardware Abstraction Layer - HAL (`src/hal/`)
 
@@ -273,81 +348,106 @@ data:{uuid}       → file content blobs
 **Purpose**: Main entry point for external applications consuming Monk OS.
 
 **Key Files**:
-- `index.ts` - Exports OS class, types, APIs
-- `os.ts` - OS class with boot(), exec(), shutdown(), lifecycle hooks
-- `fs.ts` - FilesystemAPI for file operations
-- `process.ts` - ProcessAPI for spawning/running processes (stub)
-- `service.ts` - ServiceAPI for service management (stub)
-- `types.ts` - OSConfig, BootOpts, ExecOpts, OSEvents, process/service types
+- `index.ts` - Exports OS class, types
+- `os.ts` - OS class with lifecycle, syscall wrappers, convenience helpers
+- `types.ts` - OSConfig, BootOpts, ExecOpts, OSEvents
 
-**OS Class**:
+**State Machine**:
+```
+[created] ──boot()──▶ [booting] ──success──▶ [booted]
+    │                     │                     │
+    │                     │ failure             │ shutdown()
+    │                     ▼                     ▼
+    │                 [failed]              [shutdown]
+    │                                           │
+    └───────────────────────────────────────────┘
+               (can boot again after shutdown)
+```
+
+**OS Class Interface**:
 ```typescript
 class OS {
-    readonly fs: FilesystemAPI;
-    readonly process: ProcessAPI;
-    readonly service: ServiceAPI;
-
     constructor(config?: OSConfig);
-    alias(name: string, path: string): this;
-    on<K extends OSEventName>(event: K, callback: OSEvents[K]): this;
 
+    // Lifecycle
     async boot(opts?: BootOpts): Promise<void>;
-    async exec(opts: ExecOpts): Promise<number>;  // Takeover mode
+    async exec(opts?: ExecOpts): Promise<number>;  // Standalone mode
     async shutdown(): Promise<void>;
+    isBooted(): boolean;
+
+    // Path aliases
+    alias(name: string, path: string): this;
+    resolvePath(path: string): string;
+
+    // Syscall API (executes as init process)
+    async syscall<T>(name: string, ...args: unknown[]): Promise<T>;
+    syscallStream(name: string, ...args: unknown[]): AsyncIterable<Response>;
+
+    // Domain wrappers
+    async ems<T>(method: string, ...args: unknown[]): Promise<T>;
+    async vfs<T>(method: string, ...args: unknown[]): Promise<T>;
+    async process<T>(method: string, ...args: unknown[]): Promise<T>;
+    file<T>(method: string, ...args: unknown[]): Promise<T>;  // Alias for vfs
+    entity<T>(method: string, ...args: unknown[]): Promise<T>;  // Alias for ems
+
+    // Convenience helpers
+    async spawn(cmd: string, opts?): Promise<number>;
+    async kill(pid: number, signal?: number): Promise<void>;
+    async mount(type: string, source: string, target: string, opts?): Promise<void>;
+    async unmount(target: string): Promise<void>;
+    async copy(hostSource: string, vfsTarget: string): Promise<void>;
+    async read(filePath: string): Promise<Uint8Array>;
+    async text(filePath: string, encoding?: string): Promise<string>;
+
+    // Service management
+    async service(action: string, nameOrPid?: string | number): Promise<unknown>;
+
+    // Subsystem accessors
+    getHAL(): HAL;
+    getVFS(): VFS;
+    getKernel(): Kernel;
+    getEMS(): EMS;
+    getServices(): Map<string, ServiceDef>;
+    getEnv(): Record<string, string>;
 }
 ```
 
-**Lifecycle Hooks** (`os.on()`):
-```typescript
-const os = new OS()
-  .on('vfs', (os) => {
-    os.fs.mount('./src', '/vol/app');
-  })
-  .on('boot', (os) => {
-    console.log('OS ready');
-  });
-```
-
-**Boot Sequence with Hooks** (all callbacks receive OS instance):
-1. Create and initialize HAL → emit `hal`
-2. Create VFS, initialize → emit `vfs` (os.fs.* available)
-3. Create Kernel → emit `kernel` (os.service.* available)
-4. Spawn init if main provided → emit `boot`
-
-**Sub-APIs** (stubs):
-```typescript
-// ProcessAPI - os.process.*
-spawn(cmd, opts?): Promise<ProcessHandle>;  // Long-running process
-run(cmd, opts?): Promise<RunResult>;        // Run to completion
-shell(cmd, opts?): Promise<RunResult>;      // Shell command
-
-// ServiceAPI - os.service.*
-start(config): Promise<void>;
-stop(name): Promise<void>;
-restart(name): Promise<void>;
-get(name): Promise<ServiceInfo | undefined>;
-list(): Promise<ServiceInfo[]>;
-register(config): Promise<void>;
-unregister(name): Promise<void>;
-```
+**Boot Sequence**:
+1. HAL (hardware abstraction)
+2. EMS (entity management)
+3. VFS (virtual filesystem)
+4. Standard directories (/app, /bin, /etc, /home, /svc, /tmp, /usr, /var, /vol)
+5. ROM copy (userspace code from host)
+6. Kernel + Dispatcher
+7. Init process (default: /svc/init.ts)
 
 **Configuration**:
 ```typescript
 interface OSConfig {
+    storage?: {
+        type: 'memory' | 'sqlite' | 'postgres';
+        path?: string;  // For sqlite
+        url?: string;   // For postgres
+    };
+    env?: Record<string, string>;      // Environment for all processes
     aliases?: Record<string, string>;  // '@app' -> '/vol/app'
-    storage?: StorageConfig;           // memory, sqlite, postgres
-    env?: Record<string, string>;      // Environment variables
+    debug?: boolean;                   // Kernel debug logging
+    romPath?: string;                  // Host path to ROM (default: './rom')
 }
+```
 
-interface BootOpts {
-    main?: string;    // Init script path
-    debug?: boolean;  // Enable kernel debug logging
-}
+**Usage Examples**:
+```typescript
+// Library mode
+const os = new OS({ storage: { type: 'memory' } });
+await os.boot();
+const users = await os.ems('select', 'User', { where: { active: true } });
+await os.shutdown();
 
-interface ExecOpts {
-    main: string;     // Required for takeover mode
-    debug?: boolean;
-}
+// Standalone mode
+const os = new OS({ storage: { type: 'sqlite', path: '.data/monk.db' } });
+const exitCode = await os.exec();  // Blocks until SIGINT/SIGTERM
+process.exit(exitCode);
 ```
 
 ### F. Network Layer (Kernel, not VFS)
@@ -555,22 +655,34 @@ Streams of `Response` objects are the fundamental data flow unit. Arrays are a c
 ```
 .
 ├── src/                          # Kernel & core
-│   ├── kernel/                   # Process, syscalls, resources
-│   │   ├── kernel.ts            # Boot, dispatch, lifecycle
+│   ├── syscall/                  # Syscall layer (outside kernel)
+│   │   ├── index.ts              # Exports SyscallDispatcher
+│   │   ├── dispatcher.ts         # Switch routing, StreamController
+│   │   ├── types.ts              # Shared types
+│   │   ├── stream/               # Backpressure protocol
+│   │   │   ├── index.ts
+│   │   │   ├── controller.ts
+│   │   │   ├── constants.ts
+│   │   │   └── types.ts
+│   │   ├── vfs.ts                # file:*, fs:* syscalls
+│   │   ├── ems.ts                # ems:* syscalls
+│   │   ├── hal.ts                # net:*, port:*, channel:* syscalls
+│   │   ├── process.ts            # proc:*, activation:* syscalls
+│   │   ├── handle.ts             # handle:*, ipc:* syscalls
+│   │   └── pool.ts               # pool:*, worker:* syscalls
+│   ├── kernel/                   # Process & handle management
+│   │   ├── kernel.ts             # Boot, lifecycle, onWorkerMessage
+│   │   ├── kernel/               # Extracted kernel functions
 │   │   ├── process-table.ts      # Process registry
 │   │   ├── types.ts              # Process, SpawnOpts, etc.
 │   │   ├── errors.ts             # Error re-exports
 │   │   ├── services.ts           # Service definitions
 │   │   ├── pool.ts               # Worker pool management
+│   │   ├── pool-worker.ts        # Individual worker management
 │   │   ├── boot.ts               # ROM → VFS copy
 │   │   ├── mounts.ts             # Mount configuration
-│   │   ├── syscalls/             # Syscall handlers
-│   │   │   ├── dispatcher.ts
-│   │   │   ├── file.ts
-│   │   │   ├── network.ts
-│   │   │   ├── channel.ts
-│   │   │   ├── misc.ts
-│   │   │   └── types.ts
+│   │   ├── poll.ts               # Event polling
+│   │   ├── validate.ts           # Input validation
 │   │   ├── handle/               # Unified handle system
 │   │   │   ├── types.ts
 │   │   │   ├── file.ts
@@ -634,12 +746,10 @@ Streams of `Response` objects are the fundamental data flow unit. Arrays are a c
 │   │       ├── cache.ts          # Ring 8: Cache invalidation
 │   │       └── ...
 │   ├── os/                       # Public API
-│   │   ├── index.ts              # Exports
-│   │   ├── os.ts                 # OS class (boot, exec, lifecycle hooks)
-│   │   ├── fs.ts                 # FilesystemAPI
-│   │   ├── process.ts            # ProcessAPI (stub)
-│   │   ├── service.ts            # ServiceAPI (stub)
-│   │   └── types.ts              # OSConfig, OSEvents, process/service types
+│   │   ├── index.ts              # Exports OS class, types, APIs
+│   │   ├── os.ts                 # OS class (boot, exec, shutdown, syscall wrappers)
+│   │   ├── types.ts              # OSConfig, BootOpts, ExecOpts, OSEvents
+│   │   └── README.md             # API documentation
 │   └── message.ts                # Message, Response, respond helpers
 ├── rom/                          # Read-only bundled code (userspace)
 │   ├── lib/                      # Libraries for processes
@@ -679,9 +789,12 @@ Streams of `Response` objects are the fundamental data flow unit. Arrays are a c
 │   ├── bin/                      # Executable programs
 │   │   ├── init.ts               # Init process
 │   │   ├── shell.ts              # Interactive shell
-│   │   ├── cat.ts, ls.ts, ...   # UNIX utilities (45+)
-│   │   ├── telnetd.ts            # Telnet daemon
-│   │   └── logd.ts               # Log daemon
+│   │   └── cat.ts, ls.ts, ...   # UNIX utilities
+│   ├── svc/                      # System services (daemons)
+│   │   ├── init.ts               # PID 1, reaps zombie children
+│   │   ├── gatewayd.ts           # Unix socket gateway for external apps
+│   │   ├── logd.ts               # System log daemon
+│   │   └── telnetd.ts            # Telnet daemon for shell access
 │   └── etc/                      # Configuration
 │       ├── mounts.json           # Mount configuration
 │       └── services/             # Service definitions
@@ -698,11 +811,23 @@ Streams of `Response` objects are the fundamental data flow unit. Arrays are a c
 
 ### ROM Services (`rom/svc/`)
 
-Kernel services that run as Workers inside the OS:
-- **init.ts**: PID 1, reaps zombie children
-- **logd.ts**: System log daemon, subscribes to log.* pubsub
-- **telnetd.ts**: Telnet daemon for shell access
-- **gatewayd.ts**: Unix socket bridge for external apps (TODO)
+System services that run as Workers inside the OS:
+
+| Service | Purpose | Activation |
+|---------|---------|------------|
+| **init.ts** | PID 1, reaps zombie children | boot |
+| **gatewayd.ts** | Unix socket bridge for external apps | boot |
+| **logd.ts** | System log daemon | boot (pubsub: log.*) |
+| **telnetd.ts** | Telnet daemon for shell access | tcp:listen |
+
+**gatewayd Wire Protocol** (newline-delimited JSON):
+```
+Request:  { "type": "syscall", "id": "<uuid>", "name": "<syscall>", "args": [...] }
+Response: { "type": "response", "id": "<uuid>", "result": { "op": "...", "data": {...} } }
+Error:    { "type": "response", "id": "<uuid>", "error": { "code": "...", "message": "..." } }
+```
+
+The `id` field correlates responses to requests, enabling concurrent requests with interleaved responses on the same connection. Binary data in responses is base64-encoded for JSON transport.
 
 ### External Utilities (os-coreutils)
 
@@ -889,7 +1014,8 @@ await worker.release(workerId);                // Release to pool
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| Kernel/Core | 95% | Full process lifecycle, 30+ syscalls, worker pools |
+| Syscall Layer | 100% | Complete migration to src/syscall/, all 4 phases done |
+| Kernel/Core | 95% | Full process lifecycle, worker pools, handle management |
 | Process Mgmt | 95% | UUID/PID, signals, parent-child, worker isolation |
 | VFS | 95% | Plan 9 "everything is a file", hybrid EMS/HAL storage |
 | EMS | 95% | 8-ring observer pipeline, streaming queries |
@@ -897,7 +1023,8 @@ await worker.release(workerId);                // Release to pool
 | Networking | 85% | TCP/UDP, HTTP/WS, PostgreSQL/SQLite channels |
 | HAL Devices | 95% | 14 devices: SQLite + PostgreSQL storage backends |
 | Boot | 95% | ROM bootstrap, service activation, lifecycle events |
-| Public API | 90% | Core file/process/network APIs complete |
+| Public API | 95% | OS class rewritten with syscall wrappers, convenience helpers |
+| gatewayd | 100% | Unix socket gateway for external apps |
 
 **Storage Backends**:
 - **SQLite** (`BunStorageEngine`) — Embedded, single-node, WAL mode
@@ -910,13 +1037,13 @@ await worker.release(workerId);                // Release to pool
 - Path resolution transparently handles both via child indexes
 
 **Key TODOs**:
-- Complete `os.exec()` takeover mode
 - Implement `EntityModel.watch()`
 - Full UDP exposure to userland
 - Cross-process watch via PostgreSQL LISTEN/NOTIFY
+- Virtual process isolation in gatewayd (currently all clients share gatewayd's process context)
 
 ---
 
-**Last Updated**: December 2024 (v0.3.0: PostgreSQL storage backend, EMS integration)
+**Last Updated**: December 2024 (v0.4.0: Syscall layer migration, OS class rewrite, gatewayd)
 **Next Review**: As needed
 **Maintainer**: @monk-api/os team

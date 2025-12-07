@@ -18,11 +18,13 @@ The single-executable deployment (`bun build --compile`) isn't packaging an app�
 ┌─────────────────────────────────────────────────────────────┐
 │  Userland (rom/bin/*, services)                             │
 ├─────────────────────────────────────────────────────────────┤
-│  Process Library & Syscall API                              │
+│  Process Library & Syscall API (rom/lib/process/)           │
 ├─────────────────────────────────────────────────────────────┤
-│  OS Public API (boot, exec, lifecycle hooks)                │
+│  OS Public API (boot, exec, syscall wrappers, helpers)      │
 ├─────────────────────────────────────────────────────────────┤
-│  Kernel (syscalls, processes, handles, worker pools)        │
+│  Syscall Layer (dispatcher, stream controller, handlers)    │
+├─────────────────────────────────────────────────────────────┤
+│  Kernel (processes, handles, worker pools, services)        │
 ├─────────────────────────────────────────────────────────────┤
 │  VFS - Virtual File System (models: file, folder, device,   │
 │        proc, link)                                          │
@@ -59,6 +61,12 @@ The kernel is **message-pure**—structured objects flow between components, nev
 - File descriptors (0-255) map to kernel handle UUIDs per-process
 - Standard fds: `0=recv` (messages in), `1=send` (messages out), `2=warn` (diagnostics)
 
+**Syscall Layer** (separate from kernel):
+- `SyscallDispatcher` sits outside kernel, receives `(kernel, vfs, ems, hal)` as dependencies
+- Switch-based routing for O(1) syscall lookup
+- `StreamController` wraps each syscall for backpressure management
+- Domain handlers: vfs, ems, hal, process, handle, pool
+
 **Syscall Execution**:
 - Syscalls are async generators: `syscall(args) → AsyncIterable<Response>`
 - Each `Response` yields independently—no buffering to arrays
@@ -67,8 +75,8 @@ The kernel is **message-pure**—structured objects flow between components, nev
 
 **Multiplexed Streaming**:
 - Multiple concurrent syscalls per process, each with unique stream ID
-- Kernel dispatches responses to correct stream via `postMessage`
-- Backpressure via `stream_ping` every 100ms—kernel pauses at high-water mark
+- Dispatcher routes responses to correct stream via `postMessage`
+- Backpressure via `stream_ping` every 100ms—pauses at high-water mark
 - Stalled streams (no ping for 5s) are aborted
 
 **Worker Pools**:
@@ -132,13 +140,14 @@ Streaming utilities use message-based I/O—`recv(0)` for stdin, `send(1, msg)` 
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| Kernel/Core | 95% | Full process lifecycle, 30+ syscalls, worker pools |
+| Syscall Layer | 100% | Complete migration to src/syscall/, dispatcher outside kernel |
+| Kernel/Core | 95% | Process lifecycle, handle management, worker pools |
 | Process Mgmt | 95% | UUID/PID, signals, parent-child, worker isolation |
 | VFS | 95% | Plan 9 "everything is a file", hybrid EMS/HAL storage |
+| EMS | 95% | 8-ring observer pipeline, streaming queries |
 | IPC | 90% | Pipes, ports, channels, shared memory (mutex/semaphore) |
 | Networking | 85% | TCP/UDP, HTTP/WS, PostgreSQL/SQLite channels |
 | HAL Devices | 95% | 14 devices: SQLite + PostgreSQL storage backends |
-| EMS | 95% | 8-ring observer pipeline, streaming queries |
 | Boot | 95% | ROM bootstrap, service activation, lifecycle events |
 
 **Storage Backends**:

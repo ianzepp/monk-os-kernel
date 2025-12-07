@@ -1313,3 +1313,286 @@ The syscall layer refactor:
 5. **Preserves streaming/backpressure**: StreamController moves to `src/syscall/stream/`.
 
 6. **Enables future optimizations**: Clear boundaries make it easier to add caching, batching, or other optimizations at the syscall layer.
+
+---
+
+## Code Review (2024-12-07)
+
+**Reviewer perspective**: Linux kernel dev + Staff TypeScript engineer
+**Scope**: `src/syscall/` (completed Phase 4)
+
+### Overall Assessment
+
+The architecture is solid. The separation of concerns is clean: dispatcher routes to domain files, dependencies are explicit, and streaming uses proper backpressure. The documentation headers follow the kernel-dev style well.
+
+---
+
+### Critical Issues
+
+#### 1. Race Condition: Process lookup during stream message routing
+**File**: `dispatcher.ts:541-548`
+
+```typescript
+for (const proc of this.kernel.processes.all()) {
+    if (proc.activeStreams.has(msg.id)) {
+        pid = proc.id;
+        break;
+    }
+}
+```
+
+**Problem**: Iterating `processes.all()` while another async operation could modify the process table. If a process exits during iteration, this could throw or return stale data.
+
+**Mitigation**: The kernel should provide an atomic lookup method: `kernel.processes.findByStreamId(streamId)`.
+
+---
+
+#### 2. TOCTOU Bug in procChdir
+**File**: `process.ts:300-318`
+
+```typescript
+const stat = await vfs.stat(resolved, proc.user);
+if (stat.model !== 'folder') { ... }
+// ^^^ Directory could be deleted here
+proc.cwd = resolved;
+```
+
+**Problem**: Classic time-of-check-time-of-use. Directory could be deleted between stat() and setting cwd.
+
+**Impact**: Process cwd points to non-existent directory. Relative path resolution may fail unexpectedly.
+
+**Mitigation**: Either document this as acceptable (like POSIX) or use an atomic chdir in VFS that returns error if directory doesn't exist.
+
+---
+
+#### 3. Memory Leak: safetyTimeoutId not cleared on early exit
+**File**: `stream/controller.ts:402-408`
+
+```typescript
+private waitForResume(): Promise<void> {
+    return new Promise<void>(resolve => {
+        this.resumeResolve = resolve;
+        this.safetyTimeoutId = this.deps.setTimeout(() => { ... }, ...);
+    });
+}
+```
+
+**Problem**: If `wrap()` exits early (via abort or throw), `safetyTimeoutId` is never cleared. The timeout callback will fire after the controller is discarded.
+
+**Mitigation**: Add cleanup in a wrapper or document that callers must call `clearSafetyTimeout()` manually.
+
+---
+
+### High Priority Issues
+
+#### 4. Duplicate poolStats definition
+**Files**: `process.ts:405-409` and `pool.ts:73-77`
+
+Both files define identical `poolStats()` functions. The dispatcher imports from `process.ts` (line 69), making `pool.ts:73-77` dead code.
+
+**Fix**: Remove one. Logically belongs in `pool.ts`.
+
+---
+
+#### 5. Inconsistent error code preservation
+**File**: `ems.ts` (all syscalls), `vfs.ts:421-424`
+
+```typescript
+// ems.ts pattern - loses error code
+catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    yield respond.error('EIO', msg);
+}
+
+// vfs.ts fileReaddir - also loses code
+catch (err) {
+    yield respond.error('ENOENT', (err as Error).message);
+}
+```
+
+**Compare to** `process.ts:309-311` which correctly preserves:
+```typescript
+const code = (err as { code?: string }).code ?? 'ENOENT';
+yield respond.error(code, (err as Error).message);
+```
+
+**Fix**: Standardize error handling. Consider a helper:
+```typescript
+function yieldError(err: unknown, defaultCode: string): Response {
+    const e = err as Error & { code?: string };
+    return respond.error(e.code ?? defaultCode, e.message ?? String(err));
+}
+```
+
+---
+
+#### 6. Missing MAX_STREAM_ENTRIES limit in emsSelect
+**File**: `ems.ts:71-76`
+
+```typescript
+for await (const record of ems.ops.selectAny(model, filterData)) {
+    yield respond.item(record);  // No count limit!
+}
+```
+
+**Compare to** `vfs.ts:406-415` which enforces the limit:
+```typescript
+if (count > MAX_STREAM_ENTRIES) {
+    yield respond.error('EFBIG', ...);
+    return;
+}
+```
+
+**Impact**: Unbounded query could exhaust memory or stall consumer.
+
+---
+
+#### 7. Inconsistent process state checking
+**File**: `handle.ts:137-141` vs everywhere else
+
+Only `handleSend` checks process state:
+```typescript
+if (proc.state !== 'running') {
+    yield respond.error('ESRCH', 'Process is not running');
+    return;
+}
+```
+
+Other syscalls (fileRead, fileWrite, channelCall, etc.) don't check this.
+
+**Question**: Is this check necessary? If yes, it should be in all syscalls. If no, remove it from handleSend.
+
+---
+
+### Medium Priority Issues
+
+#### 8. Unused VFS parameter pattern
+**File**: `vfs.ts:77-81, 612-616, 646-650`
+
+Multiple syscalls accept `vfs: VFS` but don't use it:
+```typescript
+export async function* fileOpen(
+    proc: Process,
+    kernel: Kernel,
+    _vfs: VFS,  // Unused - delegates to openFile(kernel, ...)
+    ...
+)
+```
+
+**Impact**: Confusing API. Caller passes VFS but kernel's internal VFS is used.
+
+**Options**:
+1. Use the passed VFS consistently
+2. Remove VFS parameter where unused
+3. Document why (kernel policy enforcement needs kernel's VFS reference)
+
+---
+
+#### 9. fileRmdir calls vfs.unlink
+**File**: `vfs.ts:381-383`
+
+```typescript
+export async function* fileRmdir(...) {
+    await vfs.unlink(path, proc.user);  // Same as fileUnlink?
+}
+```
+
+**Question**: Should this call `vfs.rmdir()` instead? Or does VFS's `unlink()` handle directories? If the latter, document it.
+
+---
+
+#### 10. Unix socket via connectTcp with magic port 0
+**File**: `hal.ts:94-97`
+
+```typescript
+case 'unix':
+    yield respond.ok(await connectTcp(kernel, proc, host, 0));
+```
+
+**Issue**: Using port 0 as discriminator is a magic number pattern. Confusing that Unix sockets use `connectTcp`.
+
+**Suggestion**: Consider `connectUnix()` or at minimum document why.
+
+---
+
+#### 11. Uint8Array check may fail across realms
+**File**: `hal.ts:215-218`
+
+```typescript
+if (!(data instanceof Uint8Array)) {
+    yield respond.error('EINVAL', 'data must be Uint8Array');
+}
+```
+
+**Issue**: `instanceof` fails if data came from different JavaScript context (e.g., iframe, worker message).
+
+**Fix**: Use `ArrayBuffer.isView(data)` or check constructor name.
+
+---
+
+### Minor Issues
+
+#### 12. Indentation inconsistency in dispatcher.ts
+Starting at line 194, section comment indentation is inconsistent with earlier sections:
+
+```typescript
+            case 'file:send':
+                ...
+                break;
+
+                // =================================================================
+                // MOUNT SYSCALLS (fs:*)  <- Extra indent
+                // =================================================================
+```
+
+---
+
+#### 13. Silent security event in onWorkerMessage
+**File**: `dispatcher.ts:566-575`
+
+Worker mismatch is silently dropped:
+```typescript
+if (proc.worker !== worker) {
+    // Only sends error to syscall, no logging
+    return;
+}
+```
+
+**Suggestion**: Log this for security auditing. A worker sending messages claiming to be a different process is suspicious.
+
+---
+
+### Testability Observations
+
+**Good**:
+- `StreamController` has excellent test helpers (`gap`, `isPaused`, `sent`, `acked`, `isStalled()`)
+- Dependencies are injectable via constructor
+- Standalone functions enable unit testing with mocks
+
+**Missing**:
+- `SyscallDispatcher` has no test helpers (e.g., can't inspect active streams count)
+- No centralized mock factory for kernel/vfs/ems/hal
+- No way to inject custom dispatcher into kernel for integration tests
+
+---
+
+### Documentation Gaps
+
+1. **Concurrency serialization claim** (`process.ts:33-34`): "Concurrent syscalls from the same process are serialized by the message queue" - where is this enforced? Should reference the code.
+
+2. **VFS path sanitization**: Path arguments are validated as strings but no mention of path traversal protection. Document that VFS layer handles this.
+
+3. **Resource limits**: No documented limits on handles, streams, etc. Is this intentional?
+
+---
+
+### Issue Summary
+
+| Severity | Count | Action |
+|----------|-------|--------|
+| Critical | 3 | Fix before production |
+| High | 4 | Fix in next sprint |
+| Medium | 4 | Address when touching file |
+| Minor | 2 | Nice to have |
+
+The syscall layer is well-structured and follows the design doc. The critical issues are real but bounded in impact. The biggest win would be standardizing error handling across all syscalls with a shared utility.
