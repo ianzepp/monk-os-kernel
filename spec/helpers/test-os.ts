@@ -30,7 +30,10 @@ export class TestOS extends OS {
      * @throws Error if not booted
      */
     get internalHal(): HAL {
-        if (!this.__hal) throw new Error('OS not booted');
+        if (!this.__hal) {
+            throw new Error('OS not booted');
+        }
+
         return this.__hal;
     }
 
@@ -39,7 +42,10 @@ export class TestOS extends OS {
      * @throws Error if not booted
      */
     get internalEms(): EMS {
-        if (!this.__ems) throw new Error('OS not booted');
+        if (!this.__ems) {
+            throw new Error('OS not booted');
+        }
+
         return this.__ems;
     }
 
@@ -48,7 +54,10 @@ export class TestOS extends OS {
      * @throws Error if not booted
      */
     get internalVfs(): VFS {
-        if (!this.__vfs) throw new Error('OS not booted');
+        if (!this.__vfs) {
+            throw new Error('OS not booted');
+        }
+
         return this.__vfs;
     }
 
@@ -57,7 +66,10 @@ export class TestOS extends OS {
      * @throws Error if not booted
      */
     get internalKernel(): Kernel {
-        if (!this.__kernel) throw new Error('OS not booted');
+        if (!this.__kernel) {
+            throw new Error('OS not booted');
+        }
+
         return this.__kernel;
     }
 
@@ -66,7 +78,10 @@ export class TestOS extends OS {
      * @throws Error if not booted
      */
     get internalDispatcher(): SyscallDispatcher {
-        if (!this.__dispatcher) throw new Error('OS not booted');
+        if (!this.__dispatcher) {
+            throw new Error('OS not booted');
+        }
+
         return this.__dispatcher;
     }
 
@@ -75,7 +90,10 @@ export class TestOS extends OS {
      * @throws Error if not booted
      */
     get internalGateway(): Gateway {
-        if (!this.__gateway) throw new Error('OS not booted');
+        if (!this.__gateway) {
+            throw new Error('OS not booted');
+        }
+
         return this.__gateway;
     }
 }

@@ -46,6 +46,7 @@ async function firstResponse(iterable: AsyncIterable<Response>): Promise<Respons
     for await (const response of iterable) {
         return response;
     }
+
     throw new Error('No response received');
 }
 
@@ -54,9 +55,11 @@ async function firstResponse(iterable: AsyncIterable<Response>): Promise<Respons
  */
 async function collectResponses(iterable: AsyncIterable<Response>): Promise<Response[]> {
     const responses: Response[] = [];
+
     for await (const response of iterable) {
         responses.push(response);
     }
+
     return responses;
 }
 

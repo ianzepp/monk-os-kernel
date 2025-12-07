@@ -91,9 +91,11 @@ async function collectResponses(
     args: unknown[],
 ): Promise<Response[]> {
     const responses: Response[] = [];
+
     for await (const response of dispatcher.dispatch(proc, name, args)) {
         responses.push(response);
     }
+
     return responses;
 }
 
@@ -109,6 +111,7 @@ async function firstResponse(
     for await (const response of dispatcher.dispatch(proc, name, args)) {
         return response;
     }
+
     throw new Error('No response received');
 }
 
@@ -122,6 +125,7 @@ describe('SyscallDispatcher', () => {
 
     beforeEach(() => {
         const mocks = createMockDeps();
+
         mockKernel = mocks.mockKernel;
         mockVfs = mocks.mockVfs;
         mockEms = mocks.mockEms;
@@ -212,6 +216,7 @@ describe('SyscallDispatcher', () => {
 
             for (const [name, args] of emsSyscalls) {
                 const response = await firstResponse(noEmsDispatcher, proc, name as string, args as unknown[]);
+
                 expect(response.op).toBe('error');
                 expect((response.data as { code: string }).code).toBe('ENOSYS');
             }
@@ -288,6 +293,7 @@ describe('SyscallDispatcher', () => {
         it('should route all VFS syscalls (not ENOSYS)', async () => {
             for (const name of vfsSyscalls) {
                 const response = await firstResponse(dispatcher, proc, name, []);
+
                 // Should get EINVAL (validation) not ENOSYS (unknown)
                 if (response.op === 'error') {
                     expect((response.data as { code: string }).code).not.toBe('ENOSYS');
@@ -303,7 +309,9 @@ describe('SyscallDispatcher', () => {
                 if (requiresKernelIntegration.includes(name)) {
                     continue; // Skip syscalls that need full kernel
                 }
+
                 const response = await firstResponse(dispatcher, proc, name, []);
+
                 if (response.op === 'error') {
                     expect((response.data as { code: string }).code).not.toBe('ENOSYS');
                 }
@@ -313,6 +321,7 @@ describe('SyscallDispatcher', () => {
         it('should route all EMS syscalls when EMS available (not ENOSYS)', async () => {
             for (const name of emsSyscalls) {
                 const response = await firstResponse(dispatcher, proc, name, []);
+
                 if (response.op === 'error') {
                     expect((response.data as { code: string }).code).not.toBe('ENOSYS');
                 }
@@ -322,6 +331,7 @@ describe('SyscallDispatcher', () => {
         it('should route all HAL syscalls (not ENOSYS)', async () => {
             for (const name of halSyscalls) {
                 const response = await firstResponse(dispatcher, proc, name, []);
+
                 if (response.op === 'error') {
                     expect((response.data as { code: string }).code).not.toBe('ENOSYS');
                 }
@@ -336,7 +346,9 @@ describe('SyscallDispatcher', () => {
                 if (requiresKernelIntegration.includes(name)) {
                     continue;
                 }
+
                 const response = await firstResponse(dispatcher, proc, name, []);
+
                 if (response.op === 'error') {
                     expect((response.data as { code: string }).code).not.toBe('ENOSYS');
                 }
@@ -351,7 +363,9 @@ describe('SyscallDispatcher', () => {
                 if (requiresKernelIntegration.includes(name)) {
                     continue;
                 }
+
                 const response = await firstResponse(dispatcher, proc, name, []);
+
                 if (response.op === 'error') {
                     expect((response.data as { code: string }).code).not.toBe('ENOSYS');
                 }

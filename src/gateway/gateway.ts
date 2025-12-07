@@ -259,12 +259,15 @@ export class Gateway {
         // RC-2: Capture reference before entering loop
         const listener = this.listener;
 
-        if (!listener) return;
+        if (!listener) {
+            return;
+        }
 
         try {
             // Loop until listener.accept() throws (closed by shutdown)
             while (true) {
                 const socket = await listener.accept();
+
                 this.clients.add(socket);
 
                 // Handle client (fire-and-forget)
@@ -277,6 +280,7 @@ export class Gateway {
             // Only log if this wasn't a clean shutdown
             if (!this.shuttingDown) {
                 const error = err as Error;
+
                 console.error(`Gateway accept error: ${error.message}`);
             }
         }
@@ -310,6 +314,7 @@ export class Gateway {
         if (!init) {
             // Kernel not booted - reject connection
             await socket.close();
+
             return;
         }
 
@@ -323,6 +328,7 @@ export class Gateway {
 
         if (!proc) {
             await socket.close();
+
             return;
         }
 
@@ -355,6 +361,7 @@ export class Gateway {
 
                 while ((newlineIdx = readBuffer.indexOf('\n')) !== -1) {
                     const line = readBuffer.slice(0, newlineIdx);
+
                     readBuffer = readBuffer.slice(newlineIdx + 1);
 
                     if (line.trim()) {
@@ -416,6 +423,7 @@ export class Gateway {
         }
         catch {
             await this.sendError(socket, 'parse', 'EINVAL', 'Invalid JSON');
+
             return;
         }
 
@@ -424,20 +432,27 @@ export class Gateway {
         // Validate required fields
         if (!msg.call) {
             await this.sendError(socket, id, 'EINVAL', 'Missing "call" field');
+
             return;
         }
 
         // Check disconnect state
-        if (isDisconnecting()) return;
+        if (isDisconnecting()) {
+            return;
+        }
 
         // Dispatch syscall and stream responses
         try {
             for await (const response of this.dispatcher.execute(proc, id, msg.call, msg.args ?? [])) {
-                if (isDisconnecting()) break;
+                if (isDisconnecting()) {
+                    break;
+                }
 
                 const sent = await this.sendResponse(socket, id, response);
 
-                if (!sent) break;
+                if (!sent) {
+                    break;
+                }
 
                 // Terminal ops end stream
                 if (response.op === 'ok' || response.op === 'error' ||
@@ -500,6 +515,7 @@ export class Gateway {
     private async safeWrite(socket: Socket, data: string): Promise<boolean> {
         try {
             await socket.write(this.textEncoder.encode(data));
+
             return true;
         }
         catch {
@@ -538,8 +554,13 @@ export class Gateway {
         if (response.op === 'error' && 'data' in response) {
             const errorData = response.data as { code?: string; message?: string };
 
-            if (errorData.code) wire.code = errorData.code;
-            if (errorData.message) wire.message = errorData.message;
+            if (errorData.code) {
+                wire.code = errorData.code;
+            }
+
+            if (errorData.message) {
+                wire.message = errorData.message;
+            }
 
             // Remove nested data since we flattened code/message
             delete wire.data;

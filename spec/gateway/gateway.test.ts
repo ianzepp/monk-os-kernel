@@ -125,7 +125,9 @@ async function sendMessage(
         while (true) {
             const chunk = await socket.read({ timeout: 1000 });
 
-            if (chunk.length === 0) break;
+            if (chunk.length === 0) {
+                break;
+            }
 
             buffer += new TextDecoder().decode(chunk);
 
@@ -604,7 +606,9 @@ describe('Gateway', () => {
             while (responses.length < 2) {
                 const chunk = await socket.read({ timeout: 1000 });
 
-                if (chunk.length === 0) break;
+                if (chunk.length === 0) {
+                    break;
+                }
 
                 buffer += new TextDecoder().decode(chunk);
 

@@ -32,7 +32,9 @@ function createMockDeps(): StreamControllerDeps & {
         now: () => currentTime,
         setTimeout: (cb: () => void, ms: number): TimeoutId => {
             const id = nextTimeoutId++;
+
             timeouts.set(id, { cb, at: currentTime + ms });
+
             return id as unknown as TimeoutId;
         },
         clearTimeout: (id: TimeoutId) => {
@@ -70,9 +72,11 @@ async function* createSource<T>(items: T[]): AsyncIterable<T> {
  */
 async function collect<T>(source: AsyncIterable<T>): Promise<T[]> {
     const items: T[] = [];
+
     for await (const item of source) {
         items.push(item);
     }
+
     return items;
 }
 
@@ -80,6 +84,7 @@ describe('StreamController', () => {
     describe('constructor', () => {
         it('should create with default options', () => {
             const controller = new StreamController();
+
             expect(controller.gap).toBe(0);
             expect(controller.sent).toBe(0);
             expect(controller.acked).toBe(0);
@@ -98,6 +103,7 @@ describe('StreamController', () => {
 
         it('should initialize lastPingTime to current time', () => {
             const deps = createMockDeps();
+
             deps.setTime(12345);
 
             const controller = new StreamController(deps);
@@ -143,6 +149,7 @@ describe('StreamController', () => {
 
         it('should exit early if already aborted', async () => {
             const controller = new StreamController();
+
             controller.abort.abort();
 
             const source = createSource([1, 2, 3]);
@@ -153,6 +160,7 @@ describe('StreamController', () => {
 
         it('should reset ping timer on first item', async () => {
             const deps = createMockDeps();
+
             deps.setTime(1000);
 
             const controller = new StreamController(deps, { stallTimeout: 100 });
@@ -234,11 +242,17 @@ describe('StreamController', () => {
                     // If timed out, send ping to resume
                     controller.onPing(controller.sent);
                     const resumed = await iterator.next();
-                    if (!resumed.done) items.push(resumed.value as number);
+
+                    if (!resumed.done) {
+                        items.push(resumed.value as number);
+                    }
                 }
                 else {
                     const { value, done } = result as IteratorResult<number>;
-                    if (!done) items.push(value as number);
+
+                    if (!done) {
+                        items.push(value as number);
+                    }
                 }
             }
 
@@ -258,6 +272,7 @@ describe('StreamController', () => {
 
         it('should update lastPingTime', () => {
             const deps = createMockDeps();
+
             deps.setTime(1000);
             const controller = new StreamController(deps);
 

@@ -49,6 +49,7 @@ async function firstResponse(iterable: AsyncIterable<Response>): Promise<Respons
     for await (const response of iterable) {
         return response;
     }
+
     throw new Error('No response received');
 }
 
