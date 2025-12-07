@@ -1,5 +1,7 @@
 # Monk OS - Architectural Thesis
 
+> **Status: IMPLEMENTED** - This architectural thesis has been implemented. The kernel-service separation, gatewayd bridge, and external package structure described here are now the active architecture.
+
 ## Executive Summary
 
 Monk OS should evolve from a self-contained operating system with bundled userland into a **kernel with internal services** that external applications consume via syscalls. The kernel's Worker-based process system remains valuable for **kernel services** (logd, authd, gatewayd), while **user applications** (shell, display, utilities) run externally and connect via Unix socket.

@@ -10,7 +10,7 @@
  */
 import { EINVAL } from '@src/hal/errors.js';
 
-export type MountType = 'memory' | 'host' | 'transpiled-host' | 'storage';
+export type MountType = 'memory' | 'host' | 'transpiled-host' | 'storage' | 'entity';
 
 /**
  * Base mount definition
@@ -81,13 +81,29 @@ export interface StorageMountDef extends BaseMountDef {
 }
 
 /**
+ * Entity mount - synthetic filesystem backed by EMS entity data
+ */
+export interface EntityMountDef extends BaseMountDef {
+    type: 'entity';
+    options?: {
+        /** Filter to single model type (omit for all models) */
+        model?: string;
+        /** Field to use as directory name (default: 'id') */
+        field?: string;
+        /** Maximum relationship traversal depth (default: 3) */
+        maxDepth?: number;
+    };
+}
+
+/**
  * Union of all mount definitions
  */
 export type MountDef =
     | MemoryMountDef
     | HostMountDef
     | TranspiledHostMountDef
-    | StorageMountDef;
+    | StorageMountDef
+    | EntityMountDef;
 
 /**
  * Mounts configuration file structure (/etc/mounts.json)
@@ -116,6 +132,7 @@ export interface MountLoaderDeps {
         }>;
         mkdir(path: string, caller: string, opts?: { recursive?: boolean }): Promise<string>;
         mountHost(path: string, source: string, opts?: { readonly?: boolean }): void;
+        mountEntity(path: string, options?: { model?: string; field?: string; maxDepth?: number }): Promise<void>;
         setAccess(path: string, caller: string, acl: ACL | null): Promise<void>;
     };
     hal: {
@@ -236,6 +253,11 @@ export async function applyMount(deps: MountLoaderDeps, mount: MountDef): Promis
         case 'storage':
             // Storage mounts use HAL storage backend
             // This is the default behavior, nothing special needed
+            break;
+
+        case 'entity':
+            // Entity mount - synthetic filesystem backed by EMS
+            await vfs.mountEntity(mount.path, mount.options);
             break;
 
         default:

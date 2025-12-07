@@ -99,6 +99,7 @@ import { Gateway } from '@src/gateway/index.js';
 const STANDARD_DIRECTORIES = [
     '/app',      // Application data and state
     '/bin',      // User commands
+    '/ems',      // Entity filesystem mount
     '/etc',      // System configuration
     '/home',     // User home directories
     '/svc',      // Service definitions
