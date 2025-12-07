@@ -53,7 +53,7 @@ The syscall layer has been fully integrated with the kernel. Key architectural c
 
 3. **Message flow**:
    ```
-   Worker → kernel.onWorkerMessage → dispatcher.handleMessage()
+   Worker → kernel.onWorkerMessage → dispatcher.onWorkerMessage()
                                           ↓
                                     dispatcher.execute()
                                           ↓

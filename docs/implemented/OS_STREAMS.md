@@ -460,7 +460,7 @@ This pattern is consistent with gRPC streaming, Server-Sent Events, and WebSocke
 
 **File**: `src/kernel/kernel.ts`
 
-**Current**: `handleMessage()` awaits single result, sends single response.
+**Current**: `onWorkerMessage()` awaits single result, sends single response.
 
 **Change**: Iterate all yielded `Response` objects, send each as separate message.
 

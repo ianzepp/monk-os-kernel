@@ -93,7 +93,7 @@
 
 ### Message Flow (Syscall Dispatch)
 ```
-Worker ──postMessage──▶ kernel.onWorkerMessage ──▶ dispatcher.handleMessage()
+Worker ──postMessage──▶ kernel.onWorkerMessage ──▶ dispatcher.onWorkerMessage()
                                                           │
                                                           ▼
                                                    dispatcher.execute()

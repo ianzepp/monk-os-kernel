@@ -65,7 +65,7 @@
  * ===========
  * - deps.setTimeout injectable for testing blob cleanup timing
  * - VFS loader injectable for testing with mock scripts
- * - Message handlers call pure functions (handleMessage, forceExit)
+ * - Message handlers call pure functions (onWorkerMessage, forceExit)
  *
  * @module kernel/kernel/spawn-worker
  */

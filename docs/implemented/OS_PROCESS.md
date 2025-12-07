@@ -41,7 +41,7 @@ Processes don't know they're in a Worker. They just call `read()`, `write()`, `c
 │                           │                                 │
 ├───────────────────────────┴─────────────────────────────────┤
 │  Kernel (Main Thread)                                       │
-│  - Kernel.handleMessage()                                   │
+│  - Kernel.onWorkerMessage()                                   │
 │  - SyscallDispatcher                                        │
 └─────────────────────────────────────────────────────────────┘
 ```
