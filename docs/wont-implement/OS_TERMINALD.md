@@ -1,9 +1,6 @@
 # Terminal Daemon (terminald)
 
-> **Status**: Planning
-> **Complexity**: Medium
-> **Package**: `@monk-api/terminald`
-> **Dependencies**: `@monk-api/httpd` (or standalone HTTP)
+> **Status:** Won't implement in core OS. External service.
 
 Web-based terminal access to the Monk OS shell.
 

@@ -1,5 +1,7 @@
 # VFS Entity Mounting
 
+> **Status:** Won't implement. EntityMount already provides this functionality.
+
 ## Overview
 
 This document describes two related features that enable "everything is a file" for EMS entities:

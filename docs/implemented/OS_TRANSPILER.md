@@ -1,5 +1,7 @@
 # VFS Transpiler Architecture
 
+> **Status:** Implemented. Used for core OS services only. Most userspace code execution now happens outside the OS (via gatewayd), reducing the need for further transpiler improvements.
+
 The VFS Loader enables execution of TypeScript stored in the virtual filesystem. This document addresses the fragile regex-based implementation and explores robust alternatives.
 
 ---

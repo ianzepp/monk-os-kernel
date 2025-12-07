@@ -1,10 +1,6 @@
 # SMTP Daemon (smtpd)
 
-> **Status**: Planning
-> **Complexity**: Medium
-> **Package**: `@anthropic/monk-smtpd`
-> **Dependencies**: None (standalone)
-> **Required By**: `@anthropic/monk-authd` (magic link provider)
+> **Status:** Won't implement in core OS. External service.
 
 Email sending service for Monk OS.
 

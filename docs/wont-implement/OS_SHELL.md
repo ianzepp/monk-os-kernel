@@ -1,5 +1,7 @@
 # Shell Commands Conversion: api/lib/tty/commands -> rom/bin
 
+> **Status:** Won't implement. Shell and coreutils moved to separate `os-coreutils` package. This doc is historical only.
+
 This document tracks the conversion of shell commands from the old `api/lib/tty/commands/`
 implementation to the new `rom/bin/` syscall-based implementation.
 

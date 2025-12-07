@@ -1,9 +1,6 @@
 # Auth Daemon (authd)
 
-> **Status**: Planning
-> **Complexity**: High (multiple phases)
-> **Package**: `@anthropic/monk-authd`
-> **Dependencies**: `@anthropic/monk-smtpd` (for magic links)
+> **Status**: Won't implement in core OS. Auth will be an external service communicating via gatewayd.
 
 Identity and authentication service for Monk OS.
 

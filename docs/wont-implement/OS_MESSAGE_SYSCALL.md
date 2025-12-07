@@ -1,5 +1,7 @@
 # Unify Syscall Transport with Message Format
 
+> **Status:** Won't implement. Current formats work fine, unification not worth the churn.
+
 ## Current State
 
 Two message formats exist:

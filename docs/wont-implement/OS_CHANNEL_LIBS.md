@@ -1,5 +1,7 @@
 # Channel Libraries
 
+> **Status:** Won't implement. External code uses native Bun APIs (fetch, Bun.sql) directly rather than OS-internal wrappers.
+
 Higher-level libraries built on the Channel I/O primitive for common protocols.
 
 ## Overview

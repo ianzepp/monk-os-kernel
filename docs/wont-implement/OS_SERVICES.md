@@ -1,8 +1,6 @@
 # OS Services Architecture
 
-> **Status**: Planning
-> **Complexity**: Medium
-> **Dependencies**: None
+> **Status:** Won't implement. Services will be external projects communicating via gatewayd. OS provides copy()/copyDir() for putting files into VFS if needed.
 
 External, installable userspace services for Monk OS.
 

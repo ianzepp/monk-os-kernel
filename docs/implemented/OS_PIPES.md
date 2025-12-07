@@ -1,5 +1,7 @@
 # OS Pipes & Stream Architecture
 
+> **Status:** Implemented. MessagePipe provides message-first IPC. Remaining items are refinements or out of scope (shell operations moved to os-coreutils).
+
 ## Current State
 
 Pipes use a **message-first architecture** via `MessagePipe` (`src/kernel/resource/message-pipe.ts`). This design passes `Response` objects directly rather than serializing to bytes, enabling structured message passing with built-in backpressure and EOF signaling.

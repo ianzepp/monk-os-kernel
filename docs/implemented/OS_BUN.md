@@ -1,5 +1,7 @@
 # Bun Primitives in Monk OS
 
+> **Status:** Partially implemented. No further tracking here — see `AGENTS.md` section 2.B (HAL) for current state.
+
 This document tracks Bun runtime primitives used by Monk OS and opportunities for enhancement.
 
 ## Philosophy

@@ -1,5 +1,7 @@
 # OS Display System
 
+> **Status:** Won't implement in core OS. Moving to separate `../displayd` and `../displayd-client` packages.
+
 A browser-based display server using EMS entities and EntityMount.
 
 ## Status

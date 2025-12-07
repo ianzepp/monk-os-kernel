@@ -1,5 +1,7 @@
 # OS Transactions: Atomic Multi-Statement Database Operations
 
+> **Status:** Implemented.
+
 ## Implementation Status: COMPLETED
 
 | Phase | Description | Status |
