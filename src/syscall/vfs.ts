@@ -414,7 +414,7 @@ export async function* fileReaddir(
                 return;
             }
 
-            yield respond.item(entry.name);
+            yield respond.item({ name: entry.name, model: entry.model });
         }
 
         yield respond.done();

@@ -329,8 +329,8 @@ describe('VFS Syscalls - fileReaddir', () => {
         proc = createMockProcess();
         mockVfs = {
             readdir: mock(() => (async function* () {
-                yield { name: 'file1.txt' };
-                yield { name: 'file2.txt' };
+                yield { name: 'file1.txt', model: 'file' };
+                yield { name: 'file2.txt', model: 'file' };
             })()),
         } as unknown as VFS;
     });
@@ -348,9 +348,9 @@ describe('VFS Syscalls - fileReaddir', () => {
 
         expect(responses.length).toBe(3);
         expect(responses[0]!.op).toBe('item');
-        expect(responses[0]!.data).toBe('file1.txt');
+        expect(responses[0]!.data).toEqual({ name: 'file1.txt', model: 'file' });
         expect(responses[1]!.op).toBe('item');
-        expect(responses[1]!.data).toBe('file2.txt');
+        expect(responses[1]!.data).toEqual({ name: 'file2.txt', model: 'file' });
         expect(responses[2]!.op).toBe('done');
     });
 });
