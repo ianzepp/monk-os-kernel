@@ -100,14 +100,23 @@ The kernel is **message-pure**—structured objects flow between components, nev
 import { OS } from '@monk-api/os';
 
 const os = new OS();
-os.fs.mount('./src', '/vol/app');
+await os.boot();
+
+// Mount host directory into VFS
+await os.mount('host', './src', '/vol/app');
 ```
 
 **Headless** — boot and return control to your app:
 
 ```typescript
 await os.boot();
-await os.fs.write('/vol/app/data.json', data);
+
+// Read files
+const config = await os.text('/etc/config.json');
+
+// Use syscalls for writes
+await os.vfs('write', fd, new TextEncoder().encode(data));
+
 await os.shutdown();
 ```
 
@@ -115,8 +124,9 @@ await os.shutdown();
 
 ```typescript
 await os.boot({ main: '/vol/app/init.ts' });
+
 // init runs in a Worker, your app continues
-await os.process.shell('ps');
+const pid = await os.spawn('/bin/ps');
 ```
 
 **Takeover** — OS owns the process:
