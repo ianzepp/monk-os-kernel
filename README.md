@@ -108,5 +108,5 @@ It's a **programming tool** - a way to structure your backend code using operati
 
 ## Want to Learn More?
 
-- `README_FOR_TECHIES.md` - Technical overview
-- `AGENTS.md` - Deep technical documentation (for developers building on Monk OS)
+- [README_FOR_TECHIES.md](README_FOR_TECHIES.md) - Technical overview
+- [AGENTS.md](AGENTS.md) - Deep technical documentation (for developers building on Monk OS)
