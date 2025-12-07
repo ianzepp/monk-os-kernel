@@ -1,7 +1,0 @@
-{
-  "handler": "/svc/gatewayd",
-  "activate": {
-    "type": "boot"
-  },
-  "description": "Unix socket gateway - bridges external apps to kernel syscalls"
-}

@@ -8,6 +8,12 @@
                 "maxSize": "50MB",
                 "worldWritable": true
             }
+        },
+        {
+            "path": "/ems",
+            "type": "entity",
+            "description": "Entity filesystem (all models)",
+            "options": {}
         }
     ]
 }
