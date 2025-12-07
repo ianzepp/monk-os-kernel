@@ -124,28 +124,76 @@
 // =============================================================================
 
 import {
-    listen,
-    recv,
-    read,
-    write,
-    close,
-    unlink,
-    println,
-    eprintln,
+    listen as defaultListen,
+    recv as defaultRecv,
+    read as defaultRead,
+    write as defaultWrite,
+    close as defaultClose,
+    unlink as defaultUnlink,
+    println as defaultPrintln,
+    eprintln as defaultEprintln,
 } from '@rom/lib/process/index.js';
-import { syscallStream, cancelStream } from '@rom/lib/process/syscall.js';
+import {
+    syscallStream as defaultSyscallStream,
+    cancelStream as defaultCancelStream,
+} from '@rom/lib/process/syscall.js';
 import type { Response } from '@rom/lib/process/types.js';
+
+// =============================================================================
+// DEPENDENCY INJECTION INTERFACE
+// =============================================================================
+
+/**
+ * Gatewayd dependencies for testability.
+ *
+ * WHY: Allows unit testing gatewayd logic without kernel/socket involvement.
+ * All external dependencies are injected, enabling complete mocking.
+ *
+ * USAGE:
+ * - Production: Uses defaultDeps (real implementations)
+ * - Testing: Pass mock implementations to isolate gatewayd logic
+ */
+export interface GatewayDeps {
+    // Socket operations
+    listen: typeof defaultListen;
+    recv: typeof defaultRecv;
+    read: typeof defaultRead;
+    write: typeof defaultWrite;
+    close: typeof defaultClose;
+    unlink: typeof defaultUnlink;
+
+    // Logging
+    println: typeof defaultPrintln;
+    eprintln: typeof defaultEprintln;
+
+    // Syscall transport
+    syscallStream: typeof defaultSyscallStream;
+    cancelStream: typeof defaultCancelStream;
+
+    // Environment (for socket path)
+    getSocketPath: () => string;
+}
+
+/**
+ * Default dependencies using real implementations.
+ */
+export const defaultDeps: GatewayDeps = {
+    listen: defaultListen,
+    recv: defaultRecv,
+    read: defaultRead,
+    write: defaultWrite,
+    close: defaultClose,
+    unlink: defaultUnlink,
+    println: defaultPrintln,
+    eprintln: defaultEprintln,
+    syscallStream: defaultSyscallStream,
+    cancelStream: defaultCancelStream,
+    getSocketPath: () => process.env.MONK_SOCKET ?? '/tmp/monk.sock',
+};
 
 // =============================================================================
 // CONSTANTS
 // =============================================================================
-
-/**
- * Default Unix socket path for client connections.
- * WHY: /tmp is world-writable and conventional for Unix sockets.
- * Override via MONK_SOCKET environment variable for testing or multi-instance.
- */
-const SOCKET_PATH = process.env.MONK_SOCKET ?? '/tmp/monk.sock';
 
 /**
  * Maximum concurrent streams per client.
@@ -209,6 +257,12 @@ interface ClientState {
      * Once true, processMessage returns immediately without dispatching.
      */
     disconnecting: boolean;
+
+    /**
+     * Injected dependencies for testability.
+     * WHY: Allows unit testing without real kernel/socket connections.
+     */
+    deps: GatewayDeps;
 }
 
 /**
@@ -301,7 +355,7 @@ async function safeWrite(state: ClientState, data: Uint8Array): Promise<boolean>
     }
 
     try {
-        await write(state.socketFd, data);
+        await state.deps.write(state.socketFd, data);
 
         return true;
     }
@@ -408,9 +462,14 @@ async function dispatchSyscall(
     name: string,
     args: unknown[],
 ): Promise<void> {
+    const { deps } = state;
+
+    // DEBUG: Log syscall dispatch
+    await deps.eprintln(`gatewayd: ${state.clientId} dispatching syscall: ${name}`);
+
     // INVARIANT CHECK: Warn on duplicate stream ID
     if (state.activeStreams.has(id)) {
-        await eprintln(`gatewayd: ${state.clientId} duplicate stream ID: ${id}`);
+        await deps.eprintln(`gatewayd: ${state.clientId} duplicate stream ID: ${id}`);
         // Continue anyway - client's problem
     }
 
@@ -418,20 +477,28 @@ async function dispatchSyscall(
     state.activeStreams.add(id);
 
     try {
-        for await (const response of syscallStream(name, ...args)) {
+        // DEBUG: Log before iterating
+        await deps.eprintln(`gatewayd: ${state.clientId} starting syscallStream iteration`);
+
+        for await (const response of deps.syscallStream(name, ...args)) {
+            // DEBUG: Log each response
+            await deps.eprintln(`gatewayd: ${state.clientId} got response: ${JSON.stringify(response)}`);
             // RACE FIX: Check disconnecting BEFORE writing
             // If disconnect happened during syscallStream yield, exit immediately
             if (state.disconnecting) {
-                cancelStream(id);
+                await deps.eprintln(`gatewayd: ${state.clientId} disconnecting, cancelling stream`);
+                deps.cancelStream(id);
                 break;
             }
 
             // Forward response to client
+            await deps.eprintln(`gatewayd: ${state.clientId} sending response to socket`);
             const sent = await sendResponse(state, id, response);
+            await deps.eprintln(`gatewayd: ${state.clientId} sent=${sent}`);
 
             if (!sent) {
                 // Socket dead - cancel stream and exit
-                cancelStream(id);
+                deps.cancelStream(id);
                 break;
             }
 
@@ -528,7 +595,7 @@ async function processMessage(state: ClientState, line: string): Promise<void> {
     // Each dispatchSyscall runs independently, responses are interleaved.
     // Errors are logged but don't crash the client handler.
     dispatchSyscall(state, id, name, args).catch(async err => {
-        await eprintln(`gatewayd: ${state.clientId} dispatch error: ${err}`);
+        await state.deps.eprintln(`gatewayd: ${state.clientId} dispatch error: ${err}`);
     });
 }
 
@@ -556,13 +623,13 @@ async function processMessage(state: ClientState, line: string): Promise<void> {
  * @param state - Client state (created in accept loop)
  */
 async function handleClient(state: ClientState): Promise<void> {
-    const { socketFd, clientId } = state;
+    const { socketFd, clientId, deps } = state;
 
     try {
         // -----------------------------------------------------------------
         // Read from socket (streaming)
         // -----------------------------------------------------------------
-        for await (const chunk of read(socketFd)) {
+        for await (const chunk of deps.read(socketFd)) {
             // -----------------------------------------------------------------
             // Accumulate in buffer
             // -----------------------------------------------------------------
@@ -570,7 +637,7 @@ async function handleClient(state: ClientState): Promise<void> {
 
             // SAFETY: Check buffer size to prevent memory exhaustion
             if (state.readBuffer.length > MAX_READ_BUFFER_SIZE) {
-                await eprintln(`gatewayd: ${clientId} read buffer overflow, disconnecting`);
+                await deps.eprintln(`gatewayd: ${clientId} read buffer overflow, disconnecting`);
                 break;
             }
 
@@ -596,7 +663,7 @@ async function handleClient(state: ClientState): Promise<void> {
         // This signals active dispatch loops to exit
         state.disconnecting = true;
 
-        await println(`gatewayd: ${clientId} disconnected`);
+        await deps.println(`gatewayd: ${clientId} disconnected`);
         await cleanupClient(state);
         clients.delete(socketFd);
     }
@@ -618,10 +685,12 @@ async function handleClient(state: ClientState): Promise<void> {
  * @param state - Client state to cleanup
  */
 async function cleanupClient(state: ClientState): Promise<void> {
+    const { deps } = state;
+
     // Cancel all active syscall streams
     // WHY: Frees kernel resources and stops response generation
     for (const streamId of state.activeStreams) {
-        cancelStream(streamId);
+        deps.cancelStream(streamId);
     }
 
     state.activeStreams.clear();
@@ -629,7 +698,7 @@ async function cleanupClient(state: ClientState): Promise<void> {
     // Close socket
     // SAFETY: Catch errors - socket may already be closed
     try {
-        await close(state.socketFd);
+        await deps.close(state.socketFd);
     }
     catch {
         // Ignore - socket may have errored or been closed by kernel
@@ -656,9 +725,13 @@ async function cleanupClient(state: ClientState): Promise<void> {
  * RUNTIME BEHAVIOR:
  * The VFS loader auto-invokes the default export if it's a function.
  * No explicit main() call needed at the end of the file.
+ *
+ * @param deps - Injected dependencies (defaults to real implementations)
  */
-async function main(): Promise<void> {
-    await println(`gatewayd: starting on ${SOCKET_PATH}`);
+export async function main(deps: GatewayDeps = defaultDeps): Promise<void> {
+    const socketPath = deps.getSocketPath();
+
+    await deps.println(`gatewayd: starting on ${socketPath}`);
 
     // -------------------------------------------------------------------------
     // Remove existing socket file
@@ -666,7 +739,7 @@ async function main(): Promise<void> {
     // WHY: Unix sockets leave files behind. If we don't remove it,
     // listen() fails with EADDRINUSE.
     try {
-        await unlink(SOCKET_PATH);
+        await deps.unlink(socketPath);
     }
     catch {
         // Socket file may not exist on first run - ignore
@@ -675,12 +748,12 @@ async function main(): Promise<void> {
     // -------------------------------------------------------------------------
     // Listen on Unix socket
     // -------------------------------------------------------------------------
-    const portFd = await listen({
+    const portFd = await deps.listen({
         port: 0,  // Ignored for Unix sockets
-        unix: SOCKET_PATH,
+        unix: socketPath,
     });
 
-    await println(`gatewayd: listening on ${SOCKET_PATH}`);
+    await deps.println(`gatewayd: listening on ${socketPath}`);
 
     // -------------------------------------------------------------------------
     // Accept loop
@@ -688,7 +761,7 @@ async function main(): Promise<void> {
     while (true) {
         try {
             // Wait for client connection
-            const msg = await recv(portFd);
+            const msg = await deps.recv(portFd);
             const socketFd = msg.fd!;
 
             // Create client state
@@ -699,26 +772,53 @@ async function main(): Promise<void> {
                 clientId,
                 activeStreams: new Set(),
                 disconnecting: false,
+                deps,
             };
 
             clients.set(socketFd, state);
-            await println(`gatewayd: ${clientId} connected`);
+            await deps.println(`gatewayd: ${clientId} connected`);
 
             // Handle client in background (fire-and-forget)
             // WHY: Don't block accept loop waiting for client to finish
             handleClient(state).catch(async err => {
-                await eprintln(`gatewayd: ${clientId} error: ${err}`);
+                await deps.eprintln(`gatewayd: ${clientId} error: ${err}`);
             });
         }
         catch (err) {
             // Accept error - log and continue
             // WHY: Individual accept failures shouldn't crash the daemon
-            await eprintln(`gatewayd: accept error: ${err}`);
+            await deps.eprintln(`gatewayd: accept error: ${err}`);
         }
     }
 }
 
-// Run gatewayd
-main().catch(async err => {
-    await eprintln(`gatewayd: fatal error: ${err}`);
-});
+// =============================================================================
+// EXPORTS FOR TESTING
+// =============================================================================
+
+/**
+ * Export internal functions for unit testing.
+ * WHY: Allows testing individual components without full integration.
+ */
+export const _test = {
+    encodeBase64,
+    prepareResponseForWire,
+    safeWrite,
+    sendResponse,
+    sendError,
+    dispatchSyscall,
+    processMessage,
+    handleClient,
+    cleanupClient,
+    clients,
+    resetNextClientId: () => { nextClientId = 1; },
+};
+
+// Run gatewayd (production mode) - only if not imported as module
+// WHY: Allows unit tests to import without triggering main()
+// The VFS loader sets MONK_PID which indicates we're running as a process
+if (process.env.MONK_PID) {
+    main().catch(async err => {
+        await defaultDeps.eprintln(`gatewayd: fatal error: ${err}`);
+    });
+}
