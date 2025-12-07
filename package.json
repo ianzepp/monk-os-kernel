@@ -51,6 +51,7 @@
     },
     "dependencies": {
         "acorn": "^8.15.0",
-        "acorn-loose": "^8.5.2"
+        "acorn-loose": "^8.5.2",
+        "msgpackr": "^1.11.5"
     }
 }

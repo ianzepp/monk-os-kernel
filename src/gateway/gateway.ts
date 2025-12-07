@@ -10,18 +10,23 @@
  * This runs in kernel context (not as a Worker), so syscalls execute directly
  * via dispatcher.execute() without postMessage IPC overhead.
  *
- * WIRE PROTOCOL (newline-delimited JSON)
- * ======================================
+ * WIRE PROTOCOL (length-prefixed MessagePack)
+ * ===========================================
+ *
+ * Each message is framed as:
+ *   [4-byte big-endian length][msgpack payload]
  *
  * Request (client -> gateway):
- *   { "id": "<client-id>", "call": "<syscall>", "args": [...] }
+ *   { id: "<client-id>", call: "<syscall>", args: [...] }
  *
  * Response (gateway -> client), one per stream item:
- *   { "id": "<client-id>", "op": "ok", "data": {...} }
- *   { "id": "<client-id>", "op": "error", "code": "ENOENT", "message": "..." }
- *   { "id": "<client-id>", "op": "item", "data": {...} }
- *   { "id": "<client-id>", "op": "data", "bytes": "<base64>" }
- *   { "id": "<client-id>", "op": "done" }
+ *   { id: "<client-id>", op: "ok", data: {...} }
+ *   { id: "<client-id>", op: "error", code: "ENOENT", message: "..." }
+ *   { id: "<client-id>", op: "item", data: {...} }
+ *   { id: "<client-id>", op: "data", bytes: Uint8Array }
+ *   { id: "<client-id>", op: "done" }
+ *
+ * Binary data (Uint8Array) is serialized natively by MessagePack.
  *
  * The "id" field is client-generated and echoed back for correlation,
  * enabling concurrent requests with interleaved responses.
@@ -32,7 +37,7 @@
  *   - done     Terminal stream completion (after items)
  *   - redirect Terminal redirect (symlinks, mounts)
  *   - item     Non-terminal stream item
- *   - data     Non-terminal binary chunk (base64)
+ *   - data     Non-terminal binary chunk
  *   - event    Non-terminal async notification
  *   - progress Non-terminal progress indicator
  *
@@ -67,6 +72,7 @@
  */
 
 import { unlink } from 'node:fs/promises';
+import { pack, unpack } from 'msgpackr';
 import type { Kernel } from '@src/kernel/kernel.js';
 import type { HAL } from '@src/hal/index.js';
 import type { Listener, Socket } from '@src/hal/network.js';
@@ -145,16 +151,6 @@ export class Gateway {
      * WHY: acceptLoop() catch block needs to know if error is expected.
      */
     private shuttingDown = false;
-
-    // =========================================================================
-    // SHARED ENCODERS
-    // =========================================================================
-
-    /**
-     * Shared TextEncoder instance.
-     * WHY: Avoid creating new encoder for every write operation.
-     */
-    private readonly textEncoder = new TextEncoder();
 
     constructor(
         private readonly dispatcher: SyscallDispatcher,
@@ -293,13 +289,13 @@ export class Gateway {
     /**
      * Handle a connected client.
      *
-     * Creates a virtual process for isolation, then reads JSON lines and
-     * dispatches syscalls.
+     * Creates a virtual process for isolation, then reads length-prefixed
+     * msgpack messages and dispatches syscalls.
      *
      * ALGORITHM:
      * 1. Create virtual process for isolation
-     * 2. Read loop: accumulate chunks, extract complete lines
-     * 3. For each line: fire-and-forget dispatch to processMessage
+     * 2. Read loop: accumulate chunks, extract complete messages
+     * 3. For each message: fire-and-forget dispatch to processMessage
      * 4. On disconnect: cancel streams, destroy process, close socket
      *
      * @param socket - Client socket
@@ -332,10 +328,8 @@ export class Gateway {
             return;
         }
 
-        // Create TextDecoder once per client (not per chunk)
-        const textDecoder = new TextDecoder();
-
-        let readBuffer = '';
+        // Binary buffer for length-prefixed framing
+        let readBuffer = new Uint8Array(0);
         let disconnecting = false;
 
         try {
@@ -348,7 +342,12 @@ export class Gateway {
                     break;
                 }
 
-                readBuffer += textDecoder.decode(chunk, { stream: true });
+                // Append chunk to buffer
+                const newBuffer = new Uint8Array(readBuffer.length + chunk.length);
+
+                newBuffer.set(readBuffer);
+                newBuffer.set(chunk, readBuffer.length);
+                readBuffer = newBuffer;
 
                 // Buffer overflow protection - send error before disconnecting
                 if (readBuffer.length > MAX_READ_BUFFER_SIZE) {
@@ -356,20 +355,25 @@ export class Gateway {
                     break;
                 }
 
-                // Process complete lines
-                let newlineIdx: number;
+                // Process complete messages (4-byte length prefix + payload)
+                while (readBuffer.length >= 4) {
+                    const view = new DataView(readBuffer.buffer, readBuffer.byteOffset);
+                    const msgLength = view.getUint32(0);
 
-                while ((newlineIdx = readBuffer.indexOf('\n')) !== -1) {
-                    const line = readBuffer.slice(0, newlineIdx);
-
-                    readBuffer = readBuffer.slice(newlineIdx + 1);
-
-                    if (line.trim()) {
-                        // Fire-and-forget dispatch
-                        this.processMessage(socket, proc, line, () => disconnecting).catch(() => {
-                            // Dispatch errors handled inside processMessage
-                        });
+                    // Wait for complete message
+                    if (readBuffer.length < 4 + msgLength) {
+                        break;
                     }
+
+                    // Extract message payload
+                    const payload = readBuffer.slice(4, 4 + msgLength);
+
+                    readBuffer = readBuffer.slice(4 + msgLength);
+
+                    // Fire-and-forget dispatch
+                    this.processMessage(socket, proc, payload, () => disconnecting).catch(() => {
+                        // Dispatch errors handled inside processMessage
+                    });
                 }
             }
         }
@@ -402,27 +406,27 @@ export class Gateway {
     // =========================================================================
 
     /**
-     * Process a single JSON message from client.
+     * Process a single msgpack message from client.
      *
      * @param socket - Client socket
      * @param proc - Virtual process for this client
-     * @param line - Raw JSON line
+     * @param payload - Raw msgpack payload
      * @param isDisconnecting - Function to check disconnect state
      */
     private async processMessage(
         socket: Socket,
         proc: Process,
-        line: string,
+        payload: Uint8Array,
         isDisconnecting: () => boolean,
     ): Promise<void> {
-        // Parse JSON
+        // Decode msgpack
         let msg: { id?: string; call?: string; args?: unknown[] };
 
         try {
-            msg = JSON.parse(line);
+            msg = unpack(payload);
         }
         catch {
-            await this.sendError(socket, 'parse', 'EINVAL', 'Invalid JSON');
+            await this.sendError(socket, 'parse', 'EINVAL', 'Invalid msgpack');
 
             return;
         }
@@ -441,9 +445,12 @@ export class Gateway {
             return;
         }
 
+        // Args are passed directly - msgpack preserves Uint8Array natively
+        const args = msg.args ?? [];
+
         // Dispatch syscall and stream responses
         try {
-            for await (const response of this.dispatcher.execute(proc, id, msg.call, msg.args ?? [])) {
+            for await (const response of this.dispatcher.execute(proc, id, msg.call, args)) {
                 if (isDisconnecting()) {
                     break;
                 }
@@ -484,9 +491,8 @@ export class Gateway {
      */
     private async sendResponse(socket: Socket, id: string, response: Response): Promise<boolean> {
         const wireResponse = this.prepareForWire(id, response);
-        const message = JSON.stringify(wireResponse) + '\n';
 
-        return this.safeWrite(socket, message);
+        return this.sendFrame(socket, wireResponse);
     }
 
     /**
@@ -497,24 +503,24 @@ export class Gateway {
      * @returns true if sent, false if socket dead
      */
     private async sendError(socket: Socket, id: string, code: string, message: string): Promise<boolean> {
-        const response = JSON.stringify({
-            id,
-            op: 'error',
-            code,
-            message,
-        }) + '\n';
-
-        return this.safeWrite(socket, response);
+        return this.sendFrame(socket, { id, op: 'error', code, message });
     }
 
     /**
-     * Safely write to socket, handling errors.
+     * Send a length-prefixed msgpack frame to socket.
      *
      * @returns true if write succeeded, false otherwise
      */
-    private async safeWrite(socket: Socket, data: string): Promise<boolean> {
+    private async sendFrame(socket: Socket, data: unknown): Promise<boolean> {
         try {
-            await socket.write(this.textEncoder.encode(data));
+            const payload = pack(data);
+            const frame = new Uint8Array(4 + payload.length);
+            const view = new DataView(frame.buffer);
+
+            view.setUint32(0, payload.length);
+            frame.set(payload, 4);
+
+            await socket.write(frame);
 
             return true;
         }
@@ -523,11 +529,15 @@ export class Gateway {
         }
     }
 
+    // =========================================================================
+    // RESPONSE PREPARATION
+    // =========================================================================
+
     /**
-     * Prepare response for JSON wire format.
+     * Prepare response for msgpack wire format.
      *
      * Flattens kernel Response into: { id, op, ...fields }
-     * Converts Uint8Array to base64 for transport.
+     * Uint8Array passes through directly (msgpack handles binary natively).
      */
     private prepareForWire(id: string, response: Response): object {
         // Start with id and op
@@ -540,13 +550,12 @@ export class Gateway {
             wire.data = response.data;
         }
 
-        // Handle binary data (base64 encode)
-        // PERF: Use Buffer.toString('base64') instead of string concat loop (O(n) vs O(n²))
+        // Pass binary data directly (msgpack handles Uint8Array natively)
         if ('bytes' in response) {
             const bytes = (response as { bytes?: unknown }).bytes;
 
             if (bytes instanceof Uint8Array) {
-                wire.bytes = Buffer.from(bytes).toString('base64');
+                wire.bytes = bytes;
             }
         }
 

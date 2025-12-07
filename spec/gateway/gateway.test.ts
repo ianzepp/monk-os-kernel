@@ -5,6 +5,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { pack, unpack } from 'msgpackr';
 import { Gateway } from '@src/gateway/gateway.js';
 import { BunNetworkDevice, BunEntropyDevice } from '@src/hal/index.js';
 import type { Kernel } from '@src/kernel/kernel.js';
@@ -35,6 +36,7 @@ function createMockProcess(overrides: Partial<Process> = {}): Process {
         parent: '',
         user: 'test',
         worker: {} as Worker,
+        virtual: false,
         state: 'running',
         cmd: '/bin/test',
         cwd: '/',
@@ -103,7 +105,21 @@ function createMockDispatcher(
 }
 
 /**
- * Send a JSON message to gateway and read response.
+ * Encode a message as length-prefixed msgpack frame.
+ */
+function encodeFrame(message: unknown): Uint8Array {
+    const payload = pack(message);
+    const frame = new Uint8Array(4 + payload.length);
+    const view = new DataView(frame.buffer);
+
+    view.setUint32(0, payload.length);
+    frame.set(payload, 4);
+
+    return frame;
+}
+
+/**
+ * Send a msgpack message to gateway and read response.
  */
 async function sendMessage(
     socketPath: string,
@@ -113,14 +129,12 @@ async function sendMessage(
     const socket = await network.connect(socketPath, 0);
 
     try {
-        // Send request
-        const request = JSON.stringify(message) + '\n';
-
-        await socket.write(new TextEncoder().encode(request));
+        // Send request as length-prefixed msgpack
+        await socket.write(encodeFrame(message));
 
         // Read responses until terminal op
         const responses: { id: string; op: string; [key: string]: unknown }[] = [];
-        let buffer = '';
+        let buffer = new Uint8Array(0);
 
         while (true) {
             const chunk = await socket.read({ timeout: 1000 });
@@ -129,26 +143,34 @@ async function sendMessage(
                 break;
             }
 
-            buffer += new TextDecoder().decode(chunk);
+            // Append to buffer
+            const newBuffer = new Uint8Array(buffer.length + chunk.length);
 
-            // Process complete lines
-            let newlineIdx: number;
+            newBuffer.set(buffer);
+            newBuffer.set(chunk, buffer.length);
+            buffer = newBuffer;
 
-            while ((newlineIdx = buffer.indexOf('\n')) !== -1) {
-                const line = buffer.slice(0, newlineIdx);
+            // Process complete messages
+            while (buffer.length >= 4) {
+                const view = new DataView(buffer.buffer, buffer.byteOffset);
+                const msgLength = view.getUint32(0);
 
-                buffer = buffer.slice(newlineIdx + 1);
+                if (buffer.length < 4 + msgLength) {
+                    break;
+                }
 
-                if (line.trim()) {
-                    const response = JSON.parse(line);
+                const payload = buffer.slice(4, 4 + msgLength);
 
-                    responses.push(response);
+                buffer = buffer.slice(4 + msgLength);
 
-                    // Terminal ops end stream
-                    if (response.op === 'ok' || response.op === 'error' ||
-                        response.op === 'done' || response.op === 'redirect') {
-                        return responses;
-                    }
+                const response = unpack(payload) as { id: string; op: string; [key: string]: unknown };
+
+                responses.push(response);
+
+                // Terminal ops end stream
+                if (response.op === 'ok' || response.op === 'error' ||
+                    response.op === 'done' || response.op === 'redirect') {
+                    return responses;
                 }
             }
         }
@@ -350,21 +372,31 @@ describe('Gateway', () => {
             expect(responses[0]!.op).toBe('ok');
         });
 
-        it('should return error for invalid JSON', async () => {
+        it('should return error for invalid msgpack', async () => {
             const kernel = createMockKernel();
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
             await gateway.listen(socketPath);
 
-            // Send invalid JSON directly
+            // Send invalid msgpack (garbage bytes with valid length prefix)
             const network = new BunNetworkDevice();
             const socket = await network.connect(socketPath, 0);
 
-            await socket.write(new TextEncoder().encode('not valid json\n'));
+            const invalidFrame = new Uint8Array(8);
+            const view = new DataView(invalidFrame.buffer);
+
+            view.setUint32(0, 4); // length = 4
+            invalidFrame.set([0xff, 0xff, 0xff, 0xff], 4); // invalid msgpack
+
+            await socket.write(invalidFrame);
 
             const chunk = await socket.read({ timeout: 1000 });
-            const response = JSON.parse(new TextDecoder().decode(chunk).trim());
+
+            // Parse response (skip 4-byte length prefix)
+            const responseView = new DataView(chunk.buffer, chunk.byteOffset);
+            const responseLength = responseView.getUint32(0);
+            const response = unpack(chunk.slice(4, 4 + responseLength)) as { op: string; code: string };
 
             expect(response.op).toBe('error');
             expect(response.code).toBe('EINVAL');
@@ -379,14 +411,18 @@ describe('Gateway', () => {
             gateway = new Gateway(dispatcher, kernel, hal);
             await gateway.listen(socketPath);
 
-            // Send JSON without call field
+            // Send msgpack without call field
             const network = new BunNetworkDevice();
             const socket = await network.connect(socketPath, 0);
 
-            await socket.write(new TextEncoder().encode('{"id":"test"}\n'));
+            await socket.write(encodeFrame({ id: 'test' }));
 
             const chunk = await socket.read({ timeout: 1000 });
-            const response = JSON.parse(new TextDecoder().decode(chunk).trim());
+
+            // Parse response (skip 4-byte length prefix)
+            const responseView = new DataView(chunk.buffer, chunk.byteOffset);
+            const responseLength = responseView.getUint32(0);
+            const response = unpack(chunk.slice(4, 4 + responseLength)) as { op: string; code: string; message: string };
 
             expect(response.op).toBe('error');
             expect(response.code).toBe('EINVAL');
@@ -417,14 +453,18 @@ describe('Gateway', () => {
             gateway = new Gateway(dispatcher, kernel, hal);
             await gateway.listen(socketPath);
 
-            // Send JSON without id field
+            // Send msgpack without id field
             const network = new BunNetworkDevice();
             const socket = await network.connect(socketPath, 0);
 
-            await socket.write(new TextEncoder().encode('{"call":"proc:getcwd"}\n'));
+            await socket.write(encodeFrame({ call: 'proc:getcwd' }));
 
             const chunk = await socket.read({ timeout: 1000 });
-            const response = JSON.parse(new TextDecoder().decode(chunk).trim());
+
+            // Parse response (skip 4-byte length prefix)
+            const responseView = new DataView(chunk.buffer, chunk.byteOffset);
+            const responseLength = responseView.getUint32(0);
+            const response = unpack(chunk.slice(4, 4 + responseLength)) as { id: string };
 
             expect(response.id).toBe('unknown');
 
@@ -532,7 +572,7 @@ describe('Gateway', () => {
     // =========================================================================
 
     describe('wire protocol', () => {
-        it('should encode binary data as base64', async () => {
+        it('should pass binary data as Uint8Array', async () => {
             const kernel = createMockKernel();
             const dispatcher = createMockDispatcher(async function* () {
                 yield { op: 'data', bytes: new Uint8Array([72, 101, 108, 108, 111]) } as Response;
@@ -550,7 +590,9 @@ describe('Gateway', () => {
 
             expect(responses).toHaveLength(2);
             expect(responses[0]!.op).toBe('data');
-            expect(responses[0]!.bytes).toBe('SGVsbG8='); // "Hello" in base64
+            // With msgpack, binary data comes as Uint8Array directly
+            expect(responses[0]!.bytes).toBeInstanceOf(Uint8Array);
+            expect(Array.from(responses[0]!.bytes as Uint8Array)).toEqual([72, 101, 108, 108, 111]);
         });
 
         it('should flatten error data to top level', async () => {
@@ -594,14 +636,13 @@ describe('Gateway', () => {
             const network = new BunNetworkDevice();
             const socket = await network.connect(socketPath, 0);
 
-            await socket.write(new TextEncoder().encode(
-                '{"id":"slow","call":"test"}\n' +
-                '{"id":"fast","call":"test"}\n',
-            ));
+            // Send two msgpack frames
+            await socket.write(encodeFrame({ id: 'slow', call: 'test' }));
+            await socket.write(encodeFrame({ id: 'fast', call: 'test' }));
 
             // Collect responses
             const responses: unknown[] = [];
-            let buffer = '';
+            let buffer = new Uint8Array(0);
 
             while (responses.length < 2) {
                 const chunk = await socket.read({ timeout: 1000 });
@@ -610,18 +651,26 @@ describe('Gateway', () => {
                     break;
                 }
 
-                buffer += new TextDecoder().decode(chunk);
+                // Append to buffer
+                const newBuffer = new Uint8Array(buffer.length + chunk.length);
 
-                let newlineIdx: number;
+                newBuffer.set(buffer);
+                newBuffer.set(chunk, buffer.length);
+                buffer = newBuffer;
 
-                while ((newlineIdx = buffer.indexOf('\n')) !== -1) {
-                    const line = buffer.slice(0, newlineIdx);
+                // Process complete messages
+                while (buffer.length >= 4) {
+                    const view = new DataView(buffer.buffer, buffer.byteOffset);
+                    const msgLength = view.getUint32(0);
 
-                    buffer = buffer.slice(newlineIdx + 1);
-
-                    if (line.trim()) {
-                        responses.push(JSON.parse(line));
+                    if (buffer.length < 4 + msgLength) {
+                        break;
                     }
+
+                    const payload = buffer.slice(4, 4 + msgLength);
+
+                    buffer = buffer.slice(4 + msgLength);
+                    responses.push(unpack(payload));
                 }
             }
 
@@ -657,7 +706,7 @@ describe('Gateway', () => {
             const network = new BunNetworkDevice();
             const socket = await network.connect(socketPath, 0);
 
-            await socket.write(new TextEncoder().encode('{"id":"1","call":"test"}\n'));
+            await socket.write(encodeFrame({ id: '1', call: 'test' }));
             await socket.close();
 
             // Give gateway time to handle disconnect
@@ -696,6 +745,148 @@ describe('Gateway', () => {
                 expect(data.length).toBe(0);
                 await socket.close();
             }
+        });
+    });
+
+    // =========================================================================
+    // NATIVE BINARY DATA (MSGPACK)
+    // =========================================================================
+
+    describe('native binary data', () => {
+        it('should preserve Uint8Array in arguments', async () => {
+            let receivedArgs: unknown[] = [];
+
+            const kernel = createMockKernel();
+            const dispatcher = createMockDispatcher(async function* (_proc, _id, _name, args) {
+                receivedArgs = args;
+                yield { op: 'ok', data: {} };
+            });
+
+            gateway = new Gateway(dispatcher, kernel, hal);
+            await gateway.listen(socketPath);
+
+            // msgpack encodes Uint8Array natively
+            await sendMessage(socketPath, {
+                id: 'test-1',
+                call: 'file:write',
+                args: [3, { data: new Uint8Array([72, 101, 108, 108, 111]) }],
+            });
+
+            expect(receivedArgs).toHaveLength(2);
+            expect(receivedArgs[0]).toBe(3);
+
+            const writeOpts = receivedArgs[1] as { data: unknown };
+
+            expect(writeOpts.data).toBeInstanceOf(Uint8Array);
+            expect(Array.from(writeOpts.data as Uint8Array)).toEqual([72, 101, 108, 108, 111]);
+        });
+
+        it('should preserve nested Uint8Array', async () => {
+            let receivedArgs: unknown[] = [];
+
+            const kernel = createMockKernel();
+            const dispatcher = createMockDispatcher(async function* (_proc, _id, _name, args) {
+                receivedArgs = args;
+                yield { op: 'ok', data: {} };
+            });
+
+            gateway = new Gateway(dispatcher, kernel, hal);
+            await gateway.listen(socketPath);
+
+            await sendMessage(socketPath, {
+                id: 'test-1',
+                call: 'test:nested',
+                args: [{
+                    level1: {
+                        level2: {
+                            binary: new Uint8Array([1, 2, 3]),
+                        },
+                    },
+                }],
+            });
+
+            const nested = receivedArgs[0] as { level1: { level2: { binary: unknown } } };
+
+            expect(nested.level1.level2.binary).toBeInstanceOf(Uint8Array);
+            expect(Array.from(nested.level1.level2.binary as Uint8Array)).toEqual([1, 2, 3]);
+        });
+
+        it('should preserve Uint8Array in arrays', async () => {
+            let receivedArgs: unknown[] = [];
+
+            const kernel = createMockKernel();
+            const dispatcher = createMockDispatcher(async function* (_proc, _id, _name, args) {
+                receivedArgs = args;
+                yield { op: 'ok', data: {} };
+            });
+
+            gateway = new Gateway(dispatcher, kernel, hal);
+            await gateway.listen(socketPath);
+
+            await sendMessage(socketPath, {
+                id: 'test-1',
+                call: 'test:array',
+                args: [[
+                    new Uint8Array([1]),
+                    new Uint8Array([2]),
+                    new Uint8Array([3]),
+                ]],
+            });
+
+            const items = receivedArgs[0] as unknown[];
+
+            expect(items).toHaveLength(3);
+            expect(items[0]).toBeInstanceOf(Uint8Array);
+            expect(items[1]).toBeInstanceOf(Uint8Array);
+            expect(items[2]).toBeInstanceOf(Uint8Array);
+            expect(Array.from(items[0] as Uint8Array)).toEqual([1]);
+            expect(Array.from(items[1] as Uint8Array)).toEqual([2]);
+            expect(Array.from(items[2] as Uint8Array)).toEqual([3]);
+        });
+
+        it('should pass through primitives unchanged', async () => {
+            let receivedArgs: unknown[] = [];
+
+            const kernel = createMockKernel();
+            const dispatcher = createMockDispatcher(async function* (_proc, _id, _name, args) {
+                receivedArgs = args;
+                yield { op: 'ok', data: {} };
+            });
+
+            gateway = new Gateway(dispatcher, kernel, hal);
+            await gateway.listen(socketPath);
+
+            await sendMessage(socketPath, {
+                id: 'test-1',
+                call: 'test:primitives',
+                args: ['string', 42, true, null],
+            });
+
+            expect(receivedArgs).toEqual(['string', 42, true, null]);
+        });
+
+        it('should handle empty Uint8Array', async () => {
+            let receivedArgs: unknown[] = [];
+
+            const kernel = createMockKernel();
+            const dispatcher = createMockDispatcher(async function* (_proc, _id, _name, args) {
+                receivedArgs = args;
+                yield { op: 'ok', data: {} };
+            });
+
+            gateway = new Gateway(dispatcher, kernel, hal);
+            await gateway.listen(socketPath);
+
+            await sendMessage(socketPath, {
+                id: 'test-1',
+                call: 'file:write',
+                args: [3, { data: new Uint8Array(0) }],
+            });
+
+            const writeOpts = receivedArgs[1] as { data: unknown };
+
+            expect(writeOpts.data).toBeInstanceOf(Uint8Array);
+            expect((writeOpts.data as Uint8Array).length).toBe(0);
         });
     });
 

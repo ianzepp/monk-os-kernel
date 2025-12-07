@@ -10,7 +10,7 @@ External Apps                     Monk OS Kernel
 os-shell ─────┐
               │  Unix socket      ┌─────────────────────────────┐
 displayd ─────┼─────────────────▶ │  Gateway                    │
-              │  JSON protocol    │    │                        │
+              │  msgpack protocol │    │                        │
 os-coreutils ─┘                   │    ▼                        │
                                   │  SyscallDispatcher.execute()│
                                   │    │                        │
@@ -26,24 +26,36 @@ Each client connection gets an isolated **virtual process** with its own:
 
 ## Wire Protocol
 
-Newline-delimited JSON over Unix socket.
+Length-prefixed MessagePack over Unix socket.
+
+### Message Framing
+
+Each message is framed as:
+```
+[4-byte big-endian length][msgpack payload]
+```
+
+This allows:
+- Efficient binary parsing (no delimiter scanning)
+- Native `Uint8Array` support (no base64 encoding needed)
+- Smaller message sizes compared to JSON
 
 ### Request
 
-```json
-{ "id": "abc", "call": "file:open", "args": ["/etc/hosts", {"read": true}] }
+```javascript
+{ id: "abc", call: "file:open", args: ["/etc/hosts", { read: true }] }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | string | Client-generated correlation ID |
 | `call` | string | Syscall name (e.g., `file:open`, `ems:select`) |
-| `args` | array | Syscall arguments |
+| `args` | array | Syscall arguments (binary data as `Uint8Array`) |
 
 ### Response
 
-```json
-{ "id": "abc", "op": "ok", "data": { "fd": 3 } }
+```javascript
+{ id: "abc", op: "ok", data: { fd: 3 } }
 ```
 
 | Field | Type | Description |
@@ -51,7 +63,7 @@ Newline-delimited JSON over Unix socket.
 | `id` | string | Echoed from request |
 | `op` | string | Operation result (see below) |
 | `data` | object | Result payload (optional) |
-| `bytes` | string | Base64-encoded binary data (for `op: "data"`) |
+| `bytes` | Uint8Array | Binary data (for `op: "data"`) |
 | `code` | string | Error code (for `op: "error"`) |
 | `message` | string | Error message (for `op: "error"`) |
 
@@ -64,45 +76,67 @@ Newline-delimited JSON over Unix socket.
 | `done` | Yes | Stream complete (after items) |
 | `redirect` | Yes | Follow redirect (symlinks, mounts) |
 | `item` | No | One item in a sequence |
-| `data` | No | Binary data chunk (base64) |
+| `data` | No | Binary data chunk |
 | `event` | No | Async notification |
 | `progress` | No | Progress indicator |
 
 Terminal operations end the response stream for that request ID.
+
+### Binary Data
+
+MessagePack handles binary data (`Uint8Array`) natively:
+
+```javascript
+// Request with binary data
+{
+    id: "1",
+    call: "file:write",
+    args: [3, { data: new Uint8Array([72, 101, 108, 108, 111]) }]
+}
+
+// Response with binary data
+{
+    id: "1",
+    op: "data",
+    bytes: new Uint8Array([72, 101, 108, 108, 111])
+}
+```
+
+No base64 encoding is needed - this is a key advantage over JSON.
 
 ## Examples
 
 ### Single-value syscall
 
 ```
-→ {"id":"1","call":"proc:getpid","args":[]}
-← {"id":"1","op":"ok","data":{"pid":42}}
+→ { id: "1", call: "proc:getpid", args: [] }
+← { id: "1", op: "ok", data: { pid: 42 } }
 ```
 
 ### Streaming syscall
 
 ```
-→ {"id":"2","call":"file:readdir","args":["/home"]}
-← {"id":"2","op":"item","data":{"name":"alice","model":"folder"}}
-← {"id":"2","op":"item","data":{"name":"bob","model":"folder"}}
-← {"id":"2","op":"done"}
+→ { id: "2", call: "file:readdir", args: ["/home"] }
+← { id: "2", op: "item", data: { name: "alice", model: "folder" } }
+← { id: "2", op: "item", data: { name: "bob", model: "folder" } }
+← { id: "2", op: "done" }
 ```
 
 ### Error
 
 ```
-→ {"id":"3","call":"file:open","args":["/nonexistent"]}
-← {"id":"3","op":"error","code":"ENOENT","message":"No such file or directory"}
+→ { id: "3", call: "file:open", args: ["/nonexistent"] }
+← { id: "3", op: "error", code: "ENOENT", message: "No such file or directory" }
 ```
 
 ### Concurrent requests
 
 ```
-→ {"id":"a","call":"file:read","args":[3]}
-→ {"id":"b","call":"proc:getpid","args":[]}
-← {"id":"b","op":"ok","data":{"pid":42}}
-← {"id":"a","op":"data","bytes":"SGVsbG8gV29ybGQ="}
-← {"id":"a","op":"done"}
+→ { id: "a", call: "file:read", args: [3] }
+→ { id: "b", call: "proc:getpid", args: [] }
+← { id: "b", op: "ok", data: { pid: 42 } }
+← { id: "a", op: "data", bytes: Uint8Array([72, 101, 108, 108, 111]) }
+← { id: "a", op: "done" }
 ```
 
 ## Usage
@@ -123,30 +157,38 @@ await gateway.shutdown();
 ### Client (os-sdk)
 
 ```typescript
-import { connect } from 'net';
+import { OSClient } from '@monk-api/os-sdk';
 
-const socket = connect('/tmp/monk.sock');
+const client = new OSClient();
+await client.connect({ socketPath: '/tmp/monk.sock' });
 
-// Send request
-const id = '1';
-socket.write(`{"id":"${id}","call":"file:stat","args":["/etc"]}\n`);
+// Read a file
+const fd = await client.open('/etc/hosts', { read: true });
+const data = await client.read(fd);
+await client.fclose(fd);
 
-// Read response
-socket.on('data', (chunk) => {
-    const line = chunk.toString();
-    const response = JSON.parse(line);
+// Write binary data
+const fd2 = await client.open('/tmp/test', { write: true, create: true });
+await client.write(fd2, new Uint8Array([1, 2, 3]));
+await client.fclose(fd2);
 
-    if (response.id === id) {
-        if (response.op === 'ok') {
-            console.log('Stat:', response.data);
-        } else if (response.op === 'error') {
-            console.error(`${response.code}: ${response.message}`);
-        }
-    }
-});
+client.close();
 ```
 
 ## Design Decisions
+
+### Why MessagePack (not JSON)?
+
+- Native binary support (`Uint8Array` without base64)
+- Smaller message sizes (~30-50% reduction)
+- Faster encode/decode
+- Still human-debuggable with tools
+
+### Why length-prefix framing (not newlines)?
+
+- No delimiter scanning needed
+- Works with binary payloads containing any byte value
+- Explicit message boundaries
 
 ### Why Unix socket (not TCP)?
 
@@ -179,6 +221,6 @@ socket.on('data', (chunk) => {
 ```
 src/gateway/
 ├── index.ts     # Exports Gateway class
-├── gateway.ts   # Gateway implementation (~400 lines)
+├── gateway.ts   # Gateway implementation
 └── README.md    # This file
 ```
