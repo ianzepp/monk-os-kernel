@@ -1,6 +1,137 @@
 # EMS Module
 
-The Entity Management System provides a database-backed entity store with CRUD operations, soft delete, and a powerful query system. All EMS operations are exposed as `ems:*` syscalls.
+The Entity Management System provides a database-backed entity store with CRUD operations, soft delete, and a powerful query system. It features an 8-ring observer pipeline for mutation processing, streaming queries, and multi-backend support (SQLite, PostgreSQL, memory). All EMS operations are exposed as `ems:*` syscalls.
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Syscall Layer (ems:select, ems:create, ems:update, etc.)   │
+├─────────────────────────────────────────────────────────────┤
+│  EntityOps (streaming entity operations + observer pipeline)│
+├─────────────────────────────────────────────────────────────┤
+│  DatabaseOps (generic SQL streaming)                        │
+├─────────────────────────────────────────────────────────────┤
+│  DatabaseConnection (HAL channel wrapper)                   │
+├─────────────────────────────────────────────────────────────┤
+│  HAL ChannelDevice (sqlite/postgres protocol)               │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Directory Structure
+
+```
+src/ems/
+├── index.ts              # Public API exports
+├── ems.ts                # Main EMS class (unified entry point)
+├── connection.ts         # Database connection wrapper
+├── entity-ops.ts         # Entity-aware streaming operations
+├── database-ops.ts       # Generic SQL streaming layer
+├── filter.ts             # SQL query builder (26 operators)
+├── filter-types.ts       # Query type definitions
+├── model.ts              # Model metadata wrapper
+├── model-cache.ts        # Async model metadata cache
+├── model-record.ts       # Change tracking for mutations
+├── entity-cache.ts       # In-memory entity path resolution
+└── observers/
+    ├── index.ts          # Observer pipeline exports
+    ├── types.ts          # Ring definitions
+    ├── interfaces.ts     # Observer contracts
+    ├── base-observer.ts  # Base class for observers
+    ├── runner.ts         # Pipeline execution engine
+    ├── registry.ts       # Observer registration
+    ├── errors.ts         # Observer error codes
+    └── ring/             # Observer implementations by ring
+        ├── 0/            # Data Preparation (UpdateMerger)
+        ├── 1/            # Validation (Frozen, Immutable, Constraints)
+        ├── 4/            # Enrichment (TransformProcessor)
+        ├── 5/            # Database (SqlCreate, SqlUpdate, SqlDelete, PathnameSync)
+        ├── 6/            # DDL (DdlCreateModel, DdlCreateField)
+        ├── 7/            # Audit (Tracked)
+        └── 8/            # Integration (Cache, EntityCacheSync)
+```
+
+## Observer Pipeline
+
+All mutations flow through an 8-ring observer pipeline. Rings execute in order (0-9), observers within a ring execute by priority (lower first).
+
+| Ring | Name | Purpose | Can Reject? |
+|------|------|---------|-------------|
+| 0 | Data Preparation | Merge input, apply defaults | No |
+| 1 | Input Validation | Type checking, constraints | Yes |
+| 2 | Security | Permission checks | Yes |
+| 3 | Business Logic | Custom rules | Yes |
+| 4 | Enrichment | Transform, normalize | Yes |
+| 5 | Database | SQL execution (persistence boundary) | Yes |
+| 6 | Post-Database | Schema changes (DDL) | No |
+| 7 | Audit | Change tracking | No |
+| 8 | Integration | Cache invalidation | No |
+| 9 | Notification | Internal events | No |
+
+**Key Observers:**
+- **Frozen** (Ring 1): Blocks all mutations on frozen models
+- **Immutable** (Ring 1): Blocks updates on immutable models (append-only)
+- **Constraints** (Ring 1): Validates required fields, types, min/max, patterns
+- **TransformProcessor** (Ring 4): Applies auto-transforms (lowercase, trim, uppercase)
+- **SqlCreate/Update/Delete** (Ring 5): Generates parameterized SQL
+- **PathnameSync** (Ring 5): Updates VFS pathname on entity changes
+- **Tracked** (Ring 7): Records changes to tracked fields for audit
+- **Cache/EntityCacheSync** (Ring 8): Invalidates caches on changes
+
+## Core Components
+
+### EMS Class
+
+Unified entry point encapsulating all EMS subsystems.
+
+```typescript
+const ems = new EMS(hal, { path: ':memory:' });
+await ems.init();
+
+// Access components
+ems.ops      // EntityOps - streaming CRUD
+ems.models   // ModelCache - model metadata
+ems.cache    // EntityCache - path resolution
+
+await ems.shutdown();
+```
+
+### EntityOps
+
+Entity-aware operations with full observer pipeline.
+
+- `selectAll(model, filter)` - Query with streaming
+- `createOne(model, fields)` - Create entity
+- `updateOne(model, id, changes)` - Update entity
+- `deleteOne(model, id)` - Soft delete
+- `revertOne(model, id)` - Restore soft-deleted
+- `expireOne(model, id)` - Hard delete
+
+### ModelCache
+
+Async cached access to model definitions.
+
+- `get(modelName)` - Get model (returns undefined if not found)
+- `require(modelName)` - Get model (throws if not found)
+- `invalidate(modelName)` - Clear cached entry
+
+### EntityCache
+
+In-memory entity index for O(1) path resolution.
+
+- `resolvePath(path)` - Path to entity ID
+- `computePath(id)` - Entity ID to path
+- `add(entity)` - Add to cache
+- `delete(id)` - Remove from cache
+
+### ModelRecord
+
+Change tracking wrapper for mutations.
+
+- `get(field)` - Get current value (pending or original)
+- `old(field)` - Get original value
+- `set(field, value)` - Set pending change
+- `getDiff()` - Get changed fields for audit
 
 ## Syscall Reference
 

@@ -1,6 +1,151 @@
 # VFS Module
 
-The Virtual File System provides a unified interface for file and directory operations. VFS operations are exposed as `file:*` syscalls (for file/directory operations) and `fs:*` syscalls (for mount operations).
+The Virtual File System provides a unified interface for file and directory operations, implementing Plan 9's "everything is a file" philosophy. It coordinates multiple storage backends through a model-based architecture with mount support for host filesystems, process information, and entity data. VFS operations are exposed as `file:*` syscalls (for file/directory operations) and `fs:*` syscalls (for mount operations).
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Syscall Layer (file:open, file:read, file:write, etc.)     │
+├─────────────────────────────────────────────────────────────┤
+│  VFS Class (path resolution, mount table, access control)   │
+├─────────────────────────────────────────────────────────────┤
+│  Models (FileModel, FolderModel, DeviceModel, ProcModel)    │
+├─────────────────────────────────────────────────────────────┤
+│  Storage Backends                                           │
+│  ├── EMS (SQL-backed files and folders)                     │
+│  ├── HAL KV (virtual devices)                               │
+│  └── Host Mounts (passthrough to filesystem)                │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Directory Structure
+
+```
+src/vfs/
+├── index.ts              # Public API exports
+├── vfs.ts                # Core VFS class (path resolution, mounts)
+├── model.ts              # Model interface & PosixModel base class
+├── handle.ts             # FileHandle interface & open flags
+├── acl.ts                # Access Control List system
+├── message.ts            # VFS message type definitions
+└── models/
+    ├── entity.ts         # EntityModel (polymorphic EMS-backed)
+    ├── file.ts           # FileModel (standard file storage)
+    ├── folder.ts         # FolderModel (directory containers)
+    ├── device.ts         # DeviceModel (virtual /dev devices)
+    └── link.ts           # LinkModel (symbolic links, disabled)
+└── mounts/
+    ├── host.ts           # HostMount (bridge to host filesystem)
+    ├── proc.ts           # ProcMount (synthetic /proc)
+    └── entity.ts         # EntityMount (entity data as filesystem)
+```
+
+## Core Concepts
+
+### Models
+
+Models define behavior for entity classes. Each implements the `Model` interface:
+
+| Model | Storage | Description |
+|-------|---------|-------------|
+| `FileModel` | EMS (SQL) | Regular files with blob storage |
+| `FolderModel` | EMS (SQL) | Directories containing other entities |
+| `DeviceModel` | HAL KV | Virtual devices (/dev/null, /dev/random, etc.) |
+| `LinkModel` | HAL KV | Symbolic links (currently disabled) |
+
+**Model Interface:**
+```typescript
+abstract class PosixModel {
+    abstract open(ctx, id, flags): Promise<FileHandle>;
+    abstract stat(ctx, id): Promise<ModelStat>;
+    abstract create(ctx, parent, name, fields?): Promise<string>;
+    abstract unlink(ctx, id): Promise<void>;
+    abstract list(ctx, id): AsyncIterable<string>;
+    watch?(ctx, id, pattern?): AsyncIterable<WatchEvent>;
+}
+```
+
+### Mount Types
+
+**VFS Native Mounts** (Model-backed):
+- Root filesystem with UUID-first identity
+- Storage keys: `entity:{uuid}`, `access:{uuid}`, `child:{parent}:{name}`
+- Child index for O(1) path lookups
+
+**Host Mounts** (filesystem bridge):
+- Maps VFS path prefix to host directory
+- Read-only by default for security
+- Path traversal protected via boundary checking
+
+**Proc Mounts** (kernel process information):
+- Dynamic `/proc` from ProcessTable
+- Paths: `/proc/{uuid}/stat`, `/proc/{uuid}/env`, `/proc/{uuid}/fd/`
+- `/proc/self` resolves to caller's process
+
+**Entity Mounts** (EMS data as files):
+- Exposes entity records as directory structures
+- Path: `/mount/{model}/{key}/fields/{field-name}`
+
+### FileHandle
+
+Capability-based I/O interface representing an open file.
+
+```typescript
+interface FileHandle {
+    readonly id: string;
+    readonly flags: OpenFlags;
+    read(size?): Promise<Uint8Array>;
+    write(data): Promise<number>;
+    seek(offset, whence): Promise<number>;
+    tell(): Promise<number>;
+    sync(): Promise<void>;
+    close(): Promise<void>;
+}
+```
+
+Handles are capabilities - permissions are checked at `open()` time, then the handle grants access.
+
+### Access Control (ACL)
+
+Grant-based permission system:
+
+- Explicit grants with principal, operations, and optional expiration
+- Deny list for revocation (takes precedence over grants)
+- Wildcard `*` for any principal or operation
+- Kernel bypasses ACL checks (`caller === 'kernel'`)
+- Default: owner gets full control, world gets read/stat access
+
+### Standard Devices
+
+Located at `/dev/`:
+
+| Device | Description |
+|--------|-------------|
+| `/dev/null` | Discards all writes, reads return EOF |
+| `/dev/zero` | Reads return zero bytes |
+| `/dev/random` | Cryptographically secure random bytes |
+| `/dev/urandom` | Alias for /dev/random |
+| `/dev/console` | Host console (stdin/stdout) |
+| `/dev/clock` | System clock reads |
+| `/dev/gzip` | Gzip compression stream |
+| `/dev/gunzip` | Gzip decompression stream |
+| `/dev/deflate` | Deflate compression stream |
+| `/dev/inflate` | Deflate decompression stream |
+
+## Path Resolution
+
+1. Normalize path (handle `.`, `..`, ensure leading `/`)
+2. Check entity mounts (longest prefix match)
+3. Check proc mount
+4. Walk VFS storage from root component-by-component
+5. Use child index for O(1) lookups
+
+**Storage Keys:**
+- `entity:{uuid}` - JSON ModelStat
+- `access:{uuid}` - JSON-encoded ACL
+- `child:{parent}:{name}` - Child UUID (index)
+- `data:{uuid}` - File content blob
 
 ## Syscall Reference
 
