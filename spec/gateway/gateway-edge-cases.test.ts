@@ -7,6 +7,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { pack, unpack } from 'msgpackr';
 import { Gateway } from '@src/gateway/gateway.js';
 import { BunNetworkDevice, BunEntropyDevice } from '@src/hal/index.js';
 import type { Kernel } from '@src/kernel/kernel.js';
@@ -88,27 +89,37 @@ function createMockDispatcher(
 }
 
 /**
+ * Encode a message as length-prefixed msgpack frame.
+ */
+function encodeFrame(message: unknown): Uint8Array {
+    const payload = pack(message);
+    const frame = new Uint8Array(4 + payload.length);
+    const view = new DataView(frame.buffer);
+
+    view.setUint32(0, payload.length);
+    frame.set(payload, 4);
+
+    return frame;
+}
+
+/**
  * Send raw bytes to gateway and read response.
  */
-async function sendRaw(
+async function sendRawBytes(
     socketPath: string,
-    data: Uint8Array | string,
+    data: Uint8Array,
     timeout = 500,
-): Promise<{ responses: string[]; closed: boolean }> {
+): Promise<{ responses: unknown[]; closed: boolean }> {
     const network = new BunNetworkDevice();
     const socket = await network.connect(socketPath, 0);
-    const responses: string[] = [];
+    const responses: unknown[] = [];
     let closed = false;
 
     try {
-        const bytes = typeof data === 'string'
-            ? new TextEncoder().encode(data)
-            : data;
+        await socket.write(data);
 
-        await socket.write(bytes);
-
-        // Read responses
-        let buffer = '';
+        // Read responses using msgpack framing
+        let buffer = new Uint8Array(0);
         const startTime = Date.now();
 
         while (Date.now() - startTime < timeout) {
@@ -120,18 +131,26 @@ async function sendRaw(
                     break;
                 }
 
-                buffer += new TextDecoder().decode(chunk);
+                // Append to buffer
+                const newBuffer = new Uint8Array(buffer.length + chunk.length);
 
-                let newlineIdx: number;
+                newBuffer.set(buffer);
+                newBuffer.set(chunk, buffer.length);
+                buffer = newBuffer;
 
-                while ((newlineIdx = buffer.indexOf('\n')) !== -1) {
-                    const line = buffer.slice(0, newlineIdx);
+                // Process complete messages
+                while (buffer.length >= 4) {
+                    const view = new DataView(buffer.buffer, buffer.byteOffset);
+                    const msgLength = view.getUint32(0);
 
-                    buffer = buffer.slice(newlineIdx + 1);
-
-                    if (line.trim()) {
-                        responses.push(line);
+                    if (buffer.length < 4 + msgLength) {
+                        break;
                     }
+
+                    const payload = buffer.slice(4, 4 + msgLength);
+
+                    buffer = buffer.slice(4 + msgLength);
+                    responses.push(unpack(payload));
                 }
             }
             catch {
@@ -144,6 +163,22 @@ async function sendRaw(
     finally {
         await socket.close().catch(() => {});
     }
+}
+
+/**
+ * Send a msgpack message and read responses.
+ */
+async function sendMessage(
+    socketPath: string,
+    message: { id?: string; call?: string; args?: unknown[]; [key: string]: unknown },
+    timeout = 500,
+): Promise<{ responses: Record<string, unknown>[]; closed: boolean }> {
+    const result = await sendRawBytes(socketPath, encodeFrame(message), timeout);
+
+    return {
+        responses: result.responses as Record<string, unknown>[],
+        closed: result.closed,
+    };
 }
 
 // =============================================================================
@@ -171,114 +206,93 @@ describe('Gateway Edge Cases', () => {
     });
 
     // =========================================================================
-    // MALFORMED JSON
+    // MALFORMED FRAMING
     // =========================================================================
 
-    describe('malformed JSON', () => {
-        it('should reject truncated JSON', async () => {
+    describe('malformed framing', () => {
+        it('should reject invalid msgpack bytes', async () => {
             const kernel = createMockKernel();
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
             await gateway.listen(socketPath);
 
-            const { responses } = await sendRaw(socketPath, '{"id":"1","call"\n');
+            // Send invalid msgpack with valid length prefix
+            const invalidFrame = new Uint8Array(8);
+            const view = new DataView(invalidFrame.buffer);
+
+            view.setUint32(0, 4); // length = 4
+            invalidFrame.set([0xff, 0xff, 0xff, 0xff], 4); // invalid msgpack
+
+            const { responses } = await sendRawBytes(socketPath, invalidFrame);
 
             expect(responses.length).toBeGreaterThan(0);
 
-            const response = JSON.parse(responses[0]!);
+            const response = responses[0] as Record<string, unknown>;
 
             expect(response.op).toBe('error');
             expect(response.code).toBe('EINVAL');
         });
 
-        it('should reject JSON with trailing comma', async () => {
+        it('should handle empty object (missing call field)', async () => {
             const kernel = createMockKernel();
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
             await gateway.listen(socketPath);
 
-            const { responses } = await sendRaw(socketPath, '{"id":"1","call":"test",}\n');
-            const response = JSON.parse(responses[0]!);
+            const { responses } = await sendMessage(socketPath, {});
 
-            expect(response.op).toBe('error');
-            expect(response.code).toBe('EINVAL');
+            expect(responses.length).toBeGreaterThan(0);
+            expect(responses[0]!.op).toBe('error');
+            expect(responses[0]!.message).toContain('call');
         });
 
-        it('should reject unquoted keys', async () => {
+        it('should handle array instead of object', async () => {
             const kernel = createMockKernel();
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
             await gateway.listen(socketPath);
 
-            const { responses } = await sendRaw(socketPath, '{id:"1",call:"test"}\n');
-            const response = JSON.parse(responses[0]!);
+            // Send array instead of object
+            const { responses } = await sendRawBytes(socketPath, encodeFrame(['id', 'call', 'args']));
 
-            expect(response.op).toBe('error');
-        });
+            expect(responses.length).toBeGreaterThan(0);
 
-        it('should reject single quotes', async () => {
-            const kernel = createMockKernel();
-            const dispatcher = createMockDispatcher();
-
-            gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
-
-            const { responses } = await sendRaw(socketPath, "{'id':'1','call':'test'}\n");
-            const response = JSON.parse(responses[0]!);
+            const response = responses[0] as Record<string, unknown>;
 
             expect(response.op).toBe('error');
         });
 
-        it('should handle empty object', async () => {
+        it('should handle primitive values', async () => {
             const kernel = createMockKernel();
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
             await gateway.listen(socketPath);
 
-            const { responses } = await sendRaw(socketPath, '{}\n');
-            const response = JSON.parse(responses[0]!);
+            // WHY: msgpack primitives (unlike JSON) unpack successfully but aren't
+            // valid request objects. Gateway may error or silently disconnect.
+            for (const value of ['string', 42, true, false]) {
+                const { responses } = await sendRawBytes(socketPath, encodeFrame(value));
 
-            expect(response.op).toBe('error');
-            expect(response.message).toContain('call');
-        });
-
-        it('should handle JSON array instead of object', async () => {
-            const kernel = createMockKernel();
-            const dispatcher = createMockDispatcher();
-
-            gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
-
-            const { responses } = await sendRaw(socketPath, '["id","call","args"]\n');
-            const response = JSON.parse(responses[0]!);
-
-            expect(response.op).toBe('error');
-        });
-
-        it('should handle primitive JSON values', async () => {
-            const kernel = createMockKernel();
-            const dispatcher = createMockDispatcher();
-
-            gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
-
-            for (const value of ['"string"', '42', 'true', 'false', 'null']) {
-                const { responses } = await sendRaw(socketPath, value + '\n');
-
-                // Should either return error or no response (primitive has no "call" field)
+                // Either get error response or no response (silent disconnect)
                 if (responses.length > 0) {
-                    const response = JSON.parse(responses[0]!);
+                    const response = responses[0] as Record<string, unknown>;
 
                     expect(response.op).toBe('error');
                 }
             }
+
+            // null specifically causes property access to throw, so expect no response
+            const { responses: nullResponses } = await sendRawBytes(socketPath, encodeFrame(null));
+
+            // null.id throws, so no response expected
+            expect(nullResponses.length).toBe(0);
         });
 
-        it('should handle deeply nested JSON', async () => {
+        it('should handle deeply nested objects', async () => {
             const kernel = createMockKernel();
             const dispatcher = createMockDispatcher();
 
@@ -286,28 +300,56 @@ describe('Gateway Edge Cases', () => {
             await gateway.listen(socketPath);
 
             // Create deeply nested object
-            let nested = '{"a":';
+            let nested: Record<string, unknown> = { deep: true };
 
             for (let i = 0; i < 100; i++) {
-                nested += '{"b":';
+                nested = { b: nested };
             }
 
-            nested += '"deep"';
+            nested = { a: nested };
 
-            for (let i = 0; i < 100; i++) {
-                nested += '}';
-            }
+            const { responses } = await sendRawBytes(socketPath, encodeFrame(nested));
 
-            nested += '}\n';
-
-            const { responses } = await sendRaw(socketPath, nested);
-
-            // Should either parse successfully (and fail on missing call) or fail parsing
+            // Should fail on missing call field
             expect(responses.length).toBeGreaterThan(0);
 
-            const response = JSON.parse(responses[0]!);
+            const response = responses[0] as Record<string, unknown>;
 
             expect(response.op).toBe('error');
+        });
+
+        it('should handle truncated frame (incomplete length prefix)', async () => {
+            const kernel = createMockKernel();
+            const dispatcher = createMockDispatcher();
+
+            gateway = new Gateway(dispatcher, kernel, hal);
+            await gateway.listen(socketPath);
+
+            // Send only 2 bytes of length prefix
+            const { responses, closed } = await sendRawBytes(socketPath, new Uint8Array([0, 0]), 200);
+
+            // Should get no response (buffered waiting for more data) or closed
+            expect(responses.length === 0 || closed).toBe(true);
+        });
+
+        it('should handle truncated frame (incomplete payload)', async () => {
+            const kernel = createMockKernel();
+            const dispatcher = createMockDispatcher();
+
+            gateway = new Gateway(dispatcher, kernel, hal);
+            await gateway.listen(socketPath);
+
+            // Send length prefix claiming 100 bytes but only 10 bytes of payload
+            const frame = new Uint8Array(14);
+            const view = new DataView(frame.buffer);
+
+            view.setUint32(0, 100); // claims 100 bytes
+            frame.set([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 4); // only 10 bytes
+
+            const { responses, closed } = await sendRawBytes(socketPath, frame, 200);
+
+            // Should get no response (buffered waiting for more data) or closed
+            expect(responses.length === 0 || closed).toBe(true);
         });
     });
 
@@ -323,11 +365,10 @@ describe('Gateway Edge Cases', () => {
             gateway = new Gateway(dispatcher, kernel, hal);
             await gateway.listen(socketPath);
 
-            const { responses } = await sendRaw(socketPath, '{"id":12345,"call":"test"}\n');
-            const response = JSON.parse(responses[0]!);
+            const { responses } = await sendMessage(socketPath, { id: 12345 as unknown as string, call: 'test' });
 
             // Should coerce or use as-is
-            expect(response.op).toBe('ok');
+            expect(responses[0]!.op).toBe('ok');
         });
 
         it('should handle null id', async () => {
@@ -337,10 +378,9 @@ describe('Gateway Edge Cases', () => {
             gateway = new Gateway(dispatcher, kernel, hal);
             await gateway.listen(socketPath);
 
-            const { responses } = await sendRaw(socketPath, '{"id":null,"call":"test"}\n');
-            const response = JSON.parse(responses[0]!);
+            const { responses } = await sendMessage(socketPath, { id: null as unknown as string, call: 'test' });
 
-            expect(response.op).toBe('ok');
+            expect(responses[0]!.op).toBe('ok');
         });
 
         it('should handle object id', async () => {
@@ -350,10 +390,9 @@ describe('Gateway Edge Cases', () => {
             gateway = new Gateway(dispatcher, kernel, hal);
             await gateway.listen(socketPath);
 
-            const { responses } = await sendRaw(socketPath, '{"id":{"nested":"id"},"call":"test"}\n');
-            const response = JSON.parse(responses[0]!);
+            const { responses } = await sendMessage(socketPath, { id: { nested: 'id' } as unknown as string, call: 'test' });
 
-            expect(response.op).toBe('ok');
+            expect(responses[0]!.op).toBe('ok');
         });
 
         it('should handle array call field', async () => {
@@ -363,11 +402,10 @@ describe('Gateway Edge Cases', () => {
             gateway = new Gateway(dispatcher, kernel, hal);
             await gateway.listen(socketPath);
 
-            const { responses } = await sendRaw(socketPath, '{"id":"1","call":["file","open"]}\n');
-            const response = JSON.parse(responses[0]!);
+            const { responses } = await sendMessage(socketPath, { id: '1', call: ['file', 'open'] as unknown as string });
 
             // Array is truthy, so should attempt dispatch with stringified call
-            expect(['ok', 'error']).toContain(response.op);
+            expect(['ok', 'error']).toContain(responses[0]!.op);
         });
 
         it('should handle numeric call field', async () => {
@@ -377,10 +415,9 @@ describe('Gateway Edge Cases', () => {
             gateway = new Gateway(dispatcher, kernel, hal);
             await gateway.listen(socketPath);
 
-            const { responses } = await sendRaw(socketPath, '{"id":"1","call":42}\n');
-            const response = JSON.parse(responses[0]!);
+            const { responses } = await sendMessage(socketPath, { id: '1', call: 42 as unknown as string });
 
-            expect(['ok', 'error']).toContain(response.op);
+            expect(['ok', 'error']).toContain(responses[0]!.op);
         });
 
         it('should handle string args instead of array', async () => {
@@ -394,11 +431,10 @@ describe('Gateway Edge Cases', () => {
             gateway = new Gateway(dispatcher, kernel, hal);
             await gateway.listen(socketPath);
 
-            const { responses } = await sendRaw(socketPath, '{"id":"1","call":"test","args":"not-array"}\n');
-            const response = JSON.parse(responses[0]!);
+            const { responses } = await sendMessage(socketPath, { id: '1', call: 'test', args: 'not-array' as unknown as unknown[] });
 
             // Should use empty array fallback or handle gracefully
-            expect(response.op).toBe('ok');
+            expect(responses[0]!.op).toBe('ok');
         });
     });
 
@@ -427,9 +463,7 @@ describe('Gateway Edge Cases', () => {
             ];
 
             for (const payload of sqlPayloads) {
-                const msg = JSON.stringify({ id: '1', call: 'test', args: [payload] });
-
-                await sendRaw(socketPath, msg + '\n');
+                await sendMessage(socketPath, { id: '1', call: 'test', args: [payload] });
                 // Gateway should pass payload through unchanged - it's the dispatcher's job to handle
                 expect(receivedArgs[0]).toBe(payload);
             }
@@ -456,9 +490,7 @@ describe('Gateway Edge Cases', () => {
             ];
 
             for (const payload of shellPayloads) {
-                const msg = JSON.stringify({ id: '1', call: 'test', args: [payload] });
-
-                await sendRaw(socketPath, msg + '\n');
+                await sendMessage(socketPath, { id: '1', call: 'test', args: [payload] });
                 expect(receivedArgs[0]).toBe(payload);
             }
         });
@@ -483,9 +515,7 @@ describe('Gateway Edge Cases', () => {
             ];
 
             for (const payload of pathPayloads) {
-                const msg = JSON.stringify({ id: '1', call: 'file:open', args: [payload] });
-
-                await sendRaw(socketPath, msg + '\n');
+                await sendMessage(socketPath, { id: '1', call: 'file:open', args: [payload] });
                 expect(receivedArgs[0]).toBe(payload);
             }
         });
@@ -497,14 +527,16 @@ describe('Gateway Edge Cases', () => {
             gateway = new Gateway(dispatcher, kernel, hal);
             await gateway.listen(socketPath);
 
+            // WHY: msgpack doesn't have __proto__ parsing issues like JSON, but we still
+            // test that objects with these keys don't pollute prototypes
             const pollutionPayloads = [
-                '{"id":"1","call":"test","__proto__":{"admin":true}}',
-                '{"id":"1","call":"test","constructor":{"prototype":{"admin":true}}}',
-                '{"id":"1","call":"test","args":[{"__proto__":{"polluted":true}}]}',
+                { id: '1', call: 'test', __proto__: { admin: true } },
+                { id: '1', call: 'test', constructor: { prototype: { admin: true } } },
+                { id: '1', call: 'test', args: [{ __proto__: { polluted: true } }] },
             ];
 
             for (const payload of pollutionPayloads) {
-                const { responses } = await sendRaw(socketPath, payload + '\n');
+                const { responses } = await sendRawBytes(socketPath, encodeFrame(payload));
 
                 expect(responses.length).toBeGreaterThan(0);
                 // Should not pollute Object prototype
@@ -532,9 +564,7 @@ describe('Gateway Edge Cases', () => {
             ];
 
             for (const payload of xssPayloads) {
-                const msg = JSON.stringify({ id: '1', call: 'test', args: [payload] });
-
-                await sendRaw(socketPath, msg + '\n');
+                await sendMessage(socketPath, { id: '1', call: 'test', args: [payload] });
                 // Gateway passes through - it's a transport layer
                 expect(receivedArgs[0]).toBe(payload);
             }
@@ -557,9 +587,7 @@ describe('Gateway Edge Cases', () => {
             gateway = new Gateway(dispatcher, kernel, hal);
             await gateway.listen(socketPath);
 
-            const msg = JSON.stringify({ id: '1', call: 'test', args: ['Hello 👋 World 🌍'] });
-
-            await sendRaw(socketPath, msg + '\n');
+            await sendMessage(socketPath, { id: '1', call: 'test', args: ['Hello 👋 World 🌍'] });
             expect(receivedArgs[0]).toBe('Hello 👋 World 🌍');
         });
 
@@ -574,13 +602,11 @@ describe('Gateway Edge Cases', () => {
             gateway = new Gateway(dispatcher, kernel, hal);
             await gateway.listen(socketPath);
 
-            const msg = JSON.stringify({ id: '1', call: 'test', args: ['before\u0000after'] });
-
-            await sendRaw(socketPath, msg + '\n');
+            await sendMessage(socketPath, { id: '1', call: 'test', args: ['before\u0000after'] });
             expect(receivedArgs[0]).toBe('before\u0000after');
         });
 
-        it('should handle unicode escapes', async () => {
+        it('should handle unicode characters', async () => {
             let receivedArgs: unknown[] = [];
             const kernel = createMockKernel();
             const dispatcher = createMockDispatcher(async function* (_proc, _id, _name, args) {
@@ -591,10 +617,8 @@ describe('Gateway Edge Cases', () => {
             gateway = new Gateway(dispatcher, kernel, hal);
             await gateway.listen(socketPath);
 
-            // Raw JSON with unicode escapes
-            const { responses } = await sendRaw(socketPath, '{"id":"1","call":"test","args":["\\u0048\\u0065\\u006c\\u006c\\u006f"]}\n');
+            await sendMessage(socketPath, { id: '1', call: 'test', args: ['Hello'] });
 
-            expect(responses.length).toBeGreaterThan(0);
             expect(receivedArgs[0]).toBe('Hello');
         });
 
@@ -610,9 +634,7 @@ describe('Gateway Edge Cases', () => {
             await gateway.listen(socketPath);
 
             // Emoji that requires surrogate pair
-            const msg = JSON.stringify({ id: '1', call: 'test', args: ['𝕳𝖊𝖑𝖑𝖔'] });
-
-            await sendRaw(socketPath, msg + '\n');
+            await sendMessage(socketPath, { id: '1', call: 'test', args: ['𝕳𝖊𝖑𝖑𝖔'] });
             expect(receivedArgs[0]).toBe('𝕳𝖊𝖑𝖑𝖔');
         });
 
@@ -627,9 +649,7 @@ describe('Gateway Edge Cases', () => {
             gateway = new Gateway(dispatcher, kernel, hal);
             await gateway.listen(socketPath);
 
-            const msg = JSON.stringify({ id: '1', call: 'test', args: ['مرحبا بالعالم'] });
-
-            await sendRaw(socketPath, msg + '\n');
+            await sendMessage(socketPath, { id: '1', call: 'test', args: ['مرحبا بالعالم'] });
             expect(receivedArgs[0]).toBe('مرحبا بالعالم');
         });
 
@@ -645,9 +665,7 @@ describe('Gateway Edge Cases', () => {
             await gateway.listen(socketPath);
 
             // Zero-width space, joiner, non-joiner
-            const msg = JSON.stringify({ id: '1', call: 'test', args: ['a\u200B\u200C\u200Db'] });
-
-            await sendRaw(socketPath, msg + '\n');
+            await sendMessage(socketPath, { id: '1', call: 'test', args: ['a\u200B\u200C\u200Db'] });
             expect(receivedArgs[0]).toBe('a\u200B\u200C\u200Db');
         });
     });
@@ -664,11 +682,10 @@ describe('Gateway Edge Cases', () => {
             gateway = new Gateway(dispatcher, kernel, hal);
             await gateway.listen(socketPath);
 
-            const { responses } = await sendRaw(socketPath, '{"id":"1","call":""}\n');
-            const response = JSON.parse(responses[0]!);
+            const { responses } = await sendMessage(socketPath, { id: '1', call: '' });
 
             // Empty string is falsy, should error
-            expect(response.op).toBe('error');
+            expect(responses[0]!.op).toBe('error');
         });
 
         it('should handle very long call name', async () => {
@@ -679,8 +696,7 @@ describe('Gateway Edge Cases', () => {
             await gateway.listen(socketPath);
 
             const longCall = 'a'.repeat(1000);
-            const msg = JSON.stringify({ id: '1', call: longCall });
-            const { responses } = await sendRaw(socketPath, msg + '\n', 1000);
+            const { responses } = await sendMessage(socketPath, { id: '1', call: longCall }, 1000);
 
             expect(responses.length).toBeGreaterThan(0);
         });
@@ -694,14 +710,10 @@ describe('Gateway Edge Cases', () => {
 
             // Use a moderately long id (1KB) to test without timeout issues
             const longId = 'x'.repeat(1000);
-            const msg = JSON.stringify({ id: longId, call: 'test' });
-            const { responses } = await sendRaw(socketPath, msg + '\n', 1000);
+            const { responses } = await sendMessage(socketPath, { id: longId, call: 'test' }, 1000);
 
             expect(responses.length).toBeGreaterThan(0);
-
-            const response = JSON.parse(responses[0]!);
-
-            expect(response.id).toBe(longId);
+            expect(responses[0]!.id).toBe(longId);
         });
 
         it('should handle empty args array', async () => {
@@ -715,7 +727,7 @@ describe('Gateway Edge Cases', () => {
             gateway = new Gateway(dispatcher, kernel, hal);
             await gateway.listen(socketPath);
 
-            await sendRaw(socketPath, '{"id":"1","call":"test","args":[]}\n');
+            await sendMessage(socketPath, { id: '1', call: 'test', args: [] });
             expect(receivedArgs).toEqual([]);
         });
 
@@ -731,38 +743,27 @@ describe('Gateway Edge Cases', () => {
             await gateway.listen(socketPath);
 
             const manyArgs = Array.from({ length: 1000 }, (_, i) => i);
-            const msg = JSON.stringify({ id: '1', call: 'test', args: manyArgs });
 
-            await sendRaw(socketPath, msg + '\n');
+            await sendMessage(socketPath, { id: '1', call: 'test', args: manyArgs });
             expect(receivedArgs).toHaveLength(1000);
         });
 
-        it('should handle whitespace-only lines', async () => {
+        it('should handle multiple consecutive frames', async () => {
             const kernel = createMockKernel();
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
             await gateway.listen(socketPath);
 
-            // Send whitespace lines followed by valid request
-            const { responses } = await sendRaw(socketPath, '   \n\t\n  \t  \n{"id":"1","call":"test"}\n');
+            // Send two frames concatenated
+            const frame1 = encodeFrame({ id: '1', call: 'test' });
+            const frame2 = encodeFrame({ id: '2', call: 'test' });
+            const combined = new Uint8Array(frame1.length + frame2.length);
 
-            // Should skip whitespace lines and process valid request
-            expect(responses.length).toBeGreaterThan(0);
+            combined.set(frame1);
+            combined.set(frame2, frame1.length);
 
-            const response = JSON.parse(responses[0]!);
-
-            expect(response.op).toBe('ok');
-        });
-
-        it('should handle multiple newlines', async () => {
-            const kernel = createMockKernel();
-            const dispatcher = createMockDispatcher();
-
-            gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
-
-            const { responses } = await sendRaw(socketPath, '{"id":"1","call":"test"}\n\n\n{"id":"2","call":"test"}\n');
+            const { responses } = await sendRawBytes(socketPath, combined, 1000);
 
             expect(responses.length).toBe(2);
         });
@@ -773,42 +774,43 @@ describe('Gateway Edge Cases', () => {
     // =========================================================================
 
     describe('protocol abuse', () => {
-        it('should handle binary garbage', async () => {
+        it('should handle binary garbage with valid length prefix', async () => {
             const kernel = createMockKernel();
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
             await gateway.listen(socketPath);
 
-            // Random binary data with a newline
-            const garbage = new Uint8Array(256);
+            // Random binary data with valid length prefix
+            const garbage = new Uint8Array(260);
+            const view = new DataView(garbage.buffer);
 
-            for (let i = 0; i < 256; i++) {
-                garbage[i] = i;
+            view.setUint32(0, 256); // length = 256
+
+            for (let i = 4; i < 260; i++) {
+                garbage[i] = i % 256;
             }
 
-            garbage[255] = 10; // newline
-
-            const { responses } = await sendRaw(socketPath, garbage);
+            const { responses } = await sendRawBytes(socketPath, garbage);
 
             expect(responses.length).toBeGreaterThan(0);
 
-            const response = JSON.parse(responses[0]!);
+            const response = responses[0] as Record<string, unknown>;
 
             expect(response.op).toBe('error');
         });
 
-        it('should handle request without newline (partial)', async () => {
+        it('should handle incomplete frame (partial)', async () => {
             const kernel = createMockKernel();
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
             await gateway.listen(socketPath);
 
-            // No newline - should buffer but not process
-            const { responses, closed } = await sendRaw(socketPath, '{"id":"1","call":"test"}', 200);
+            // Send just the length prefix with no payload
+            const { responses, closed } = await sendRawBytes(socketPath, new Uint8Array([0, 0, 0, 10]), 200);
 
-            // Either no response (buffered) or connection closed
+            // Either no response (buffered waiting for payload) or connection closed
             expect(responses.length === 0 || closed).toBe(true);
         });
 
@@ -823,12 +825,23 @@ describe('Gateway Edge Cases', () => {
             gateway = new Gateway(dispatcher, kernel, hal);
             await gateway.listen(socketPath);
 
-            // Send many requests rapidly
-            const requests = Array.from({ length: 100 }, (_, i) =>
-                JSON.stringify({ id: String(i), call: 'test' }) + '\n',
-            ).join('');
+            // Build many frames rapidly
+            const frames: Uint8Array[] = [];
 
-            await sendRaw(socketPath, requests, 2000);
+            for (let i = 0; i < 100; i++) {
+                frames.push(encodeFrame({ id: String(i), call: 'test' }));
+            }
+
+            const totalLength = frames.reduce((sum, f) => sum + f.length, 0);
+            const combined = new Uint8Array(totalLength);
+            let offset = 0;
+
+            for (const frame of frames) {
+                combined.set(frame, offset);
+                offset += frame.length;
+            }
+
+            await sendRawBytes(socketPath, combined, 2000);
 
             // All requests should be processed
             expect(callCount.value).toBe(100);
@@ -848,11 +861,11 @@ describe('Gateway Edge Cases', () => {
             const network = new BunNetworkDevice();
             const socket = await network.connect(socketPath, 0);
 
-            // Send request in small chunks
-            const msg = '{"id":"1","call":"test"}\n';
+            // Send frame in small chunks
+            const frame = encodeFrame({ id: '1', call: 'test' });
 
-            for (const char of msg) {
-                await socket.write(new TextEncoder().encode(char));
+            for (let i = 0; i < frame.length; i++) {
+                await socket.write(new Uint8Array([frame[i]!]));
                 await Bun.sleep(10);
             }
 
@@ -863,7 +876,7 @@ describe('Gateway Edge Cases', () => {
             await socket.close();
         });
 
-        it('should handle interleaved partial messages', async () => {
+        it('should handle partial frame reassembly', async () => {
             const kernel = createMockKernel();
             const dispatcher = createMockDispatcher();
 
@@ -873,13 +886,20 @@ describe('Gateway Edge Cases', () => {
             const network = new BunNetworkDevice();
             const socket = await network.connect(socketPath, 0);
 
-            // Start two messages, interleave their bytes (simulating stream corruption)
-            // This should result in invalid JSON
-            await socket.write(new TextEncoder().encode('{"id":"1",'));
-            await socket.write(new TextEncoder().encode('"call":"test"}\n'));
+            // Send frame in two parts
+            const frame = encodeFrame({ id: '1', call: 'test' });
+            const midpoint = Math.floor(frame.length / 2);
+
+            await socket.write(frame.slice(0, midpoint));
+            await Bun.sleep(50);
+            await socket.write(frame.slice(midpoint));
 
             const chunk = await socket.read({ timeout: 500 });
-            const response = JSON.parse(new TextDecoder().decode(chunk).split('\n')[0]!);
+
+            // Parse response (skip 4-byte length prefix)
+            const responseView = new DataView(chunk.buffer, chunk.byteOffset);
+            const responseLength = responseView.getUint32(0);
+            const response = unpack(chunk.slice(4, 4 + responseLength)) as Record<string, unknown>;
 
             expect(response.op).toBe('ok');
 
@@ -938,10 +958,9 @@ describe('Gateway Edge Cases', () => {
             await Bun.sleep(100);
 
             // Gateway should still work
-            const { responses } = await sendRaw(socketPath, '{"id":"1","call":"test"}\n');
-            const response = JSON.parse(responses[0]!);
+            const { responses } = await sendMessage(socketPath, { id: '1', call: 'test' });
 
-            expect(response.op).toBe('ok');
+            expect(responses[0]!.op).toBe('ok');
         });
     });
 
@@ -950,7 +969,7 @@ describe('Gateway Edge Cases', () => {
     // =========================================================================
 
     describe('special characters', () => {
-        it('should handle escaped newlines in JSON strings', async () => {
+        it('should handle newlines in strings', async () => {
             let receivedArgs: unknown[] = [];
             const kernel = createMockKernel();
             const dispatcher = createMockDispatcher(async function* (_proc, _id, _name, args) {
@@ -961,13 +980,11 @@ describe('Gateway Edge Cases', () => {
             gateway = new Gateway(dispatcher, kernel, hal);
             await gateway.listen(socketPath);
 
-            const msg = JSON.stringify({ id: '1', call: 'test', args: ['line1\nline2\nline3'] });
-
-            await sendRaw(socketPath, msg + '\n');
+            await sendMessage(socketPath, { id: '1', call: 'test', args: ['line1\nline2\nline3'] });
             expect(receivedArgs[0]).toBe('line1\nline2\nline3');
         });
 
-        it('should handle escaped quotes', async () => {
+        it('should handle quotes in strings', async () => {
             let receivedArgs: unknown[] = [];
             const kernel = createMockKernel();
             const dispatcher = createMockDispatcher(async function* (_proc, _id, _name, args) {
@@ -978,9 +995,7 @@ describe('Gateway Edge Cases', () => {
             gateway = new Gateway(dispatcher, kernel, hal);
             await gateway.listen(socketPath);
 
-            const msg = JSON.stringify({ id: '1', call: 'test', args: ['say "hello"'] });
-
-            await sendRaw(socketPath, msg + '\n');
+            await sendMessage(socketPath, { id: '1', call: 'test', args: ['say "hello"'] });
             expect(receivedArgs[0]).toBe('say "hello"');
         });
 
@@ -995,9 +1010,7 @@ describe('Gateway Edge Cases', () => {
             gateway = new Gateway(dispatcher, kernel, hal);
             await gateway.listen(socketPath);
 
-            const msg = JSON.stringify({ id: '1', call: 'test', args: ['C:\\Windows\\System32'] });
-
-            await sendRaw(socketPath, msg + '\n');
+            await sendMessage(socketPath, { id: '1', call: 'test', args: ['C:\\Windows\\System32'] });
             expect(receivedArgs[0]).toBe('C:\\Windows\\System32');
         });
 
@@ -1013,9 +1026,7 @@ describe('Gateway Edge Cases', () => {
             await gateway.listen(socketPath);
 
             // Tab, carriage return, form feed, backspace
-            const msg = JSON.stringify({ id: '1', call: 'test', args: ['a\t\r\f\bb'] });
-
-            await sendRaw(socketPath, msg + '\n');
+            await sendMessage(socketPath, { id: '1', call: 'test', args: ['a\t\r\f\bb'] });
             expect(receivedArgs[0]).toBe('a\t\r\f\bb');
         });
     });
