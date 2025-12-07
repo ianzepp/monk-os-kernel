@@ -7,7 +7,7 @@
 
 import { describe, it, expect, beforeEach, mock } from 'bun:test';
 import type { GatewayDeps } from '@rom/svc/gatewayd.js';
-import { _test, defaultDeps } from '@rom/svc/gatewayd.js';
+import { _test } from '@rom/svc/gatewayd.js';
 import type { Response } from '@rom/lib/process/types.js';
 
 // =============================================================================
@@ -281,7 +281,7 @@ describe('gatewayd unit tests', () => {
 
         it('should dispatch syscall for valid request', async () => {
             // Create a mock syscallStream that yields one response
-            async function* mockSyscallStream(name: string, ...args: unknown[]): AsyncIterable<Response> {
+            async function* mockSyscallStream(_name: string, ..._args: unknown[]): AsyncIterable<Response> {
                 yield { op: 'ok', data: 42 };
             }
 
@@ -360,7 +360,7 @@ describe('gatewayd unit tests', () => {
             }
 
             const cancelStreamMock = mock(() => {});
-            const { writes, writeFn } = captureWrites();
+            const { writeFn } = captureWrites();
             const deps = createMockDeps({
                 write: writeFn,
                 syscallStream: mockSyscallStream as unknown as GatewayDeps['syscallStream'],

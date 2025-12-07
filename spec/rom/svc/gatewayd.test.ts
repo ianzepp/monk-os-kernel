@@ -149,7 +149,7 @@ async function sendSyscall(
                                         return;
                                     }
                                 }
-                                catch (err) {
+                                catch (_err) {
                                     doReject(new Error(`Failed to parse response: ${line}`));
 
                                     return;

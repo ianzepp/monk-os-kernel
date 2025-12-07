@@ -464,7 +464,7 @@ describe('Model', () => {
             // Multiple accesses should reuse cached categories
             const required1 = model.getRequiredFields();
             const required2 = model.getRequiredFields();
-            const immutable = model.getImmutableFields();
+            const _immutable = model.getImmutableFields();
 
             expect(required1).toBe(required2); // Same Set instance
             expect(model.isCategorized()).toBe(true);

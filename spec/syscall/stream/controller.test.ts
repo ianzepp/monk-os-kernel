@@ -4,7 +4,7 @@
  * Tests for backpressure management and flow control in streaming syscalls.
  */
 
-import { describe, it, expect, beforeEach } from 'bun:test';
+import { describe, it, expect } from 'bun:test';
 import { StreamController, StallError } from '@src/syscall/stream/controller.js';
 import {
     STREAM_HIGH_WATER,

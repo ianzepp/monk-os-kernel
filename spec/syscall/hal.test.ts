@@ -4,7 +4,7 @@
  * Tests for network and channel syscall validation.
  */
 
-import { describe, it, expect, beforeEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach } from 'bun:test';
 import {
     netConnect,
     portCreate, portClose, portRecv, portSend,

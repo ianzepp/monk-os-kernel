@@ -24,7 +24,6 @@ import {
     type EntityMount,
 } from '@src/vfs/mounts/entity.js';
 import { createOsStack, type OsStack } from '@src/os/stack.js';
-import type { EntityRecord } from '@src/ems/entity-ops.js';
 import { EINVAL, ENOENT, ENOTDIR, EISDIR, EROFS, EBADF, EACCES } from '@src/hal/errors.js';
 
 // =============================================================================

@@ -3,8 +3,7 @@ import { PosixModel } from '@src/vfs/model.js';
 import type { ModelContext, ModelStat, FieldDef, WatchEvent } from '@src/vfs/model.js';
 import type { FileHandle, OpenFlags, OpenOptions } from '@src/vfs/handle.js';
 import type { HAL } from '@src/hal/index.js';
-import { ENOSYS, EIO, ENOENT } from '@src/hal/index.js';
-import { respond } from '@src/vfs/message.js';
+import { EIO, ENOENT } from '@src/hal/index.js';
 import type { Message, Response } from '@src/vfs/message.js';
 
 // =============================================================================

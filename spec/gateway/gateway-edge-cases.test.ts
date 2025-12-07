@@ -383,10 +383,10 @@ describe('Gateway Edge Cases', () => {
         });
 
         it('should handle string args instead of array', async () => {
-            let receivedArgs: unknown[] = [];
+            let _receivedArgs: unknown[] = [];
             const kernel = createMockKernel();
             const dispatcher = createMockDispatcher(async function* (_proc, _id, _name, args) {
-                receivedArgs = args;
+                _receivedArgs = args;
                 yield { op: 'ok', data: {} };
             });
 

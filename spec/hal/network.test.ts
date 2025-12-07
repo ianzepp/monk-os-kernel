@@ -847,7 +847,7 @@ describe('Network Device', () => {
                 const port = getTestPort();
 
                 {
-                    await using server = await network.serve(port, () => new Response('OK'));
+                    await using _server = await network.serve(port, () => new Response('OK'));
 
                     const response = await fetch(`http://127.0.0.1:${port}/`);
 
@@ -874,7 +874,7 @@ describe('Network Device', () => {
             it('should upgrade HTTP to WebSocket', async () => {
                 const port = getTestPort();
                 let wsOpened = false;
-                let wsMessage = '';
+                const _wsMessage = '';
 
                 const server = await network.serve(
                     port,

@@ -6,7 +6,6 @@
 
 import { describe, it, expect, beforeEach, mock } from 'bun:test';
 import { SyscallDispatcher } from '@src/syscall/dispatcher.js';
-import { respond } from '@src/message.js';
 import type { Process } from '@src/kernel/types.js';
 import type { Kernel } from '@src/kernel/kernel.js';
 import type { VFS } from '@src/vfs/vfs.js';

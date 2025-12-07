@@ -4,7 +4,7 @@
  * Tests for handle manipulation and IPC syscall validation.
  */
 
-import { describe, it, expect, beforeEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach } from 'bun:test';
 import {
     handleRedirect, handleRestore, handleSend, handleClose,
     ipcPipe,

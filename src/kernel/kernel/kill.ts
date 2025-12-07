@@ -72,7 +72,7 @@
 
 import type { Kernel } from '../kernel.js';
 import type { Process } from '../types.js';
-import { SIGTERM, SIGKILL, TERM_GRACE_MS } from '../types.js';
+import { SIGTERM, SIGKILL } from '../types.js';
 import { ESRCH, EPERM } from '../errors.js';
 import { forceExit } from './force-exit.js';
 import { deliverSignal } from './deliver-signal.js';

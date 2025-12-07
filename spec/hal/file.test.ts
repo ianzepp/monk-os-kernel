@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile as fsWriteFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { BunFileDevice, MockFileDevice } from '@src/hal/file.js';
-import { ENOENT, EIO } from '@src/hal/errors.js';
+import { ENOENT } from '@src/hal/errors.js';
 
 describe('FileDevice', () => {
     // =========================================================================

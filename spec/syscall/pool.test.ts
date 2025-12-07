@@ -4,7 +4,7 @@
  * Tests for worker pool syscall validation.
  */
 
-import { describe, it, expect, beforeEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach } from 'bun:test';
 import {
     poolLease,
     workerLoad, workerSend, workerRecv, workerRelease,

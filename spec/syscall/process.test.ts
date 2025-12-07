@@ -7,7 +7,7 @@
 import { describe, it, expect, beforeEach, mock } from 'bun:test';
 import {
     procSpawn, procExit, procKill, procWait,
-    procGetpid, procGetppid, procCreate,
+    procGetpid, procGetppid,
     procGetargs, procGetcwd, procChdir,
     procGetenv, procSetenv, activationGet, poolStats,
 } from '@src/syscall/process.js';
