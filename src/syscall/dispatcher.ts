@@ -51,6 +51,7 @@ import type { Kernel } from '@src/kernel/kernel.js';
 import type { VFS } from '@src/vfs/index.js';
 import type { EMS } from '@src/ems/ems.js';
 import type { HAL } from '@src/hal/index.js';
+import type { Auth } from '@src/auth/index.js';
 import type { KernelMessage, SyscallRequest } from '@src/kernel/types.js';
 import type { Process, Response } from './types.js';
 import { respond } from './types.js';
@@ -84,8 +85,31 @@ import { ipcPipe } from './handle.js';
 // Pool/worker syscalls
 import { poolLease, workerLoad, workerSend, workerRecv, workerRelease } from './pool.js';
 
+// Auth syscalls
+import { authToken, authWhoami } from './auth.js';
+
 // Stream controller
 import { StreamController, StallError } from './stream/index.js';
+
+// =============================================================================
+// AUTH GATING CONSTANTS
+// =============================================================================
+
+/**
+ * Syscalls allowed without authentication.
+ *
+ * WHY: These syscalls must work for anonymous processes:
+ * - auth:login - Authenticate (Phase 1)
+ * - auth:token - Authenticate via JWT
+ * - auth:register - Create account (Phase 1)
+ *
+ * All other syscalls require proc.session to be set.
+ */
+const ALLOW_ANONYMOUS = new Set([
+    'auth:login',
+    'auth:token',
+    'auth:register',
+]);
 
 // =============================================================================
 // SYSCALL DISPATCHER
@@ -106,22 +130,63 @@ export class SyscallDispatcher {
         private readonly vfs: VFS,
         private readonly ems: EMS | undefined,
         private readonly hal: HAL,
+        private readonly auth: Auth | undefined,
     ) {}
 
     /**
      * Dispatch a syscall from a process.
      *
      * ALGORITHM:
-     * 1. Switch on syscall name
-     * 2. Route to appropriate handler with explicit dependencies
-     * 3. Yield responses from handler
-     * 4. For unknown syscalls, yield ENOSYS error
+     * 1. Check session expiry (lazy expiration)
+     * 2. Check authentication (reject anonymous unless allowed)
+     * 3. Switch on syscall name
+     * 4. Route to appropriate handler with explicit dependencies
+     * 5. Yield responses from handler
+     * 6. For unknown syscalls, yield ENOSYS error
+     *
+     * AUTH GATING:
+     * - Syscalls in ALLOW_ANONYMOUS work without authentication
+     * - All other syscalls require proc.session to be set
+     * - Expired sessions are cleared lazily on each syscall
      *
      * @param proc - Calling process
      * @param name - Syscall name (e.g., 'file:open', 'proc:spawn')
      * @param args - Syscall arguments
      */
     async *dispatch(proc: Process, name: string, args: unknown[]): AsyncIterable<Response> {
+        // =====================================================================
+        // AUTH GATING
+        // =====================================================================
+
+        // Check session expiry (lazy expiration)
+        // WHY: Sessions expire based on JWT exp claim. We check on each syscall
+        // and clear identity if expired. This avoids background expiration timers.
+        if (proc.expires && proc.expires < Date.now()) {
+            proc.user = 'anonymous';
+            proc.session = undefined;
+            proc.expires = undefined;
+            proc.sessionValidatedAt = undefined;
+            proc.sessionData = undefined;
+            // Falls through to anonymous check below
+        }
+
+        // Check authentication requirement
+        // WHY: Most syscalls require authentication. Only auth:login, auth:token,
+        // and auth:register work for anonymous processes.
+        const requiresAuth = !ALLOW_ANONYMOUS.has(name);
+        const isAuthenticated = proc.session !== undefined;
+        const anonymousAllowed = this.auth?.isAnonymousAllowed() ?? true;
+
+        if (requiresAuth && !isAuthenticated && !anonymousAllowed) {
+            yield respond.error('EACCES', 'Authentication required');
+
+            return;
+        }
+
+        // =====================================================================
+        // SYSCALL ROUTING
+        // =====================================================================
+
         switch (name) {
             // =================================================================
             // VFS SYSCALLS (file:*)
@@ -424,6 +489,23 @@ export class SyscallDispatcher {
 
             case 'activation:get':
                 yield* activationGet(proc);
+                break;
+
+                // =================================================================
+                // AUTH SYSCALLS (auth:*)
+                // =================================================================
+
+            case 'auth:token':
+                if (!this.auth) {
+                    yield respond.error('ENOSYS', 'Auth not available');
+                    break;
+                }
+
+                yield* authToken(proc, this.auth, args[0]);
+                break;
+
+            case 'auth:whoami':
+                yield* authWhoami(proc);
                 break;
 
                 // =================================================================

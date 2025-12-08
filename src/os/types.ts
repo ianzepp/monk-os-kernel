@@ -103,6 +103,15 @@ export interface OSConfig {
      * Defaults to './rom' if not specified.
      */
     romPath?: string;
+
+    /**
+     * Allow anonymous (unauthenticated) syscalls.
+     *
+     * WHY: When true, auth gating is disabled - syscalls work without auth:token.
+     * Defaults to true for Phase 0 (no auth:login yet).
+     * Set to false to enforce authentication.
+     */
+    allowAnonymous?: boolean;
 }
 
 /**

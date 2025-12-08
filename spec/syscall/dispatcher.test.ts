@@ -130,7 +130,8 @@ describe('SyscallDispatcher', () => {
         mockEms = mocks.mockEms;
         mockHal = mocks.mockHal;
 
-        dispatcher = new SyscallDispatcher(mockKernel, mockVfs, mockEms, mockHal);
+        // WHY undefined auth: Tests don't need auth gating
+        dispatcher = new SyscallDispatcher(mockKernel, mockVfs, mockEms, mockHal, undefined);
         proc = createMockProcess();
     });
 
@@ -185,7 +186,7 @@ describe('SyscallDispatcher', () => {
 
     describe('EMS syscall availability', () => {
         it('should yield ENOSYS when EMS is undefined', async () => {
-            const noEmsDispatcher = new SyscallDispatcher(mockKernel, mockVfs, undefined, mockHal);
+            const noEmsDispatcher = new SyscallDispatcher(mockKernel, mockVfs, undefined, mockHal, undefined);
 
             const response = await firstResponse(noEmsDispatcher, proc, 'ems:select', ['model', {}]);
 
@@ -203,7 +204,7 @@ describe('SyscallDispatcher', () => {
         });
 
         it('should check EMS availability for all ems:* syscalls', async () => {
-            const noEmsDispatcher = new SyscallDispatcher(mockKernel, mockVfs, undefined, mockHal);
+            const noEmsDispatcher = new SyscallDispatcher(mockKernel, mockVfs, undefined, mockHal, undefined);
             const emsSyscalls = [
                 ['ems:select', ['model', {}]],
                 ['ems:create', ['model', {}]],

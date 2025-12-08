@@ -83,6 +83,7 @@ import { fromCode } from '@src/hal/errors.js';
 import type { OSConfig, BootOpts, ExecOpts, OSEvents, OSEventName } from './types.js';
 import { EMS } from '@src/ems/ems.js';
 import type { EntityOps } from '@src/ems/entity-ops.js';
+import { Auth } from '@src/auth/index.js';
 import { SyscallDispatcher } from '@src/syscall/index.js';
 import { Gateway } from '@src/gateway/index.js';
 
@@ -177,6 +178,16 @@ export class OS {
      * NOTE: Protected to allow TestOS subclass to expose internals for testing.
      */
     protected __ems: EMS | null = null;
+
+    /**
+     * Authentication subsystem.
+     *
+     * WHY: Handles identity ("who are you?") for external clients.
+     * Sets proc.user/session/expires on successful auth:token.
+     * INVARIANT: Non-null when booted === true.
+     * NOTE: Protected to allow TestOS subclass to expose internals for testing.
+     */
+    protected __auth: Auth | null = null;
 
     /**
      * Virtual File System.
@@ -764,14 +775,22 @@ export class OS {
             this.__ems = new EMS(this.__hal);
             await this.__ems.init();
 
-            // 3. VFS
+            // 3. Auth
+            // WHY default true: Phase 0 has no auth:login, so users can't authenticate yet.
+            // Tests and production can set allowAnonymous: false when ready.
+            this.__auth = new Auth(this.__hal, {
+                allowAnonymous: this.config.allowAnonymous ?? true,
+            });
+            await this.__auth.init();
+
+            // 4. VFS
             this.__vfs = new VFS(this.__hal, this.__ems);
             await this.__vfs.init();
 
-            // 4. Standard directories
+            // 5. Standard directories
             await this.createStandardDirectories();
 
-            // 5. ROM copy (userspace code)
+            // 6. ROM copy (userspace code)
             const romPath = opts?.romPath ?? this.config.romPath ?? DEFAULT_ROM_PATH;
 
             try {
@@ -786,7 +805,7 @@ export class OS {
                 }
             }
 
-            // 6. Kernel + Dispatcher
+            // 7. Kernel + Dispatcher
             this.__kernel = new Kernel(this.__hal, this.__ems, this.__vfs);
 
             this.__dispatcher = new SyscallDispatcher(
@@ -794,6 +813,7 @@ export class OS {
                 this.__vfs,
                 this.__ems,
                 this.__hal,
+                this.__auth,
             );
 
             // Wire dispatcher's message handler to kernel
@@ -802,7 +822,7 @@ export class OS {
                 await this.__dispatcher!.onWorkerMessage(worker, msg);
             };
 
-            // 7. Gateway (external syscall interface)
+            // 8. Gateway (external syscall interface)
             const socketPath = this.config.env?.MONK_SOCKET ?? '/tmp/monk.sock';
 
             this.__gateway = new Gateway(
@@ -813,7 +833,7 @@ export class OS {
 
             await this.__gateway.listen(socketPath);
 
-            // 8. Init process
+            // 9. Init process
             const initPath = opts?.main ? this.resolvePath(opts.main) : DEFAULT_INIT_PATH;
 
             await this.__kernel.boot({
@@ -887,7 +907,7 @@ export class OS {
         // Mark as not booted first to fail any in-flight syscalls
         this.booted = false;
 
-        // Shutdown in reverse order: Gateway → Kernel → VFS → EMS → HAL
+        // Shutdown in reverse order: Gateway → Kernel → VFS → Auth → EMS → HAL
         if (this.__gateway) {
             await this.__gateway.shutdown();
         }
@@ -898,6 +918,10 @@ export class OS {
 
         if (this.__vfs) {
             await this.__vfs.shutdown();
+        }
+
+        if (this.__auth) {
+            await this.__auth.shutdown();
         }
 
         if (this.__ems) {
@@ -913,6 +937,7 @@ export class OS {
         this.__dispatcher = null;
         this.__kernel = null;
         this.__vfs = null;
+        this.__auth = null;
         this.__ems = null;
         this.__hal = null;
     }
@@ -1212,6 +1237,15 @@ export class OS {
             }
         }
 
+        if (this.__auth) {
+            try {
+                await this.__auth.shutdown();
+            }
+            catch {
+                // Ignore cleanup errors
+            }
+        }
+
         if (this.__ems) {
             try {
                 await this.__ems.shutdown();
@@ -1235,6 +1269,7 @@ export class OS {
         this.__dispatcher = null;
         this.__kernel = null;
         this.__vfs = null;
+        this.__auth = null;
         this.__ems = null;
         this.__hal = null;
     }

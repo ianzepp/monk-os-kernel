@@ -1,6 +1,6 @@
 # Authentication Subsystem
 
-> **Status**: Proposed
+> **Status**: Phase 0 Complete
 > **Complexity**: Medium
 > **Dependencies**: EMS (schema split pattern), Gateway (process identity), HAL (crypto)
 
@@ -539,24 +539,32 @@ src/syscall/
 
 ## Implementation Phases
 
-### Phase 0: Bootstrap Auth (MVP)
+### Phase 0: Bootstrap Auth (MVP) ✓ COMPLETE
 
 Minimal auth with pre-provisioned tokens. No passwords, no user entities.
 
-1. Create `src/auth/` directory structure
-2. Add `user`, `session`, `expires`, `sessionValidatedAt` fields to Process
-3. Add dispatcher gating (reject anonymous, check session expiry)
-4. Implement `auth:token` - validate JWT, set proc identity
-5. Implement `auth:whoami`
-6. Init script mints JWTs directly via HAL crypto (no syscall needed)
-7. Update os-sdk to accept token on connect
+**Implemented:**
+1. ✓ Create `src/auth/` directory structure (types.ts, jwt.ts, auth.ts, index.ts)
+2. ✓ Add `session`, `expires`, `sessionValidatedAt`, `sessionData` fields to Process
+3. ✓ Add dispatcher gating (reject anonymous, check session expiry)
+4. ✓ Implement `auth:token` - validate JWT, set proc identity, return fresh token
+5. ✓ Implement `auth:whoami` - return current user/session
+6. ✓ JWT signing/verification using HMAC-SHA256 (no external deps)
+7. ✓ Ephemeral signing key (tokens invalidate on OS restart)
+8. ✓ `allowAnonymous` config option (defaults to true for Phase 0)
+9. ✓ 50 tests covering JWT, Auth class, and syscall handlers
+
+**Not implemented (deferred):**
+- Init script token minting (can use `auth.mintToken()` directly)
+- os-sdk token support (separate repo)
 
 **What this enables:**
-- Services authenticate with pre-provisioned JWTs
-- Testing works with minted tokens
-- Auth gating is enforced
+- Services authenticate with pre-provisioned JWTs via `auth:token`
+- Testing works with `allowAnonymous: true` (default)
+- Auth gating enforced when `allowAnonymous: false`
+- Sliding token expiration via `auth:token` refresh
 
-**What's deferred:**
+**What's deferred to Phase 1+:**
 - Password login (`auth:login`)
 - User/session tables in EMS (just use JWT expiry)
 - Rate limiting

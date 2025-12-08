@@ -272,7 +272,8 @@ export async function createOsStack(opts: OsStackOptions = {}): Promise<OsStack>
             kernel = new Kernel(hal, ems, vfs);
 
             // Wire syscall dispatcher (sits outside kernel, orchestrates syscalls)
-            const dispatcher = new SyscallDispatcher(kernel, vfs, ems, hal);
+            // WHY undefined auth: Stack is for testing, auth gating not needed
+            const dispatcher = new SyscallDispatcher(kernel, vfs, ems, hal, undefined);
 
             kernel.onWorkerMessage = (worker, msg) => dispatcher.onWorkerMessage(worker, msg);
         }

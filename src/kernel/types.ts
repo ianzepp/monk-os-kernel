@@ -38,6 +38,60 @@ export interface Process {
     /** User identity for ACL checks (e.g., 'root', 'kernel') */
     user: string;
 
+    // =========================================================================
+    // AUTH IDENTITY (set by auth:token, cleared on expiry/logout)
+    // =========================================================================
+
+    /**
+     * Session ID from JWT.
+     *
+     * WHY: Tracks the current authentication session. Used for:
+     * - Future EMS session lookup (Phase 1)
+     * - Session revocation tracking
+     * - Audit logging
+     *
+     * INVARIANT: If session is set, user is also set.
+     */
+    session?: string;
+
+    /**
+     * Session expiry timestamp (ms since epoch).
+     *
+     * WHY: Enables lazy session expiration. Dispatcher checks on each syscall
+     * and clears identity if expired.
+     *
+     * INVARIANT: If expires is set, session is also set.
+     */
+    expires?: number;
+
+    /**
+     * Last EMS session validation timestamp (ms since epoch).
+     *
+     * WHY: Phase 1+ will revalidate sessions against EMS every 5 minutes.
+     * This allows session revocation to propagate without checking EMS
+     * on every syscall.
+     *
+     * INVARIANT: Only set when session is set.
+     */
+    sessionValidatedAt?: number;
+
+    /**
+     * JWT claims or session metadata.
+     *
+     * WHY: Preserves JWT claims (iat, scope, custom claims) for the session.
+     * Avoids re-parsing JWT for subsequent operations.
+     *
+     * INVARIANT: Only set when session is set.
+     */
+    sessionData?: {
+        /** Issued at timestamp (seconds) */
+        iat?: number;
+        /** Permission scopes */
+        scope?: string[];
+        /** Allow additional claims */
+        [key: string]: unknown;
+    };
+
     /** Bun Worker instance (shared with creator if virtual=true) */
     worker: Worker;
 
