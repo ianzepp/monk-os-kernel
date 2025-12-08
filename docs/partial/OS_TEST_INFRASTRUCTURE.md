@@ -1,10 +1,28 @@
 # Test Infrastructure Refactoring
 
-> **Status**: Proposed
+> **Status**: Partial (Phase 1 Complete)
 > **Complexity**: Medium
 > **Dependencies**: None
 
 Simplify test patterns by introducing a BaseOS class hierarchy with flexible boot options for testing.
+
+---
+
+## Implementation Progress
+
+| Phase | Status | Description |
+|-------|--------|-------------|
+| Phase 1 | **Complete** | BaseOS hierarchy (base.ts, os.ts extends BaseOS, test.ts with TestOS) |
+| Phase 2 | Pending | Migrate tests using createOsStack() to TestOS |
+| Phase 3 | Pending | Migrate syscall tests from mock factories to TestOS |
+| Phase 4 | Pending | Remove OS public getters (use TestOS.internal* instead) |
+| Phase 5 | Pending | Documentation updates |
+
+**Phase 1 deliverables:**
+- `src/os/base.ts` - BaseOS abstract class with shared functionality
+- `src/os/os.ts` - Production OS extending BaseOS
+- `src/os/test.ts` - TestOS with flexible partial boot, HAL injection, internal* getters
+- `src/os/index.ts` - Updated exports
 
 ---
 
