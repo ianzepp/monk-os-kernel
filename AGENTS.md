@@ -48,9 +48,9 @@
 ### Layered Architecture
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  External Applications (via gatewayd Unix socket)           │
+│  External Applications (os-sdk via Unix socket)             │
 ├─────────────────────────────────────────────────────────────┤
-│  Process Library & Syscall API (rom/lib/process/)           │
+│  Gateway (src/gateway/) - MessagePack wire protocol         │
 ├─────────────────────────────────────────────────────────────┤
 │  OS Public API (src/os/)                                    │
 │  ├── OS class (boot, exec, shutdown, syscall wrappers)      │
@@ -750,55 +750,26 @@ Streams of `Response` objects are the fundamental data flow unit. Arrays are a c
 │   │   ├── os.ts                 # OS class (boot, exec, shutdown, syscall wrappers)
 │   │   ├── types.ts              # OSConfig, BootOpts, ExecOpts, OSEvents
 │   │   └── README.md             # API documentation
+│   ├── gateway/                  # External syscall interface
+│   │   ├── index.ts              # Exports Gateway class
+│   │   ├── gateway.ts            # MessagePack Unix socket server
+│   │   └── README.md             # Wire protocol docs
 │   └── message.ts                # Message, Response, respond helpers
 ├── rom/                          # Read-only bundled code (userspace)
 │   ├── lib/                      # Libraries for processes
-│   │   ├── process.ts            # Re-exports from process/
-│   │   ├── process/              # Syscall wrappers
-│   │   │   ├── index.ts
-│   │   │   ├── types.ts
-│   │   │   ├── syscall.ts
-│   │   │   ├── error.ts
-│   │   │   ├── file.ts
-│   │   │   ├── dir.ts
-│   │   │   ├── net.ts
-│   │   │   ├── proc.ts
-│   │   │   ├── env.ts
-│   │   │   ├── io.ts
-│   │   │   ├── pipe.ts
-│   │   │   ├── channel.ts
-│   │   │   ├── worker.ts
-│   │   │   └── ...
-│   │   ├── shell/                # Shell utilities
-│   │   │   ├── index.ts
-│   │   │   ├── parse.ts
-│   │   │   ├── glob.ts
-│   │   │   └── types.ts
-│   │   ├── awk/                  # AWK interpreter
-│   │   │   ├── index.ts
-│   │   │   ├── lexer.ts
-│   │   │   ├── parser.ts
-│   │   │   ├── interpreter.ts
-│   │   │   └── ...
-│   │   ├── args.ts               # Argument parsing
-│   │   ├── path.ts               # Path utilities
-│   │   ├── glob.ts               # Glob matching
-│   │   ├── io.ts                 # ByteReader, ByteWriter
-│   │   ├── format.ts             # Formatting utilities
-│   │   └── validator.ts          # Input validation
+│   │   ├── errors.ts             # Error definitions
+│   │   └── process/              # Syscall wrappers
+│   │       ├── index.ts
+│   │       ├── types.ts
+│   │       ├── syscall.ts
+│   │       └── ...
 │   ├── bin/                      # Executable programs
-│   │   ├── init.ts               # Init process
-│   │   ├── shell.ts              # Interactive shell
-│   │   └── cat.ts, ls.ts, ...   # UNIX utilities
+│   │   ├── true.ts               # Exit 0
+│   │   └── false.ts              # Exit 1
 │   ├── svc/                      # System services (daemons)
-│   │   ├── init.ts               # PID 1, reaps zombie children
-│   │   ├── gatewayd.ts           # Unix socket gateway for external apps
-│   │   ├── logd.ts               # System log daemon
-│   │   └── telnetd.ts            # Telnet daemon for shell access
+│   │   └── init.ts               # PID 1, reaps zombie children
 │   └── etc/                      # Configuration
-│       ├── mounts.json           # Mount configuration
-│       └── services/             # Service definitions
-│           └── logd.json
+│       └── mounts.json           # Mount configuration
 ├── spec/                         # Tests
 │   ├── kernel.test.ts
 │   ├── vfs.test.ts
@@ -811,35 +782,50 @@ Streams of `Response` objects are the fundamental data flow unit. Arrays are a c
 
 ### ROM Services (`rom/svc/`)
 
-System services that run as Workers inside the OS:
+Minimal system services that run as Workers inside the OS:
 
 | Service | Purpose | Activation |
 |---------|---------|------------|
 | **init.ts** | PID 1, reaps zombie children | boot |
-| **gatewayd.ts** | Unix socket bridge for external apps | boot |
-| **logd.ts** | System log daemon | boot (pubsub: log.*) |
-| **telnetd.ts** | Telnet daemon for shell access | tcp:listen |
 
-**gatewayd Wire Protocol** (newline-delimited JSON):
+### Gateway (`src/gateway/`)
+
+The Gateway provides external applications (os-sdk) access to syscalls over a Unix domain socket. It runs in kernel context (not as a Worker), executing syscalls directly via `dispatcher.execute()`.
+
+**Wire Protocol**: Length-prefixed MessagePack over Unix socket.
+
 ```
-Request:  { "type": "syscall", "id": "<uuid>", "name": "<syscall>", "args": [...] }
-Response: { "type": "response", "id": "<uuid>", "result": { "op": "...", "data": {...} } }
-Error:    { "type": "response", "id": "<uuid>", "error": { "code": "...", "message": "..." } }
+[4-byte big-endian length][msgpack payload]
 ```
 
-The `id` field correlates responses to requests, enabling concurrent requests with interleaved responses on the same connection. Binary data in responses is base64-encoded for JSON transport.
+**Request**:
+```javascript
+{ id: "abc", call: "file:open", args: ["/etc/hosts", { read: true }] }
+```
 
-### External Utilities (os-coreutils)
+**Response**:
+```javascript
+{ id: "abc", op: "ok", data: { fd: 3 } }
+{ id: "abc", op: "data", bytes: Uint8Array([...]) }  // Binary data native
+{ id: "abc", op: "error", code: "ENOENT", message: "..." }
+```
 
-User utilities have been moved to `../os-coreutils/`. See that package for:
-- **File**: cat, cp, mv, rm, touch, ln, chmod, head, tail, tee, wc, file
-- **Directory**: ls, mkdir, rmdir, cd, pwd, stat
-- **Text**: echo, printf, sed, awk, tr, cut, sort, uniq, nl, yes
-- **Path**: basename, dirname, realpath
-- **Info**: date, uname, whoami, df, du
-- **Shell**: Interactive shell
+Each client connection gets an isolated **virtual process** with its own file descriptor table, cwd, and environment. No Worker thread overhead per connection.
 
-These will connect to the OS via gatewayd once Phase 2-3 are complete.
+### External SDK (os-sdk)
+
+External applications connect via the Gateway using os-sdk (`@monk-api/os-sdk`). The SDK provides a TypeScript client that handles MessagePack encoding and the wire protocol.
+
+```typescript
+import { OSClient } from '@monk-api/os-sdk';
+
+const client = new OSClient();
+await client.connect({ socketPath: '/tmp/monk.sock' });
+
+const fd = await client.open('/etc/hosts', { read: true });
+const data = await client.read(fd);
+await client.close(fd);
+```
 
 ---
 
@@ -1024,7 +1010,7 @@ await worker.release(workerId);                // Release to pool
 | HAL Devices | 95% | 14 devices: SQLite + PostgreSQL storage backends |
 | Boot | 95% | ROM bootstrap, service activation, lifecycle events |
 | Public API | 95% | OS class rewritten with syscall wrappers, convenience helpers |
-| gatewayd | 100% | Unix socket gateway for external apps |
+| Gateway | 100% | MessagePack Unix socket interface for os-sdk |
 
 **Storage Backends**:
 - **SQLite** (`BunStorageEngine`) — Embedded, single-node, WAL mode
@@ -1040,10 +1026,9 @@ await worker.release(workerId);                // Release to pool
 - Implement `EntityModel.watch()`
 - Full UDP exposure to userland
 - Cross-process watch via PostgreSQL LISTEN/NOTIFY
-- Virtual process isolation in gatewayd (currently all clients share gatewayd's process context)
 
 ---
 
-**Last Updated**: December 2024 (v0.4.0: Syscall layer migration, OS class rewrite, gatewayd)
+**Last Updated**: December 2024 (v0.5.0: Gateway moved to kernel, MessagePack wire protocol, os-sdk integration)
 **Next Review**: As needed
 **Maintainer**: @monk-api/os team
