@@ -13,7 +13,7 @@ Bring os-coreutils back into the main OS repo under `rom/`.
 | Phase | Description | Status |
 |-------|-------------|--------|
 | Phase 1 | Copy os-coreutils bin/ and lib/ | **COMPLETE** |
-| Phase 2 | Implement rom/lib/process/ | **IN PROGRESS** |
+| Phase 2 | Implement rom/lib/process/ | **COMPLETE** |
 | Phase 3 | Update imports, verify compilation | Not started |
 | Phase 4 | Add missing utilities (grep, sql) | Not started |
 | Phase 5 | Cleanup and documentation | Not started |
@@ -30,6 +30,11 @@ Bring os-coreutils back into the main OS repo under `rom/`.
    - `awk/` - Full AWK implementation
    - `shell/` - Shell parsing and glob expansion
 4. Created `rom/lib/process/README.md` with API specification
+5. Implemented `rom/lib/process/` (Phase 2):
+   - `types.ts` - Response protocol, wire format, domain types, error classes
+   - `respond.ts` - Response factory helpers
+   - `syscall.ts` - Transport layer (postMessage, UUID correlation, backpressure)
+   - `index.ts` - 38 function wrappers + ByteReader class
 
 ---
 
