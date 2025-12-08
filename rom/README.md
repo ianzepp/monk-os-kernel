@@ -72,17 +72,18 @@ rom/
 │   ├── process/            # Syscall wrappers (the "libc")
 │   │   ├── index.ts        # Main entry point
 │   │   ├── syscall.ts      # postMessage transport
-│   │   ├── errors.ts       # Error reconstruction
-│   │   ├── channel.ts      # Protocol channels (HTTP, SQL)
 │   │   └── types.ts        # Wire protocol types
 │   └── errors.ts           # HAL error classes (copied from src/hal/)
+├── bin/                    # Minimal executables
+│   ├── true.ts             # Exit 0
+│   └── false.ts            # Exit 1
 ├── svc/                    # Kernel services (run as Workers)
-│   ├── init.ts             # PID 1, reaps zombies
-│   ├── logd.ts             # System log daemon
-│   └── gatewayd.ts         # Unix socket gateway for external apps
+│   └── init.ts             # PID 1, reaps zombies
 └── etc/                    # Configuration files
-    └── services/           # Service definitions
+    └── mounts.json         # Mount configuration
 ```
+
+> **Note**: The Gateway is now a kernel-level component (`src/gateway/`), not a userspace service. External applications connect via the os-sdk package.
 
 ## The Process Library (`lib/process/`)
 

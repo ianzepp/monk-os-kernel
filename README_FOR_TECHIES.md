@@ -16,9 +16,9 @@ The single-executable deployment (`bun build --compile`) isn't packaging an app�
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  Userland (rom/bin/*, services)                             │
+│  External Applications (os-sdk via Unix socket)             │
 ├─────────────────────────────────────────────────────────────┤
-│  Process Library & Syscall API (rom/lib/process/)           │
+│  Gateway (MessagePack wire protocol)                        │
 ├─────────────────────────────────────────────────────────────┤
 │  OS Public API (boot, exec, syscall wrappers, helpers)      │
 ├─────────────────────────────────────────────────────────────┤
@@ -138,11 +138,9 @@ await os.exec({ main: '/vol/app/init.ts' });
 
 Takeover is the `bun build --compile` path—your app becomes the OS.
 
-## ROM Utilities
+## External SDK
 
-45+ UNIX-like commands in `rom/bin/`: cat, ls, cp, mv, rm, mkdir, grep, sed, awk, sort, uniq, head, tail, wc, chmod, stat, etc.
-
-Streaming utilities use message-based I/O—`recv(0)` for stdin, `send(1, msg)` for stdout.
+External applications connect via the Gateway using `@monk-api/os-sdk`. The SDK provides a TypeScript client that handles MessagePack encoding and virtual process isolation per connection.
 
 ## Status
 
