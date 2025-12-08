@@ -60,7 +60,7 @@ import {
     eprintln,
     exit,
     respond,
-} from '@rom/lib/process';
+} from '@rom/lib/process/index.js';
 
 // Argument parsing and utilities
 import { parseArgs } from '@rom/lib/args';

@@ -67,7 +67,7 @@ import {
     exit,
     getargs,
     respond,
-} from '@rom/lib/process';
+} from '@rom/lib/process/index.js';
 
 // Local utilities
 import { parseArgs, resolvePath } from '@rom/lib/shell';

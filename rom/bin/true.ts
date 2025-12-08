@@ -7,7 +7,7 @@
  * Exit status is always 0.
  */
 
-import { exit } from '@rom/lib/process';
+import { exit } from '@rom/lib/process/index.js';
 
 async function main(): Promise<void> {
     await exit(0);

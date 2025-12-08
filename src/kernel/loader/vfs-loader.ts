@@ -395,6 +395,7 @@ export class VFSLoader {
         // Module registry preamble
         let bundle = `
 'use strict';
+const __MONK_PID__ = Bun.env.MONK_PID;
 const __modules = {};
 const __cache = {};
 

@@ -22,7 +22,7 @@
  *   seq -w 1 10     # 01 02 ... 10
  */
 
-import { getargs, println, eprintln, exit, onSignal } from '@rom/lib/process';
+import { getargs, println, eprintln, exit, onSignal } from '@rom/lib/process/index.js';
 
 async function main(): Promise<void> {
     const args = await getargs();

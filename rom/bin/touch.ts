@@ -15,7 +15,7 @@ import {
     close,
     eprintln,
     exit,
-} from '@rom/lib/process';
+} from '@rom/lib/process/index.js';
 import { resolvePath } from '@rom/lib/shell';
 
 async function main(): Promise<void> {

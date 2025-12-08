@@ -52,7 +52,7 @@ import {
     exit,
     getargs,
     respond,
-} from '@rom/lib/process';
+} from '@rom/lib/process/index.js';
 
 import { parseArgs, resolvePath } from '@rom/lib/shell';
 import { join } from '@rom/lib/path';

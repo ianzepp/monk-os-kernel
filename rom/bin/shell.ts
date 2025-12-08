@@ -39,7 +39,7 @@ import {
     restore,
     outputRedirect,
     ByteReader,
-} from '@rom/lib/process';
+} from '@rom/lib/process/index.js';
 
 import {
     parseCommand,

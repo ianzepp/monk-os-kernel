@@ -33,7 +33,7 @@ import {
     eprintln,
     exit,
     respond,
-} from '@rom/lib/process';
+} from '@rom/lib/process/index.js';
 import { resolvePath } from '@rom/lib/shell';
 
 type BodyNumbering = 'a' | 't' | 'n';

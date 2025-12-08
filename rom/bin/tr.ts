@@ -29,7 +29,7 @@ import {
     eprintln,
     exit,
     respond,
-} from '@rom/lib/process';
+} from '@rom/lib/process/index.js';
 
 async function main(): Promise<void> {
     const args = await getargs();

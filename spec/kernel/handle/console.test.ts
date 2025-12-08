@@ -211,8 +211,8 @@ describe('ConsoleHandleAdapter', () => {
             const responses = await collectResponses(adapter.exec({ op: 'recv' }));
 
             expect(responses.length).toBe(2);
-            expect(responses[0]!.op).toBe('item');
-            expect((responses[0]!.data as { text: string }).text).toBe('hello world\n');
+            expect(responses[0]!.op).toBe('data');
+            expect(new TextDecoder().decode(responses[0]!.bytes)).toBe('hello world\n');
             expect(responses[1]!.op).toBe('done');
         });
 
@@ -222,12 +222,12 @@ describe('ConsoleHandleAdapter', () => {
             const responses = await collectResponses(adapter.exec({ op: 'recv' }));
 
             expect(responses.length).toBe(4);
-            expect(responses[0]!.op).toBe('item');
-            expect((responses[0]!.data as { text: string }).text).toBe('line1\n');
-            expect(responses[1]!.op).toBe('item');
-            expect((responses[1]!.data as { text: string }).text).toBe('line2\n');
-            expect(responses[2]!.op).toBe('item');
-            expect((responses[2]!.data as { text: string }).text).toBe('line3\n');
+            expect(responses[0]!.op).toBe('data');
+            expect(new TextDecoder().decode(responses[0]!.bytes)).toBe('line1\n');
+            expect(responses[1]!.op).toBe('data');
+            expect(new TextDecoder().decode(responses[1]!.bytes)).toBe('line2\n');
+            expect(responses[2]!.op).toBe('data');
+            expect(new TextDecoder().decode(responses[2]!.bytes)).toBe('line3\n');
             expect(responses[3]!.op).toBe('done');
         });
 
@@ -246,8 +246,8 @@ describe('ConsoleHandleAdapter', () => {
             const responses = await collectResponses(adapter.exec({ op: 'recv' }));
 
             expect(responses.length).toBe(2);
-            expect(responses[0]!.op).toBe('item');
-            expect((responses[0]!.data as { text: string }).text).toBe('no newline\n');
+            expect(responses[0]!.op).toBe('data');
+            expect(new TextDecoder().decode(responses[0]!.bytes)).toBe('no newline\n');
             expect(responses[1]!.op).toBe('done');
         });
     });
@@ -341,9 +341,9 @@ describe('ConsoleHandleAdapter', () => {
                 recvResponses.push(r);
             }
 
-            // Forward each item to stdout
+            // Forward each data chunk to stdout
             for (const r of recvResponses) {
-                if (r.op === 'item') {
+                if (r.op === 'data') {
                     const sendResponses = await collectResponses(
                         stdout.exec({ op: 'send', data: r }),
                     );

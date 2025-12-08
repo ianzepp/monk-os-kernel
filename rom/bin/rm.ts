@@ -17,7 +17,7 @@ import {
     rmdir,
     eprintln,
     exit,
-} from '@rom/lib/process';
+} from '@rom/lib/process/index.js';
 import { parseArgs, resolvePath } from '@rom/lib/shell';
 
 const argSpecs = {

@@ -10,7 +10,7 @@
  *   whoami
  */
 
-import { getenv, println, exit } from '@rom/lib/process';
+import { getenv, println, exit } from '@rom/lib/process/index.js';
 
 async function main(): Promise<void> {
     const user = await getenv('USER') || 'unknown';

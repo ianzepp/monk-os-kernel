@@ -28,7 +28,7 @@ import {
     println,
     eprintln,
     exit,
-} from '@rom/lib/process';
+} from '@rom/lib/process/index.js';
 import { resolvePath } from '@rom/lib/shell';
 
 interface DuOptions {

@@ -18,7 +18,7 @@
  *   uname -sr
  */
 
-import { getargs, getenv, println, exit } from '@rom/lib/process';
+import { getargs, getenv, println, exit } from '@rom/lib/process/index.js';
 import { parseArgs } from '@rom/lib/shell';
 
 const KERNEL_NAME = 'Monk';

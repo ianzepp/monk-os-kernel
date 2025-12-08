@@ -16,7 +16,7 @@
  *   sleep 0.5     # Sleep 500 milliseconds
  */
 
-import { getargs, eprintln, exit, onSignal, sleep } from '@rom/lib/process';
+import { getargs, eprintln, exit, onSignal, sleep } from '@rom/lib/process/index.js';
 import { parseDuration } from '@rom/lib/args';
 
 async function main(): Promise<void> {

@@ -22,8 +22,8 @@
  * Message flow for input (stdin):
  *   1. ConsoleDevice.readline() blocks waiting for input
  *   2. User types line and presses enter
- *   3. ConsoleHandleAdapter wraps line in respond.item({ text: 'line\n' })
- *   4. Process receives message via recv operation
+ *   3. ConsoleHandleAdapter encodes line as bytes via respond.data(bytes)
+ *   4. Process receives binary data via read() syscall
  *
  * INVARIANTS (must always hold true)
  * ===================================
@@ -32,7 +32,7 @@
  * INV-3: mode is immutable after construction
  * INV-4: Once closed, no further I/O operations succeed (all return EBADF)
  * INV-5: Text encoding is always UTF-8
- * INV-6: stdin readline() always appends '\n' to yield messages
+ * INV-6: stdin recv() always appends '\n' to line data (matches terminal line discipline)
  *
  * CONCURRENCY MODEL
  * =================
@@ -284,7 +284,8 @@ export class ConsoleHandleAdapter implements Handle {
             }
 
             // Append newline to match line-oriented terminal behavior
-            yield respond.item({ text: line + '\n' });
+            // WHY data not item: read() expects binary data, not structured items
+            yield respond.data(this.encoder.encode(line + '\n'));
         }
 
         yield respond.done();

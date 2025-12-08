@@ -66,7 +66,7 @@ import {
     eprintln,
     exit,
     onSignal,
-} from '@rom/lib/process';
+} from '@rom/lib/process/index.js';
 import { resolvePath } from '@rom/lib/shell';
 import { Lexer, Parser, Interpreter } from '@rom/lib/awk';
 

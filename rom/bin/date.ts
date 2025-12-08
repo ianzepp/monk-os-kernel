@@ -29,7 +29,7 @@
  *   date "+%Y-%m-%d %H:%M:%S"
  */
 
-import { getargs, println, exit } from '@rom/lib/process';
+import { getargs, println, exit } from '@rom/lib/process/index.js';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
