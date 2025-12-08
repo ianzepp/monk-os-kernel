@@ -1,6 +1,6 @@
 # Test Infrastructure Refactoring
 
-> **Status**: Partial (Phase 1 Complete)
+> **Status**: Partial (Phase 2 Complete)
 > **Complexity**: Medium
 > **Dependencies**: None
 
@@ -13,7 +13,7 @@ Simplify test patterns by introducing a BaseOS class hierarchy with flexible boo
 | Phase | Status | Description |
 |-------|--------|-------------|
 | Phase 1 | **Complete** | BaseOS hierarchy (base.ts, os.ts extends BaseOS, test.ts with TestOS) |
-| Phase 2 | Pending | Migrate tests using createOsStack() to TestOS |
+| Phase 2 | **Complete** | Migrate tests using createOsStack() to TestOS |
 | Phase 3 | Pending | Migrate syscall tests from mock factories to TestOS |
 | Phase 4 | Pending | Remove OS public getters (use TestOS.internal* instead) |
 | Phase 5 | Pending | Documentation updates |
