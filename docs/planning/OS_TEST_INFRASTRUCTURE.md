@@ -398,18 +398,499 @@ await os.boot({ hal: customHal });
 
 ### Phase 3: Migrate Syscall Tests
 
-1. Replace mock factories with TestOS
-2. Replace direct syscall function calls with `os.syscall()`
-3. Delete mock factory code from each file
-4. Files to migrate:
-   - `spec/syscall/ems.test.ts`
-   - `spec/syscall/hal.test.ts`
-   - `spec/syscall/handle.test.ts`
-   - `spec/syscall/pool.test.ts`
-   - `spec/syscall/process.test.ts`
-   - `spec/syscall/vfs.test.ts`
-   - `spec/syscall/dispatcher.test.ts`
-   - `spec/syscall/auth-syscall.test.ts`
+Each syscall test file follows a common pattern that needs migration:
+
+**Common deletions (all files):**
+- `createMockProcess()` helper (19-43 lines each)
+- `firstResponse()` helper (6-7 lines)
+- `collectResponses()` helper (8-10 lines, where present)
+- `as unknown as Kernel`, `as unknown as VFS`, etc. casts
+
+**Common additions (all files):**
+```typescript
+import { TestOS } from '@src/os/test.js';
+
+let os: TestOS;
+
+beforeEach(async () => {
+    os = new TestOS();
+    await os.boot();  // or { layers: [...] } for partial boot
+});
+
+afterEach(async () => {
+    await os.shutdown();
+});
+```
+
+---
+
+#### 3.1 `spec/syscall/vfs.test.ts` (544 lines)
+
+**Current pattern:**
+```typescript
+import { fileOpen, fileClose, ... } from '@src/syscall/vfs.js';
+
+function createMockProcess(...) { ... }  // 22 lines
+function firstResponse(...) { ... }       // 7 lines
+function collectResponses(...) { ... }    // 9 lines
+
+let mockKernel: Kernel;
+let mockVfs: VFS;
+
+beforeEach(() => {
+    proc = createMockProcess();
+    mockKernel = {} as Kernel;
+    mockVfs = { stat: mock(() => ...) } as unknown as VFS;
+});
+
+it('should yield EINVAL when path is not a string', async () => {
+    const response = await firstResponse(fileOpen(proc, mockKernel, mockVfs, 123));
+    expect(response.op).toBe('error');
+});
+```
+
+**Migration:**
+```typescript
+import { TestOS } from '@src/os/test.js';
+
+let os: TestOS;
+
+beforeEach(async () => {
+    os = new TestOS();
+    await os.boot();
+});
+
+afterEach(async () => {
+    await os.shutdown();
+});
+
+it('should yield EINVAL when path is not a string', async () => {
+    await expect(os.syscall('file:open', 123)).rejects.toThrow('EINVAL');
+});
+
+it('should stat root directory', async () => {
+    const result = await os.syscall('file:stat', '/');
+    expect(result.model).toBe('folder');
+});
+```
+
+**Decision:** Tests like "should yield EINVAL when path is not a string" are validation tests. They can either:
+1. Migrate to TestOS (slower, but tests real dispatch chain)
+2. Stay as unit tests with mocks (faster, but tests mocks not real code)
+
+**Recommendation:** Migrate to TestOS. The validation logic is part of the syscall layer and should be tested through the real dispatch chain.
+
+**Lines deleted:** ~40 (helpers + mock setup)
+**Lines changed:** ~500 (all test cases)
+
+---
+
+#### 3.2 `spec/syscall/ems.test.ts` (385 lines)
+
+**Current pattern:**
+```typescript
+import { emsSelect, emsCreate, ... } from '@src/syscall/ems.js';
+
+function createMockProcess(...) { ... }
+function firstResponse(...) { ... }
+function collectResponses(...) { ... }
+
+let mockEms: EMS;
+
+beforeEach(() => {
+    proc = createMockProcess();
+    mockEms = {
+        ops: {
+            selectAny: mock(() => (async function* () {
+                yield { id: '1', name: 'entity1' };
+            })()),
+        },
+    } as unknown as EMS;
+});
+
+it('should stream entities as items', async () => {
+    const responses = await collectResponses(emsSelect(proc, mockEms, 'user', {}));
+    expect(responses[0]!.data).toEqual({ id: '1', name: 'entity1' });
+});
+```
+
+**Migration:**
+```typescript
+import { TestOS } from '@src/os/test.js';
+
+let os: TestOS;
+
+beforeEach(async () => {
+    os = new TestOS();
+    await os.boot();
+    // Seed test data if needed
+    await os.syscall('ems:create', 'user', { name: 'entity1' });
+});
+
+afterEach(async () => {
+    await os.shutdown();
+});
+
+it('should stream entities as items', async () => {
+    const results = await os.syscall('ems:select', 'user', {});
+    expect(results[0].name).toBe('entity1');
+});
+```
+
+**Note:** Tests that verify mock interactions (`expect(mockEms.ops.selectAny).toHaveBeenCalledWith(...)`) need rethinking. Either:
+1. Remove them (mock interaction tests are low value)
+2. Convert to behavior tests (verify the *result* not the *call*)
+
+**Lines deleted:** ~40 (helpers + mock setup)
+**Lines changed:** ~345
+
+---
+
+#### 3.3 `spec/syscall/hal.test.ts` (312 lines)
+
+**Current pattern:**
+```typescript
+import { netConnect, portCreate, channelOpen, ... } from '@src/syscall/hal.js';
+
+function createMockProcess(...) { ... }
+function firstResponse(...) { ... }
+
+let mockKernel: Kernel;
+let mockHal: HAL;
+
+beforeEach(() => {
+    proc = createMockProcess();
+    mockKernel = {} as Kernel;
+    mockHal = {} as HAL;
+});
+
+it('should yield EINVAL when proto is not a string', async () => {
+    const response = await firstResponse(netConnect(proc, mockKernel, mockHal, 123, 'localhost', 80));
+    expect(response.op).toBe('error');
+    expect((response.data as { code: string }).code).toBe('EINVAL');
+});
+```
+
+**Migration:**
+```typescript
+import { TestOS } from '@src/os/test.js';
+
+let os: TestOS;
+
+beforeEach(async () => {
+    os = new TestOS();
+    await os.boot();
+});
+
+afterEach(async () => {
+    await os.shutdown();
+});
+
+it('should yield EINVAL when proto is not a string', async () => {
+    await expect(os.syscall('net:connect', 123, 'localhost', 80)).rejects.toThrow('EINVAL');
+});
+```
+
+**Note:** All tests in this file are pure validation tests (EINVAL checks). No mock behavior verification.
+
+**Lines deleted:** ~30 (helpers)
+**Lines changed:** ~280
+
+---
+
+#### 3.4 `spec/syscall/handle.test.ts` (205 lines)
+
+**Current pattern:**
+```typescript
+import { handleRedirect, handleRestore, ... } from '@src/syscall/handle.js';
+
+function createMockProcess(...) { ... }
+function firstResponse(...) { ... }
+
+let mockKernel: Kernel;
+
+beforeEach(() => {
+    proc = createMockProcess();
+    mockKernel = {} as Kernel;
+});
+
+it('should yield ESRCH when process is not running', async () => {
+    proc.state = 'zombie';
+    const response = await firstResponse(handleSend(proc, mockKernel, 3, {}));
+    expect((response.data as { code: string }).code).toBe('ESRCH');
+});
+```
+
+**Migration:**
+```typescript
+import { TestOS } from '@src/os/test.js';
+
+let os: TestOS;
+
+beforeEach(async () => {
+    os = new TestOS();
+    await os.boot();
+});
+
+afterEach(async () => {
+    await os.shutdown();
+});
+
+it('should yield EINVAL when target is not a number', async () => {
+    await expect(os.syscall('handle:redirect', 'string', 1)).rejects.toThrow('EINVAL');
+});
+```
+
+**Note:** The `proc.state = 'zombie'` test requires a zombie process, which is harder to set up with TestOS. Options:
+1. Create a process, kill it, then test against it
+2. Skip this test (it's testing an edge case)
+3. Keep a separate unit test for this edge case
+
+**Lines deleted:** ~30 (helpers)
+**Lines changed:** ~175
+
+---
+
+#### 3.5 `spec/syscall/pool.test.ts` (208 lines)
+
+**Current pattern:**
+```typescript
+import { poolLease, workerLoad, ... } from '@src/syscall/pool.js';
+
+function createMockProcess(...) { ... }
+function firstResponse(...) { ... }
+
+let mockKernel: Kernel;
+
+beforeEach(() => {
+    proc = createMockProcess();
+    mockKernel = {} as Kernel;
+});
+
+it('should yield EINVAL when workerId is not a string', async () => {
+    const response = await firstResponse(workerLoad(proc, mockKernel, 123, '/script.js'));
+    expect((response.data as { code: string }).code).toBe('EINVAL');
+});
+```
+
+**Migration:**
+```typescript
+import { TestOS } from '@src/os/test.js';
+
+let os: TestOS;
+
+beforeEach(async () => {
+    os = new TestOS();
+    await os.boot();
+});
+
+afterEach(async () => {
+    await os.shutdown();
+});
+
+it('should yield EINVAL when workerId is not a string', async () => {
+    await expect(os.syscall('worker:load', 123, '/script.js')).rejects.toThrow('EINVAL');
+});
+```
+
+**Lines deleted:** ~30 (helpers)
+**Lines changed:** ~180
+
+---
+
+#### 3.6 `spec/syscall/process.test.ts` (433 lines)
+
+**Current pattern:**
+```typescript
+import { procSpawn, procExit, procGetargs, ... } from '@src/syscall/process.js';
+
+function createMockProcess(...) { ... }
+function firstResponse(...) { ... }
+
+let mockKernel: Kernel;
+
+beforeEach(() => {
+    proc = createMockProcess({ args: ['arg1', 'arg2'] });
+    mockKernel = {} as Kernel;
+});
+
+it('should return process arguments', async () => {
+    const response = await firstResponse(procGetargs(proc));
+    expect(response.data).toEqual(['arg1', 'arg2']);
+});
+```
+
+**Migration:**
+```typescript
+import { TestOS } from '@src/os/test.js';
+
+let os: TestOS;
+
+beforeEach(async () => {
+    os = new TestOS();
+    await os.boot();
+});
+
+afterEach(async () => {
+    await os.shutdown();
+});
+
+it('should return process arguments', async () => {
+    // Init process has default args
+    const result = await os.syscall('proc:getargs');
+    expect(Array.isArray(result)).toBe(true);
+});
+```
+
+**Note:** Some tests like `procGetargs` need spawned processes with specific args. With TestOS:
+```typescript
+it('should return spawned process arguments', async () => {
+    // Write a script that checks its args
+    const script = `
+        import { getargs, exit } from '@rom/lib/process/index.js';
+        const args = await getargs();
+        // Somehow verify args... (this is where integration testing gets complex)
+    `;
+    // This test may be better left as a unit test
+});
+```
+
+**Decision:** Tests for `procGetargs`, `procGetcwd`, `procGetenv` etc. that operate on process state are actually simpler as unit tests. Consider keeping mock-based unit tests for these.
+
+**Lines deleted:** ~30 (helpers)
+**Lines changed:** ~400
+
+---
+
+#### 3.7 `spec/syscall/dispatcher.test.ts` (376 lines)
+
+**Current pattern:**
+```typescript
+import { SyscallDispatcher } from '@src/syscall/dispatcher.js';
+
+function createMockProcess(...) { ... }
+function createMockDeps() {
+    const mockKernel = { processes: { ... } } as unknown as Kernel;
+    const mockVfs = { stat: mock(...) } as unknown as VFS;
+    const mockEms = { ops: { ... } } as unknown as EMS;
+    const mockHal = {} as HAL;
+    return { mockKernel, mockVfs, mockEms, mockHal };
+}
+
+beforeEach(() => {
+    const mocks = createMockDeps();
+    dispatcher = new SyscallDispatcher(mocks.mockKernel, mocks.mockVfs, mocks.mockEms, mocks.mockHal, undefined);
+    proc = createMockProcess();
+});
+
+it('should yield ENOSYS for unknown syscalls', async () => {
+    const response = await firstResponse(dispatcher, proc, 'unknown:syscall', []);
+    expect((response.data as { code: string }).code).toBe('ENOSYS');
+});
+```
+
+**Migration:**
+```typescript
+import { TestOS } from '@src/os/test.js';
+
+let os: TestOS;
+
+beforeEach(async () => {
+    os = new TestOS();
+    await os.boot();
+});
+
+afterEach(async () => {
+    await os.shutdown();
+});
+
+it('should yield ENOSYS for unknown syscalls', async () => {
+    await expect(os.syscall('unknown:syscall')).rejects.toThrow('ENOSYS');
+});
+
+it('should route proc:getcwd correctly', async () => {
+    const result = await os.syscall('proc:getcwd');
+    expect(result).toBe('/');  // Init process cwd
+});
+```
+
+**Note:** The "syscall coverage" tests that verify all syscalls are routed (not ENOSYS) are still valuable. These can be migrated to TestOS.
+
+**Lines deleted:** ~60 (helpers + mock deps)
+**Lines changed:** ~316
+
+---
+
+#### 3.8 `spec/syscall/auth-syscall.test.ts` (567 lines)
+
+**Current pattern:**
+```typescript
+import { SyscallDispatcher } from '@src/syscall/dispatcher.js';
+import { Auth } from '@src/auth/index.js';
+
+function createMockProcess(...) { ... }
+function createMockDeps() { ... }
+
+beforeEach(async () => {
+    const mocks = createMockDeps();
+    auth = new Auth(mocks.mockHal, undefined, { allowAnonymous: true });
+    await auth.init();
+    dispatcher = new SyscallDispatcher(..., auth);
+    proc = createMockProcess();
+});
+
+afterEach(async () => {
+    await auth.shutdown();
+});
+```
+
+**Migration:**
+```typescript
+import { TestOS } from '@src/os/test.js';
+
+let os: TestOS;
+
+beforeEach(async () => {
+    os = new TestOS();
+    await os.boot();  // Auth is included by default
+});
+
+afterEach(async () => {
+    await os.shutdown();
+});
+
+it('should validate JWT and return fresh token', async () => {
+    // Mint token via internal Auth
+    const original = await os.internalAuth.mintToken('alice');
+
+    // Call auth:token syscall
+    const result = await os.syscall('auth:token', original.token);
+    expect(result.user).toBe('alice');
+});
+```
+
+**Note:** This file already uses a real Auth instance. Migration is mostly about switching to TestOS for cleaner lifecycle management.
+
+**Lines deleted:** ~50 (helpers + mock deps)
+**Lines changed:** ~517
+
+---
+
+#### Summary: Phase 3 Line Changes
+
+| File | Current | Delete | Change | Net Reduction |
+|------|---------|--------|--------|---------------|
+| vfs.test.ts | 544 | 40 | 500 | ~40 |
+| ems.test.ts | 385 | 40 | 345 | ~40 |
+| hal.test.ts | 312 | 30 | 280 | ~30 |
+| handle.test.ts | 205 | 30 | 175 | ~30 |
+| pool.test.ts | 208 | 30 | 180 | ~30 |
+| process.test.ts | 433 | 30 | 400 | ~30 |
+| dispatcher.test.ts | 376 | 60 | 316 | ~60 |
+| auth-syscall.test.ts | 567 | 50 | 517 | ~50 |
+| **Total** | **3030** | **310** | **2713** | **~310** |
+
+The ~310 lines deleted are the duplicated `createMockProcess()` and helper functions.
 
 ### Phase 4: Remove OS Public Getters
 
