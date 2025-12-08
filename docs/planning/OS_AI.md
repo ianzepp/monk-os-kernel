@@ -95,15 +95,13 @@ This document captures the architecture for AI integration with Monk OS.
 /home/agent-coder/
   .config/agent.json     # agent configuration
   .memory/
-    stm.json             # short-term memory (conversation)
-    ltm.json             # long-term memory (consolidated)
-    procedural.json      # successful tool patterns
-    embeddings/          # vector indices
+    agent.db             # SQLite database (STM, LTM, procedural, embeddings)
   .cache/                # temporary working data
 ```
 
 **Userspace Tools**
 - `/bin/shell` - command interpreter
+- `/bin/sql` - SQLite CLI for database access
 - `/bin/cat`, `/bin/grep`, `/bin/awk`, etc. - text processing tools
 - Agents spawn these as child processes
 
@@ -178,59 +176,111 @@ async function main() {
 
 ## Memory Model
 
-Memory is stored as files in each agent's home directory. Each agent owns its memory - no shared kernel state.
+Each agent owns a SQLite database in its home directory. This provides queryable, transactional storage without kernel dependency.
 
-### Memory Files
+### Database Location
 
 ```
 ~/.memory/
-  stm.json           # Short-term: recent conversation turns
-  ltm.json           # Long-term: consolidated knowledge
-  procedural.json    # Successful tool patterns
-  embeddings/        # Vector indices for semantic search
-    index.json       # Embedding metadata
-    vectors.bin      # Binary vector data
+  agent.db           # SQLite database (single file)
 ```
 
-### Memory Types
+### Why SQLite Per-Agent
 
-| File | Purpose | Retention |
-|------|---------|-----------|
-| `stm.json` | Conversation turns, recent context | Session or hours |
-| `ltm.json` | Consolidated knowledge, facts | Persistent |
-| `procedural.json` | Tool patterns that worked | Persistent |
-| `embeddings/` | Vector index for semantic search | Persistent |
+| Benefit | How |
+|---------|-----|
+| Queryable | Full SQL - indexes, joins, WHERE clauses |
+| File ownership | Agent owns `~/.memory/agent.db` |
+| Isolated | No shared state, no kernel dependency |
+| Transactional | SQLite handles concurrent access |
+| Inspectable | `/bin/sql ~/.memory/agent.db ".tables"` |
+| Portable | Move agent = copy home directory |
+| Lightweight | SQLite is designed for embedded use |
 
-### File Schemas
+### Database Schema
+
+```sql
+-- ~/.memory/agent.db
+
+-- Short-term memory (conversation turns)
+CREATE TABLE stm (
+  id INTEGER PRIMARY KEY,
+  role TEXT NOT NULL,        -- 'user', 'assistant', 'system'
+  content TEXT NOT NULL,
+  ts INTEGER NOT NULL
+);
+CREATE INDEX idx_stm_ts ON stm(ts);
+
+-- Long-term memory (consolidated knowledge)
+CREATE TABLE ltm (
+  id INTEGER PRIMARY KEY,
+  topic TEXT,
+  content TEXT NOT NULL,
+  ts INTEGER NOT NULL
+);
+CREATE INDEX idx_ltm_topic ON ltm(topic);
+CREATE INDEX idx_ltm_ts ON ltm(ts);
+
+-- Procedural memory (successful patterns)
+CREATE TABLE procedural (
+  id INTEGER PRIMARY KEY,
+  trigger TEXT NOT NULL,     -- what kind of request
+  pattern TEXT NOT NULL,     -- what worked
+  success_count INTEGER DEFAULT 1,
+  ts INTEGER NOT NULL
+);
+CREATE INDEX idx_procedural_trigger ON procedural(trigger);
+
+-- Embeddings (for semantic search)
+CREATE TABLE embeddings (
+  id INTEGER PRIMARY KEY,
+  source_table TEXT NOT NULL,
+  source_id INTEGER NOT NULL,
+  vector BLOB NOT NULL       -- serialized float array
+);
+CREATE INDEX idx_embeddings_source ON embeddings(source_table, source_id);
+```
+
+### SQL Tool (`/bin/sql`)
+
+Userspace tool for interacting with SQLite databases:
+
+```bash
+# Interactive mode
+/bin/sql ~/.memory/agent.db
+
+# Execute query
+/bin/sql ~/.memory/agent.db "SELECT * FROM stm ORDER BY ts DESC LIMIT 10"
+
+# Execute commands
+/bin/sql ~/.memory/agent.db ".tables"
+/bin/sql ~/.memory/agent.db ".schema stm"
+
+# Import/export
+/bin/sql ~/.memory/agent.db ".dump" > backup.sql
+/bin/sql ~/.memory/agent.db < backup.sql
+```
+
+The agent runtime library (`rom/lib/agent/`) provides higher-level helpers:
 
 ```typescript
-// ~/.memory/stm.json - Short-term memory
-interface STMFile {
-  turns: Array<{
-    role: 'user' | 'assistant' | 'system';
-    content: string;
-    ts: number;
-  }>;
-  maxTurns: number;  // auto-prune when exceeded
-}
+// rom/lib/agent/memory.ts
+class AgentMemory {
+  constructor(dbPath: string);
 
-// ~/.memory/ltm.json - Long-term memory
-interface LTMFile {
-  entries: Array<{
-    topic: string;
-    content: string;
-    ts: number;
-  }>;
-}
+  // STM operations
+  appendTurn(role: string, content: string): void;
+  getRecentTurns(limit: number): Turn[];
+  pruneOldTurns(maxAge: number): void;
 
-// ~/.memory/procedural.json - Successful patterns
-interface ProceduralFile {
-  patterns: Array<{
-    trigger: string;      // what kind of request
-    pattern: string;      // what worked
-    successCount: number;
-    ts: number;
-  }>;
+  // LTM operations
+  remember(topic: string, content: string): void;
+  recall(topic: string): Entry[];
+  search(query: string): Entry[];  // FTS if enabled
+
+  // Procedural operations
+  recordSuccess(trigger: string, pattern: string): void;
+  findPattern(trigger: string): Pattern | null;
 }
 ```
 
@@ -240,28 +290,22 @@ STM accumulates during active use. Agents can consolidate during idle periods:
 
 ```typescript
 // Agent consolidation process
-async function consolidate() {
-  const stm = JSON.parse(await vfs.read('~/.memory/stm.json'));
-  const ltm = JSON.parse(await vfs.read('~/.memory/ltm.json'));
+async function consolidate(memory: AgentMemory) {
+  // Get recent STM turns
+  const recentTurns = memory.getRecentTurns(100);
 
   // Extract key information via LLM
   const summary = await syscall('llm:complete', {
     model: 'default',
     prompt: 'Extract key facts and patterns worth remembering long-term',
-    context: JSON.stringify(stm.turns)
+    context: JSON.stringify(recentTurns)
   });
 
-  // Append to LTM
-  ltm.entries.push({
-    topic: 'daily-summary',
-    content: summary,
-    ts: Date.now()
-  });
-  await vfs.write('~/.memory/ltm.json', JSON.stringify(ltm));
+  // Store to LTM
+  memory.remember('daily-summary', summary);
 
-  // Prune old STM
-  stm.turns = stm.turns.slice(-stm.maxTurns);
-  await vfs.write('~/.memory/stm.json', JSON.stringify(stm));
+  // Prune old STM (older than 48 hours)
+  memory.pruneOldTurns(48 * 60 * 60 * 1000);
 }
 ```
 
@@ -427,15 +471,16 @@ Strategy:
 
 1. Reintroduce `/bin/shell` to OS userspace
 2. Add basic coreutils (`cat`, `grep`, `head`, `tail`, `wc`)
-3. Ensure tools can be spawned as child processes
+3. Add `/bin/sql` - SQLite CLI for userspace database access
+4. Ensure tools can be spawned as child processes
 
 ### Phase 3: Agent Runtime (Userspace)
 
 1. Create `rom/bin/agent` - base agent executable
 2. Create `rom/lib/agent/` - shared agent library code
-3. Implement agent lifecycle (spawn, run, shutdown)
-4. Implement memory file I/O (STM, LTM, procedural)
-5. Create agent user provisioning (home directory setup)
+3. Create `rom/lib/agent/memory.ts` - AgentMemory class wrapping SQLite
+4. Implement agent lifecycle (spawn, run, shutdown)
+5. Create agent user provisioning (home directory + schema init)
 
 ### Phase 4: Agent Specializations
 
