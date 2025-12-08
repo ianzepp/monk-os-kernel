@@ -107,8 +107,8 @@ describe('Auth Syscalls', () => {
 
         mockHal = mocks.mockHal;
 
-        // Create real Auth instance
-        auth = new Auth(mockHal, { allowAnonymous: true });
+        // Create real Auth instance (no EMS for Phase 0 tests)
+        auth = new Auth(mockHal, undefined, { allowAnonymous: true });
         await auth.init();
 
         dispatcher = new SyscallDispatcher(
@@ -252,7 +252,7 @@ describe('Auth Syscalls', () => {
             beforeEach(async () => {
                 const mocks = createMockDeps();
 
-                strictAuth = new Auth(mocks.mockHal, { allowAnonymous: false });
+                strictAuth = new Auth(mocks.mockHal, undefined, { allowAnonymous: false });
                 await strictAuth.init();
 
                 strictDispatcher = new SyscallDispatcher(
@@ -280,12 +280,13 @@ describe('Auth Syscalls', () => {
             it('should allow auth:login for unauthenticated process', async () => {
                 const unauthProc = createMockProcess();
 
-                // auth:login not implemented yet, but should be allowed (not blocked by gating)
+                // auth:login should be allowed for unauthenticated processes (not blocked by gating)
+                // Without EMS, login will fail with EINVAL (bad args) rather than EACCES
                 const response = await firstResponse(strictDispatcher, unauthProc, 'auth:login', []);
 
-                // Will fail with ENOSYS (not implemented), not EACCES (auth required)
+                // Fails with EINVAL because no args provided, not EACCES (auth required)
                 expect(response.op).toBe('error');
-                expect((response.data as { code: string }).code).toBe('ENOSYS');
+                expect((response.data as { code: string }).code).toBe('EINVAL');
             });
 
             it('should allow auth:register for unauthenticated process', async () => {
@@ -329,7 +330,7 @@ describe('Auth Syscalls', () => {
             beforeEach(async () => {
                 const mocks = createMockDeps();
 
-                strictAuth = new Auth(mocks.mockHal, { allowAnonymous: false });
+                strictAuth = new Auth(mocks.mockHal, undefined, { allowAnonymous: false });
                 await strictAuth.init();
 
                 strictDispatcher = new SyscallDispatcher(

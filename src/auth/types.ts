@@ -139,3 +139,84 @@ export const DEFAULT_AUTH_CONFIG: Required<AuthConfig> = {
     sessionTTL: 24 * 60 * 60 * 1000, // 24 hours
     allowAnonymous: false,
 };
+
+// =============================================================================
+// PHASE 1 TYPES
+// =============================================================================
+
+/**
+ * Well-known UUID for the root user.
+ *
+ * WHY: Consistent identity across restarts, simplifies bootstrap.
+ */
+export const ROOT_USER_ID = '00000000-0000-0000-0000-000000000001';
+
+/**
+ * Default root password.
+ *
+ * WHY: Allows testing without manual user creation.
+ * In production, this should be changed immediately after first boot.
+ */
+export const DEFAULT_ROOT_PASSWORD = 'root';
+
+/**
+ * Session revalidation interval (5 minutes).
+ *
+ * WHY: Balances security (detect revoked sessions) with performance
+ * (don't hit EMS on every syscall).
+ */
+export const REVALIDATE_INTERVAL = 5 * 60 * 1000;
+
+/**
+ * Result from auth:login syscall.
+ *
+ * WHY: Provides all information the client needs after successful login:
+ * - user: The authenticated user ID
+ * - session: Session ID for tracking
+ * - token: JWT for subsequent requests
+ * - expiresAt: When the session/token expires
+ */
+export interface LoginResult {
+    /** Authenticated user ID */
+    user: string;
+
+    /** Session ID */
+    session: string;
+
+    /** JWT token */
+    token: string;
+
+    /** Token expiry timestamp (ms since epoch) */
+    expiresAt: number;
+}
+
+/**
+ * User record from auth_user table.
+ */
+export interface AuthUser {
+    id: string;
+    username: string;
+    password_hash: string;
+    disabled: number;
+    created_at: string;
+    updated_at: string;
+    trashed_at: string | null;
+    expired_at: string | null;
+    [key: string]: unknown;
+}
+
+/**
+ * Session record from auth_session table.
+ */
+export interface AuthSession {
+    id: string;
+    user_id: string;
+    expires: number;
+    ip: string | null;
+    user_agent: string | null;
+    created_at: string;
+    updated_at: string;
+    trashed_at: string | null;
+    expired_at: string | null;
+    [key: string]: unknown;
+}

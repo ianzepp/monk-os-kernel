@@ -181,7 +181,7 @@ describe('Auth', () => {
 
     describe('configuration', () => {
         it('should respect allowAnonymous config', async () => {
-            const noAnonAuth = new Auth(hal, { allowAnonymous: false });
+            const noAnonAuth = new Auth(hal, undefined, { allowAnonymous: false });
             await noAnonAuth.init();
 
             expect(noAnonAuth.isAnonymousAllowed()).toBe(false);
@@ -191,7 +191,7 @@ describe('Auth', () => {
 
         it('should respect sessionTTL config', async () => {
             const customTTL = 60 * 60 * 1000; // 1 hour
-            const customAuth = new Auth(hal, { sessionTTL: customTTL });
+            const customAuth = new Auth(hal, undefined, { sessionTTL: customTTL });
             await customAuth.init();
 
             expect(customAuth.getSessionTTL()).toBe(customTTL);

@@ -86,7 +86,7 @@ import { ipcPipe } from './handle.js';
 import { poolLease, workerLoad, workerSend, workerRecv, workerRelease } from './pool.js';
 
 // Auth syscalls
-import { authToken, authWhoami } from './auth.js';
+import { authToken, authWhoami, authLogin, authLogout, authSession } from './auth.js';
 
 // Stream controller
 import { StreamController, StallError } from './stream/index.js';
@@ -181,6 +181,22 @@ export class SyscallDispatcher {
             yield respond.error('EACCES', 'Authentication required');
 
             return;
+        }
+
+        // Periodic session revalidation (Phase 1)
+        // WHY: Check EMS to detect revoked sessions. Uses authSession handler
+        // so logic stays in auth layer, dispatcher just routes.
+        if (this.auth && proc.session && requiresAuth) {
+            for await (const response of authSession(proc, this.auth, 'revalidate')) {
+                // If session was invalidated, check auth again
+                if (response.op === 'ok' && response.data && !(response.data as { valid?: boolean }).valid) {
+                    if (!anonymousAllowed) {
+                        yield respond.error('EACCES', 'Session expired or revoked');
+
+                        return;
+                    }
+                }
+            }
         }
 
         // =====================================================================
@@ -506,6 +522,24 @@ export class SyscallDispatcher {
 
             case 'auth:whoami':
                 yield* authWhoami(proc);
+                break;
+
+            case 'auth:login':
+                if (!this.auth) {
+                    yield respond.error('ENOSYS', 'Auth not available');
+                    break;
+                }
+
+                yield* authLogin(proc, this.auth, args[0]);
+                break;
+
+            case 'auth:logout':
+                if (!this.auth) {
+                    yield respond.error('ENOSYS', 'Auth not available');
+                    break;
+                }
+
+                yield* authLogout(proc, this.auth);
                 break;
 
                 // =================================================================

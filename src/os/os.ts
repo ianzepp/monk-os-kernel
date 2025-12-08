@@ -778,7 +778,7 @@ export class OS {
             // 3. Auth
             // WHY default true: Phase 0 has no auth:login, so users can't authenticate yet.
             // Tests and production can set allowAnonymous: false when ready.
-            this.__auth = new Auth(this.__hal, {
+            this.__auth = new Auth(this.__hal, this.__ems, {
                 allowAnonymous: this.config.allowAnonymous ?? true,
             });
             await this.__auth.init();
