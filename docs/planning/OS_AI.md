@@ -15,14 +15,14 @@ This document captures the architecture for AI integration with Monk OS.
 
 ### LLM vs AI
 
-| Concept | Role | Layer |
-|---------|------|-------|
-| **LLM** | Pattern matching. Prompt in, text out. Stateless inference. | Kernel subsystem |
-| **AI** | Tool-using intelligence. Plans, executes, remembers. | Kernel subsystem |
+| Concept | Role | Layer | Analogy |
+|---------|------|-------|---------|
+| **LLM** | Stateless inference pipe. Prompt in, tokens out. | Kernel subsystem | `/dev/null`, network socket |
+| **AI** | Stateful agent process. Plans, executes, remembers. | Userspace | Shell, daemon |
 
-LLM is a kernel subsystem (like VFS), not HAL. Both LLM and VFS depend on EMS for configuration and state. HAL stays pure hardware abstraction (file, network, block).
+**LLM = pipe.** No identity, no state, no memory. Data flows through.
 
-The AI worker coordinates LLM calls alongside memory and tool execution.
+**AI = process.** Has PID, state, memory. Multiple instances can run in parallel. Can be spawned, killed, forked. Each agent owns its context and memory.
 
 ---
 
@@ -31,18 +31,27 @@ The AI worker coordinates LLM calls alongside memory and tool execution.
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │ Userspace                                                   │
-│   /bin/shell   /bin/cat   /bin/grep   /bin/awk   ...       │
-│   (AI uses these as tools for text/data processing)        │
-└─────────────────────────────────────────────────────────────┘
-                          │ syscalls
-                          ▼
+│                                                             │
+│   AI Agents (processes with PIDs)                          │
+│   ┌─────────┐  ┌─────────┐  ┌─────────┐                   │
+│   │ agent-1 │  │ agent-2 │  │ agent-3 │                   │
+│   │ PID 42  │  │ PID 43  │  │ PID 44  │                   │
+│   │ coder   │  │ research│  │ chat    │                   │
+│   └────┬────┘  └────┬────┘  └────┬────┘                   │
+│        │            │            │                         │
+│   Tools: /bin/shell, /bin/cat, /bin/grep, /bin/awk, ...   │
+│                                                            │
+└────────────────────────┼───────────────────────────────────┘
+                         │ syscalls (llm:*, vfs:*, etc.)
+                         ▼
 ┌─────────────────────────────────────────────────────────────┐
 │ Kernel Subsystems                                           │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐   │
-│  │   Auth   │  │    AI    │  │   LLM    │  │   VFS    │   │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘   │
-│       │             │             │             │          │
-│       └─────────────┴──────┬──────┴─────────────┘          │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐                  │
+│  │   Auth   │  │   LLM    │  │   VFS    │                  │
+│  │          │  │  (pipe)  │  │          │                  │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘                  │
+│       │             │             │                         │
+│       └─────────────┴──────┬──────┘                         │
 │                            ▼                               │
 │              ┌─────────────────────────┐                   │
 │              │          EMS            │                   │
@@ -53,7 +62,6 @@ The AI worker coordinates LLM calls alongside memory and tool execution.
 │  Subsystem schemas (loaded via ems.exec() at init):        │
 │    src/vfs/schema.sql  → file, folder, device, ...         │
 │    src/llm/schema.sql  → llm_provider, llm_model           │
-│    src/ai/schema.sql   → ai_stm, ai_ltm, ai_procedural, ...│
 └─────────────────────────────────────────────────────────────┘
                           │
                           ▼
@@ -66,23 +74,38 @@ The AI worker coordinates LLM calls alongside memory and tool execution.
 ### Layer Responsibilities
 
 **LLM Subsystem (kernel)**
-- Reads provider/model config from EMS (`llm.provider`, `llm.model`)
+- Stateless inference pipe - no memory, no context
+- Reads provider/model config from EMS (`llm_provider`, `llm_model`)
 - Dispatches to provider-specific adapters based on `api_format`
 - Applies model behavioral flags (strip markdown, etc.)
 - Handles `llm:complete`, `llm:chat`, `llm:embed` syscalls
 - Uses `hal.network` for HTTP calls to external APIs
 
-**AI Worker (kernel subsystem)**
-- Coordinates tool use, memory, and LLM inference
+**AI Agents (userspace processes)**
+- Each agent is a **user principal** with its own identity
+- Runs as a process with a PID, managed by ProcessTable
+- Has a home directory: `/home/agent-{name}/`
+- Owns its memory as files in home directory
+- Coordinates tool use and LLM inference
 - Spawns shell/coreutils for text processing
-- Manages memory (STM, LTM, procedural)
-- Handles `ai:*` syscalls
-- Similar pattern to Auth worker
+- Multiple agents can run in parallel with different specializations
 
-**Userspace (shell + coreutils)**
+**Agent Home Directory Structure**
+```
+/home/agent-coder/
+  .config/agent.json     # agent configuration
+  .memory/
+    stm.json             # short-term memory (conversation)
+    ltm.json             # long-term memory (consolidated)
+    procedural.json      # successful tool patterns
+    embeddings/          # vector indices
+  .cache/                # temporary working data
+```
+
+**Userspace Tools**
 - `/bin/shell` - command interpreter
 - `/bin/cat`, `/bin/grep`, `/bin/awk`, etc. - text processing tools
-- AI worker spawns these as needed
+- Agents spawn these as child processes
 
 **HAL**
 - Pure hardware abstraction (file, network, block)
@@ -90,139 +113,155 @@ The AI worker coordinates LLM calls alongside memory and tool execution.
 
 ---
 
-## Syscalls (ai:*)
+## Agent Runtime
 
-| Syscall | Description |
-|---------|-------------|
-| `ai:complete` | One-shot inference (prompt → response) |
-| `ai:chat` | Conversational with STM context |
-| `ai:embed` | Generate embeddings for text |
-| `ai:exec` | "Do this" - AI plans and executes tools |
-| `ai:remember` | Store to LTM explicitly |
-| `ai:recall` | Query memory (STM, LTM, procedural) |
+AI agents are userspace processes, not kernel services. They use existing syscalls.
 
-### Examples
+### Agent Process Lifecycle
+
+```
+1. Spawn agent process (fork/exec rom/bin/agent)
+2. Agent reads config from ~/.config/agent.json
+3. Agent loads memory from ~/.memory/
+4. Agent enters request loop:
+   - Receive task (IPC, stdin, or message queue)
+   - Plan using llm:complete
+   - Execute tools (spawn shell, read files, etc.)
+   - Update memory files
+   - Return result
+5. Agent exits or persists as daemon
+```
+
+### Syscalls Used by Agents
+
+Agents use standard syscalls - no special `ai:*` syscalls needed:
+
+| Syscall | Agent Use |
+|---------|-----------|
+| `llm:complete` | Generate plans, responses, summaries |
+| `llm:chat` | Multi-turn reasoning |
+| `llm:embed` | Generate embeddings for semantic search |
+| `vfs:read` | Load memory, read context files |
+| `vfs:write` | Persist memory, save outputs |
+| `process:spawn` | Execute shell commands, run tools |
+
+### Example Agent Loop
 
 ```typescript
-// Simple completion
-const response = await syscall('ai:complete', {
-  prompt: 'Summarize this error log',
-  context: logContent
-});
+// rom/bin/agent - simplified agent main loop
+async function main() {
+  const config = await vfs.read('~/.config/agent.json');
+  const stm = await vfs.read('~/.memory/stm.json');
 
-// Conversational (manages STM automatically)
-const response = await syscall('ai:chat', {
-  session: 'user-123',
-  message: 'How many account records changed today?'
-});
+  while (true) {
+    const task = await receiveTask();
 
-// AI executes tools autonomously
-const result = await syscall('ai:exec', {
-  task: 'Find all files larger than 10MB and list them by size',
-  cwd: '/var/log'
-});
+    // Plan using LLM
+    const plan = await syscall('llm:complete', {
+      model: config.model,
+      prompt: `Task: ${task}\nContext: ${stm}\nPlan:`
+    });
 
-// Generate embeddings for semantic search
-const vector = await syscall('ai:embed', {
-  text: 'account billing invoice payment'
-});
+    // Execute plan (spawn shell, etc.)
+    const result = await executeSteps(plan);
 
-// Explicit memory operations
-await syscall('ai:remember', {
-  content: 'User prefers terse responses',
-  scope: 'user-123'
-});
+    // Update memory
+    stm.push({ task, result, ts: Date.now() });
+    await vfs.write('~/.memory/stm.json', stm);
 
-const memories = await syscall('ai:recall', {
-  query: 'user preferences',
-  scope: 'user-123'
-});
+    await sendResult(result);
+  }
+}
 ```
 
 ---
 
 ## Memory Model
 
-Memory is stored as EMS entities. The AI worker queries and manages these.
+Memory is stored as files in each agent's home directory. Each agent owns its memory - no shared kernel state.
 
-**Schema ownership:** Memory tables are defined in `src/ai/schema.sql`, loaded during `AI.init()` via `ems.exec()`. Table names use underscores (`ai_stm`, `ai_ltm`) per SQL convention.
+### Memory Files
+
+```
+~/.memory/
+  stm.json           # Short-term: recent conversation turns
+  ltm.json           # Long-term: consolidated knowledge
+  procedural.json    # Successful tool patterns
+  embeddings/        # Vector indices for semantic search
+    index.json       # Embedding metadata
+    vectors.bin      # Binary vector data
+```
 
 ### Memory Types
 
-| Model | Purpose | Retention |
-|-------|---------|-----------|
-| `ai.stm` | Short-term memory. Conversation turns, recent context. | Session or hours |
-| `ai.ltm` | Long-term memory. Consolidated knowledge, facts. | Persistent |
-| `ai.procedural` | Tool patterns that worked. "This query format succeeded." | Persistent |
-| `ai.embedding` | Vector index for semantic similarity search. | Persistent |
+| File | Purpose | Retention |
+|------|---------|-----------|
+| `stm.json` | Conversation turns, recent context | Session or hours |
+| `ltm.json` | Consolidated knowledge, facts | Persistent |
+| `procedural.json` | Tool patterns that worked | Persistent |
+| `embeddings/` | Vector index for semantic search | Persistent |
 
-### Entity Schemas
+### File Schemas
 
 ```typescript
-// Short-term memory (conversation turns)
-interface STM {
-  model: 'ai.stm';
-  session: string;      // session identifier
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  ts: number;
+// ~/.memory/stm.json - Short-term memory
+interface STMFile {
+  turns: Array<{
+    role: 'user' | 'assistant' | 'system';
+    content: string;
+    ts: number;
+  }>;
+  maxTurns: number;  // auto-prune when exceeded
 }
 
-// Long-term memory (consolidated knowledge)
-interface LTM {
-  model: 'ai.ltm';
-  scope: string;        // user, org, or global
-  topic: string;        // categorization
-  content: string;
-  ts: number;
+// ~/.memory/ltm.json - Long-term memory
+interface LTMFile {
+  entries: Array<{
+    topic: string;
+    content: string;
+    ts: number;
+  }>;
 }
 
-// Procedural memory (successful patterns)
-interface Procedural {
-  model: 'ai.procedural';
-  trigger: string;      // what kind of request
-  pattern: string;      // what worked
-  success_count: number;
-  ts: number;
-}
-
-// Embedding index
-interface Embedding {
-  model: 'ai.embedding';
-  source_model: string; // which entity this embeds
-  source_id: string;
-  vector: number[];
-  ts: number;
+// ~/.memory/procedural.json - Successful patterns
+interface ProceduralFile {
+  patterns: Array<{
+    trigger: string;      // what kind of request
+    pattern: string;      // what worked
+    successCount: number;
+    ts: number;
+  }>;
 }
 ```
 
 ### Memory Consolidation ("Sleep")
 
-STM accumulates during active use. Consolidation runs during idle periods (or scheduled):
+STM accumulates during active use. Agents can consolidate during idle periods:
 
 ```typescript
-// Consolidation process
+// Agent consolidation process
 async function consolidate() {
-  // Gather recent STM
-  const recent = await ems.query('ai.stm', { age: '<24h' });
+  const stm = JSON.parse(await vfs.read('~/.memory/stm.json'));
+  const ltm = JSON.parse(await vfs.read('~/.memory/ltm.json'));
 
   // Extract key information via LLM
-  const consolidated = await syscall('llm:complete', {
+  const summary = await syscall('llm:complete', {
     model: 'default',
-    prompt: 'Extract key facts, preferences, and patterns worth remembering long-term',
-    context: recent
+    prompt: 'Extract key facts and patterns worth remembering long-term',
+    context: JSON.stringify(stm.turns)
   });
 
-  // Store to LTM
-  await ems.insert('ai.ltm', {
-    scope: 'user-123',
+  // Append to LTM
+  ltm.entries.push({
     topic: 'daily-summary',
-    content: consolidated,
+    content: summary,
     ts: Date.now()
   });
+  await vfs.write('~/.memory/ltm.json', JSON.stringify(ltm));
 
   // Prune old STM
-  await ems.delete('ai.stm', { age: '>48h' });
+  stm.turns = stm.turns.slice(-stm.maxTurns);
+  await vfs.write('~/.memory/stm.json', JSON.stringify(stm));
 }
 ```
 
@@ -232,7 +271,7 @@ Like human sleep: experiences accumulate during the day, important patterns cons
 
 ## Tool Execution
 
-The AI worker uses shell and coreutils as tools. This avoids reimplementing text processing.
+Agents use shell and coreutils as tools. This avoids reimplementing text processing.
 
 ### Flow
 
@@ -240,13 +279,13 @@ The AI worker uses shell and coreutils as tools. This avoids reimplementing text
 User: "Find log files with errors and count them"
                     │
                     ▼
-AI worker:
-  1. Query STM/LTM for context
+Agent process:
+  1. Load STM/LTM from ~/.memory/
   2. Call llm:complete to plan: "grep -l 'error' /var/log/*.log | wc -l"
   3. Spawn /bin/shell with command
   4. Capture output
   5. Call llm:complete to format response
-  6. Store interaction in STM
+  6. Append interaction to ~/.memory/stm.json
   7. Return to user
 ```
 
@@ -254,8 +293,9 @@ AI worker:
 
 - Already handles edge cases (quoting, escaping, pipes)
 - Composable via pipes
-- AI can generate shell commands (well-documented in training data)
+- LLMs can generate shell commands (well-documented in training data)
 - No need to reimplement grep, awk, sed, etc.
+- Agent inherits user permissions - shell commands run as agent user
 
 ---
 
@@ -373,7 +413,7 @@ Strategy:
 
 ## Implementation Plan
 
-### Phase 1: LLM Subsystem
+### Phase 1: LLM Subsystem (Kernel)
 
 1. Create `src/llm/schema.sql` with `llm_provider` and `llm_model` tables
 2. Create `src/llm/llm.ts` with `LLM.init()` that calls `ems.exec(schema)`
@@ -383,33 +423,33 @@ Strategy:
 
 **Pattern:** Follow VFS schema split - subsystem owns its schema file, loads via `ems.exec()` during init.
 
-### Phase 2: AI Worker
-
-1. Create `src/ai/schema.sql` with memory tables (`ai_stm`, `ai_ltm`, etc.)
-2. Create AI worker (kernel subsystem, like Auth)
-3. `AI.init()` loads schema via `ems.exec()`
-4. Implement `ai:complete` and `ai:chat` syscalls
-5. Basic STM storage in EMS
-
-### Phase 3: Shell Integration
+### Phase 2: Shell + Coreutils (Userspace)
 
 1. Reintroduce `/bin/shell` to OS userspace
 2. Add basic coreutils (`cat`, `grep`, `head`, `tail`, `wc`)
-3. AI worker can spawn tools
+3. Ensure tools can be spawned as child processes
 
-### Phase 4: Memory
+### Phase 3: Agent Runtime (Userspace)
 
-1. LTM storage and retrieval
-2. Procedural memory for tool patterns
-3. Embedding support in EMS
-4. Consolidation process
+1. Create `rom/bin/agent` - base agent executable
+2. Create `rom/lib/agent/` - shared agent library code
+3. Implement agent lifecycle (spawn, run, shutdown)
+4. Implement memory file I/O (STM, LTM, procedural)
+5. Create agent user provisioning (home directory setup)
+
+### Phase 4: Agent Specializations
+
+1. Create specialized agent configs (coder, research, chat)
+2. Implement tool execution (shell spawning)
+3. Add memory consolidation
+4. Implement context window management
 
 ### Phase 5: Advanced
 
-1. `ai:exec` for autonomous tool use
-2. Streaming responses (`llm:stream`)
-3. Anthropic adapter
-4. Context window optimization
+1. Streaming responses (`llm:stream`)
+2. Anthropic adapter
+3. Multi-agent coordination
+4. Embedding/vector search for semantic memory
 
 ---
 
@@ -417,43 +457,56 @@ Strategy:
 
 ### 1. Embedding Storage
 
-Should embeddings live in EMS or a dedicated vector store?
+Should embeddings live in agent home directory or a shared location?
 
 | Option | Pros | Cons |
 |--------|------|------|
-| EMS | Unified storage, existing query language | May need vector index extension |
-| Dedicated | Optimized for vector ops | Another system to maintain |
+| Per-agent (`~/.memory/embeddings/`) | Simple, isolated | Duplication across agents |
+| Shared (`/var/embeddings/`) | Reusable, efficient | Needs access control |
 
-### 2. Permission Model
+### 2. Agent Provisioning
 
-How does AI worker permission work?
-
-| Option | Notes |
-|--------|-------|
-| Inherits caller | AI has same permissions as requesting user |
-| Dedicated AI user | AI runs as its own principal |
-| Escalation | AI can request elevated permissions (with approval) |
-
-### 3. Tool Sandboxing
-
-How much can AI-spawned tools do?
+How are agent users created?
 
 | Option | Notes |
 |--------|-------|
-| Full access | AI tools have caller's permissions |
-| Restricted | AI tools run in sandbox |
-| Approval | Destructive operations require confirmation |
+| Manual | Admin creates agent users via Auth |
+| On-demand | First spawn creates user + home directory |
+| Template | Clone from `/etc/skel/agent/` template |
+
+### 3. Inter-Agent Communication
+
+How do agents coordinate on complex tasks?
+
+| Option | Notes |
+|--------|-------|
+| Message queue | Agents publish/subscribe to topics |
+| Direct IPC | Agents connect via sockets/pipes |
+| Shared files | Agents read/write to shared workspace |
+
+### 4. Agent Supervision
+
+Who monitors agent behavior?
+
+| Option | Notes |
+|--------|-------|
+| User review | User approves destructive operations |
+| Supervisor agent | Meta-agent monitors other agents |
+| Audit log | All agent actions logged for review |
 
 ---
 
 ## References
 
-- `src/kernel/subsys/auth/` - Auth worker pattern to follow
-- `src/ems/schema.sql` - EMS core schema (entities, models, fields, tracked)
-- `src/vfs/schema.sql` - VFS schema (reference for subsystem schema pattern)
+### Kernel (LLM Subsystem)
+- `src/vfs/schema.sql` - VFS schema (reference for LLM schema pattern)
 - `src/vfs/vfs.ts` - VFS.init() shows how to load subsystem schema via `ems.exec()`
-- `src/vfs/path-cache.ts` - PathCache for VFS path resolution (renamed from EntityCache)
+- `src/ems/schema.sql` - EMS core schema (entities, models, fields, tracked)
+
+### Userspace (Agents)
 - `rom/lib/shell/` - Existing shell implementation (to reintroduce)
+- `src/kernel/subsys/auth/` - Auth subsystem (agent user principals)
+- `src/kernel/process-table.ts` - Process management (agent PIDs)
 
 ### Related Planning Docs
 
