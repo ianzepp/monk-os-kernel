@@ -60,22 +60,20 @@ import {
     getcwd,
     readText,
     readFile,
+    recv,
     print,
     println,
     eprintln,
     exit,
     onSignal,
-    SIGTERM,
 } from '@rom/lib/process';
 import { resolvePath } from '@rom/lib/shell';
 import { Lexer, Parser, Interpreter } from '@rom/lib/awk';
 
 const abortController = new AbortController();
 
-onSignal(signal => {
-    if (signal === SIGTERM) {
-        abortController.abort();
-    }
+onSignal(() => {
+    abortController.abort();
 });
 
 async function main(): Promise<void> {
@@ -293,7 +291,19 @@ async function readFileContent(path: string): Promise<string> {
 }
 
 async function readStdin(): Promise<string> {
-    return readText(0);
+    const chunks: string[] = [];
+
+    for await (const msg of recv(0)) {
+        if (msg.op === 'item' && msg.data) {
+            const data = msg.data as { text?: string };
+            if (data.text) chunks.push(data.text);
+        }
+        else if (msg.op === 'done' || msg.op === 'ok' || msg.op === 'error') {
+            break;
+        }
+    }
+
+    return chunks.join('');
 }
 
 async function showHelp(): Promise<void> {

@@ -127,9 +127,10 @@ async function main(): Promise<void> {
     await exit(exitCode);
 }
 
-function formatTime(date: Date): { epoch: string; human: string } {
+function formatTime(ms: number): { epoch: string; human: string } {
+    const date = new Date(ms);
     return {
-        epoch: Math.floor(date.getTime() / 1000).toString(),
+        epoch: Math.floor(ms / 1000).toString(),
         human: date.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ''),
     };
 }
@@ -183,8 +184,8 @@ function formatDefault(entry: Stat, _path: string): string[] {
 }
 
 function formatTerse(entry: Stat): string {
-    const mtime = Math.floor(entry.mtime.getTime() / 1000);
-    const ctime = Math.floor(entry.ctime.getTime() / 1000);
+    const mtime = Math.floor(entry.mtime / 1000);
+    const ctime = Math.floor(entry.ctime / 1000);
 
     return [entry.name, entry.size, entry.model, entry.id, entry.owner, mtime, ctime].join(' ');
 }

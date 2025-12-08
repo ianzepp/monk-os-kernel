@@ -36,6 +36,7 @@ import {
     eprintln,
     pipe,
     redirect,
+    restore,
     outputRedirect,
     ByteReader,
 } from '@rom/lib/process';
@@ -166,19 +167,19 @@ async function readdirForGlob(path: string): Promise<GlobEntry[]> {
         const names = await readdirAll(path);
         const entries: GlobEntry[] = [];
 
-        for (const name of names) {
-            const fullPath = path === '/' ? `/${name}` : `${path}/${name}`;
+        for (const entry of names) {
+            const fullPath = path === '/' ? `/${entry.name}` : `${path}/${entry.name}`;
 
             try {
                 const info = await stat(fullPath);
 
                 entries.push({
-                    name,
+                    name: entry.name,
                     isDirectory: info.model === 'folder',
                 });
             }
             catch {
-                entries.push({ name, isDirectory: false });
+                entries.push({ name: entry.name, isDirectory: false });
             }
         }
 
@@ -502,14 +503,16 @@ async function executeSingleCommand(
         // Check for built-in
         if (BUILTIN_COMMANDS.includes(cmd.command)) {
             // Set up redirects for builtin (redirect fd 1 to our output fd)
-            const restoreFns: Array<() => Promise<void>> = [];
+            const savedHandles: Array<{ target: number; saved: string }> = [];
 
             if (stdout !== undefined) {
-                restoreFns.push(await redirect(1, stdout));
+                const saved = await redirect(1, stdout);
+                savedHandles.push({ target: 1, saved });
             }
 
             if (stdin !== undefined) {
-                restoreFns.push(await redirect(0, stdin));
+                const saved = await redirect(0, stdin);
+                savedHandles.push({ target: 0, saved });
             }
 
             try {
@@ -517,8 +520,8 @@ async function executeSingleCommand(
             }
             finally {
                 // Restore original fds
-                for (const restore of restoreFns) {
-                    await restore();
+                for (const h of savedHandles) {
+                    await restore(h.target, h.saved);
                 }
 
                 // For pipeline builtins: close the pipe stdout to signal EOF to reader.
@@ -632,7 +635,7 @@ async function executePipeline(
         // Track spawned external processes so we can wait for them later
         const spawnedPids: number[] = [];
         const exitCodes: number[] = [];
-        const pumpPromises: Promise<void>[] = [];
+        const redirectHandles: Array<{ fd: number; saved: string }> = [];
 
         for (let i = 0; i < pipeline.length; i++) {
             const cmd = pipeline[i];
@@ -673,7 +676,7 @@ async function executePipeline(
                 // Use outputRedirect() to handle the conversion transparently.
 
                 // Handle output redirect (> file) or append redirect (>> file)
-                let redirectHandle: { fd: number; start: () => Promise<void> } | undefined;
+                let redirectHandle: { fd: number; saved: string } | undefined;
 
                 if (cmd.outputRedirect || cmd.appendRedirect) {
                     const redirectPath = cmd.outputRedirect || cmd.appendRedirect;
@@ -700,9 +703,9 @@ async function executePipeline(
                 spawnedPids.push(pid);
                 exitCodes.push(pid < 0 ? 126 : -1); // -1 means "need to wait"
 
-                // Start the redirect pump AFTER spawn so process has inherited the fd
+                // Track redirect for cleanup after wait
                 if (redirectHandle) {
-                    pumpPromises.push(redirectHandle.start().catch(() => {}));
+                    redirectHandles.push(redirectHandle);
                 }
             }
         }
@@ -750,8 +753,14 @@ async function executePipeline(
             }
         }
 
-        // Wait for external processes AND message pumps
-        await Promise.all([...waitPromises, ...pumpPromises]);
+        // Wait for external processes
+        await Promise.all(waitPromises);
+
+        // Cleanup output redirects
+        for (const rh of redirectHandles) {
+            await restore(1, rh.saved).catch(() => {});
+            await close(rh.fd).catch(() => {});
+        }
 
         // =====================================================================
         // Step 4: Return exit code of last command
@@ -851,10 +860,10 @@ async function executeLine(state: ShellState, line: string): Promise<number> {
 async function executeScript(state: ShellState, scriptPath: string): Promise<number> {
     const path = resolvePath(state.cwd, scriptPath);
 
-    let fd: number;
+    let script: string;
 
     try {
-        fd = await open(path, { read: true });
+        script = await readText(path);
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -864,26 +873,19 @@ async function executeScript(state: ShellState, scriptPath: string): Promise<num
         return 127;
     }
 
-    try {
-        // Read entire script using new streaming API
-        const script = await readText(fd);
-        const lines = script.split('\n');
+    const lines = script.split('\n');
 
-        let lastExitCode = 0;
+    let lastExitCode = 0;
 
-        for (const line of lines) {
-            if (state.shouldExit) {
-                break;
-            }
-
-            lastExitCode = await executeLine(state, line);
+    for (const line of lines) {
+        if (state.shouldExit) {
+            break;
         }
 
-        return lastExitCode;
+        lastExitCode = await executeLine(state, line);
     }
-    finally {
-        await close(fd);
-    }
+
+    return lastExitCode;
 }
 
 // ============================================================================

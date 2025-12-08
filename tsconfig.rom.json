@@ -5,7 +5,7 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "noEmit": false,
-    "outDir": "./dist",
+    "outDir": "./dist/rom",
     "rootDir": ".",
     "skipLibCheck": true,
     "esModuleInterop": true,
@@ -21,9 +21,7 @@
     "sourceMap": true,
     "baseUrl": ".",
     "paths": {
-      "@src/*": ["src/*"],
-      "@rom/*": ["rom/*"],
-      "@usr/*": ["usr/*"]
+      "@rom/*": ["rom/*"]
     },
 
     // Strict type checking
@@ -37,7 +35,7 @@
     "useUnknownInCatchVariables": true,
     "alwaysStrict": true,
 
-    // Additional safety (unused vars handled by ESLint with _ prefix support)
+    // Additional safety
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "noImplicitReturns": true,
@@ -46,7 +44,7 @@
     "noImplicitOverride": true
   },
   "include": [
-    "src/**/*"
+    "rom/**/*"
   ],
   "exclude": [
     "node_modules",

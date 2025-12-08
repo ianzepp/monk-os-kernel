@@ -22,7 +22,7 @@
  *   seq -w 1 10     # 01 02 ... 10
  */
 
-import { getargs, println, eprintln, exit, onSignal, SIGTERM } from '@rom/lib/process';
+import { getargs, println, eprintln, exit, onSignal } from '@rom/lib/process';
 
 async function main(): Promise<void> {
     const args = await getargs();
@@ -123,10 +123,8 @@ async function main(): Promise<void> {
     // Signal handling for interruption
     let running = true;
 
-    onSignal(signal => {
-        if (signal === SIGTERM) {
-            running = false;
-        }
+    onSignal(() => {
+        running = false;
     });
 
     // Generate sequence

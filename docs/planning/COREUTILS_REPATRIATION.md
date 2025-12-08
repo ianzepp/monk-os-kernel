@@ -14,7 +14,7 @@ Bring os-coreutils back into the main OS repo under `rom/`.
 |-------|-------------|--------|
 | Phase 1 | Copy os-coreutils bin/ and lib/ | **COMPLETE** |
 | Phase 2 | Implement rom/lib/process/ | **COMPLETE** |
-| Phase 3 | Update imports, verify compilation | Not started |
+| Phase 3 | Update imports, verify compilation | **COMPLETE** |
 | Phase 4 | Add missing utilities (grep, sql) | Not started |
 | Phase 5 | Cleanup and documentation | Not started |
 
@@ -35,6 +35,16 @@ Bring os-coreutils back into the main OS repo under `rom/`.
    - `respond.ts` - Response factory helpers
    - `syscall.ts` - Transport layer (postMessage, UUID correlation, backpressure)
    - `index.ts` - 38 function wrappers + ByteReader class
+6. Phase 3 - Updated imports and verified compilation:
+   - Created separate `tsconfig.rom.json` (no @src/* access - enforces kernel/userspace boundary)
+   - Created `rom/lib/path.ts` for path utilities
+   - Fixed all 42 utilities to use new process library API:
+     - `DirEntry` is now `{name, model}` object (not string)
+     - `onSignal()` callback takes no args (registers for SIGTERM by default)
+     - `outputRedirect()` returns `{fd, saved}` (use `restore()` to cleanup)
+     - `access()` returns `Grant[]` directly (no wrapper object)
+     - `mtime`/`ctime` are numbers (ms since epoch, not Date objects)
+     - `readText()` takes path, stdin uses `recv(0)` for messages
 
 ---
 

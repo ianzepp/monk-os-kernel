@@ -16,7 +16,7 @@
  *   sleep 0.5     # Sleep 500 milliseconds
  */
 
-import { getargs, eprintln, exit, onSignal, SIGTERM, sleep } from '@rom/lib/process';
+import { getargs, eprintln, exit, onSignal, sleep } from '@rom/lib/process';
 import { parseDuration } from '@rom/lib/args';
 
 async function main(): Promise<void> {
@@ -44,10 +44,8 @@ async function main(): Promise<void> {
 
     let interrupted = false;
 
-    onSignal(signal => {
-        if (signal === SIGTERM) {
-            interrupted = true;
-        }
+    onSignal(() => {
+        interrupted = true;
     });
 
     // Sleep in small intervals to allow signal checking

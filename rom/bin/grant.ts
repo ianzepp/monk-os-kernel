@@ -210,32 +210,21 @@ async function resolveUser(user: string): Promise<string> {
 
 async function listAcl(path: string): Promise<void> {
     try {
-        const acl = await access(path);
+        const grants = await access(path);
 
         await println(`ACL for ${path}:`);
         await println('');
 
-        if (acl.grants.length === 0) {
+        if (!grants || grants.length === 0) {
             await println('  Grants: (none)');
         }
         else {
             await println('  Grants:');
-            for (const grant of acl.grants) {
+            for (const grant of grants) {
                 const ops = grant.ops.join(', ');
                 const exp = grant.expires ? ` (expires: ${new Date(grant.expires).toISOString()})` : '';
 
                 await println(`    ${grant.to}: ${ops}${exp}`);
-            }
-        }
-
-        await println('');
-        if (acl.deny.length === 0) {
-            await println('  Deny: (none)');
-        }
-        else {
-            await println('  Deny:');
-            for (const user of acl.deny) {
-                await println(`    ${user}`);
             }
         }
     }
@@ -260,56 +249,22 @@ async function resetAcl(path: string): Promise<void> {
     }
 }
 
-async function denyUser(path: string, user: string): Promise<void> {
-    try {
-        const acl = await access(path);
-
-        if (!acl.deny.includes(user)) {
-            acl.deny.push(user);
-            await access(path, acl);
-            await println(`Denied ${user} access to ${path}`);
-        }
-        else {
-            await println(`${user} already denied`);
-        }
-    }
-    catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-
-        await eprintln(`grant: ${path}: ${msg}`);
-        await exit(1);
-    }
+async function denyUser(_path: string, _user: string): Promise<void> {
+    await eprintln('grant: deny lists are not supported in this version');
+    await exit(1);
 }
 
-async function allowUser(path: string, user: string): Promise<void> {
-    try {
-        const acl = await access(path);
-
-        const idx = acl.deny.indexOf(user);
-
-        if (idx !== -1) {
-            acl.deny.splice(idx, 1);
-            await access(path, acl);
-            await println(`Removed ${user} from deny list for ${path}`);
-        }
-        else {
-            await println(`${user} was not denied`);
-        }
-    }
-    catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-
-        await eprintln(`grant: ${path}: ${msg}`);
-        await exit(1);
-    }
+async function allowUser(_path: string, _user: string): Promise<void> {
+    await eprintln('grant: deny lists are not supported in this version');
+    await exit(1);
 }
 
 async function addGrant(path: string, user: string, op: string): Promise<void> {
     try {
-        const acl = await access(path);
+        const grants = await access(path) ?? [];
 
         // Find existing grant for user
-        const grant = acl.grants.find((g: Grant) => g.to === user);
+        const grant = grants.find((g: Grant) => g.to === user);
 
         if (grant) {
             if (!grant.ops.includes(op) && !grant.ops.includes('*')) {
@@ -317,10 +272,10 @@ async function addGrant(path: string, user: string, op: string): Promise<void> {
             }
         }
         else {
-            acl.grants.push({ to: user, ops: [op] });
+            grants.push({ to: user, ops: [op] });
         }
 
-        await access(path, acl);
+        await access(path, grants);
         await println(`Granted ${op} to ${user} on ${path}`);
     }
     catch (err) {
@@ -333,9 +288,9 @@ async function addGrant(path: string, user: string, op: string): Promise<void> {
 
 async function removeGrant(path: string, user: string, op: string): Promise<void> {
     try {
-        const acl = await access(path);
+        const grants = await access(path) ?? [];
 
-        const grant = acl.grants.find((g: Grant) => g.to === user);
+        const grant = grants.find((g: Grant) => g.to === user);
 
         if (grant) {
             const idx = grant.ops.indexOf(op);
@@ -346,12 +301,12 @@ async function removeGrant(path: string, user: string, op: string): Promise<void
 
             // Remove grant entirely if no ops left
             if (grant.ops.length === 0) {
-                const grantIdx = acl.grants.indexOf(grant);
+                const grantIdx = grants.indexOf(grant);
 
-                acl.grants.splice(grantIdx, 1);
+                grants.splice(grantIdx, 1);
             }
 
-            await access(path, acl);
+            await access(path, grants);
             await println(`Revoked ${op} from ${user} on ${path}`);
         }
         else {

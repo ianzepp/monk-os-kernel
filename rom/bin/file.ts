@@ -18,7 +18,7 @@ import {
     getcwd,
     stat,
     open,
-    head,
+    read,
     close,
     println,
     eprintln,
@@ -75,12 +75,16 @@ async function main(): Promise<void> {
             const entry = await stat(resolved);
             let content: Uint8Array | undefined;
 
-            // Read content for better detection
+            // Read content for better detection (first 512 bytes)
             if (entry.model === 'file' && entry.size > 0 && entry.size < 65536) {
                 try {
                     const fd = await open(resolved, { read: true });
 
-                    content = await head(fd, Math.min(entry.size, 512));
+                    for await (const chunk of read(fd)) {
+                        content = chunk.slice(0, 512);
+                        break; // Only need first chunk
+                    }
+
                     await close(fd);
                 }
                 catch {

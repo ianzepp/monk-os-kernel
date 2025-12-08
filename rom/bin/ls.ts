@@ -43,15 +43,15 @@ async function listDirectory(
         // Filter hidden files unless -a
         const filtered = options.all
             ? entries
-            : entries.filter(name => !name.startsWith('.'));
+            : entries.filter(entry => !entry.name.startsWith('.'));
 
-        // Sort entries
-        filtered.sort((a, b) => a.localeCompare(b));
+        // Sort entries by name
+        filtered.sort((a, b) => a.name.localeCompare(b.name));
 
         if (options.long) {
             await println(`total ${filtered.length}`);
-            for (const name of filtered) {
-                const entryPath = path === '/' ? `/${name}` : `${path}/${name}`;
+            for (const entry of filtered) {
+                const entryPath = path === '/' ? `/${entry.name}` : `${path}/${entry.name}`;
 
                 try {
                     const info = await stat(entryPath);
@@ -60,22 +60,22 @@ async function listDirectory(
                     const date = formatDate(new Date(info.mtime));
                     const suffix = info.model === 'folder' ? '/' : '';
 
-                    await println(`${mode}  ${size}  ${date}  ${name}${suffix}`);
+                    await println(`${mode}  ${size}  ${date}  ${entry.name}${suffix}`);
                 }
                 catch {
                     // If stat fails, just show name
-                    await println(`??????????        ?           ${name}`);
+                    await println(`??????????        ?           ${entry.name}`);
                 }
             }
         }
         else if (options.one) {
-            for (const name of filtered) {
-                await println(name);
+            for (const entry of filtered) {
+                await println(entry.name);
             }
         }
         else {
             // Default: space-separated
-            await println(filtered.join('  '));
+            await println(filtered.map(e => e.name).join('  '));
         }
 
         return 0;

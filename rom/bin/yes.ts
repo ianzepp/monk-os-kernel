@@ -14,7 +14,7 @@
  *   yes hello | head -3  # Print "hello" 3 times
  */
 
-import { getargs, println, exit, onSignal, SIGTERM, sleep } from '@rom/lib/process';
+import { getargs, println, exit, onSignal, sleep } from '@rom/lib/process';
 
 async function main(): Promise<void> {
     const args = await getargs();
@@ -22,10 +22,8 @@ async function main(): Promise<void> {
 
     let running = true;
 
-    onSignal(signal => {
-        if (signal === SIGTERM) {
-            running = false;
-        }
+    onSignal(() => {
+        running = false;
     });
 
     while (running) {

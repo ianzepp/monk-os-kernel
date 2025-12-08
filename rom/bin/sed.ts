@@ -49,6 +49,7 @@ import {
     open,
     readText,
     readFile,
+    recv,
     write,
     close,
     println,
@@ -725,7 +726,19 @@ async function writeFileContent(path: string, content: string): Promise<void> {
 }
 
 async function readStdin(): Promise<string> {
-    return readText(0);
+    const chunks: string[] = [];
+
+    for await (const msg of recv(0)) {
+        if (msg.op === 'item' && msg.data) {
+            const data = msg.data as { text?: string };
+            if (data.text) chunks.push(data.text);
+        }
+        else if (msg.op === 'done' || msg.op === 'ok' || msg.op === 'error') {
+            break;
+        }
+    }
+
+    return chunks.join('');
 }
 
 async function showHelp(): Promise<void> {
