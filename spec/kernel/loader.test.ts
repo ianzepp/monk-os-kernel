@@ -12,7 +12,7 @@ import {
     rewriteImports,
     VFSLoader,
 } from '@src/kernel/loader.js';
-import { createOsStack, type OsStack } from '@src/os/stack.js';
+import { TestOS } from '@src/os/test.js';
 
 describe('ModuleCache', () => {
     test('should cache and retrieve modules', () => {
@@ -340,24 +340,25 @@ export { helper };`;
 });
 
 describe('VFSLoader', () => {
-    let stack: OsStack;
+    let os: TestOS;
     let loader: VFSLoader;
 
     beforeEach(async () => {
-        stack = await createOsStack({ vfs: true });
+        os = new TestOS();
+        await os.boot({ layers: ['vfs'] });
 
         // Create /lib directory
-        await stack.vfs!.mkdir('/lib', 'kernel');
+        await os.internalVfs.mkdir('/lib', 'kernel');
 
-        loader = new VFSLoader(stack.vfs!, stack.hal);
+        loader = new VFSLoader(os.internalVfs, os.internalHal);
     });
 
     afterEach(async () => {
-        await stack.shutdown();
+        await os.shutdown();
     });
 
     test('should compile a simple module', async () => {
-        const vfs = stack.vfs!;
+        const vfs = os.internalVfs;
         // Write a test module to VFS
         const source = `export const message = 'hello';`;
         const handle = await vfs.open('/lib/test.ts', { write: true, create: true }, 'kernel');
@@ -373,7 +374,7 @@ describe('VFSLoader', () => {
     });
 
     test('should extract VFS imports', async () => {
-        const vfs = stack.vfs!;
+        const vfs = os.internalVfs;
         const source = `
             import { open, read } from '/lib/process';
             export function readAll() {}
@@ -389,7 +390,7 @@ describe('VFSLoader', () => {
     });
 
     test('should cache modules by hash', async () => {
-        const vfs = stack.vfs!;
+        const vfs = os.internalVfs;
         const source = `export const x = 1;`;
         const handle = await vfs.open('/lib/cached.ts', { write: true, create: true }, 'kernel');
 
@@ -407,7 +408,7 @@ describe('VFSLoader', () => {
     });
 
     test('should resolve dependencies', async () => {
-        const vfs = stack.vfs!;
+        const vfs = os.internalVfs;
         // Create /lib/utils.ts
         const utilsSource = `export function format(x: number) { return x.toString(); }`;
         let h = await vfs.open('/lib/utils.ts', { write: true, create: true }, 'kernel');
@@ -433,7 +434,7 @@ describe('VFSLoader', () => {
     });
 
     test('should assemble a bundle', async () => {
-        const vfs = stack.vfs!;
+        const vfs = os.internalVfs;
         // Create /lib/helper.ts
         const helperSource = `export const greeting = 'Hello';`;
         let h = await vfs.open('/lib/helper.ts', { write: true, create: true }, 'kernel');
@@ -463,7 +464,7 @@ describe('VFSLoader', () => {
     });
 
     test('should create and revoke blob URLs', async () => {
-        const vfs = stack.vfs!;
+        const vfs = os.internalVfs;
         const source = `export const x = 1;`;
         const h = await vfs.open('/lib/blob-test.ts', { write: true, create: true }, 'kernel');
 

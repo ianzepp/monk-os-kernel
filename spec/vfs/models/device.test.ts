@@ -13,7 +13,7 @@
  *
  * TESTING APPROACH
  * ================
- * - Use createOsStack({ vfs: true }) for full stack integration
+ * - Use TestOS with layers: ['vfs'] for full stack integration
  * - Mock HAL console for input/output testing
  * - Test each device type's unique behavior
  * - Verify error conditions (EBADF, EACCES, ENOTSUP, etc.)
@@ -21,7 +21,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { DeviceModel, initStandardDevices } from '@src/vfs/models/device.js';
-import { createOsStack, type OsStack } from '@src/os/stack.js';
+import { TestOS } from '@src/os/test.js';
 import { ENOENT, EBADF, EACCES, ENOTSUP } from '@src/hal/index.js';
 import type { ModelContext } from '@src/vfs/model.js';
 import type { OpenFlags } from '@src/vfs/handle.js';
@@ -30,16 +30,17 @@ import type { OpenFlags } from '@src/vfs/handle.js';
 // TEST SETUP
 // =============================================================================
 
-let stack: OsStack;
+let os: TestOS;
 let model: DeviceModel;
 let ctx: ModelContext;
 let devFolderId: string;
 
 beforeEach(async () => {
-    stack = await createOsStack({ vfs: true });
+    os = new TestOS();
+    await os.boot({ layers: ['vfs'] });
 
     // WHY: /dev is created by VFS initialization, use existing folder
-    const devStat = await stack.vfs!.stat('/dev', 'kernel');
+    const devStat = await os.internalVfs.stat('/dev', 'kernel');
 
     devFolderId = devStat.id;
 
@@ -47,11 +48,11 @@ beforeEach(async () => {
 
     // Create mock context
     ctx = {
-        hal: stack.hal!,
+        hal: os.internalHal,
         caller: 'test-user',
         resolve: async (path: string) => {
             try {
-                const stat = await stack.vfs!.stat(path, 'kernel');
+                const stat = await os.internalVfs.stat(path, 'kernel');
 
                 return stat.id;
             }
@@ -61,7 +62,7 @@ beforeEach(async () => {
         },
         getEntity: async (id: string) => {
             try {
-                return await stack.vfs!.stat(id, 'kernel');
+                return await os.internalVfs.stat(id, 'kernel');
             }
             catch {
                 return null;
@@ -72,7 +73,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-    await stack.shutdown();
+    await os.shutdown();
 });
 
 // =============================================================================
@@ -181,7 +182,7 @@ describe('DeviceModel', () => {
         });
 
         it('should update device parent', async () => {
-            const newParentId = await stack.vfs!.mkdir('/tmp', 'kernel');
+            const newParentId = await os.internalVfs.mkdir('/tmp', 'kernel');
 
             const id = await model.create(ctx, devFolderId, 'device', {
                 device: 'null',

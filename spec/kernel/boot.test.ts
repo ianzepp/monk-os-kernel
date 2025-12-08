@@ -1,26 +1,27 @@
 /**
  * Kernel Boot Integration Tests
  *
- * Tests end-to-end boot sequence using createOsStack().
+ * Tests end-to-end boot sequence using TestOS.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { createOsStack, type OsStack } from '@src/os/stack.js';
+import { TestOS } from '@src/os/test.js';
 
 describe('Kernel Boot', () => {
-    let stack: OsStack;
+    let os: TestOS;
 
     beforeEach(async () => {
-        stack = await createOsStack({ kernel: true });
+        os = new TestOS();
+        await os.boot({ layers: ['kernel'] });
     });
 
     afterEach(async () => {
-        await stack.shutdown();
+        await os.shutdown();
     });
 
     it('should create /dev/console during VFS init', async () => {
-        // VFS is already initialized by createOsStack
-        const vfs = stack.vfs!;
+        // VFS is already initialized by TestOS.boot
+        const vfs = os.internalVfs;
 
         // Check /dev exists
         const devStat = await vfs.stat('/dev', 'kernel');
@@ -36,7 +37,7 @@ describe('Kernel Boot', () => {
     });
 
     it('should allow reading and writing to /dev/console', async () => {
-        const vfs = stack.vfs!;
+        const vfs = os.internalVfs;
 
         // Open console for writing
         const writeHandle = await vfs.open('/dev/console', { write: true }, 'kernel');
@@ -51,18 +52,19 @@ describe('Kernel Boot', () => {
 });
 
 describe('VFS Device Initialization', () => {
-    let stack: OsStack;
+    let os: TestOS;
 
     beforeEach(async () => {
-        stack = await createOsStack({ vfs: true });
+        os = new TestOS();
+        await os.boot({ layers: ['vfs'] });
     });
 
     afterEach(async () => {
-        await stack.shutdown();
+        await os.shutdown();
     });
 
     it('should create standard devices', async () => {
-        const vfs = stack.vfs!;
+        const vfs = os.internalVfs;
 
         const devices = ['null', 'zero', 'random', 'urandom', 'console', 'clock'];
 
@@ -76,7 +78,7 @@ describe('VFS Device Initialization', () => {
     });
 
     it('should read zeros from /dev/zero', async () => {
-        const vfs = stack.vfs!;
+        const vfs = os.internalVfs;
 
         const handle = await vfs.open('/dev/zero', { read: true }, 'kernel');
         const data = await handle.read(16);
@@ -88,7 +90,7 @@ describe('VFS Device Initialization', () => {
     });
 
     it('should discard writes to /dev/null', async () => {
-        const vfs = stack.vfs!;
+        const vfs = os.internalVfs;
 
         const handle = await vfs.open('/dev/null', { write: true }, 'kernel');
         const written = await handle.write(new Uint8Array([1, 2, 3, 4, 5]));
@@ -99,7 +101,7 @@ describe('VFS Device Initialization', () => {
     });
 
     it('should return random bytes from /dev/random', async () => {
-        const vfs = stack.vfs!;
+        const vfs = os.internalVfs;
 
         const handle = await vfs.open('/dev/random', { read: true }, 'kernel');
         const data1 = await handle.read(16);

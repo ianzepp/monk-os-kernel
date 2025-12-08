@@ -23,22 +23,23 @@ import {
     entityOpen,
     type EntityMount,
 } from '@src/vfs/mounts/entity.js';
-import { createOsStack, type OsStack } from '@src/os/stack.js';
+import { TestOS } from '@src/os/test.js';
 import { EINVAL, ENOENT, ENOTDIR, EISDIR, EROFS, EBADF, EACCES } from '@src/hal/errors.js';
 
 // =============================================================================
 // TEST SETUP
 // =============================================================================
 
-let stack: OsStack;
+let os: TestOS;
 
 beforeEach(async () => {
     // WHY: EntityMount requires EMS (EntityCache, EntityOps, ModelCache)
-    stack = await createOsStack({ ems: true });
+    os = new TestOS();
+    await os.boot({ layers: ['ems'] });
 });
 
 afterEach(async () => {
-    await stack.shutdown();
+    await os.shutdown();
 });
 
 // =============================================================================
@@ -52,10 +53,10 @@ async function createTestModel(
     modelName: string,
     fields: Array<{ name: string; type?: string; unique?: boolean; relatedModel?: string; relationshipType?: string }> = [],
 ) {
-    const { ems } = stack;
+    const ems = os.internalEms;
 
     // Insert model row
-    await ems!.db.execute(
+    await ems.db.execute(
         `INSERT INTO models (id, model_name, status) VALUES (?, ?, 'active')`,
         [`model-${modelName}`, modelName],
     );
@@ -70,7 +71,7 @@ async function createTestModel(
     ];
 
     for (const field of [...standardFields, ...fields]) {
-        await ems!.db.execute(
+        await ems.db.execute(
             `INSERT INTO fields (id, model_name, field_name, type, unique_, relationship_type, related_model)
              VALUES (?, ?, ?, ?, ?, ?, ?)`,
             [
@@ -86,7 +87,7 @@ async function createTestModel(
     }
 
     // WHY: Invalidate cache so next get() will reload from database
-    ems!.models.invalidate(modelName);
+    ems.models.invalidate(modelName);
 
     // WHY: Create empty detail table for this model (with trashed_at column)
     // EntityOps queries expect detail tables to exist
@@ -95,7 +96,7 @@ async function createTestModel(
         ? `CREATE TABLE IF NOT EXISTS ${modelName} (id TEXT PRIMARY KEY, ${fieldCols}, trashed_at TEXT DEFAULT NULL)`
         : `CREATE TABLE IF NOT EXISTS ${modelName} (id TEXT PRIMARY KEY, trashed_at TEXT DEFAULT NULL)`;
 
-    await ems!.db.execute(tableDef);
+    await ems.db.execute(tableDef);
 }
 
 /**
@@ -112,14 +113,14 @@ async function createTestEntity(
     id: string,
     fields: Record<string, unknown>,
 ): Promise<string> {
-    const { ems } = stack;
+    const ems = os.internalEms;
 
     // WHY: Extract parent from fields if provided
     const parent = fields.parent as string | null | undefined ?? null;
     const pathname = (fields.pathname as string | undefined) ?? id;
 
     // Insert into entities table (only 4 columns)
-    await ems!.db.execute(
+    await ems.db.execute(
         `INSERT INTO entities (id, model, parent, pathname) VALUES (?, ?, ?, ?)`,
         [id, modelName, parent, pathname],
     );
@@ -139,7 +140,7 @@ async function createTestEntity(
             try {
                 const colDefs = fieldNames.map(f => `${f} TEXT`).join(', ');
 
-                await ems!.db.execute(
+                await ems.db.execute(
                     `CREATE TABLE IF NOT EXISTS ${modelName} (
                         id TEXT PRIMARY KEY,
                         ${colDefs},
@@ -152,7 +153,7 @@ async function createTestEntity(
             }
 
             // Insert detail data
-            await ems!.db.execute(
+            await ems.db.execute(
                 `INSERT OR REPLACE INTO ${modelName} (${columns}) VALUES (${placeholders})`,
                 values,
             );
@@ -160,7 +161,7 @@ async function createTestEntity(
     }
 
     // Add to cache
-    ems!.pathCache.addEntry({
+    ems.pathCache.addEntry({
         id,
         model: modelName,
         parent,
@@ -191,9 +192,9 @@ describe('createEntityMount', () => {
     it('should create mount with default options', async () => {
         const mount = await createEntityMount(
             '/data',
-            stack.ems!.pathCache,
-            stack.ems!.ops,
-            stack.ems!.models,
+            os.internalEms.pathCache,
+            os.internalEms.ops,
+            os.internalEms.models,
         );
 
         expect(mount.vfsPath).toBe('/data');
@@ -205,9 +206,9 @@ describe('createEntityMount', () => {
     it('should normalize vfsPath by removing trailing slash', async () => {
         const mount = await createEntityMount(
             '/data/',
-            stack.ems!.pathCache,
-            stack.ems!.ops,
-            stack.ems!.models,
+            os.internalEms.pathCache,
+            os.internalEms.ops,
+            os.internalEms.models,
         );
 
         expect(mount.vfsPath).toBe('/data');
@@ -218,9 +219,9 @@ describe('createEntityMount', () => {
 
         const mount = await createEntityMount(
             '/users',
-            stack.ems!.pathCache,
-            stack.ems!.ops,
-            stack.ems!.models,
+            os.internalEms.pathCache,
+            os.internalEms.ops,
+            os.internalEms.models,
             { model: 'users' },
         );
 
@@ -234,9 +235,9 @@ describe('createEntityMount', () => {
 
         const mount = await createEntityMount(
             '/users',
-            stack.ems!.pathCache,
-            stack.ems!.ops,
-            stack.ems!.models,
+            os.internalEms.pathCache,
+            os.internalEms.ops,
+            os.internalEms.models,
             { model: 'users', field: 'username' },
         );
 
@@ -246,9 +247,9 @@ describe('createEntityMount', () => {
     it('should accept custom maxDepth option', async () => {
         const mount = await createEntityMount(
             '/data',
-            stack.ems!.pathCache,
-            stack.ems!.ops,
-            stack.ems!.models,
+            os.internalEms.pathCache,
+            os.internalEms.ops,
+            os.internalEms.models,
             { maxDepth: 5 },
         );
 
@@ -259,9 +260,9 @@ describe('createEntityMount', () => {
         await expect(
             createEntityMount(
                 '/data',
-                stack.ems!.pathCache,
-                stack.ems!.ops,
-                stack.ems!.models,
+                os.internalEms.pathCache,
+                os.internalEms.ops,
+                os.internalEms.models,
                 { model: 'nonexistent', field: 'name' },
             ),
         ).rejects.toThrow(EINVAL);
@@ -273,9 +274,9 @@ describe('createEntityMount', () => {
         await expect(
             createEntityMount(
                 '/users',
-                stack.ems!.pathCache,
-                stack.ems!.ops,
-                stack.ems!.models,
+                os.internalEms.pathCache,
+                os.internalEms.ops,
+                os.internalEms.models,
                 { model: 'users', field: 'nonexistent' },
             ),
         ).rejects.toThrow(EINVAL);
@@ -289,9 +290,9 @@ describe('createEntityMount', () => {
         await expect(
             createEntityMount(
                 '/users',
-                stack.ems!.pathCache,
-                stack.ems!.ops,
-                stack.ems!.models,
+                os.internalEms.pathCache,
+                os.internalEms.ops,
+                os.internalEms.models,
                 { model: 'users', field: 'email' },
             ),
         ).rejects.toThrow(EINVAL);
@@ -308,9 +309,9 @@ describe('isUnderEntityMount', () => {
     beforeEach(async () => {
         mount = await createEntityMount(
             '/data',
-            stack.ems!.pathCache,
-            stack.ems!.ops,
-            stack.ems!.models,
+            os.internalEms.pathCache,
+            os.internalEms.ops,
+            os.internalEms.models,
         );
     });
 
@@ -345,9 +346,9 @@ describe('entityStat - root type', () => {
     beforeEach(async () => {
         mount = await createEntityMount(
             '/data',
-            stack.ems!.pathCache,
-            stack.ems!.ops,
-            stack.ems!.models,
+            os.internalEms.pathCache,
+            os.internalEms.ops,
+            os.internalEms.models,
         );
     });
 
@@ -374,9 +375,9 @@ describe('entityStat - model type', () => {
 
         mount = await createEntityMount(
             '/data',
-            stack.ems!.pathCache,
-            stack.ems!.ops,
-            stack.ems!.models,
+            os.internalEms.pathCache,
+            os.internalEms.ops,
+            os.internalEms.models,
         );
     });
 
@@ -406,9 +407,9 @@ describe('entityStat - entity type', () => {
 
         mount = await createEntityMount(
             '/data',
-            stack.ems!.pathCache,
-            stack.ems!.ops,
-            stack.ems!.models,
+            os.internalEms.pathCache,
+            os.internalEms.ops,
+            os.internalEms.models,
         );
     });
 
@@ -439,9 +440,9 @@ describe('entityStat - fields_dir type', () => {
 
         mount = await createEntityMount(
             '/data',
-            stack.ems!.pathCache,
-            stack.ems!.ops,
-            stack.ems!.models,
+            os.internalEms.pathCache,
+            os.internalEms.ops,
+            os.internalEms.models,
         );
     });
 
@@ -473,9 +474,9 @@ describe('entityStat - field type', () => {
 
         mount = await createEntityMount(
             '/data',
-            stack.ems!.pathCache,
-            stack.ems!.ops,
-            stack.ems!.models,
+            os.internalEms.pathCache,
+            os.internalEms.ops,
+            os.internalEms.models,
         );
     });
 
@@ -523,9 +524,9 @@ describe('entityStat - parent type', () => {
 
         mount = await createEntityMount(
             '/data',
-            stack.ems!.pathCache,
-            stack.ems!.ops,
-            stack.ems!.models,
+            os.internalEms.pathCache,
+            os.internalEms.ops,
+            os.internalEms.models,
         );
     });
 
@@ -561,9 +562,9 @@ describe('entityStat - relationships_dir type', () => {
 
         mount = await createEntityMount(
             '/data',
-            stack.ems!.pathCache,
-            stack.ems!.ops,
-            stack.ems!.models,
+            os.internalEms.pathCache,
+            os.internalEms.ops,
+            os.internalEms.models,
         );
     });
 
@@ -592,9 +593,9 @@ describe('entityStat - relationship type', () => {
 
         mount = await createEntityMount(
             '/data',
-            stack.ems!.pathCache,
-            stack.ems!.ops,
-            stack.ems!.models,
+            os.internalEms.pathCache,
+            os.internalEms.ops,
+            os.internalEms.models,
         );
     });
 
@@ -620,9 +621,9 @@ describe('entityReaddir - root type', () => {
 
         const mount = await createEntityMount(
             '/data',
-            stack.ems!.pathCache,
-            stack.ems!.ops,
-            stack.ems!.models,
+            os.internalEms.pathCache,
+            os.internalEms.ops,
+            os.internalEms.models,
         );
 
         const entries = await collectAll(entityReaddir(mount, '/data'));
@@ -640,9 +641,9 @@ describe('entityReaddir - root type', () => {
 
         const mount = await createEntityMount(
             '/data',
-            stack.ems!.pathCache,
-            stack.ems!.ops,
-            stack.ems!.models,
+            os.internalEms.pathCache,
+            os.internalEms.ops,
+            os.internalEms.models,
             { model: 'users' },
         );
 
@@ -668,9 +669,9 @@ describe('entityReaddir - model type', () => {
 
         mount = await createEntityMount(
             '/data',
-            stack.ems!.pathCache,
-            stack.ems!.ops,
-            stack.ems!.models,
+            os.internalEms.pathCache,
+            os.internalEms.ops,
+            os.internalEms.models,
         );
     });
 
@@ -691,9 +692,9 @@ describe('entityReaddir - model type', () => {
 
         const mount2 = await createEntityMount(
             '/accounts',
-            stack.ems!.pathCache,
-            stack.ems!.ops,
-            stack.ems!.models,
+            os.internalEms.pathCache,
+            os.internalEms.ops,
+            os.internalEms.models,
             { model: 'accounts', field: 'username' },
         );
 
@@ -717,9 +718,9 @@ describe('entityReaddir - entity type', () => {
 
         mount = await createEntityMount(
             '/data',
-            stack.ems!.pathCache,
-            stack.ems!.ops,
-            stack.ems!.models,
+            os.internalEms.pathCache,
+            os.internalEms.ops,
+            os.internalEms.models,
         );
     });
 
@@ -763,9 +764,9 @@ describe('entityReaddir - fields_dir type', () => {
 
         mount = await createEntityMount(
             '/data',
-            stack.ems!.pathCache,
-            stack.ems!.ops,
-            stack.ems!.models,
+            os.internalEms.pathCache,
+            os.internalEms.ops,
+            os.internalEms.models,
         );
     });
 
@@ -807,9 +808,9 @@ describe('entityReaddir - relationships_dir type', () => {
 
         mount = await createEntityMount(
             '/data',
-            stack.ems!.pathCache,
-            stack.ems!.ops,
-            stack.ems!.models,
+            os.internalEms.pathCache,
+            os.internalEms.ops,
+            os.internalEms.models,
         );
     });
 
@@ -840,9 +841,9 @@ describe('entityReaddir - relationship type', () => {
 
         mount = await createEntityMount(
             '/data',
-            stack.ems!.pathCache,
-            stack.ems!.ops,
-            stack.ems!.models,
+            os.internalEms.pathCache,
+            os.internalEms.ops,
+            os.internalEms.models,
         );
     });
 
@@ -866,9 +867,9 @@ describe('entityReaddir - relationship type', () => {
 
         const mount2 = await createEntityMount(
             '/employees',
-            stack.ems!.pathCache,
-            stack.ems!.ops,
-            stack.ems!.models,
+            os.internalEms.pathCache,
+            os.internalEms.ops,
+            os.internalEms.models,
             { model: 'employees' },
         );
 
@@ -892,9 +893,9 @@ describe('entityReaddir - error cases', () => {
 
         mount = await createEntityMount(
             '/data',
-            stack.ems!.pathCache,
-            stack.ems!.ops,
-            stack.ems!.models,
+            os.internalEms.pathCache,
+            os.internalEms.ops,
+            os.internalEms.models,
         );
     });
 
@@ -937,9 +938,9 @@ describe('entityOpen - basic operations', () => {
 
         mount = await createEntityMount(
             '/data',
-            stack.ems!.pathCache,
-            stack.ems!.ops,
-            stack.ems!.models,
+            os.internalEms.pathCache,
+            os.internalEms.ops,
+            os.internalEms.models,
         );
     });
 
@@ -994,9 +995,9 @@ describe('EntityFieldHandle - read operations', () => {
 
         mount = await createEntityMount(
             '/data',
-            stack.ems!.pathCache,
-            stack.ems!.ops,
-            stack.ems!.models,
+            os.internalEms.pathCache,
+            os.internalEms.ops,
+            os.internalEms.models,
         );
     });
 
@@ -1078,9 +1079,9 @@ describe('EntityFieldHandle - write operations', () => {
 
         mount = await createEntityMount(
             '/data',
-            stack.ems!.pathCache,
-            stack.ems!.ops,
-            stack.ems!.models,
+            os.internalEms.pathCache,
+            os.internalEms.ops,
+            os.internalEms.models,
         );
     });
 
@@ -1108,9 +1109,9 @@ describe('EntityFieldHandle - seek operations', () => {
 
         mount = await createEntityMount(
             '/data',
-            stack.ems!.pathCache,
-            stack.ems!.ops,
-            stack.ems!.models,
+            os.internalEms.pathCache,
+            os.internalEms.ops,
+            os.internalEms.models,
         );
     });
 
@@ -1186,9 +1187,9 @@ describe('EntityFieldHandle - tell operations', () => {
 
         mount = await createEntityMount(
             '/data',
-            stack.ems!.pathCache,
-            stack.ems!.ops,
-            stack.ems!.models,
+            os.internalEms.pathCache,
+            os.internalEms.ops,
+            os.internalEms.models,
         );
     });
 
@@ -1219,9 +1220,9 @@ describe('EntityFieldHandle - close operations', () => {
 
         mount = await createEntityMount(
             '/data',
-            stack.ems!.pathCache,
-            stack.ems!.ops,
-            stack.ems!.models,
+            os.internalEms.pathCache,
+            os.internalEms.ops,
+            os.internalEms.models,
         );
     });
 
@@ -1273,9 +1274,9 @@ describe('EntityFieldHandle - error cases', () => {
 
         mount = await createEntityMount(
             '/data',
-            stack.ems!.pathCache,
-            stack.ems!.ops,
-            stack.ems!.models,
+            os.internalEms.pathCache,
+            os.internalEms.ops,
+            os.internalEms.models,
         );
     });
 
@@ -1319,9 +1320,9 @@ describe('EntityMount - nested relationships', () => {
 
         mount = await createEntityMount(
             '/data',
-            stack.ems!.pathCache,
-            stack.ems!.ops,
-            stack.ems!.models,
+            os.internalEms.pathCache,
+            os.internalEms.ops,
+            os.internalEms.models,
         );
     });
 
@@ -1371,9 +1372,9 @@ describe('EntityMount - custom field as key', () => {
 
         mount = await createEntityMount(
             '/users',
-            stack.ems!.pathCache,
-            stack.ems!.ops,
-            stack.ems!.models,
+            os.internalEms.pathCache,
+            os.internalEms.ops,
+            os.internalEms.models,
             { model: 'users', field: 'username' },
         );
     });
@@ -1414,9 +1415,9 @@ describe('EntityMount - null and undefined field values', () => {
 
         mount = await createEntityMount(
             '/data',
-            stack.ems!.pathCache,
-            stack.ems!.ops,
-            stack.ems!.models,
+            os.internalEms.pathCache,
+            os.internalEms.ops,
+            os.internalEms.models,
         );
     });
 
