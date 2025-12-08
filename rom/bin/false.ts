@@ -1,10 +1,16 @@
 /**
- * false - Exit with failure status
+ * false - do nothing, unsuccessfully
  *
- * POSIX-compatible utility that always exits with code 1.
- * Used for shell scripting and testing.
+ * Usage: false
+ *
+ * Ignores all arguments.
+ * Exit status is always 1.
  */
 
-import { exit } from '@rom/lib/process/index.js';
+import { exit } from '@rom/lib/process';
 
-exit(1);
+async function main(): Promise<void> {
+    await exit(1);
+}
+
+main();

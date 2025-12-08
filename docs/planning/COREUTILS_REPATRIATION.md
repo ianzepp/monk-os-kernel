@@ -1,10 +1,35 @@
 # Coreutils Repatriation
 
-> **Status**: Proposed
+> **Status**: In Progress
 > **Complexity**: Medium
 > **Dependencies**: None (enables OS_AI Phase 2)
 
 Bring os-coreutils back into the main OS repo under `rom/`.
+
+---
+
+## Progress
+
+| Phase | Description | Status |
+|-------|-------------|--------|
+| Phase 1 | Copy os-coreutils bin/ and lib/ | **COMPLETE** |
+| Phase 2 | Implement rom/lib/process/ | **IN PROGRESS** |
+| Phase 3 | Update imports, verify compilation | Not started |
+| Phase 4 | Add missing utilities (grep, sql) | Not started |
+| Phase 5 | Cleanup and documentation | Not started |
+
+### Completed Work
+
+1. Deleted old byte-based `rom/lib/process/` (never used)
+2. Copied 42 utilities from `os-coreutils/bin/` to `rom/bin/`
+3. Copied utility libraries from `os-coreutils/lib/`:
+   - `args.ts` - Argument parsing
+   - `format.ts` - Output formatting
+   - `glob.ts` - Glob utilities
+   - `shell.ts` - Shell re-export
+   - `awk/` - Full AWK implementation
+   - `shell/` - Shell parsing and glob expansion
+4. Created `rom/lib/process/README.md` with API specification
 
 ---
 
@@ -16,7 +41,7 @@ Originally, userspace utilities lived in `rom/` as part of the OS project. Then 
 
 1. **Separation**: Userspace moved to `@monk-api/os-coreutils` as a separate project
 2. **Rationale**: Clean separation between kernel and userspace, communicate via gateway API
-3. **Result**: 41 utilities developed independently, including full shell with pipes/redirects/globs
+3. **Result**: 42 utilities developed independently, including full shell with pipes/redirects/globs
 
 ### The Return
 
@@ -24,116 +49,138 @@ AI agents (see `OS_AI.md`) are userspace processes that need shell and coreutils
 
 ---
 
-## Current State
-
-### os-coreutils (External)
+## Current State (Post Phase 1)
 
 ```
-@monk-api/os-coreutils/
-├── bin/           # 41 utilities
-│   ├── shell.ts   # Full shell (pipes, redirects, &&/||, globs, variables)
-│   ├── awk.ts     # Full AWK implementation
-│   ├── sed.ts
+rom/
+├── bin/                    # 42 utilities (from os-coreutils)
+│   ├── shell.ts            # Full shell (pipes, redirects, &&/||, globs, variables)
+│   ├── awk.ts              # Full AWK implementation
 │   ├── cat.ts, head.ts, tail.ts, wc.ts, sort.ts, uniq.ts, ...
 │   └── ...
 ├── lib/
-│   ├── shell/     # Command parsing, glob expansion
-│   ├── awk/       # AWK lexer, parser, interpreter
-│   ├── args.ts    # Argument parsing
-│   └── format.ts  # Output formatting
-└── spec/          # Tests
+│   ├── process/            # TO BE IMPLEMENTED
+│   │   └── README.md       # API specification
+│   ├── args.ts             # Argument parsing (from os-coreutils)
+│   ├── format.ts           # Output formatting (from os-coreutils)
+│   ├── glob.ts             # Glob utilities (from os-coreutils)
+│   ├── shell.ts            # Shell re-export (from os-coreutils)
+│   ├── errors.ts           # Error types (existing)
+│   ├── awk/                # AWK lexer, parser, interpreter (from os-coreutils)
+│   └── shell/              # Command parsing, glob expansion (from os-coreutils)
+├── svc/
+│   └── init.ts             # PID 1 (needs update for new process lib)
+└── etc/
 ```
-
-**Missing utilities:**
-- `grep` - text search
-- `sql` - SQLite CLI (needed for agent memory)
-
-### rom/lib/process/ (Internal)
-
-The current process library uses **byte-based I/O**:
-
-```typescript
-// Current approach - byte streams
-const fd = await open('/file');
-for await (const chunk of read(fd)) {  // yields Uint8Array
-    // process bytes
-}
-await write(fd, bytes);
-await close(fd);
-```
-
-**Usage**: Almost nothing. Only `rom/svc/init.ts` and `rom/bin/true.ts`/`false.ts` use it, and they only use `exit()`, `wait()`, `sleep()`, `println()`.
-
-### os-coreutils Expects Message-Based I/O
-
-```typescript
-// os-coreutils approach - message streams
-for await (const msg of recv(0)) {  // yields Response objects
-    if (msg.op === 'item') { ... }
-    if (msg.op === 'done') break;
-}
-await send(1, respond.item({ text: line }));
-await send(1, respond.done());
-```
-
-This aligns with how the dispatcher already works - it yields `Response` objects with `op` fields.
 
 ---
 
-## The Mismatch
+## Process Library Design
 
-| Aspect | rom/lib/process/ | os-coreutils expects |
-|--------|------------------|---------------------|
-| I/O model | Byte streams (`Uint8Array`) | Message streams (`Response`) |
-| Read | `read(fd)` → `AsyncIterable<Uint8Array>` | `recv(fd)` → `AsyncIterable<Response>` |
-| Write | `write(fd, bytes)` | `send(fd, Response)` |
-| Response creation | N/A | `respond.item()`, `respond.done()`, `respond.error()` |
-| Helpers | N/A | `ByteReader`, `readText()`, `readdirAll()` |
+### Architecture
 
-**Key insight**: The dispatcher already uses messages (`{ op: 'item', data }`, `{ op: 'done' }`, etc.). The byte-based layer in `rom/lib/process/` was never actually adopted.
+The kernel's syscall layer (`src/syscall/`) already handles complexity:
+- Domain-organized syscall handlers (vfs.ts, process.ts, ems.ts, etc.)
+- Argument validation
+- Error handling
+- Stream backpressure via StreamController
+
+The userland process library is **thin wrappers** over postMessage:
+
+```typescript
+// The only complex part - syscall transport
+function syscall(name, ...args): AsyncIterable<Response> {
+    // postMessage + UUID correlation + stream handling
+}
+
+// Everything else is one-liners
+export function open(path, flags) {
+    return unwrap(syscall('file:open', path, flags));
+}
+```
+
+### File Structure
+
+```
+rom/lib/process/
+├── index.ts      # All 38 functions + re-exports (organized by section comments)
+├── types.ts      # Response, Stat, Grant, OpenFlags, etc.
+├── respond.ts    # respond.ok(), respond.item(), respond.done(), respond.error()
+└── syscall.ts    # Transport: postMessage, UUID correlation, stream iteration, signals
+```
+
+**Rationale:**
+- Kernel's syscall layer already does domain separation - no need to duplicate
+- Userland wrappers are one-liners - splitting into 8 files adds import overhead without benefit
+- `syscall.ts` is the only file with real logic (~200 lines)
+- `index.ts` is ~400 lines of thin wrappers, organized with section comments
+
+### Required Exports (from bin/ audit)
+
+#### Functions (38)
+
+| Category | Functions |
+|----------|-----------|
+| **I/O Console** | `print`, `println`, `eprintln` |
+| **I/O Message** | `recv`, `send`, `respond` |
+| **File Ops** | `open`, `close`, `read`, `write`, `stat`, `rename`, `unlink`, `copyFile` |
+| **File Helpers** | `readFile`, `readFileBytes`, `readText`, `head`, `ByteReader` |
+| **Directory** | `mkdir`, `rmdir`, `readdirAll` |
+| **Process** | `exit`, `spawn`, `wait`, `getpid`, `getargs` |
+| **Environment** | `getcwd`, `chdir`, `getenv`, `setenv` |
+| **Signals** | `onSignal`, `SIGTERM`, `sleep` |
+| **Pipes** | `pipe`, `redirect`, `outputRedirect` |
+| **Access Control** | `access`, `symlink` |
+
+#### Types (3)
+
+| Type | Purpose |
+|------|---------|
+| `Response` | Message protocol (`{ op, data?, bytes? }`) |
+| `Stat` | File metadata |
+| `Grant` | ACL permissions |
 
 ---
 
-## Design
+## Message-Based Architecture
 
-### Message-First I/O
+All process communication is **message-based**, not byte-based. This is a fundamental departure from traditional Unix.
 
-Standardize on message-based I/O throughout:
+### Unix vs Monk OS
+
+| Aspect | Unix | Monk OS |
+|--------|------|---------|
+| I/O unit | Byte streams | Response messages |
+| Structure | None (parse bytes) | Self-describing (`op` field) |
+| End of stream | EOF (implicit) | `done` message (explicit) |
+| Errors | Out-of-band | `error` message in stream |
+| Stdin/stdout | `read()`/`write()` bytes | `recv()`/`send()` messages |
+
+### The Response Protocol
 
 ```typescript
-// stdin: receive messages
-for await (const msg of recv(0)) {
-    if (msg.op === 'item') {
-        const { text } = msg.data;
-        // process text
-    }
-    if (msg.op === 'done') break;
-}
-
-// stdout: send messages
-await send(1, respond.item({ text: 'hello' }));
-await send(1, respond.done());
-
-// File I/O: still uses open/read/write/close but yields messages
-const fd = await open('/file');
-for await (const msg of read(fd)) {
-    if (msg.op === 'data') {
-        const bytes = msg.bytes;  // Uint8Array for binary
-    }
+interface Response {
+    op: 'ok' | 'error' | 'item' | 'data' | 'done' | 'event' | 'progress';
+    data?: unknown;
+    bytes?: Uint8Array;  // only for 'data' op
 }
 ```
 
-### Response Helpers
+| Op | Meaning | Terminal? |
+|----|---------|-----------|
+| `ok` | Success with optional value | Yes |
+| `error` | Failure with code/message | Yes |
+| `item` | One item in a sequence | No |
+| `data` | Binary chunk (file reads) | No |
+| `done` | Sequence complete | Yes |
 
-```typescript
-const respond = {
-    ok: (data?) => ({ op: 'ok', data }),
-    error: (code, message) => ({ op: 'error', data: { code, message } }),
-    item: (data) => ({ op: 'item', data }),
-    data: (bytes) => ({ op: 'data', bytes }),
-    done: () => ({ op: 'done' }),
-};
-```
+### Standard File Descriptors
+
+| fd | Unix Name | Monk Name | I/O Model |
+|----|-----------|-----------|-----------|
+| 0 | stdin | recv | `recv(0)` → messages |
+| 1 | stdout | send | `send(1, msg)` |
+| 2 | stderr | warn | `send(2, msg)` |
 
 ### Pipeline Composition
 
@@ -149,71 +196,239 @@ echo "hello" | cat | wc -c
 
 ---
 
-## Directory Structure (Post-Repatriation)
+## Implementation Details
 
+### syscall.ts - Transport Layer
+
+Core responsibilities:
+- `postMessage` to kernel with UUID correlation
+- Response stream iteration (handle `item`, `data`, `done`, `error`)
+- Backpressure protocol (`stream_ping`, `stream_cancel`)
+- Signal handling (`onSignal`, default SIGTERM behavior)
+
+```typescript
+// Pending request map for correlation
+const pending = new Map<string, { resolve, reject, stream? }>();
+
+// Message handler
+self.onmessage = (event) => {
+    const msg = event.data;
+    switch (msg.type) {
+        case 'response': // Route to pending request
+        case 'signal':   // Invoke signal handler
+        case 'stream_ping': // Backpressure ack
+    }
+};
+
+// Core syscall function - returns AsyncIterable<Response>
+export function syscall(name: string, ...args: unknown[]): AsyncIterable<Response>;
+
+// Convenience wrappers
+export async function call<T>(name, ...args): Promise<T>;      // Single value
+export async function collect<T>(name, ...args): Promise<T[]>; // Collect items
 ```
-rom/
-├── bin/
-│   ├── shell.ts       # From os-coreutils
-│   ├── awk.ts         # From os-coreutils
-│   ├── cat.ts         # From os-coreutils
-│   ├── grep.ts        # NEW - text search
-│   ├── sql.ts         # NEW - SQLite CLI for agents
-│   ├── true.ts        # Existing
-│   ├── false.ts       # Existing
-│   └── ... (38 more)
-├── lib/
-│   ├── process/       # REWRITE - message-based
-│   │   ├── index.ts   # Main exports
-│   │   ├── syscall.ts # Transport (keep existing)
-│   │   ├── respond.ts # Response helpers (NEW)
-│   │   └── types.ts   # Types
-│   ├── shell/         # From os-coreutils
-│   ├── awk/           # From os-coreutils
-│   ├── args.ts        # From os-coreutils
-│   └── format.ts      # From os-coreutils
-├── svc/
-│   └── init.ts        # Existing (update imports)
-└── etc/
+
+### types.ts - Type Definitions
+
+```typescript
+// Wire format
+export interface SyscallRequest {
+    type: 'syscall';
+    id: string;
+    pid: string;
+    name: string;
+    args: unknown[];
+}
+
+export interface SyscallResponse {
+    type: 'response';
+    id: string;
+    result?: Response;
+}
+
+export interface SignalMessage {
+    type: 'signal';
+    signal: number;
+}
+
+// Domain types
+export interface Response {
+    op: 'ok' | 'error' | 'item' | 'data' | 'done' | 'event' | 'progress';
+    data?: unknown;
+    bytes?: Uint8Array;
+}
+
+export interface Stat {
+    id: string;
+    model: string;
+    name: string;
+    parent: string | null;
+    owner: string;
+    size: number;
+    mtime: Date;
+    ctime: Date;
+}
+
+export interface Grant {
+    to: string;
+    ops: string[];
+    expires?: number;
+}
+
+export interface OpenFlags {
+    read?: boolean;
+    write?: boolean;
+    create?: boolean;
+    truncate?: boolean;
+    append?: boolean;
+}
+```
+
+### respond.ts - Response Helpers
+
+```typescript
+export const respond = {
+    ok: (data?: unknown) => ({ op: 'ok' as const, data }),
+    error: (code: string, message: string) => ({
+        op: 'error' as const,
+        data: { code, message }
+    }),
+    item: (data: unknown) => ({ op: 'item' as const, data }),
+    data: (bytes: Uint8Array) => ({ op: 'data' as const, bytes }),
+    done: () => ({ op: 'done' as const }),
+};
+```
+
+### index.ts - Function Wrappers
+
+Organized by section:
+
+```typescript
+// =============================================================================
+// RE-EXPORTS
+// =============================================================================
+export * from './types.js';
+export { respond } from './respond.js';
+export { onSignal } from './syscall.js';
+
+// =============================================================================
+// CONSTANTS
+// =============================================================================
+export const SIGTERM = 15;
+export const SIGKILL = 9;
+
+// =============================================================================
+// FILE OPERATIONS
+// =============================================================================
+export function open(path: string, flags?: OpenFlags): Promise<number> {
+    return call('file:open', path, flags ?? { read: true });
+}
+
+export function close(fd: number): Promise<void> {
+    return call('file:close', fd);
+}
+
+export async function* read(fd: number): AsyncIterable<Uint8Array> {
+    for await (const r of syscall('file:read', fd)) {
+        if (r.op === 'data' && r.bytes) yield r.bytes;
+        else if (r.op === 'done') return;
+        else if (r.op === 'error') throw toError(r);
+    }
+}
+
+// ... (stat, rename, unlink, copyFile)
+
+// =============================================================================
+// MESSAGE I/O (stdin/stdout)
+// =============================================================================
+export async function* recv(fd: number): AsyncIterable<Response> {
+    yield* syscall('file:recv', fd);
+}
+
+export function send(fd: number, msg: Response): Promise<void> {
+    return call('file:send', fd, msg);
+}
+
+// =============================================================================
+// CONSOLE I/O
+// =============================================================================
+export async function print(text: string): Promise<void> {
+    await send(1, respond.item({ text }));
+}
+
+export async function println(text: string): Promise<void> {
+    await send(1, respond.item({ text: text + '\n' }));
+}
+
+export async function eprintln(text: string): Promise<void> {
+    await send(2, respond.item({ text: text + '\n' }));
+}
+
+// =============================================================================
+// DIRECTORY OPERATIONS
+// =============================================================================
+// mkdir, rmdir, readdirAll
+
+// =============================================================================
+// FILE HELPERS
+// =============================================================================
+// readFile, readFileBytes, readText, head, ByteReader class
+
+// =============================================================================
+// PROCESS OPERATIONS
+// =============================================================================
+// exit, spawn, wait, getpid, getargs
+
+// =============================================================================
+// ENVIRONMENT
+// =============================================================================
+// getcwd, chdir, getenv, setenv
+
+// =============================================================================
+// SIGNALS
+// =============================================================================
+// sleep (re-export onSignal from syscall.ts)
+
+// =============================================================================
+// PIPES
+// =============================================================================
+// pipe, redirect, outputRedirect
+
+// =============================================================================
+// ACCESS CONTROL
+// =============================================================================
+// access, symlink
 ```
 
 ---
 
-## Implementation Phases
+## Remaining Work
 
-### Phase 1: Prepare rom/lib/process/
+### Phase 2: Implement rom/lib/process/
 
-1. Add `respond` helpers (response constructors)
-2. Add `recv(fd)` - yields `Response` messages from fd
-3. Add `send(fd, msg)` - writes `Response` message to fd
-4. Add convenience helpers: `readdirAll()`, `readText()`, `ByteReader`
-5. Keep existing functions that init.ts uses: `exit`, `wait`, `onSignal`, `sleep`, `getpid`
-6. Update `println`/`eprintln` to use message-based output
-
-### Phase 2: Copy os-coreutils
-
-1. Copy `bin/*.ts` to `rom/bin/`
-2. Copy `lib/shell/` to `rom/lib/shell/`
-3. Copy `lib/awk/` to `rom/lib/awk/`
-4. Copy `lib/args.ts`, `lib/format.ts` to `rom/lib/`
-5. Copy `spec/` tests to appropriate location
+1. Create `types.ts` with all type definitions
+2. Create `respond.ts` with response helpers
+3. Create `syscall.ts` with transport layer
+4. Create `index.ts` with all 38 function wrappers
+5. Test basic compilation
 
 ### Phase 3: Update Imports
 
-1. Change `@rom/lib/process` imports to relative paths or update tsconfig
-2. Verify all utilities compile
-3. Run tests
+1. Configure tsconfig paths: `@rom` → `./rom`
+2. Verify all 42 utilities compile
+3. Update `rom/svc/init.ts` for new API
+4. Run existing tests
 
 ### Phase 4: Add Missing Utilities
 
-1. Implement `grep.ts` - text pattern search
-2. Implement `sql.ts` - SQLite CLI for agent memory access
+1. `grep.ts` - Text pattern search (regex support)
+2. `sql.ts` - SQLite CLI for agent memory access
 
 ### Phase 5: Cleanup
 
-1. Archive or delete `@monk-api/os-coreutils` repo
-2. Remove unused byte-based functions from process lib
-3. Update documentation
+1. Archive `@monk-api/os-coreutils` repo
+2. Update AGENTS.md with new rom/ structure
+3. Add tests for process library
 
 ---
 
@@ -225,37 +440,31 @@ os-coreutils uses `@rom/lib/process`. Options:
 
 | Option | Notes |
 |--------|-------|
-| tsconfig paths | Add `@rom` → `./rom` mapping |
+| **tsconfig paths** | Add `@rom` → `./rom` mapping (recommended) |
 | Relative imports | Change all imports to `../../lib/process` |
-| Keep @rom | If rom/ becomes a separate package in monorepo |
 
 ### 2. Test Location
 
-Where do coreutils tests go?
-
 | Option | Notes |
 |--------|-------|
-| `spec/rom/` | Mirror rom/ structure |
+| **`spec/rom/`** | Mirror rom/ structure (recommended) |
 | `rom/spec/` | Keep tests with code |
-| `spec/bin/`, `spec/lib/` | Flat structure |
 
-### 3. Binary Data
+### 3. ByteReader Implementation
 
-How should binary file I/O work with message model?
+The `ByteReader` class is used by several utilities. Options:
 
 | Option | Notes |
 |--------|-------|
-| `op: 'data'` with `bytes` | Current approach, explicit binary |
-| Separate `readBytes()`/`writeBytes()` | Different API for binary |
-| Always messages, encode binary | Base64 or similar (inefficient) |
-
-Recommendation: Keep `op: 'data'` with `bytes: Uint8Array` for binary chunks.
+| Port from os-coreutils | If it exists there |
+| Implement fresh | Simple wrapper over async iteration |
 
 ---
 
 ## References
 
-- `@monk-api/os-coreutils/` - Source repo for utilities
-- `rom/lib/process/` - Current process library (to be updated)
-- `src/gateway/gateway.ts` - Gateway protocol (already message-based)
-- `docs/planning/OS_AI.md` - AI agents need shell/coreutils (Phase 2)
+- `rom/lib/process/README.md` - Detailed API specification
+- `src/syscall/` - Kernel syscall layer (already implemented)
+- `docs/implemented/OS_SYSCALL_LAYER.md` - Syscall architecture
+- `docs/implemented/OS_PROCESS.md` - Original process library design
+- `docs/implemented/OS_PROCESS_IO.md` - ProcessIOHandle (kernel-side)
