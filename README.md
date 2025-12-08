@@ -14,7 +14,7 @@ Imagine you're building a web application. Normally, you'd:
 - Run background tasks
 - Handle network connections
 
-With Monk OS, all of these things work the same way - through "files." Want to store user data? Write it to a file. Want to check what programs are running? Read from a special folder. Want to send a network message? Also a file operation.
+With Monk OS, all of these things work the same way - through "files." Want to store user data? Write it to a file. Want to check what programs are running? Read from a special folder. Want to send a network message? Shocking, but also a file.
 
 **One simple interface for everything.**
 
@@ -37,21 +37,10 @@ This is the key insight. In Monk OS, every file has two personalities:
 
 So you can do *both* of these:
 
-```typescript
-// Treat it like a file
-const content = await os.text('/home/alice/notes.txt');
+- **"Give me the file at /home/alice/notes.txt"** → classic file access by path
+- **"Find all of Alice's files modified this year, sorted by date"** → database query
 
-// Treat it like a database record
-const recentNotes = await os.ems('select', 'file', {
-    where: {
-        owner: 'alice',
-        updated_at: { $gte: '2025-01-01' }
-    },
-    order: { field: 'updated_at', sort: 'desc' }
-});
-```
-
-**Why is this useful?** Because sometimes you want to read a specific file by path. Other times you want to find all files matching certain criteria. Same data, two ways to access it.
+Same data, two ways to access it. Use whichever makes sense for what you're doing.
 
 ### "Everything Is a File"
 
