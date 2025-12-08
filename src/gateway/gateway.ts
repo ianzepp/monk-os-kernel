@@ -80,6 +80,7 @@ import type { SyscallDispatcher } from '@src/syscall/dispatcher.js';
 import type { Process, Response } from '@src/syscall/types.js';
 import { createVirtualProcess } from '@src/kernel/kernel/create-virtual-process.js';
 import { forceExit } from '@src/kernel/kernel/force-exit.js';
+import { debug, debugDecode } from './debug.js';
 
 // =============================================================================
 // CONSTANTS
@@ -302,7 +303,7 @@ export class Gateway {
      */
     private async handleClient(socket: Socket): Promise<void> {
         // Generate unique client ID (used for debugging/logging)
-        this.nextClientId++;
+        const clientId = this.nextClientId++;
 
         // Get init process as parent for virtual processes
         const init = this.kernel.processes.getInit();
@@ -327,6 +328,8 @@ export class Gateway {
 
             return;
         }
+
+        debug('connect', `client=${clientId} proc=${procId}`);
 
         // Binary buffer for length-prefixed framing
         let readBuffer = new Uint8Array(0);
@@ -370,8 +373,10 @@ export class Gateway {
 
                     readBuffer = readBuffer.slice(4 + msgLength);
 
+                    debug('recv', `client=${clientId} ${payload.length} bytes`);
+
                     // Fire-and-forget dispatch
-                    this.processMessage(socket, proc, payload, () => disconnecting).catch(() => {
+                    this.processMessage(socket, proc, clientId, payload, () => disconnecting).catch(() => {
                         // Dispatch errors handled inside processMessage
                     });
                 }
@@ -379,6 +384,7 @@ export class Gateway {
         }
         finally {
             disconnecting = true;
+            debug('disconnect', `client=${clientId}`);
 
             // Cancel active streams
             for (const abort of proc.activeStreams.values()) {
@@ -410,12 +416,14 @@ export class Gateway {
      *
      * @param socket - Client socket
      * @param proc - Virtual process for this client
+     * @param clientId - Client identifier for logging
      * @param payload - Raw msgpack payload
      * @param isDisconnecting - Function to check disconnect state
      */
     private async processMessage(
         socket: Socket,
         proc: Process,
+        clientId: number,
         payload: Uint8Array,
         isDisconnecting: () => boolean,
     ): Promise<void> {
@@ -424,6 +432,7 @@ export class Gateway {
 
         try {
             msg = unpack(payload);
+            debugDecode(msg);
         }
         catch {
             await this.sendError(socket, 'parse', 'EINVAL', 'Invalid msgpack');
@@ -454,6 +463,8 @@ export class Gateway {
                 if (isDisconnecting()) {
                     break;
                 }
+
+                debug('send', `id=${id} op=${response.op}`);
 
                 const sent = await this.sendResponse(socket, id, response);
 

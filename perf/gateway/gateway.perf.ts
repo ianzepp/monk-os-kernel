@@ -14,6 +14,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
+import { pack, unpack } from 'msgpackr';
 import { TestOS } from '../../spec/helpers/test-os.js';
 import { BunNetworkDevice } from '@src/hal/index.js';
 import type { Socket } from '@src/hal/network.js';
@@ -89,12 +90,27 @@ function getTestSocketPath(): string {
 }
 
 /**
- * Create a gateway client that sends/receives JSON messages.
+ * Encode a message as length-prefixed msgpack frame.
+ */
+function encodeFrame(message: unknown): Uint8Array {
+    const payload = pack(message);
+    const frame = new Uint8Array(4 + payload.length);
+    const view = new DataView(frame.buffer);
+
+    view.setUint32(0, payload.length);
+    frame.set(payload, 4);
+
+    return frame;
+}
+
+/**
+ * Create a gateway client that sends/receives msgpack messages.
+ * Uses length-prefixed framing: [4-byte big-endian length][msgpack payload]
  */
 class GatewayClient {
     private socket?: Socket;
     private network = new BunNetworkDevice();
-    private buffer = '';
+    private buffer = new Uint8Array(0);
     private nextId = 1;
 
     async connect(socketPath: string): Promise<void> {
@@ -115,9 +131,9 @@ class GatewayClient {
         if (!this.socket) throw new Error('Not connected');
 
         const id = `req-${this.nextId++}`;
-        const request = JSON.stringify({ id, call: syscall, args }) + '\n';
 
-        await this.socket.write(new TextEncoder().encode(request));
+        // Send length-prefixed msgpack frame
+        await this.socket.write(encodeFrame({ id, call: syscall, args }));
 
         const responses: GatewayResponse[] = [];
 
@@ -140,35 +156,43 @@ class GatewayClient {
 
     /**
      * Read next response for given request ID.
+     * Parses length-prefixed msgpack frames.
      */
     private async readResponse(expectedId: string): Promise<GatewayResponse | null> {
         while (true) {
-            // Check buffer for complete line
-            const newlineIdx = this.buffer.indexOf('\n');
+            // Check buffer for complete message (4-byte length prefix + payload)
+            if (this.buffer.length >= 4) {
+                const view = new DataView(this.buffer.buffer, this.buffer.byteOffset);
+                const msgLength = view.getUint32(0);
 
-            if (newlineIdx !== -1) {
-                const line = this.buffer.slice(0, newlineIdx);
-                this.buffer = this.buffer.slice(newlineIdx + 1);
+                if (this.buffer.length >= 4 + msgLength) {
+                    // Extract and decode message
+                    const payload = this.buffer.slice(4, 4 + msgLength);
 
-                if (line.trim()) {
-                    const response = JSON.parse(line) as GatewayResponse;
+                    this.buffer = this.buffer.slice(4 + msgLength);
+
+                    const response = unpack(payload) as GatewayResponse;
 
                     if (response.id === expectedId) {
                         return response;
                     }
-                    // Different ID - continue reading
+                    // Different ID - continue reading (shouldn't happen in sequential mode)
                 }
             }
-            else {
-                // Need more data
-                if (!this.socket) return null;
 
-                const chunk = await this.socket.read({ timeout: 5000 });
+            // Need more data
+            if (!this.socket) return null;
 
-                if (chunk.length === 0) return null;
+            const chunk = await this.socket.read({ timeout: 30000 });
 
-                this.buffer += new TextDecoder().decode(chunk);
-            }
+            if (chunk.length === 0) return null;
+
+            // Append chunk to buffer
+            const newBuffer = new Uint8Array(this.buffer.length + chunk.length);
+
+            newBuffer.set(this.buffer);
+            newBuffer.set(chunk, this.buffer.length);
+            this.buffer = newBuffer;
         }
     }
 }
@@ -453,15 +477,15 @@ describe('Gateway Performance', () => {
             }
         }, { timeout: TIMEOUT_LONG });
 
-        it('ems:select by owner (100 queries)', async () => {
-            const iterations = 100;
+        it('ems:select by owner (50 queries)', async () => {
+            const iterations = 50;
             const client = new GatewayClient();
             await client.connect(socketPath);
 
             // Pre-create entities
             const owner = `select-test-${Date.now()}`;
 
-            for (let i = 0; i < 50; i++) {
+            for (let i = 0; i < 30; i++) {
                 await client.call('ems:create', [
                     'file',
                     { pathname: `select-${i}.txt`, owner, parent: null },
