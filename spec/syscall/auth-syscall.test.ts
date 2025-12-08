@@ -292,11 +292,15 @@ describe('Auth Syscalls', () => {
             it('should allow auth:register for unauthenticated process', async () => {
                 const unauthProc = createMockProcess();
 
-                // auth:register not implemented yet, but should be allowed
-                const response = await firstResponse(strictDispatcher, unauthProc, 'auth:register', []);
+                // auth:register is allowed for unauthenticated processes
+                // Without EMS, register will fail with error (EMS required), not EACCES
+                const response = await firstResponse(strictDispatcher, unauthProc, 'auth:register', [
+                    { user: 'test', pass: 'test' },
+                ]);
 
+                // Fails because no EMS, but not blocked by auth gating
                 expect(response.op).toBe('error');
-                expect((response.data as { code: string }).code).toBe('ENOSYS');
+                expect((response.data as { code: string }).code).not.toBe('EACCES');
             });
 
             it('should reject other syscalls for unauthenticated process', async () => {
@@ -418,6 +422,145 @@ describe('Auth Syscalls', () => {
             expect(response.op).toBe('error');
             expect((response.data as { code: string }).code).toBe('ENOSYS');
             expect((response.data as { message: string }).message).toBe('Auth not available');
+        });
+    });
+
+    // =========================================================================
+    // Phase 2: auth:grant
+    // =========================================================================
+
+    describe('auth:grant', () => {
+        it('should reject non-root caller', async () => {
+            // Process is not root
+            const nonRootProc = createMockProcess({
+                user: 'alice',
+                session: 'session-123',
+                expires: Date.now() + 60000,
+            });
+
+            const response = await firstResponse(dispatcher, nonRootProc, 'auth:grant', [
+                { principal: 'svc:test' },
+            ]);
+
+            expect(response.op).toBe('error');
+            expect((response.data as { code: string }).code).toBe('EPERM');
+            expect((response.data as { message: string }).message).toContain('Only root');
+        });
+
+        it('should reject missing principal', async () => {
+            const rootProc = createMockProcess({
+                user: '00000000-0000-0000-0000-000000000001', // ROOT_USER_ID
+                session: 'session-123',
+                expires: Date.now() + 60000,
+            });
+
+            const response = await firstResponse(dispatcher, rootProc, 'auth:grant', [{}]);
+
+            expect(response.op).toBe('error');
+            expect((response.data as { code: string }).code).toBe('EINVAL');
+            expect((response.data as { message: string }).message).toContain('principal');
+        });
+
+        it('should reject invalid scope type', async () => {
+            const rootProc = createMockProcess({
+                user: '00000000-0000-0000-0000-000000000001',
+                session: 'session-123',
+                expires: Date.now() + 60000,
+            });
+
+            const response = await firstResponse(dispatcher, rootProc, 'auth:grant', [
+                { principal: 'svc:test', scope: 'read' }, // Should be array
+            ]);
+
+            expect(response.op).toBe('error');
+            expect((response.data as { code: string }).code).toBe('EINVAL');
+            expect((response.data as { message: string }).message).toContain('scope');
+        });
+
+        it('should reject invalid ttl', async () => {
+            const rootProc = createMockProcess({
+                user: '00000000-0000-0000-0000-000000000001',
+                session: 'session-123',
+                expires: Date.now() + 60000,
+            });
+
+            const response = await firstResponse(dispatcher, rootProc, 'auth:grant', [
+                { principal: 'svc:test', ttl: -1000 },
+            ]);
+
+            expect(response.op).toBe('error');
+            expect((response.data as { code: string }).code).toBe('EINVAL');
+            expect((response.data as { message: string }).message).toContain('ttl');
+        });
+
+        it('should mint token for root caller', async () => {
+            const rootProc = createMockProcess({
+                user: '00000000-0000-0000-0000-000000000001',
+                session: 'session-123',
+                expires: Date.now() + 60000,
+            });
+
+            const response = await firstResponse(dispatcher, rootProc, 'auth:grant', [
+                { principal: 'svc:monitor', scope: ['read'] },
+            ]);
+
+            expect(response.op).toBe('ok');
+
+            const data = response.data as {
+                principal: string;
+                session: string;
+                token: string;
+                expiresAt: number;
+                scope: string[];
+            };
+
+            expect(data.principal).toBe('svc:monitor');
+            expect(data.session).toBeTruthy();
+            expect(data.token).toBeTruthy();
+            expect(data.expiresAt).toBeGreaterThan(Date.now());
+            expect(data.scope).toEqual(['read']);
+        });
+    });
+
+    // =========================================================================
+    // Phase 2: auth:register (argument validation only - EMS tests in auth-phase2.test.ts)
+    // =========================================================================
+
+    describe('auth:register', () => {
+        it('should reject missing args', async () => {
+            const response = await firstResponse(dispatcher, proc, 'auth:register', []);
+
+            expect(response.op).toBe('error');
+            expect((response.data as { code: string }).code).toBe('EINVAL');
+        });
+
+        it('should reject missing user', async () => {
+            const response = await firstResponse(dispatcher, proc, 'auth:register', [
+                { pass: 'secret' },
+            ]);
+
+            expect(response.op).toBe('error');
+            expect((response.data as { code: string }).code).toBe('EINVAL');
+            expect((response.data as { message: string }).message).toContain('user');
+        });
+
+        it('should reject empty user', async () => {
+            const response = await firstResponse(dispatcher, proc, 'auth:register', [
+                { user: '', pass: 'secret' },
+            ]);
+
+            expect(response.op).toBe('error');
+            expect((response.data as { code: string }).code).toBe('EINVAL');
+        });
+
+        it('should reject missing pass', async () => {
+            const response = await firstResponse(dispatcher, proc, 'auth:register', [
+                { user: 'alice' },
+            ]);
+
+            expect(response.op).toBe('error');
+            expect((response.data as { code: string }).code).toBe('EINVAL');
+            expect((response.data as { message: string }).message).toContain('pass');
         });
     });
 });

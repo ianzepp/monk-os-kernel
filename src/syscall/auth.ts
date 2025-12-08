@@ -15,10 +15,12 @@
  * - auth:logout - Clear session, reset process identity
  * - auth:session - Revalidate session against EMS (internal)
  *
+ * Phase 2 syscalls:
+ * - auth:register - Create user account
+ * - auth:grant - Mint scoped tokens (root only)
+ *
  * Future syscalls (Phase 2+):
  * - auth:passwd - Change password
- * - auth:grant - Mint scoped tokens
- * - auth:register - Create user account
  *
  * @module syscall/auth
  */
@@ -26,6 +28,7 @@
 import type { Process, Response } from './types.js';
 import { respond } from './types.js';
 import type { Auth } from '@src/auth/index.js';
+import { ROOT_USER_ID } from '@src/auth/types.js';
 
 // =============================================================================
 // AUTH SYSCALLS
@@ -270,4 +273,156 @@ export async function* authSession(
     proc.sessionValidatedAt = Date.now();
 
     yield respond.ok({ valid: true });
+}
+
+// =============================================================================
+// PHASE 2 SYSCALLS
+// =============================================================================
+
+/**
+ * auth:register - Create a new user account.
+ *
+ * ALGORITHM:
+ * 1. Validate arguments (user, pass)
+ * 2. Call Auth.register() to create account
+ * 3. Return user ID on success
+ *
+ * @param proc - Calling process (unused, anonymous allowed)
+ * @param auth - Auth subsystem
+ * @param args - Registration arguments { user, pass }
+ */
+export async function* authRegister(
+    proc: Process,
+    auth: Auth,
+    args: unknown,
+): AsyncIterable<Response> {
+    // Validate arguments
+    if (!args || typeof args !== 'object') {
+        yield respond.error('EINVAL', 'args must be an object');
+
+        return;
+    }
+
+    const { user, pass } = args as { user?: unknown; pass?: unknown };
+
+    if (typeof user !== 'string' || !user) {
+        yield respond.error('EINVAL', 'user must be a non-empty string');
+
+        return;
+    }
+
+    if (typeof pass !== 'string') {
+        yield respond.error('EINVAL', 'pass must be a string');
+
+        return;
+    }
+
+    // Attempt registration
+    let userId: string | null;
+
+    try {
+        userId = await auth.register(user, pass);
+    }
+    catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        yield respond.error('EIO', message);
+
+        return;
+    }
+
+    if (!userId) {
+        yield respond.error('EEXIST', 'Username already taken');
+
+        return;
+    }
+
+    yield respond.ok({ user: userId });
+}
+
+/**
+ * auth:grant - Mint a scoped token for a principal.
+ *
+ * SECURITY: Only root user can call this syscall. Internal OS code can
+ * call Auth.grant() directly, bypassing the dispatcher.
+ *
+ * TODO: Phase 4 - Enforce that caller can only grant scopes they have.
+ * Currently no scope validation is performed.
+ *
+ * ALGORITHM:
+ * 1. Check caller is root
+ * 2. Validate arguments (principal required, scope/ttl optional)
+ * 3. Call Auth.grant() to mint token
+ * 4. Return token result
+ *
+ * @param proc - Calling process (must be root)
+ * @param auth - Auth subsystem
+ * @param args - Grant arguments { principal, scope?, ttl? }
+ */
+export async function* authGrant(
+    proc: Process,
+    auth: Auth,
+    args: unknown,
+): AsyncIterable<Response> {
+    // Check caller is root
+    if (proc.user !== ROOT_USER_ID) {
+        yield respond.error('EPERM', 'Only root can mint tokens');
+
+        return;
+    }
+
+    // Validate arguments
+    if (!args || typeof args !== 'object') {
+        yield respond.error('EINVAL', 'args must be an object');
+
+        return;
+    }
+
+    const { principal, scope, ttl } = args as {
+        principal?: unknown;
+        scope?: unknown;
+        ttl?: unknown;
+    };
+
+    if (typeof principal !== 'string' || !principal) {
+        yield respond.error('EINVAL', 'principal must be a non-empty string');
+
+        return;
+    }
+
+    // Validate scope if provided
+    let validScope: string[] | undefined;
+
+    if (scope !== undefined) {
+        if (!Array.isArray(scope) || !scope.every(s => typeof s === 'string')) {
+            yield respond.error('EINVAL', 'scope must be an array of strings');
+
+            return;
+        }
+
+        validScope = scope as string[];
+    }
+
+    // Validate ttl if provided
+    let validTTL: number | undefined;
+
+    if (ttl !== undefined) {
+        if (typeof ttl !== 'number' || ttl <= 0) {
+            yield respond.error('EINVAL', 'ttl must be a positive number');
+
+            return;
+        }
+
+        validTTL = ttl;
+    }
+
+    // Mint token
+    const result = await auth.grant(principal, validScope, validTTL);
+
+    yield respond.ok({
+        principal: result.user,
+        session: result.session,
+        token: result.token,
+        expiresAt: result.expiresAt,
+        scope: validScope,
+    });
 }

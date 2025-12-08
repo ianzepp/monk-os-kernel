@@ -86,7 +86,7 @@ import { ipcPipe } from './handle.js';
 import { poolLease, workerLoad, workerSend, workerRecv, workerRelease } from './pool.js';
 
 // Auth syscalls
-import { authToken, authWhoami, authLogin, authLogout, authSession } from './auth.js';
+import { authToken, authWhoami, authLogin, authLogout, authSession, authRegister, authGrant } from './auth.js';
 
 // Stream controller
 import { StreamController, StallError } from './stream/index.js';
@@ -182,6 +182,9 @@ export class SyscallDispatcher {
 
             return;
         }
+
+        // TODO: Phase 4 - Check proc.sessionData.scope against SYSCALL_SCOPES map.
+        // Currently scopes are stored in JWT but not enforced on syscall execution.
 
         // Periodic session revalidation (Phase 1)
         // WHY: Check EMS to detect revoked sessions. Uses authSession handler
@@ -540,6 +543,24 @@ export class SyscallDispatcher {
                 }
 
                 yield* authLogout(proc, this.auth);
+                break;
+
+            case 'auth:register':
+                if (!this.auth) {
+                    yield respond.error('ENOSYS', 'Auth not available');
+                    break;
+                }
+
+                yield* authRegister(proc, this.auth, args[0]);
+                break;
+
+            case 'auth:grant':
+                if (!this.auth) {
+                    yield respond.error('ENOSYS', 'Auth not available');
+                    break;
+                }
+
+                yield* authGrant(proc, this.auth, args[0]);
                 break;
 
                 // =================================================================

@@ -578,12 +578,14 @@ Minimal auth with pre-provisioned tokens. No passwords, no user entities.
 4. Implement `auth:logout`
 5. 5-min EMS revalidation for session revocation
 
-### Phase 2: Session Management
+### Phase 2: Session Management (Partial)
 
 1. Per-connection exponential backoff (see Rate Limiting section)
 2. `auth:passwd` for password changes
-3. `auth:grant` for minting scoped tokens
-4. `auth:register` for user creation
+3. ✓ `auth:grant` for minting scoped tokens (root only, scopes stored but not enforced)
+4. ✓ `auth:register` for user creation
+
+**TODO (Phase 4):** Scope enforcement in dispatcher - check `proc.sessionData.scope` against `SYSCALL_SCOPES` map before executing syscalls.
 
 ### Phase 3: Permissions
 

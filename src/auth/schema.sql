@@ -54,7 +54,9 @@ CREATE TABLE IF NOT EXISTS auth_session (
     expired_at      TEXT,
 
     -- Session-specific fields
-    user_id         TEXT NOT NULL REFERENCES auth_user(id) ON DELETE CASCADE,
+    -- WHY no FK: auth:grant can mint tokens for service principals (e.g., 'svc:httpd')
+    -- that don't exist in auth_user. The principal is just an identity string.
+    user_id         TEXT NOT NULL,
     expires         INTEGER NOT NULL,
     ip              TEXT,
     user_agent      TEXT

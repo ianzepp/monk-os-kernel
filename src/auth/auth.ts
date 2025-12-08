@@ -520,4 +520,125 @@ export class Auth {
     getSessionTTL(): number {
         return this.config.sessionTTL;
     }
+
+    // =========================================================================
+    // PHASE 2: USER REGISTRATION
+    // =========================================================================
+
+    /**
+     * Register a new user account.
+     *
+     * WHY: Allows new users to create accounts. Password is hashed with
+     * argon2id before storage.
+     *
+     * ALGORITHM:
+     * 1. Check username not already taken
+     * 2. Hash password with argon2id
+     * 3. Create user in EMS
+     * 4. Return user ID
+     *
+     * @param username - Username for the new account
+     * @param password - Password to hash and store
+     * @returns User ID if created, null if username taken
+     */
+    async register(username: string, password: string): Promise<string | null> {
+        if (!this.ems) {
+            throw new Error('EMS required for user registration');
+        }
+
+        // Check username not taken
+        const existing = await collect(
+            this.ems.ops.selectAny<AuthUser>('auth_user', {
+                where: { username },
+            }),
+        );
+
+        if (existing.length > 0) {
+            return null;
+        }
+
+        // Hash password
+        const passwordHash = await this.hashPassword(password);
+
+        // Create user
+        const userId = this.hal.entropy.uuid();
+
+        await collect(
+            this.ems.ops.createAll<AuthUser>('auth_user', [{
+                id: userId,
+                username,
+                password_hash: passwordHash,
+                disabled: 0,
+            } as Partial<AuthUser>]),
+        );
+
+        return userId;
+    }
+
+    // =========================================================================
+    // PHASE 2: TOKEN GRANTING
+    // =========================================================================
+
+    /**
+     * Mint a scoped token for a principal.
+     *
+     * WHY: Allows root or internal OS code to create tokens for services
+     * and users with specific scope restrictions.
+     *
+     * TODO: Phase 4 - Enforce scope checking in dispatcher. Currently scopes
+     * are stored in JWT but not validated on syscall execution.
+     *
+     * ALGORITHM:
+     * 1. Generate session ID
+     * 2. Create session in EMS (for revocation)
+     * 3. Mint JWT with principal, session, and scopes
+     * 4. Return token result
+     *
+     * @param principal - User/service ID (e.g., 'svc:httpd')
+     * @param scope - Permission scopes (e.g., ['read'], ['vfs:read'])
+     * @param ttl - Token TTL in ms (default: config.sessionTTL)
+     * @returns Token result with JWT and metadata
+     */
+    async grant(principal: string, scope?: string[], ttl?: number): Promise<TokenResult> {
+        if (!this.signingKey) {
+            throw new Error('Auth not initialized');
+        }
+
+        const sessionId = this.hal.entropy.uuid();
+        const now = Date.now();
+        const effectiveTTL = ttl ?? this.config.sessionTTL;
+        const expiresAt = now + effectiveTTL;
+
+        // Create session in EMS for revocation support
+        if (this.ems) {
+            await collect(
+                this.ems.ops.createAll<AuthSession>('auth_session', [{
+                    id: sessionId,
+                    user_id: principal,
+                    expires: expiresAt,
+                } as Partial<AuthSession>]),
+            );
+        }
+
+        // Build JWT payload with scopes
+        const payload: JWTPayload = {
+            sub: principal,
+            sid: sessionId,
+            iat: Math.floor(now / 1000),
+            exp: Math.floor(expiresAt / 1000),
+        };
+
+        if (scope && scope.length > 0) {
+            payload.scope = scope;
+        }
+
+        const token = await signJWT(payload, this.signingKey);
+
+        return {
+            user: principal,
+            session: sessionId,
+            token,
+            expiresAt,
+        };
+    }
 }
