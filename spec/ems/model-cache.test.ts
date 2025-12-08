@@ -10,6 +10,7 @@ import { BunHAL } from '@src/hal/index.js';
 import { createDatabase, type DatabaseConnection } from '@src/ems/connection.js';
 import { ModelCache } from '@src/ems/model-cache.js';
 import { ENOENT } from '@src/hal/errors.js';
+import { loadVfsSchema } from '../helpers/test-os.js';
 
 // =============================================================================
 // TEST SETUP
@@ -24,6 +25,7 @@ describe('ModelCache', () => {
         hal = new BunHAL();
         await hal.init();
         db = await createDatabase(hal.channel, hal.file);
+        await loadVfsSchema(db, hal);
         cache = new ModelCache(db);
     });
 
@@ -228,17 +230,17 @@ describe('ModelCache', () => {
     });
 
     describe('preloadSystemModels', () => {
-        it('should preload meta-models and VFS models', async () => {
+        it('should preload meta-models', async () => {
             await cache.preloadSystemModels();
 
-            // Meta-models
+            // Meta-models only - VFS models load on-demand after VFS.init()
             expect(cache.isCached('models')).toBe(true);
             expect(cache.isCached('fields')).toBe(true);
             expect(cache.isCached('tracked')).toBe(true);
 
-            // VFS models
-            expect(cache.isCached('file')).toBe(true);
-            expect(cache.isCached('folder')).toBe(true);
+            // VFS models are NOT preloaded (they load after VFS.init())
+            expect(cache.isCached('file')).toBe(false);
+            expect(cache.isCached('folder')).toBe(false);
         });
     });
 

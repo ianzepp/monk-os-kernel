@@ -18,6 +18,7 @@ import { ModelCache } from '@src/ems/model-cache.js';
 import { EntityOps, collect } from '@src/ems/entity-ops.js';
 import { createObserverRunner, ObserverRunner } from '@src/ems/observers/index.js';
 import type { DatabaseConnection } from '@src/ems/connection.js';
+import { loadVfsSchema } from '../helpers/test-os.js';
 
 // =============================================================================
 // TEST SETUP
@@ -34,6 +35,7 @@ describe('EntityOps', () => {
         hal = new BunHAL();
         await hal.init();
         db = await createDatabase(hal.channel, hal.file);
+        await loadVfsSchema(db, hal);
         cache = new ModelCache(db);
         runner = createObserverRunner();
         entityOps = new EntityOps(db, cache, runner);

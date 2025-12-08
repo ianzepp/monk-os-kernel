@@ -14,6 +14,7 @@ import { ModelCache } from '@src/ems/model-cache.js';
 import { createObserverRunner } from '@src/ems/observers/registry.js';
 import { BunHAL } from '@src/hal/index.js';
 import type { ModelContext } from '@src/vfs/model.js';
+import { loadVfsSchema } from '../../helpers/test-os.js';
 
 // =============================================================================
 // TEST SETUP
@@ -32,8 +33,11 @@ beforeEach(async () => {
     hal = new BunHAL();
     await hal.init();
 
-    // Create database with schema
+    // Create database with EMS core schema
     db = await createDatabase(hal.channel, hal.file);
+
+    // Load VFS schema (tables + seeds for file, folder, etc.)
+    await loadVfsSchema(db, hal);
 
     // Create model cache (takes db in constructor)
     cache = new ModelCache(db);

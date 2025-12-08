@@ -339,10 +339,8 @@ export class ModelCache {
      * database queries during normal operations.
      */
     async preloadSystemModels(): Promise<void> {
-        // Meta-models
+        // Meta-models only - VFS models load on-demand after VFS.init()
         await this.preload(['models', 'fields', 'tracked']);
-        // VFS models
-        await this.preload(['file', 'folder', 'device', 'proc', 'link']);
     }
 
     // =========================================================================

@@ -25,11 +25,26 @@ export function debug(category: string, msg: string): void {
  * Describe a value's type for debugging.
  */
 function describeType(value: unknown): string {
-    if (value === null) return 'null';
-    if (value === undefined) return 'undefined';
-    if (typeof value !== 'object') return typeof value;
-    if (value instanceof Uint8Array) return `Uint8Array(${value.length})`;
-    if (Array.isArray(value)) return `Array(${value.length})`;
+    if (value === null) {
+        return 'null';
+    }
+
+    if (value === undefined) {
+        return 'undefined';
+    }
+
+    if (typeof value !== 'object') {
+        return typeof value;
+    }
+
+    if (value instanceof Uint8Array) {
+        return `Uint8Array(${value.length})`;
+    }
+
+    if (Array.isArray(value)) {
+        return `Array(${value.length})`;
+    }
+
     return value.constructor?.name ?? 'Object';
 }
 
@@ -37,12 +52,15 @@ function describeType(value: unknown): string {
  * Log decoded message with type info for binary debugging.
  */
 export function debugDecode(msg: { id?: string; call?: string; args?: unknown[] }): void {
-    if (!DEBUG) return;
+    if (!DEBUG) {
+        return;
+    }
 
     let out = `id=${msg.id} call=${msg.call}`;
 
     if (msg.args?.length) {
         const argTypes = msg.args.map((a, i) => `[${i}]${describeType(a)}`).join(' ');
+
         out += ` args: ${argTypes}`;
 
         // Check for binary data issues
@@ -50,6 +68,7 @@ export function debugDecode(msg: { id?: string; call?: string; args?: unknown[] 
             if (arg && typeof arg === 'object' && 'data' in arg) {
                 const data = (arg as { data: unknown }).data;
                 const ok = data instanceof Uint8Array;
+
                 out += ` | .data=${describeType(data)}${ok ? '' : ' WARNING'}`;
             }
         }

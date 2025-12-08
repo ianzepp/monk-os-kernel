@@ -622,12 +622,15 @@ describe('Ring 5 is required for persistence', () => {
         const { ModelCache } = await import('@src/ems/model-cache.js');
         const { EntityOps, collect } = await import('@src/ems/entity-ops.js');
         const { ObserverRunner } = await import('@src/ems/observers/runner.js');
+        const { loadVfsSchema } = await import('../../../helpers/test-os.js');
 
         // Setup
         const hal = new BunHAL();
 
         await hal.init();
         const db = await createDatabase(hal.channel, hal.file);
+
+        await loadVfsSchema(db, hal);
         const cache = new ModelCache(db);
 
         // EMPTY runner - no Ring 5 observers registered
@@ -664,12 +667,15 @@ describe('Ring 5 is required for persistence', () => {
         const { ModelCache } = await import('@src/ems/model-cache.js');
         const { EntityOps, collect } = await import('@src/ems/entity-ops.js');
         const { createObserverRunner } = await import('@src/ems/observers/registry.js');
+        const { loadVfsSchema } = await import('../../../helpers/test-os.js');
 
         // Setup
         const hal = new BunHAL();
 
         await hal.init();
         const db = await createDatabase(hal.channel, hal.file);
+
+        await loadVfsSchema(db, hal);
         const cache = new ModelCache(db);
 
         // Runner WITH Ring 5 observers

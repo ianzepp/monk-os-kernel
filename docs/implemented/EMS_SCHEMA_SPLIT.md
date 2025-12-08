@@ -1,7 +1,8 @@
 # EMS Schema Split & Subsystem DDL Registration
 
-> **Status**: Planning
+> **Status**: Implemented
 > **Affects**: EMS, VFS, connection.ts, schema.sql
+> **Implemented**: 2025-12-08
 
 Split the monolithic `src/ems/schema.sql` into per-subsystem schema files and add an EMS method
 for subsystems to register their DDL during initialization.
@@ -361,15 +362,49 @@ Leave schema.sql as-is, document ownership via comments.
 
 ---
 
-## Open Questions
+## Open Questions (Resolved)
 
 1. **EntityCache refresh** - Should `exec()` also clear/reload EntityCache? Currently only handles ModelCache.
+   > **Resolution**: Yes. VFS.init() now calls `ems.cache.loadFromDatabase(ems.db)` after applying VFS schema to pick up the root entity.
 
 2. **Schema versioning** - Should schema files include version markers for migrations?
+   > **Deferred**: Not addressed in this implementation. Can be added later if needed.
 
 3. **preloadSystemModels()** - ModelCache.preloadSystemModels() hardcodes VFS model names. Should this be configurable or removed?
+   > **Resolution**: VFS models removed from preload. Method now only loads EMS meta-models (models, fields, tracked). VFS models load on-demand after VFS.init().
 
 4. **Future subsystems** - If kernel or gateway need SQL tables, same pattern applies?
+   > **Yes**: Same pattern applies. Subsystem calls `ems.exec(schema, { clearModels: true })` during init.
+
+---
+
+## Implementation Notes
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `src/ems/ems.ts` | Added `exec()` method and `ExecOptions` interface |
+| `src/ems/schema.sql` | Removed VFS tables/seeds, now EMS-core only (4 tables) |
+| `src/vfs/schema.sql` | **New file** - VFS tables and seeds |
+| `src/vfs/vfs.ts` | Load VFS schema in `init()`, reload EntityCache |
+| `src/ems/model-cache.ts` | Removed VFS models from `preloadSystemModels()` |
+
+### Test Updates
+
+Added `loadVfsSchema()` and `loadVfsSchemaWithFileDevice()` helpers to `spec/helpers/test-os.ts`.
+
+Updated tests to load VFS schema where needed:
+- `spec/ems/entity-ops.test.ts`
+- `spec/ems/model-cache.test.ts`
+- `spec/ems/schema.test.ts`
+- `spec/ems/ring/5/sql-observers.test.ts`
+- `spec/vfs/models/entity.test.ts`
+
+### Test Results
+
+- 1995 pass, 35 skip, 3 fail (pre-existing gatewayd failures unrelated to schema split)
+- Type checking passes
 
 ---
 

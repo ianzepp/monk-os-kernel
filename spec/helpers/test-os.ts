@@ -20,6 +20,41 @@ import type { VFS } from '@src/vfs/index.js';
 import type { Kernel } from '@src/kernel/kernel.js';
 import type { SyscallDispatcher } from '@src/syscall/dispatcher.js';
 import type { Gateway } from '@src/gateway/gateway.js';
+import type { DatabaseConnection } from '@src/ems/connection.js';
+import type { FileDevice } from '@src/hal/file.js';
+
+/** Path to VFS schema file relative to this helper module */
+const VFS_SCHEMA_PATH = new URL('../../src/vfs/schema.sql', import.meta.url).pathname;
+
+/**
+ * Load VFS schema into database.
+ *
+ * WHY: After schema split, VFS tables are no longer in EMS core schema.
+ * Tests that manually set up EMS components need to load VFS schema
+ * if they use VFS models (file, folder, device, proc, link, temp).
+ *
+ * @param db - Database connection
+ * @param hal - HAL instance for file reading
+ */
+export async function loadVfsSchema(db: DatabaseConnection, hal: HAL): Promise<void> {
+    const schema = await hal.file.readText(VFS_SCHEMA_PATH);
+
+    await db.exec(schema);
+}
+
+/**
+ * Load VFS schema into database using FileDevice directly.
+ *
+ * Variant for tests that use FileDevice instead of full HAL.
+ *
+ * @param db - Database connection
+ * @param fileDevice - FileDevice for reading schema file
+ */
+export async function loadVfsSchemaWithFileDevice(db: DatabaseConnection, fileDevice: FileDevice): Promise<void> {
+    const schema = await fileDevice.readText(VFS_SCHEMA_PATH);
+
+    await db.exec(schema);
+}
 
 /**
  * Test-only OS subclass that exposes protected internals.

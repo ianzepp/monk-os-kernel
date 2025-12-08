@@ -62,6 +62,17 @@ export interface EMSConfig {
     path?: string;
 }
 
+/**
+ * Options for EMS.exec().
+ */
+export interface ExecOptions {
+    /** Clear entire model cache after exec (for bulk schema loads) */
+    clearModels?: boolean;
+
+    /** Invalidate specific models after exec */
+    invalidate?: string[];
+}
+
 // =============================================================================
 // EMS CLASS
 // =============================================================================
@@ -265,5 +276,35 @@ export class EMS {
         }
 
         return this._api;
+    }
+
+    // =========================================================================
+    // SCHEMA OPERATIONS
+    // =========================================================================
+
+    /**
+     * Execute raw SQL with optional cache management.
+     *
+     * WHY: Subsystems need to register their schema during initialization.
+     * Access is capability-based: only code with an EMS reference can call this.
+     *
+     * @param sql - SQL to execute
+     * @param options - Cache invalidation options
+     */
+    async exec(sql: string, options?: ExecOptions): Promise<void> {
+        if (!this._db) {
+            throw new EINVAL('EMS not initialized');
+        }
+
+        await this._db.exec(sql);
+
+        if (options?.clearModels) {
+            this._models?.clear();
+        }
+        else if (options?.invalidate) {
+            for (const model of options.invalidate) {
+                this._models?.invalidate(model);
+            }
+        }
     }
 }

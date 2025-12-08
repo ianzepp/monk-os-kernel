@@ -329,8 +329,8 @@ export class VFS {
      *
      * INITIALIZATION SEQUENCE:
      * 1. Check if already initialized
-     * 2. Create root folder if not exists
-     * 3. Set root ACL (world-readable)
+     * 2. Load and apply VFS schema (tables, seeds)
+     * 3. Verify root exists in EntityCache
      * 4. Mount root path
      * 5. Create /dev and standard devices
      */
@@ -342,7 +342,18 @@ export class VFS {
 
         this.initialized = true;
 
-        // Create root folder if needed
+        // Load and apply VFS schema (creates tables and seeds)
+        if (this.ems) {
+            const schemaPath = new URL('./schema.sql', import.meta.url).pathname;
+            const schema = await this.hal.file.readText(schemaPath);
+
+            await this.ems.exec(schema, { clearModels: true });
+
+            // Reload EntityCache to pick up root entity from VFS schema
+            await this.ems.cache.loadFromDatabase(this.ems.db);
+        }
+
+        // Verify root exists (seeded by VFS schema)
         await this.ensureRootExists();
 
         // Mount root with folder model

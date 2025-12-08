@@ -9,6 +9,7 @@ import {
     clearSchemaCache,
 } from '@src/ems/connection.js';
 import { unlink } from 'node:fs/promises';
+import { loadVfsSchemaWithFileDevice } from '../helpers/test-os.js';
 
 // =============================================================================
 // TEST SETUP
@@ -40,6 +41,8 @@ describe('Model Schema', () => {
     beforeEach(async () => {
         clearSchemaCache();
         db = await createDatabase(channelDevice, fileDevice);
+        // Load VFS schema for tests that use VFS tables (file, folder, etc.)
+        await loadVfsSchemaWithFileDevice(db, fileDevice);
     });
 
     afterEach(async () => {
@@ -832,12 +835,14 @@ describe('Model Schema', () => {
     });
 
     describe('table count', () => {
-        it('should have 10 total tables (3 meta + 1 entities + 6 detail)', async () => {
+        it('should have 10 total tables (EMS core + VFS detail)', async () => {
             const tables = await db.query<{ name: string }>(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
             );
 
-            // models, fields, tracked, entities + file, folder, device, proc, link, temp = 10
+            // EMS core: models, fields, tracked, entities = 4
+            // VFS detail: file, folder, device, proc, link, temp = 6
+            // Total = 10 (since VFS schema is loaded in beforeEach)
             expect(tables.length).toBe(10);
         });
     });
@@ -885,14 +890,16 @@ describe('Connection Module', () => {
             await db.close();
         });
 
-        it('should seed system models', async () => {
+        it('should seed EMS meta-models', async () => {
             const db = await createDatabase(channelDevice, fileDevice);
 
             const models = await db.query<{ model_name: string }>(
                 "SELECT model_name FROM models WHERE status = 'system'",
             );
 
-            expect(models.length).toBe(9);
+            // EMS core: models, fields, tracked = 3
+            // VFS models (file, folder, etc.) are seeded separately by VFS.init()
+            expect(models.length).toBe(3);
 
             await db.close();
         });
