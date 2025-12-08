@@ -1,6 +1,6 @@
 # Authentication Subsystem
 
-> **Status**: Phase 0 Complete
+> **Status**: Phase 2 Partial (auth:register, auth:grant complete)
 > **Complexity**: Medium
 > **Dependencies**: EMS (schema split pattern), Gateway (process identity), HAL (crypto)
 
@@ -570,20 +570,28 @@ Minimal auth with pre-provisioned tokens. No passwords, no user entities.
 - Rate limiting
 - `auth:logout`, `auth:passwd`, `auth:register`, `auth:grant`
 
-### Phase 1: Password Login
+### Phase 1: Password Login ✓ COMPLETE
 
-1. Create `src/auth/schema.sql` with `auth.user` and `auth.session` models
-2. Add `Auth.init()` that loads schema via `ems.exec(schema, { clearModels: true })`
-3. Implement `auth:login` with password hashing
-4. Implement `auth:logout`
-5. 5-min EMS revalidation for session revocation
+**Implemented:**
+1. ✓ Create `src/auth/schema.sql` with `auth_user` and `auth_session` tables
+2. ✓ Add `Auth.init()` that loads schema via `ems.exec(schema, { clearModels: true })`
+3. ✓ Implement `auth:login` with argon2id password hashing
+4. ✓ Implement `auth:logout` with session invalidation
+5. ✓ 5-min EMS revalidation for session revocation
+6. ✓ Seed root user on init (password: 'root')
+7. ✓ 14 new Phase 1 tests
 
 ### Phase 2: Session Management (Partial)
 
+**Implemented:**
+1. ✓ `auth:register` - Create user accounts (argon2id hashing, duplicate check)
+2. ✓ `auth:grant` - Mint scoped tokens for any principal (root only)
+3. ✓ Removed FK constraint on `auth_session.user_id` for service principals
+4. ✓ 22 new Phase 2 tests (86 total auth tests)
+
+**Remaining:**
 1. Per-connection exponential backoff (see Rate Limiting section)
 2. `auth:passwd` for password changes
-3. ✓ `auth:grant` for minting scoped tokens (root only, scopes stored but not enforced)
-4. ✓ `auth:register` for user creation
 
 **TODO (Phase 4):** Scope enforcement in dispatcher - check `proc.sessionData.scope` against `SYSCALL_SCOPES` map before executing syscalls.
 
