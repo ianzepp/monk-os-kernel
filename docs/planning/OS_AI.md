@@ -1,7 +1,7 @@
 # Monk OS AI Layer
 
 > **Status**: Planning
-> **Depends on**: EMS (schema split pattern), VFS, Shell/Coreutils
+> **Depends on**: EMS (schema split pattern), VFS, Auth, Shell/Coreutils
 
 This document captures the architecture for AI integration with Monk OS.
 
@@ -93,7 +93,9 @@ This document captures the architecture for AI integration with Monk OS.
 **Agent Home Directory Structure**
 ```
 /home/agent-coder/
-  .config/agent.json     # agent configuration
+  .config/
+    agent.json           # agent configuration (model, specialization, etc.)
+    token                # JWT for authentication (provisioned by admin/init)
   .memory/
     agent.db             # SQLite database (STM, LTM, procedural, embeddings)
   .cache/                # temporary working data
@@ -119,15 +121,17 @@ AI agents are userspace processes, not kernel services. They use existing syscal
 
 ```
 1. Spawn agent process (fork/exec rom/bin/agent)
-2. Agent reads config from ~/.config/agent.json
-3. Agent loads memory from ~/.memory/
-4. Agent enters request loop:
+2. Agent reads JWT from ~/.config/token
+3. Agent calls auth:token to authenticate → sets proc.user
+4. Agent reads config from ~/.config/agent.json
+5. Agent loads memory from ~/.memory/
+6. Agent enters request loop:
    - Receive task (IPC, stdin, or message queue)
    - Plan using llm:complete
    - Execute tools (spawn shell, read files, etc.)
    - Update memory files
    - Return result
-5. Agent exits or persists as daemon
+7. Agent exits or persists as daemon
 ```
 
 ### Syscalls Used by Agents
@@ -136,6 +140,7 @@ Agents use standard syscalls - no special `ai:*` syscalls needed:
 
 | Syscall | Agent Use |
 |---------|-----------|
+| `auth:token` | Authenticate on startup (JWT from ~/.config/token) |
 | `llm:complete` | Generate plans, responses, summaries |
 | `llm:chat` | Multi-turn reasoning |
 | `llm:embed` | Generate embeddings for semantic search |
@@ -148,8 +153,13 @@ Agents use standard syscalls - no special `ai:*` syscalls needed:
 ```typescript
 // rom/bin/agent - simplified agent main loop
 async function main() {
+  // Authenticate first - required before any other syscalls
+  const token = await vfs.read('~/.config/token');
+  await syscall('auth:token', { jwt: token });
+
+  // Now authenticated as this agent user
   const config = await vfs.read('~/.config/agent.json');
-  const stm = await vfs.read('~/.memory/stm.json');
+  const memory = new AgentMemory('~/.memory/agent.db');
 
   while (true) {
     const task = await receiveTask();
@@ -157,18 +167,97 @@ async function main() {
     // Plan using LLM
     const plan = await syscall('llm:complete', {
       model: config.model,
-      prompt: `Task: ${task}\nContext: ${stm}\nPlan:`
+      prompt: `Task: ${task}\nContext: ${memory.getRecentTurns(10)}\nPlan:`
     });
 
     // Execute plan (spawn shell, etc.)
     const result = await executeSteps(plan);
 
     // Update memory
-    stm.push({ task, result, ts: Date.now() });
-    await vfs.write('~/.memory/stm.json', stm);
+    memory.appendTurn('user', task);
+    memory.appendTurn('assistant', result);
 
     await sendResult(result);
   }
+}
+```
+
+---
+
+## Agent Authentication
+
+Agents are service accounts - they authenticate via JWT, not passwords. See `docs/planning/OS_AUTH.md` for full Auth subsystem design.
+
+### Provisioning Flow
+
+Agent users and tokens are provisioned by internal code (init scripts, admin tools), which bypasses the dispatcher and runs without auth:
+
+```
+Admin/Init script (internal, no auth needed)
+    │
+    ├── 1. Create user in EMS:
+    │      ems.ops.createOne('auth_user', {
+    │        username: 'agent-coder',
+    │        password_hash: null,  // no password, JWT-only
+    │      })
+    │
+    ├── 2. Create home directory:
+    │      vfs.mkdir('/home/agent-coder')
+    │      vfs.mkdir('/home/agent-coder/.config')
+    │      vfs.mkdir('/home/agent-coder/.memory')
+    │
+    ├── 3. Mint JWT via HAL crypto (or auth:grant if authenticated):
+    │      hal.crypto.signJWT({
+    │        sub: 'agent-coder',
+    │        scope: ['vfs:*', 'llm:*'],  // agent-specific permissions
+    │        exp: ...,  // long-lived, e.g., 1 year
+    │      })
+    │
+    └── 4. Write token to home directory:
+           vfs.write('/home/agent-coder/.config/token', jwt)
+```
+
+### Runtime Authentication
+
+When an agent process starts, it authenticates like any other service:
+
+```
+Agent process spawns (external, needs auth)
+    │
+    ├── 1. Read token from ~/.config/token
+    │
+    ├── 2. Call auth:token with JWT
+    │      → Validates signature and expiry
+    │      → Sets proc.user = 'agent-coder'
+    │      → Sets proc.session, proc.expires
+    │
+    └── 3. Subsequent syscalls allowed as 'agent-coder'
+           → VFS checks ACLs against proc.user
+           → Dispatcher checks scope against syscall
+```
+
+### Scoped Tokens
+
+Agents can have limited permissions via JWT scopes (see OS_AUTH.md Phase 4):
+
+| Agent Type | Typical Scopes | Rationale |
+|------------|----------------|-----------|
+| coder | `vfs:*`, `llm:*` | Full file access, LLM inference |
+| research | `vfs:read`, `llm:*` | Read-only file access |
+| chat | `llm:*` | LLM only, no file access |
+| monitor | `ems:read`, `vfs:read` | Read-only for dashboards |
+
+Dispatcher enforces scopes - an agent with `vfs:read` cannot call `vfs:write`.
+
+### Token Refresh
+
+Long-lived tokens (e.g., 1 year) rarely need refresh. If needed, agents follow the same 50% TTL refresh strategy as other clients:
+
+```typescript
+// In agent startup
+if (shouldRefresh(decode(token))) {
+  const result = await syscall('auth:token', { jwt: token });
+  await vfs.write('~/.config/token', result.token);
 }
 ```
 
@@ -479,8 +568,13 @@ Strategy:
 1. Create `rom/bin/agent` - base agent executable
 2. Create `rom/lib/agent/` - shared agent library code
 3. Create `rom/lib/agent/memory.ts` - AgentMemory class wrapping SQLite
-4. Implement agent lifecycle (spawn, run, shutdown)
-5. Create agent user provisioning (home directory + schema init)
+4. Implement agent lifecycle (spawn, authenticate, run, shutdown)
+5. Create agent provisioning script:
+   - Create `auth_user` entry (no password, JWT-only)
+   - Create home directory structure (`~/.config/`, `~/.memory/`)
+   - Mint scoped JWT via `auth:grant` or HAL crypto
+   - Write token to `~/.config/token`
+   - Initialize `~/.memory/agent.db` with schema
 
 ### Phase 4: Agent Specializations
 
@@ -509,15 +603,16 @@ Should embeddings live in agent home directory or a shared location?
 | Per-agent (`~/.memory/embeddings/`) | Simple, isolated | Duplication across agents |
 | Shared (`/var/embeddings/`) | Reusable, efficient | Needs access control |
 
-### 2. Agent Provisioning
+### ~~2. Agent Provisioning~~ (Resolved)
 
-How are agent users created?
+**Resolution:** Agents are service accounts. Provisioning is done by internal code (init scripts, admin tools) that bypasses the dispatcher:
 
-| Option | Notes |
-|--------|-------|
-| Manual | Admin creates agent users via Auth |
-| On-demand | First spawn creates user + home directory |
-| Template | Clone from `/etc/skel/agent/` template |
+1. Create `auth_user` entry (no password)
+2. Create home directory structure
+3. Mint scoped JWT via HAL crypto or `auth:grant`
+4. Write token to `~/.config/token`
+
+See "Agent Authentication" section above for full details.
 
 ### 3. Inter-Agent Communication
 
@@ -550,10 +645,10 @@ Who monitors agent behavior?
 
 ### Userspace (Agents)
 - `rom/lib/shell/` - Existing shell implementation (to reintroduce)
-- `src/kernel/subsys/auth/` - Auth subsystem (agent user principals)
 - `src/kernel/process-table.ts` - Process management (agent PIDs)
 
 ### Related Planning Docs
 
+- `docs/planning/OS_AUTH.md` - Auth subsystem (agent authentication, JWT, scopes)
 - `docs/implemented/EMS_SCHEMA_SPLIT.md` - Schema split architecture
-- `docs/planning/VFS_PATH_CACHE.md` - PathCache refactor (in progress)
+- `docs/implemented/VFS_PATH_CACHE.md` - PathCache refactor

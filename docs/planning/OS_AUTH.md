@@ -2,7 +2,7 @@
 
 > **Status**: Proposed
 > **Complexity**: Medium
-> **Dependencies**: EMS (session storage), Gateway (process identity)
+> **Dependencies**: EMS (schema split pattern), Gateway (process identity), HAL (crypto)
 
 Add authentication as a peer subsystem alongside VFS/EMS/Kernel, with mandatory auth for external clients via gateway.
 
@@ -44,6 +44,8 @@ Auth is a **peer subsystem**, not a layer:
 - Intercept other syscalls (dispatcher gates)
 - Own the permission model (VFS/EMS check `proc.user`)
 - Manage processes (kernel does that)
+
+**Schema ownership:** Auth owns `src/auth/schema.sql` containing `auth_user` and `auth_session` table definitions. Following the established pattern (see `docs/implemented/EMS_SCHEMA_SPLIT.md`), Auth loads its schema via `ems.exec()` during `Auth.init()`.
 
 ---
 
@@ -89,7 +91,7 @@ if (proc.expires && proc.expires < Date.now()) {
 
 // Periodic EMS revalidation - allows session revocation to propagate
 if (proc.session && Date.now() - proc.sessionValidatedAt > REVALIDATE_INTERVAL) {
-    const session = await ems.ops.selectOne('session', { id: proc.session });
+    const session = await ems.ops.selectOne('auth_session', { id: proc.session });
     if (!session || session.expires < Date.now()) {
         // Session revoked or expired in EMS
         proc.user = proc.session = proc.expires = proc.sessionValidatedAt = undefined;
@@ -343,18 +345,17 @@ Server doesn't track refresh timing - `auth:token` always extends session and re
 
 ## Session Storage (EMS)
 
-Sessions stored as entities:
+Sessions stored in `auth_session` table (defined in `src/auth/schema.sql`):
 
 ```typescript
-// Model: session
+// Table: auth_session
 {
     id: 'sess-uuid',
-    model: 'session',
-    user: 'alice',
+    user_id: 'user-uuid',
     created: 1234567890,
     expires: 1234657890,
     ip?: string,           // Client info (if available)
-    userAgent?: string,
+    user_agent?: string,
 }
 ```
 
@@ -366,16 +367,16 @@ class Auth {
 
     async login(proc: Process, user: string, pass: string): Promise<LoginResult> {
         // Validate credentials (check user entity, hash password)
-        const userEntity = await this.ems.ops.selectOne('user', { username: user });
-        if (!userEntity || !await this.verifyPassword(pass, userEntity.passwordHash)) {
+        const userEntity = await this.ems.ops.selectOne('auth_user', { username: user });
+        if (!userEntity || !await this.verifyPassword(pass, userEntity.password_hash)) {
             throw new EACCES('Invalid credentials');
         }
 
         const expiresAt = Date.now() + SESSION_TTL;
 
         // Create session in EMS
-        const session = await this.ems.ops.createOne('session', {
-            user: userEntity.id,
+        const session = await this.ems.ops.createOne('auth_session', {
+            user_id: userEntity.id,
             expires: expiresAt,
         });
 
@@ -401,15 +402,14 @@ class Auth {
 
 ## User Storage (EMS)
 
-Users stored as entities:
+Users stored in `auth_user` table (defined in `src/auth/schema.sql`):
 
 ```typescript
-// Model: user
+// Table: auth_user
 {
     id: 'user-uuid',
-    model: 'user',
     username: 'alice',
-    passwordHash: '$argon2id$...',
+    password_hash: '$argon2id$...',
     created: 1234567890,
     disabled?: boolean,
 }
@@ -496,6 +496,7 @@ async function fileOpen(proc: Process, vfs: VFS, path: string, flags: OpenFlags)
 ```
 src/auth/
 ├── index.ts           # Exports Auth class
+├── schema.sql         # Auth tables (auth_user, auth_session) - loaded via ems.exec()
 ├── auth.ts            # Auth subsystem (login, token, session management)
 ├── types.ts           # Session, User types
 ├── password.ts        # Password hashing (argon2id via HAL crypto)
@@ -513,12 +514,13 @@ src/syscall/
 
 Minimal auth with pre-provisioned tokens. No passwords, no user entities.
 
-1. Add `user`, `session`, `expires`, `sessionValidatedAt` fields to Process
-2. Add dispatcher gating (reject anonymous, check session expiry)
-3. Implement `auth:token` - validate JWT, set proc identity
-4. Implement `auth:whoami`
-5. Init script mints JWTs directly via HAL crypto (no syscall needed)
-6. Update os-sdk to accept token on connect
+1. Create `src/auth/` directory structure
+2. Add `user`, `session`, `expires`, `sessionValidatedAt` fields to Process
+3. Add dispatcher gating (reject anonymous, check session expiry)
+4. Implement `auth:token` - validate JWT, set proc identity
+5. Implement `auth:whoami`
+6. Init script mints JWTs directly via HAL crypto (no syscall needed)
+7. Update os-sdk to accept token on connect
 
 **What this enables:**
 - Services authenticate with pre-provisioned JWTs
@@ -527,17 +529,16 @@ Minimal auth with pre-provisioned tokens. No passwords, no user entities.
 
 **What's deferred:**
 - Password login (`auth:login`)
-- User entities in EMS
-- Session entities in EMS (just use JWT expiry)
+- User/session tables in EMS (just use JWT expiry)
 - Rate limiting
 - `auth:logout`, `auth:passwd`, `auth:register`, `auth:grant`
 
 ### Phase 1: Password Login
 
-1. Add user entity model to EMS
-2. Implement `auth:login` with password hashing
-3. Implement `auth:logout`
-4. Session entities in EMS
+1. Create `src/auth/schema.sql` with `auth_user` and `auth_session` tables
+2. Add `Auth.init()` that loads schema via `ems.exec(schema, { clearModels: true })`
+3. Implement `auth:login` with password hashing
+4. Implement `auth:logout`
 5. 5-min EMS revalidation for session revocation
 
 ### Phase 2: Session Management
@@ -646,7 +647,13 @@ Auth config in `/etc/auth.json`:
 
 ## References
 
-- `src/gateway/gateway.ts` - Virtual process creation (line 319)
+**Implementation patterns:**
+- `docs/implemented/EMS_SCHEMA_SPLIT.md` - Schema split architecture (Auth follows this pattern)
+- `src/vfs/schema.sql` - VFS schema (reference for Auth schema structure)
+- `src/vfs/vfs.ts` - VFS.init() shows how to load subsystem schema via `ems.exec()`
+
+**Codebase:**
+- `src/gateway/gateway.ts` - Virtual process creation
 - `src/kernel/types.ts` - Process interface
 - `src/syscall/dispatcher.ts` - Syscall routing
 - `src/vfs/acl.ts` - Existing ACL/grant system (Auth provides identity, VFS checks permissions)
