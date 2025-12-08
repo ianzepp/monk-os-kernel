@@ -1,7 +1,7 @@
 # Monk OS AI Layer
 
 > **Status**: Planning
-> **Depends on**: HAL, EMS, Shell/Coreutils
+> **Depends on**: EMS, Shell/Coreutils
 
 This document captures the architecture for AI integration with Monk OS.
 
@@ -13,10 +13,12 @@ This document captures the architecture for AI integration with Monk OS.
 
 | Concept | Role | Layer |
 |---------|------|-------|
-| **LLM** | Pattern matching. Prompt in, text out. Stateless inference. | HAL |
+| **LLM** | Pattern matching. Prompt in, text out. Stateless inference. | Kernel subsystem |
 | **AI** | Tool-using intelligence. Plans, executes, remembers. | Kernel subsystem |
 
-The LLM is infrastructure (like a database). The AI is the coordinator that uses the LLM alongside other OS capabilities.
+LLM is a kernel subsystem (like VFS), not HAL. Both LLM and VFS depend on EMS for configuration and state. HAL stays pure hardware abstraction (file, network, block).
+
+The AI worker coordinates LLM calls alongside memory and tool execution.
 
 ---
 
@@ -31,49 +33,56 @@ The LLM is infrastructure (like a database). The AI is the coordinator that uses
                           │ syscalls
                           ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ Kernel                                                      │
+│ Kernel Subsystems                                           │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐   │
-│  │   Auth   │  │    AI    │  │   VFS    │  │   EMS    │   │
-│  │  worker  │  │  worker  │  │          │  │          │   │
-│  └──────────┘  └──────────┘  └──────────┘  └──────────┘   │
-│                     │                                       │
-│              ┌──────┴──────┐                               │
-│              │  ai:* calls │                               │
-│              │  memory mgmt│                               │
-│              │  tool exec  │                               │
-│              └──────┬──────┘                               │
-│                     ▼                                       │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │ EMS (ai.stm, ai.ltm, ai.procedural, ai.embedding)   │   │
-│  └─────────────────────────────────────────────────────┘   │
+│  │   Auth   │  │    AI    │  │   LLM    │  │   VFS    │   │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘   │
+│       │             │             │             │          │
+│       └─────────────┴──────┬──────┴─────────────┘          │
+│                            ▼                               │
+│              ┌─────────────────────────┐                   │
+│              │          EMS            │                   │
+│              │  ┌───────────────────┐  │                   │
+│              │  │ llm.provider      │  │                   │
+│              │  │ llm.model         │  │                   │
+│              │  │ ai.stm, ai.ltm    │  │                   │
+│              │  │ ai.procedural     │  │                   │
+│              │  │ ai.embedding      │  │                   │
+│              │  └───────────────────┘  │                   │
+│              └─────────────────────────┘                   │
 └─────────────────────────────────────────────────────────────┘
                           │
                           ▼
 ┌─────────────────────────────────────────────────────────────┐
 │ HAL                                                         │
-│   hal.llm   hal.file   hal.ems   hal.network   ...         │
+│   hal.file   hal.network   hal.block   ...                 │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ### Layer Responsibilities
 
-**HAL (hal.llm)**
-- Dumb inference pipe
-- Provider abstraction (Anthropic, OpenAI, Ollama, local)
-- API key management, rate limiting, retries
-- Prompt in → text/embeddings out
+**LLM Subsystem (kernel)**
+- Reads provider/model config from EMS (`llm.provider`, `llm.model`)
+- Dispatches to provider-specific adapters based on `api_format`
+- Applies model behavioral flags (strip markdown, etc.)
+- Handles `llm:complete`, `llm:chat`, `llm:embed` syscalls
+- Uses `hal.network` for HTTP calls to external APIs
 
 **AI Worker (kernel subsystem)**
-- Coordinates tool use, memory, and inference
+- Coordinates tool use, memory, and LLM inference
 - Spawns shell/coreutils for text processing
 - Manages memory (STM, LTM, procedural)
-- Handles ai:* syscalls
+- Handles `ai:*` syscalls
 - Similar pattern to Auth worker
 
 **Userspace (shell + coreutils)**
 - `/bin/shell` - command interpreter
 - `/bin/cat`, `/bin/grep`, `/bin/awk`, etc. - text processing tools
 - AI worker spawns these as needed
+
+**HAL**
+- Pure hardware abstraction (file, network, block)
+- No LLM knowledge - just provides network transport
 
 ---
 
@@ -192,7 +201,8 @@ async function consolidate() {
   const recent = await ems.query('ai.stm', { age: '<24h' });
 
   // Extract key information via LLM
-  const consolidated = await hal.llm.complete({
+  const consolidated = await syscall('llm:complete', {
+    model: 'default',
     prompt: 'Extract key facts, preferences, and patterns worth remembering long-term',
     context: recent
   });
@@ -226,10 +236,10 @@ User: "Find log files with errors and count them"
                     ▼
 AI worker:
   1. Query STM/LTM for context
-  2. Call hal.llm to plan: "grep -l 'error' /var/log/*.log | wc -l"
+  2. Call llm:complete to plan: "grep -l 'error' /var/log/*.log | wc -l"
   3. Spawn /bin/shell with command
   4. Capture output
-  5. Call hal.llm to format response
+  5. Call llm:complete to format response
   6. Store interaction in STM
   7. Return to user
 ```
@@ -243,54 +253,89 @@ AI worker:
 
 ---
 
-## HAL LLM Interface
+## LLM Subsystem
 
-`hal.llm` is the dumb inference layer. Provider-agnostic.
+The LLM subsystem is a kernel service that reads configuration from EMS and dispatches to provider-specific adapters.
 
-### Operations
+### EMS Entities
+
+Provider and model configuration lives in EMS, not flat config files. Adding a new provider or model is an EMS insert, not a code change.
 
 ```typescript
-interface HalLLM {
-  // Text completion
-  complete(opts: {
-    prompt: string;
-    context?: string;
-    model?: string;
-    temperature?: number;
-    max_tokens?: number;
-  }): Promise<string>;
+// Provider configuration (how to connect)
+interface LLMProvider {
+  model: 'llm.provider';
+  provider_name: string;      // 'ollama', 'anthropic', 'openai'
+  api_format: string;         // 'openai' | 'anthropic' (wire protocol)
+  auth_type: string;          // 'none' | 'bearer' | 'x-api-key'
+  auth_value?: string;        // API key (or reference to secret)
+  endpoint: string;           // 'http://localhost:11434', 'https://api.anthropic.com'
+  streaming_format: string;   // 'ndjson' | 'sse'
+}
 
-  // Streaming completion
-  stream(opts: {
-    prompt: string;
-    context?: string;
-  }): AsyncIterator<string>;
+// Model configuration (what it can do)
+interface LLMModel {
+  model: 'llm.model';
+  provider: string;           // FK → llm.provider
+  model_id: string;           // 'qwen2.5-coder:1.5b', 'claude-sonnet-4-20250514'
 
-  // Embeddings
-  embed(opts: {
-    text: string;
-    model?: string;
-  }): Promise<number[]>;
+  // Capabilities (boolean flags)
+  supports_chat: boolean;
+  supports_completion: boolean;
+  supports_streaming: boolean;
+  supports_embeddings: boolean;
+  supports_vision: boolean;
+  supports_tools: boolean;
+
+  // Limits
+  context_window: number;     // 32768, 200000, etc.
+  max_output: number;         // 4096, 8192, etc.
+
+  // Behavioral flags
+  strip_markdown: boolean;    // Post-process to remove ```fences
+  system_prompt_style: string; // 'message' | 'prefix'
 }
 ```
 
-### Provider Configuration
+### Syscalls (llm:*)
+
+| Syscall | Description |
+|---------|-------------|
+| `llm:complete` | One-shot completion (prompt → response) |
+| `llm:chat` | Chat format (messages array → response) |
+| `llm:stream` | Streaming completion |
+| `llm:embed` | Generate embeddings |
+
+### Example
 
 ```typescript
-// Config in /etc/ai.conf or similar
-{
-  provider: 'anthropic' | 'openai' | 'ollama' | 'local',
-  endpoint: 'https://api.anthropic.com' | 'http://localhost:11434',
-  api_key: '...',
-  default_model: 'claude-3-sonnet',
-  embedding_model: 'text-embedding-3-small'
-}
+// LLM subsystem reads config from EMS, caller just specifies model
+const response = await syscall('llm:complete', {
+  model: 'qwen2.5-coder:1.5b',
+  prompt: 'Output only the shell command: list files by size'
+});
+
+// Under the hood:
+// 1. Lookup llm.model where model_id = 'qwen2.5-coder:1.5b'
+// 2. Lookup llm.provider where id = model.provider
+// 3. Dispatch to adapters[provider.api_format]
+// 4. Apply model.strip_markdown if set
+// 5. Return response
 ```
 
-HAL handles:
-- Provider-specific API formats
-- Authentication
-- Rate limiting and retries
+### Adapters
+
+Only two adapters needed (most providers speak one of these):
+
+| Adapter | Providers |
+|---------|-----------|
+| `openai` | OpenAI, Ollama, Together, Groq, local |
+| `anthropic` | Anthropic |
+
+The adapter handles:
+- Request/response format transformation
+- Authentication header format
+- Streaming protocol differences
 - Error normalization
 
 ---
@@ -320,11 +365,12 @@ Strategy:
 
 ## Implementation Plan
 
-### Phase 1: HAL LLM
+### Phase 1: LLM Subsystem
 
-1. Add `hal.llm` device with complete/embed operations
-2. Support at least one provider (Anthropic or Ollama)
-3. Provider config in /etc/ai.conf
+1. Define `llm.provider` and `llm.model` EMS schemas
+2. Implement OpenAI-format adapter (covers Ollama)
+3. Implement `llm:complete` syscall
+4. Seed initial provider/model records for Ollama
 
 ### Phase 2: AI Worker
 
@@ -348,8 +394,8 @@ Strategy:
 ### Phase 5: Advanced
 
 1. `ai:exec` for autonomous tool use
-2. Streaming responses
-3. Multi-provider support
+2. Streaming responses (`llm:stream`)
+3. Anthropic adapter
 4. Context window optimization
 
 ---
@@ -390,6 +436,6 @@ How much can AI-spawned tools do?
 ## References
 
 - `src/kernel/subsys/auth/` - Auth worker pattern to follow
-- `src/hal/` - HAL device implementations
-- `src/ems/` - Entity storage
+- `src/ems/` - Entity storage (llm.provider, llm.model will live here)
+- `src/ems/schema.sql` - Field behavioral flags pattern
 - `rom/lib/shell/` - Existing shell implementation (to reintroduce)
