@@ -36,7 +36,7 @@ Auth is a **peer subsystem**, not a layer:
 
 **Auth responsibilities:**
 - Handle `auth:*` syscalls
-- Validate credentials (password, JWT, API key)
+- Validate credentials (password, JWT)
 - Store sessions in EMS
 - Set `proc.user` and `proc.session` on success
 
@@ -53,14 +53,14 @@ Extend Process with identity fields:
 
 ```typescript
 interface Process {
-    id: string;              // UUID (exists)
-    user?: string;           // User ID (null = anonymous)
-    groups?: string[];       // Group memberships
-    session?: string;        // Session ID
-    sessionData?: {          // JWT claims or session metadata
-        exp?: number;        // Expiry timestamp
-        iat?: number;        // Issued at
-        scope?: string[];    // Permissions/scopes
+    id: string;                  // UUID (exists)
+    user?: string;               // User ID (null = anonymous)
+    session?: string;            // Session ID
+    expires?: number;            // Session expiry timestamp (ms since epoch)
+    sessionValidatedAt?: number; // Last EMS session check (for 5-min revalidation)
+    sessionData?: {              // JWT claims or session metadata
+        iat?: number;            // Issued at
+        scope?: string[];        // Permissions/scopes
         [key: string]: unknown;
     };
 }
@@ -70,11 +70,32 @@ interface Process {
 
 ## Syscall Gating
 
-Dispatcher rejects unauthenticated processes for non-auth syscalls:
+Dispatcher checks session expiry and rejects unauthenticated processes:
 
 ```typescript
 // In dispatcher.dispatch()
 const ALLOW_ANONYMOUS = ['auth:login', 'auth:token', 'auth:register'];
+const REVALIDATE_INTERVAL = 5 * 60 * 1000; // 5 minutes
+
+// Lazy session expiration - checked on each syscall
+if (proc.expires && proc.expires < Date.now()) {
+    proc.user = undefined;
+    proc.session = undefined;
+    proc.expires = undefined;
+    proc.sessionValidatedAt = undefined;
+    proc.sessionData = undefined;
+    // Falls through to anonymous check below
+}
+
+// Periodic EMS revalidation - allows session revocation to propagate
+if (proc.session && Date.now() - proc.sessionValidatedAt > REVALIDATE_INTERVAL) {
+    const session = await ems.ops.selectOne('session', { id: proc.session });
+    if (!session || session.expires < Date.now()) {
+        // Session revoked or expired in EMS
+        proc.user = proc.session = proc.expires = proc.sessionValidatedAt = undefined;
+    }
+    proc.sessionValidatedAt = Date.now();
+}
 
 if (!proc.user && !ALLOW_ANONYMOUS.includes(name)) {
     yield respond.error('EACCES', 'Authentication required');
@@ -82,19 +103,23 @@ if (!proc.user && !ALLOW_ANONYMOUS.includes(name)) {
 }
 ```
 
+**Note:** Internal OS code (kernel, subsystems, daemons) calls subsystems directly, bypassing the dispatcher entirely. Gating only applies to syscalls routed through the dispatcher—primarily external clients via gateway and on-OS userspace processes.
+
 ---
 
 ## Auth Syscalls
 
 | Syscall | Args | Description |
 |---------|------|-------------|
-| `auth:login` | `{ user, pass }` | Validate credentials, create session |
-| `auth:token` | `{ jwt }` | Validate JWT, create session from claims |
-| `auth:apikey` | `{ key }` | Validate API key, create session |
+| `auth:login` | `{ user, pass }` | Validate credentials, create session, return JWT |
+| `auth:token` | `{ jwt }` | Validate JWT, restore session from claims |
 | `auth:logout` | - | Clear session, reset proc.user |
 | `auth:whoami` | - | Return current user/session info |
-| `auth:refresh` | `{ token }` | Refresh expiring session |
+| `auth:passwd` | `{ current, new }` or `{ user, new }` | Change password, invalidate other sessions |
+| `auth:grant` | `{ principal, scope?, ttl? }` | Mint scoped JWT for a principal (elevated) |
 | `auth:register` | `{ user, pass, ... }` | Create new user account |
+
+**Note:** No separate API key mechanism. Services use long-lived JWTs via `auth:token`. Same code path, different TTL. Revocation via EMS session deletion.
 
 ### auth:login
 
@@ -102,21 +127,33 @@ if (!proc.user && !ALLOW_ANONYMOUS.includes(name)) {
 // Request
 { id: "1", call: "auth:login", args: [{ user: "alice", pass: "secret" }] }
 
-// Success response
-{ id: "1", op: "ok", data: { user: "alice", session: "sess-uuid", exp: 1234567890 } }
+// Success response - returns JWT for client to store and use on reconnect
+{ id: "1", op: "ok", data: {
+    user: "alice",
+    session: "sess-uuid",
+    token: "eyJhbG...",      // JWT containing session ID, user ID, expiry
+    expiresAt: 1234567890    // token expiry (ms since epoch)
+} }
 
 // Failure response
 { id: "1", op: "error", code: "EACCES", message: "Invalid credentials" }
 ```
 
+**No separate refresh tokens.** Sliding expiration via `auth:token` - clients refresh at 50% TTL (see Token Refresh Strategy). EMS session provides revocation.
+
 ### auth:token (JWT)
 
 ```typescript
-// Request
+// Request - validates JWT, extends session, returns fresh JWT
 { id: "1", call: "auth:token", args: [{ jwt: "eyJhbG..." }] }
 
-// Success - extracts user from JWT claims
-{ id: "1", op: "ok", data: { user: "alice", session: "sess-uuid", scope: ["read", "write"] } }
+// Success - extends session, returns fresh JWT
+{ id: "1", op: "ok", data: {
+    user: "alice",
+    session: "sess-uuid",
+    token: "eyJ...",           // fresh JWT with extended exp
+    expiresAt: 1234567890
+} }
 ```
 
 ### auth:whoami
@@ -126,11 +163,109 @@ if (!proc.user && !ALLOW_ANONYMOUS.includes(name)) {
 { id: "1", call: "auth:whoami", args: [] }
 
 // Authenticated response
-{ id: "1", op: "ok", data: { user: "alice", groups: ["admin"], session: "sess-uuid" } }
+{ id: "1", op: "ok", data: { user: "alice", session: "sess-uuid" } }
 
 // Anonymous response (if gating disabled for testing)
 { id: "1", op: "ok", data: { user: null } }
 ```
+
+### auth:logout
+
+```typescript
+// Request
+{ id: "1", call: "auth:logout", args: [] }
+
+// Success
+{ id: "1", op: "ok", data: {} }
+```
+
+**Server-side:**
+1. Delete EMS session entity
+2. Clear proc identity (`user`, `session`, `expires`, `sessionValidatedAt`)
+
+**Client-side (SDK responsibility):**
+3. Delete stored token from disk/keychain
+
+Invalidates the session immediately. Even if someone has a copy of the JWT, `auth:token` will fail (session not found) and existing connections will be kicked on next EMS revalidation.
+
+### auth:passwd
+
+**Self-service (change own password):**
+
+```typescript
+// Request - requires current password
+{ id: "1", call: "auth:passwd", args: [{ current: "oldpass", new: "newpass" }] }
+
+// Success
+{ id: "1", op: "ok", data: {} }
+
+// Wrong current password
+{ id: "1", op: "error", code: "EACCES", message: "Invalid credentials" }
+```
+
+**Admin reset (change another user's password):**
+
+```typescript
+// Request - no current password, requires elevated permissions
+{ id: "1", call: "auth:passwd", args: [{ user: "alice", new: "temppass" }] }
+
+// Success
+{ id: "1", op: "ok", data: {} }
+```
+
+**Behavior:**
+1. Update user entity `passwordHash`
+2. Delete all EMS sessions for target user (except caller's session for self-service)
+3. Existing JWTs become invalid on next EMS revalidation
+
+Requiring current password for self-service prevents a hijacked session from permanently locking out the legitimate user.
+
+### auth:grant
+
+Mint a scoped JWT for any principal. Requires elevated permissions.
+
+```typescript
+// Request - create read-only token for a service
+{ id: "1", call: "auth:grant", args: [{
+    principal: "svc:monitor",
+    scope: ["read"],
+    ttl: 31536000000  // 1 year in ms
+}] }
+
+// Success - returns JWT and creates session
+{ id: "1", op: "ok", data: {
+    principal: "svc:monitor",
+    session: "sess-uuid",
+    token: "eyJ...",
+    expiresAt: 1234567890,
+    scope: ["read"]
+} }
+```
+
+**Scopes (Phase 1):**
+- `read` - read operations only
+- `write` - read + write operations
+- `*` - unrestricted (default if not specified)
+
+**Scopes (Phase 4 - Subsystem-level):**
+- `vfs:read`, `vfs:write`, `vfs:*` - VFS operations
+- `ems:read`, `ems:write`, `ems:*` - EMS operations
+- `auth:admin` - auth:grant, auth:passwd for others
+- `kernel:*` - process management, shutdown
+- `*` - everything
+
+**Rules:**
+- Requires elevated permissions to call
+- Can only grant scopes caller has (no privilege escalation)
+- Principal doesn't need to be existing user - can be any identity string
+- Creates EMS session for revocation
+
+**Use cases:**
+- Provision service tokens: `svc:httpd`, `svc:monitor`
+- Create limited-access tokens for contractors
+- Generate read-only tokens for dashboards
+
+Dispatcher enforces scope by mapping syscalls to required scope level.
 
 ---
 
@@ -165,6 +300,47 @@ const files = await client.readdir('/home/alice');
 
 ---
 
+## Token Refresh Strategy
+
+**Sliding expiration with 50% refresh.** Clients refresh their JWT when 50% of TTL has elapsed. Server always returns fresh JWT on `auth:token`.
+
+```typescript
+// Client-side logic (SDK/CLI)
+function shouldRefresh(jwt: DecodedJWT): boolean {
+    const issued = jwt.iat * 1000;
+    const expires = jwt.exp * 1000;
+    const halfway = issued + (expires - issued) / 2;
+    return Date.now() > halfway;
+}
+
+async function connectWithToken(tokenPath: string) {
+    let token = loadToken(tokenPath);
+
+    if (shouldRefresh(decode(token))) {
+        const result = await client.syscall('auth:token', { jwt: token });
+        token = result.token;  // fresh JWT with new exp
+        saveToken(tokenPath, token);
+    }
+
+    return authenticatedClient;
+}
+```
+
+**Example with 7-day TTL:**
+- Day 0: `auth:login` → get JWT, store locally
+- Days 0-3.5: connect with stored JWT, no refresh needed
+- Day 3.5+: `auth:token` → get fresh JWT, store it
+- Cycle repeats indefinitely with regular use
+- 7+ days inactive → token expires, must re-login
+
+**Use cases:**
+- **Interactive users**: Login once, use CLI/tools for months with auto-refresh
+- **Services**: Same mechanism, just longer TTL (or no exp) - refresh is a no-op
+
+Server doesn't track refresh timing - `auth:token` always extends session and returns fresh JWT. Client decides when to call based on 50% rule.
+
+---
+
 ## Session Storage (EMS)
 
 Sessions stored as entities:
@@ -188,25 +364,35 @@ Auth subsystem queries/creates sessions via EMS:
 class Auth {
     constructor(private ems: EMS, private hal: HAL) {}
 
-    async login(proc: Process, user: string, pass: string): Promise<Session> {
+    async login(proc: Process, user: string, pass: string): Promise<LoginResult> {
         // Validate credentials (check user entity, hash password)
         const userEntity = await this.ems.ops.selectOne('user', { username: user });
         if (!userEntity || !await this.verifyPassword(pass, userEntity.passwordHash)) {
             throw new EACCES('Invalid credentials');
         }
 
-        // Create session
+        const expiresAt = Date.now() + SESSION_TTL;
+
+        // Create session in EMS
         const session = await this.ems.ops.createOne('session', {
             user: userEntity.id,
-            expires: Date.now() + SESSION_TTL,
+            expires: expiresAt,
+        });
+
+        // Generate JWT for client
+        const token = await this.hal.crypto.signJWT({
+            sub: userEntity.id,
+            sid: session.id,
+            exp: Math.floor(expiresAt / 1000),  // JWT uses seconds
         });
 
         // Set process identity
         proc.user = userEntity.id;
         proc.session = session.id;
-        proc.groups = userEntity.groups;
+        proc.expires = expiresAt;
+        proc.sessionValidatedAt = Date.now();
 
-        return session;
+        return { user: userEntity.id, session: session.id, token, expiresAt };
     }
 }
 ```
@@ -224,7 +410,6 @@ Users stored as entities:
     model: 'user',
     username: 'alice',
     passwordHash: '$argon2id$...',
-    groups: ['users', 'admin'],
     created: 1234567890,
     disabled?: boolean,
 }
@@ -249,6 +434,7 @@ async validateJWT(proc: Process, jwt: string): Promise<Session> {
     // Set process identity from claims
     proc.user = payload.sub;
     proc.session = payload.jti ?? this.hal.entropy.uuid();
+    proc.expires = payload.exp ? payload.exp * 1000 : undefined;  // JWT exp is seconds
     proc.sessionData = payload;
 
     return { user: payload.sub, session: proc.session };
@@ -323,33 +509,106 @@ src/syscall/
 
 ## Implementation Phases
 
-### Phase 1: Basic Auth (MVP)
+### Phase 0: Bootstrap Auth (MVP)
 
-1. Add `user`, `session` fields to Process
-2. Add dispatcher gating (reject anonymous for non-auth syscalls)
-3. Implement `auth:login` with simple password check
+Minimal auth with pre-provisioned tokens. No passwords, no user entities.
+
+1. Add `user`, `session`, `expires`, `sessionValidatedAt` fields to Process
+2. Add dispatcher gating (reject anonymous, check session expiry)
+3. Implement `auth:token` - validate JWT, set proc identity
 4. Implement `auth:whoami`
-5. Update os-sdk to auth on connect
+5. Init script mints JWTs directly via HAL crypto (no syscall needed)
+6. Update os-sdk to accept token on connect
 
-### Phase 2: Sessions
+**What this enables:**
+- Services authenticate with pre-provisioned JWTs
+- Testing works with minted tokens
+- Auth gating is enforced
 
-1. Add session entity model to EMS
-2. Session creation on login
-3. Session expiry checking
-4. `auth:logout` clears session
-5. `auth:refresh` extends session
+**What's deferred:**
+- Password login (`auth:login`)
+- User entities in EMS
+- Session entities in EMS (just use JWT expiry)
+- Rate limiting
+- `auth:logout`, `auth:passwd`, `auth:register`, `auth:grant`
 
-### Phase 3: JWT Support
+### Phase 1: Password Login
 
-1. Implement `auth:token` for JWT validation
-2. JWT signature verification via HAL crypto
-3. Claims extraction to proc.sessionData
+1. Add user entity model to EMS
+2. Implement `auth:login` with password hashing
+3. Implement `auth:logout`
+4. Session entities in EMS
+5. 5-min EMS revalidation for session revocation
 
-### Phase 4: Permissions
+### Phase 2: Session Management
+
+1. Per-connection exponential backoff (see Rate Limiting section)
+2. `auth:passwd` for password changes
+3. `auth:grant` for minting scoped tokens
+4. `auth:register` for user creation
+
+### Phase 3: Permissions
 
 1. VFS permission checks against proc.user
 2. EMS row-level security based on proc.user
-3. Group-based permissions
+
+### Phase 4: Subsystem Scopes
+
+1. Implement subsystem-level scope checking in dispatcher
+2. Scope format: `subsystem:operation` (e.g., `vfs:read`, `ems:write`)
+3. Map syscalls to required scopes
+4. `auth:grant` enforces scope restrictions
+5. Add `auth:admin` scope for administrative syscalls
+
+```typescript
+const SYSCALL_SCOPES: Record<string, string[]> = {
+    'file:read':    ['vfs:read', 'vfs:*', '*'],
+    'file:write':   ['vfs:write', 'vfs:*', '*'],
+    'file:delete':  ['vfs:write', 'vfs:*', '*'],
+    'ems:select':   ['ems:read', 'ems:*', '*'],
+    'ems:create':   ['ems:write', 'ems:*', '*'],
+    'auth:grant':   ['auth:admin', '*'],
+    'auth:passwd':  ['auth:admin', '*'],  // when targeting another user
+    'kernel:kill':  ['kernel:*', '*'],
+    // ...
+};
+```
+
+---
+
+## Rate Limiting
+
+**No user lockouts.** Per-connection exponential backoff only.
+
+```typescript
+// Per-connection state (tracked on proc or connection)
+let failedAttempts = 0;
+
+async function login(user: string, pass: string) {
+    // Exponential delay: 0, 1s, 2s, 4s, 8s... capped at 30s
+    if (failedAttempts > 0) {
+        await sleep(Math.min(1000 * Math.pow(2, failedAttempts - 1), 30000));
+    }
+
+    const success = await validateCredentials(user, pass);
+
+    if (!success) {
+        failedAttempts++;
+        throw new EACCES('Invalid credentials');  // constant message, no username hints
+    }
+
+    failedAttempts = 0;  // reset on success
+    return createSession(...);
+}
+```
+
+**Properties:**
+- No lockouts - legitimate users never blocked
+- Per-connection - reconnecting resets counter (adds friction for attackers)
+- Constant-time failure - no username enumeration
+- Capped at 30s delay - after 5 failures: ~16s, after 10+: 30s
+
+**Future (v2):** Add proof-of-work requirement at high backoff levels. Client must solve hashcash-style puzzle before server processes login. Makes brute force computationally expensive without blocking anyone.
 
 ---
 
@@ -363,8 +622,8 @@ Auth config in `/etc/auth.json`:
     "allowAnonymous": false,
     "jwtPublicKey": "...",
     "passwordMinLength": 8,
-    "maxLoginAttempts": 5,
-    "lockoutDuration": 300000
+    "backoffMaxDelay": 30000,
+    "revalidateInterval": 300000
 }
 ```
 
@@ -372,15 +631,16 @@ Auth config in `/etc/auth.json`:
 
 ## Open Questions
 
-1. **Root/admin bootstrap**: How does the first admin user get created? Seed at boot? Special bootstrap mode?
+1. ~~**Root/admin bootstrap**~~: **Resolved.** Internal kernel code calls subsystems directly, bypassing the dispatcher and auth gating entirely. Init scripts seed users via direct EMS calls. No bootstrap problem exists.
 
-2. **Service accounts**: Should internal services (logd, gatewayd) have their own identity? Or run as root?
+   **Documentation TODO:** This security model (internal = root, dispatcher = gated) needs clear documentation outside this planning doc. Key points:
+   - Internal kernel/subsystem calls bypass dispatcher entirely
+   - Only syscalls routed through dispatcher are auth-gated
+   - Internal code effectively runs as root with no permission checks
 
-3. **API keys vs passwords**: Support both? API keys for programmatic access, passwords for interactive?
+2. ~~**Service accounts**~~: **Resolved.** Services use long-lived JWTs via `auth:token`. JWT contains `sub` (principal like `svc:httpd`), `sid` (session ID for revocation), and optional `exp`. Provisioned via init script or admin tooling.
 
-4. **Token refresh**: Automatic refresh in os-sdk? Or explicit `auth:refresh` calls?
-
-5. **Multi-tenant**: Should sessions be scoped to a tenant/org? Or is that an app-level concern?
+3. **Multi-tenant**: Should sessions be scoped to a tenant/org? Or is that an app-level concern?
 
 ---
 
