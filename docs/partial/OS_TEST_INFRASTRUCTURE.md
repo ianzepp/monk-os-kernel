@@ -1,6 +1,6 @@
 # Test Infrastructure Refactoring
 
-> **Status**: Partial (Phase 2 Complete)
+> **Status**: Partial (Phase 3 In Progress)
 > **Complexity**: Medium
 > **Dependencies**: None
 
@@ -14,7 +14,7 @@ Simplify test patterns by introducing a BaseOS class hierarchy with flexible boo
 |-------|--------|-------------|
 | Phase 1 | **Complete** | BaseOS hierarchy (base.ts, os.ts extends BaseOS, test.ts with TestOS) |
 | Phase 2 | **Complete** | Migrate tests using createOsStack() to TestOS |
-| Phase 3 | Pending | Migrate syscall tests from mock factories to TestOS |
+| Phase 3 | **In Progress** | Migrate syscall tests from mock factories to TestOS |
 | Phase 4 | Pending | Remove OS public getters (use TestOS.internal* instead) |
 | Phase 5 | Pending | Documentation updates |
 
@@ -23,6 +23,12 @@ Simplify test patterns by introducing a BaseOS class hierarchy with flexible boo
 - `src/os/os.ts` - Production OS extending BaseOS
 - `src/os/test.ts` - TestOS with flexible partial boot, HAL injection, internal* getters
 - `src/os/index.ts` - Updated exports
+
+**Phase 3 progress:**
+- Added syscall testing support to TestOS (virtual test process, setTestUser, setTestCwd)
+- ✅ `spec/syscall/vfs.test.ts` - migrated (35 tests)
+- ✅ `spec/syscall/ems.test.ts` - migrated (32 tests)
+- Remaining: hal.test.ts, handle.test.ts, pool.test.ts, process.test.ts, dispatcher.test.ts, auth-syscall.test.ts
 
 ---
 
