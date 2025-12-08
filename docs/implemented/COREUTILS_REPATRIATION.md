@@ -1,6 +1,6 @@
 # Coreutils Repatriation
 
-> **Status**: In Progress
+> **Status**: Complete
 > **Complexity**: Medium
 > **Dependencies**: None (enables OS_AI Phase 2)
 
@@ -15,8 +15,8 @@ Bring os-coreutils back into the main OS repo under `rom/`.
 | Phase 1 | Copy os-coreutils bin/ and lib/ | **COMPLETE** |
 | Phase 2 | Implement rom/lib/process/ | **COMPLETE** |
 | Phase 3 | Update imports, verify compilation | **COMPLETE** |
-| Phase 4 | Add missing utilities (grep, sql) | **PARTIAL** (grep done) |
-| Phase 5 | Cleanup and documentation | Not started |
+| Phase 4 | Add grep utility | **COMPLETE** |
+| Phase 5 | Cleanup and documentation | **COMPLETE** |
 
 ### Completed Work
 
@@ -48,6 +48,8 @@ Bring os-coreutils back into the main OS repo under `rom/`.
 7. Phase 4 - Added grep utility:
    - `rom/bin/grep.ts` - Full regex search with -i, -v, -n, -c, -l, -h, -H, -r options
    - Now 43 utilities total
+   - `sql.ts` moved to separate planning doc: `ROM_SQL_UTILITY.md`
+8. Phase 5 - Documentation updated, repatriation complete
 
 ---
 
