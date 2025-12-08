@@ -20,15 +20,47 @@ With Monk OS, all of these things work the same way - through "files." Want to s
 
 ## The Big Ideas (In Plain English)
 
+### Every File Is Also a Database Record
+
+This is the key insight. In Monk OS, every file has two personalities:
+
+**As a file**, it has:
+- A path (`/home/alice/notes.txt`)
+- Contents you can read and write
+- The familiar open/read/write/close operations
+
+**As a database record**, it has:
+- A unique ID (UUID)
+- Timestamps (created, updated)
+- Custom fields you define
+- The ability to be queried, filtered, and indexed
+
+So you can do *both* of these:
+
+```typescript
+// Treat it like a file
+const content = await os.text('/home/alice/notes.txt');
+
+// Treat it like a database record
+const recentNotes = await os.ems('select', 'file', {
+    where: {
+        owner: 'alice',
+        updated_at: { $gte: '2025-01-01' }
+    },
+    order: { field: 'updated_at', sort: 'desc' }
+});
+```
+
+**Why is this useful?** Because sometimes you want to read a specific file by path. Other times you want to find all files matching certain criteria. Same data, two ways to access it.
+
 ### "Everything Is a File"
 
-This is the core philosophy. In Monk OS:
-- Regular documents? Files (obviously)
-- Database records? Also files
-- Running programs? You can read their info from files
-- Network connections? Yep, files too
+Building on the database idea, Monk OS also treats *non-file things* as files:
+- Running programs? Read their info from `/proc/{id}/stat`
+- Devices? Read from `/dev/random`, write to `/dev/null`
+- Network connections? Also file operations
 
-This sounds weird, but it makes things consistent. Once you learn how to work with files, you can work with *everything*.
+This sounds weird, but it means one mental model for everything.
 
 ### "Bun Is the Hardware"
 
@@ -77,7 +109,9 @@ await os.shutdown();
 
 | Term | Simple Explanation |
 |------|-------------------|
-| **VFS** | Virtual File System - the fake disk drive where files live |
+| **Entity** | A database record - every file, folder, and resource is one |
+| **VFS** | Virtual File System - access entities by path (`/home/alice/file.txt`) |
+| **EMS** | Entity Management System - access entities by query (`select where owner = 'alice'`) |
 | **HAL** | Hardware Abstraction Layer - the code that talks to the real computer |
 | **Kernel** | The "brain" of the OS that manages everything |
 | **Process** | A running program |
