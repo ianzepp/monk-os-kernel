@@ -1,367 +1,395 @@
 # Monk OS AI Layer
 
-> **Status**: Feasible - Infrastructure Exists
-> **Depends on**: None (all prerequisites implemented)
+> **Status**: Planning
+> **Depends on**: HAL, EMS, Shell/Coreutils
 
-This document captures thinking on AI integration with Monk OS.
-
----
-
-## Feasibility Assessment
-
-### Infrastructure Already Implemented
-
-| Capability | Status | Implementation |
-|------------|--------|----------------|
-| Process spawning | ✅ | `spawn()`, `wait()`, `kill()` in `rom/lib/process/proc.ts` |
-| Shell commands | ✅ | Shell library with parsing, glob expansion |
-| File operations | ✅ | Full VFS syscalls (open, read, write, stat, readdir, etc.) |
-| Event subscriptions | ✅ | `WatchPort` for file events, `PubsubPort` for topic-based pub/sub |
-| Module loader | ✅ | VFSLoader transpiles and executes TypeScript from VFS |
-| Console I/O | ✅ | ConsoleHandle for stdin/stdout |
-| Channel IPC | ✅ | Channel syscalls for inter-process communication |
-
-### What's Missing
-
-| Capability | Status | Notes |
-|------------|--------|-------|
-| Timer port | ❌ | No `timer` port type for scheduled execution |
-| Dynamic code eval | ⚠️ | VFSLoader requires file in VFS, no `exec(code)` syscall |
-| AI provider integration | ❌ | No HAL device for LLM API calls |
+This document captures the architecture for AI integration with Monk OS.
 
 ---
 
-## Architecture (Updated for Current OS)
+## Core Concepts
+
+### LLM vs AI
+
+| Concept | Role | Layer |
+|---------|------|-------|
+| **LLM** | Pattern matching. Prompt in, text out. Stateless inference. | HAL |
+| **AI** | Tool-using intelligence. Plans, executes, remembers. | Kernel subsystem |
+
+The LLM is infrastructure (like a database). The AI is the coordinator that uses the LLM alongside other OS capabilities.
+
+---
+
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  User                                                       │
-│       │                                                     │
-│       ▼                                                     │
-│  ┌─────────────────────────────────────────────────────────┐│
-│  │  AI Process (/bin/ai or similar)                        ││
-│  │                                                         ││
-│  │  - Receives user input (stdin via ConsoleHandle)        ││
-│  │  - Calls LLM (via HAL channel or HTTP syscall)          ││
-│  │  - Executes shell commands (spawn /bin/shell -c ...)    ││
-│  │  - Executes TypeScript (write to /tmp, spawn)           ││
-│  │  - Subscribes to events (WatchPort, PubsubPort)         ││
-│  │                                                         ││
-│  └─────────────────────────────────────────────────────────┘│
-│       │                                                     │
-│       │ syscalls                                            │
-│       ▼                                                     │
-├─────────────────────────────────────────────────────────────┤
-│  Kernel (syscalls, handles, ports)                          │
-├─────────────────────────────────────────────────────────────┤
-│  HAL (console, file, channel, network)                      │
+│ Userspace                                                   │
+│   /bin/shell   /bin/cat   /bin/grep   /bin/awk   ...       │
+│   (AI uses these as tools for text/data processing)        │
 └─────────────────────────────────────────────────────────────┘
+                          │ syscalls
+                          ▼
+┌─────────────────────────────────────────────────────────────┐
+│ Kernel                                                      │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐   │
+│  │   Auth   │  │    AI    │  │   VFS    │  │   EMS    │   │
+│  │  worker  │  │  worker  │  │          │  │          │   │
+│  └──────────┘  └──────────┘  └──────────┘  └──────────┘   │
+│                     │                                       │
+│              ┌──────┴──────┐                               │
+│              │  ai:* calls │                               │
+│              │  memory mgmt│                               │
+│              │  tool exec  │                               │
+│              └──────┬──────┘                               │
+│                     ▼                                       │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ EMS (ai.stm, ai.ltm, ai.procedural, ai.embedding)   │   │
+│  └─────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────────┐
+│ HAL                                                         │
+│   hal.llm   hal.file   hal.ems   hal.network   ...         │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Layer Responsibilities
+
+**HAL (hal.llm)**
+- Dumb inference pipe
+- Provider abstraction (Anthropic, OpenAI, Ollama, local)
+- API key management, rate limiting, retries
+- Prompt in → text/embeddings out
+
+**AI Worker (kernel subsystem)**
+- Coordinates tool use, memory, and inference
+- Spawns shell/coreutils for text processing
+- Manages memory (STM, LTM, procedural)
+- Handles ai:* syscalls
+- Similar pattern to Auth worker
+
+**Userspace (shell + coreutils)**
+- `/bin/shell` - command interpreter
+- `/bin/cat`, `/bin/grep`, `/bin/awk`, etc. - text processing tools
+- AI worker spawns these as needed
+
+---
+
+## Syscalls (ai:*)
+
+| Syscall | Description |
+|---------|-------------|
+| `ai:complete` | One-shot inference (prompt → response) |
+| `ai:chat` | Conversational with STM context |
+| `ai:embed` | Generate embeddings for text |
+| `ai:exec` | "Do this" - AI plans and executes tools |
+| `ai:remember` | Store to LTM explicitly |
+| `ai:recall` | Query memory (STM, LTM, procedural) |
+
+### Examples
+
+```typescript
+// Simple completion
+const response = await syscall('ai:complete', {
+  prompt: 'Summarize this error log',
+  context: logContent
+});
+
+// Conversational (manages STM automatically)
+const response = await syscall('ai:chat', {
+  session: 'user-123',
+  message: 'How many account records changed today?'
+});
+
+// AI executes tools autonomously
+const result = await syscall('ai:exec', {
+  task: 'Find all files larger than 10MB and list them by size',
+  cwd: '/var/log'
+});
+
+// Generate embeddings for semantic search
+const vector = await syscall('ai:embed', {
+  text: 'account billing invoice payment'
+});
+
+// Explicit memory operations
+await syscall('ai:remember', {
+  content: 'User prefers terse responses',
+  scope: 'user-123'
+});
+
+const memories = await syscall('ai:recall', {
+  query: 'user preferences',
+  scope: 'user-123'
+});
 ```
 
 ---
 
-## Capabilities (How They Work Today)
+## Memory Model
 
-### 1. Shell Commands
+Memory is stored as EMS entities. The AI worker queries and manages these.
 
-Already works via `spawn()`:
+### Memory Types
+
+| Model | Purpose | Retention |
+|-------|---------|-----------|
+| `ai.stm` | Short-term memory. Conversation turns, recent context. | Session or hours |
+| `ai.ltm` | Long-term memory. Consolidated knowledge, facts. | Persistent |
+| `ai.procedural` | Tool patterns that worked. "This query format succeeded." | Persistent |
+| `ai.embedding` | Vector index for semantic similarity search. | Persistent |
+
+### Entity Schemas
 
 ```typescript
-import { spawn, wait } from '/lib/process';
+// Short-term memory (conversation turns)
+interface STM {
+  model: 'ai.stm';
+  session: string;      // session identifier
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  ts: number;
+}
 
-const pid = await spawn('/bin/shell', { args: ['-c', 'ls -la /home'] });
-const result = await wait(pid);
-```
+// Long-term memory (consolidated knowledge)
+interface LTM {
+  model: 'ai.ltm';
+  scope: string;        // user, org, or global
+  topic: string;        // categorization
+  content: string;
+  ts: number;
+}
 
-### 2. TypeScript Execution
+// Procedural memory (successful patterns)
+interface Procedural {
+  model: 'ai.procedural';
+  trigger: string;      // what kind of request
+  pattern: string;      // what worked
+  success_count: number;
+  ts: number;
+}
 
-VFSLoader can load and execute TypeScript from VFS. AI-generated code can be:
-
-**Option A: Write to temp file, spawn**
-```typescript
-import { open, write, close, spawn, wait, unlink } from '/lib/process';
-
-// AI generates code
-const code = `
-import { readdir, stat, unlink } from '/lib/process';
-// ... AI-generated logic
-`;
-
-// Write to temp file
-const fd = await open('/tmp/ai_script.ts', { write: true, create: true });
-await write(fd, new TextEncoder().encode(code));
-await close(fd);
-
-// Execute
-const pid = await spawn('/tmp/ai_script.ts');
-await wait(pid);
-
-// Cleanup
-await unlink('/tmp/ai_script.ts');
-```
-
-**Option B: Add `exec(code)` syscall** (not implemented)
-```typescript
-// Would require new syscall that writes to temp, spawns, and cleans up
-await exec(`
-  const files = await readdir('/data');
-  for (const name of files) {
-    // ...
-  }
-`);
-```
-
-### 3. Event Subscriptions
-
-Already implemented via ports:
-
-**File watching (WatchPort)**
-```typescript
-import { port } from '/lib/process';
-
-// Watch for file changes
-const watcher = await port('watch', { pattern: '/inbox/*' });
-
-for await (const event of recv(watcher)) {
-  // event.meta has: path, event (created/modified/deleted)
-  const content = await read(event.meta.path);
-  await processInboxItem(content);
+// Embedding index
+interface Embedding {
+  model: 'ai.embedding';
+  source_model: string; // which entity this embeds
+  source_id: string;
+  vector: number[];
+  ts: number;
 }
 ```
 
-**Pub/sub (PubsubPort)**
+### Memory Consolidation ("Sleep")
+
+STM accumulates during active use. Consolidation runs during idle periods (or scheduled):
+
 ```typescript
-import { port, recv } from '/lib/process';
+// Consolidation process
+async function consolidate() {
+  // Gather recent STM
+  const recent = await ems.query('ai.stm', { age: '<24h' });
 
-// Subscribe to topic pattern
-const bus = await port('pubsub', { subscribe: ['alerts.*'] });
+  // Extract key information via LLM
+  const consolidated = await hal.llm.complete({
+    prompt: 'Extract key facts, preferences, and patterns worth remembering long-term',
+    context: recent
+  });
 
-for await (const msg of recv(bus)) {
-  // Handle alert
-  await respondToAlert(msg);
+  // Store to LTM
+  await ems.insert('ai.ltm', {
+    scope: 'user-123',
+    topic: 'daily-summary',
+    content: consolidated,
+    ts: Date.now()
+  });
+
+  // Prune old STM
+  await ems.delete('ai.stm', { age: '>48h' });
 }
 ```
 
-### 4. Periodic Tasks
+Like human sleep: experiences accumulate during the day, important patterns consolidate overnight, noise is forgotten.
 
-**Current: Sleep loop (userland)**
+---
+
+## Tool Execution
+
+The AI worker uses shell and coreutils as tools. This avoids reimplementing text processing.
+
+### Flow
+
+```
+User: "Find log files with errors and count them"
+                    │
+                    ▼
+AI worker:
+  1. Query STM/LTM for context
+  2. Call hal.llm to plan: "grep -l 'error' /var/log/*.log | wc -l"
+  3. Spawn /bin/shell with command
+  4. Capture output
+  5. Call hal.llm to format response
+  6. Store interaction in STM
+  7. Return to user
+```
+
+### Why Shell/Coreutils?
+
+- Already handles edge cases (quoting, escaping, pipes)
+- Composable via pipes
+- AI can generate shell commands (well-documented in training data)
+- No need to reimplement grep, awk, sed, etc.
+
+---
+
+## HAL LLM Interface
+
+`hal.llm` is the dumb inference layer. Provider-agnostic.
+
+### Operations
+
 ```typescript
-import { sleep } from '/lib/process';
+interface HalLLM {
+  // Text completion
+  complete(opts: {
+    prompt: string;
+    context?: string;
+    model?: string;
+    temperature?: number;
+    max_tokens?: number;
+  }): Promise<string>;
 
-while (true) {
-  await cleanupTempFiles();
-  await sleep(3600_000); // 1 hour
+  // Streaming completion
+  stream(opts: {
+    prompt: string;
+    context?: string;
+  }): AsyncIterator<string>;
+
+  // Embeddings
+  embed(opts: {
+    text: string;
+    model?: string;
+  }): Promise<number[]>;
 }
 ```
 
-**Future: Timer port (not implemented)**
+### Provider Configuration
+
 ```typescript
-// Would be cleaner with a timer port
-const timer = await port('timer', { interval: 3600_000 });
-for await (const tick of recv(timer)) {
-  await cleanupTempFiles();
+// Config in /etc/ai.conf or similar
+{
+  provider: 'anthropic' | 'openai' | 'ollama' | 'local',
+  endpoint: 'https://api.anthropic.com' | 'http://localhost:11434',
+  api_key: '...',
+  default_model: 'claude-3-sonnet',
+  embedding_model: 'text-embedding-3-small'
 }
+```
+
+HAL handles:
+- Provider-specific API formats
+- Authentication
+- Rate limiting and retries
+- Error normalization
+
+---
+
+## Context Window Management
+
+LLMs have finite context windows. The AI worker must select what fits.
+
+```
+Available:
+  - STM: 500 turns (too much)
+  - LTM: 1000 entries (too much)
+  - Current request context
+
+Must fit in:
+  - Model context window (e.g., 100k tokens)
+
+Strategy:
+  1. Current request (always included)
+  2. Recent STM (last N turns)
+  3. Relevant LTM (semantic search via embeddings)
+  4. Relevant procedural memory
+  5. Truncate/summarize if still too large
 ```
 
 ---
 
 ## Implementation Plan
 
-### Phase 1: AI Process (Minimal)
+### Phase 1: HAL LLM
 
-Create `/bin/ai` that:
-1. Reads user input from stdin
-2. Calls external LLM API (via HTTP channel)
-3. Parses LLM response for shell commands
-4. Executes via `spawn('/bin/shell', { args: ['-c', command] })`
+1. Add `hal.llm` device with complete/embed operations
+2. Support at least one provider (Anthropic or Ollama)
+3. Provider config in /etc/ai.conf
 
-```typescript
-// /bin/ai (simplified)
-import { read, write, spawn, wait } from '/lib/process';
-import { channel } from '/lib/process';
+### Phase 2: AI Worker
 
-const llm = await channel.open('https', 'api.anthropic.com');
+1. Create AI worker (kernel subsystem, like Auth)
+2. Implement `ai:complete` and `ai:chat` syscalls
+3. Basic STM storage in EMS
 
-while (true) {
-  // Read user input
-  const input = await readLine(stdin);
+### Phase 3: Shell Integration
 
-  // Call LLM
-  const response = await llm.call('POST', '/v1/messages', {
-    model: 'claude-3-sonnet',
-    messages: [{ role: 'user', content: input }]
-  });
+1. Reintroduce `/bin/shell` to OS userspace
+2. Add basic coreutils (`cat`, `grep`, `head`, `tail`, `wc`)
+3. AI worker can spawn tools
 
-  // Parse and execute
-  for (const command of parseCommands(response)) {
-    const pid = await spawn('/bin/shell', { args: ['-c', command] });
-    await wait(pid);
-  }
-}
-```
+### Phase 4: Memory
 
-### Phase 2: TypeScript Execution
+1. LTM storage and retrieval
+2. Procedural memory for tool patterns
+3. Embedding support in EMS
+4. Consolidation process
 
-Add convenience wrapper for AI-generated code:
+### Phase 5: Advanced
 
-```typescript
-// /lib/ai.ts
-export async function execCode(code: string): Promise<void> {
-  const tempPath = `/tmp/ai_${Date.now()}.ts`;
-  const fd = await open(tempPath, { write: true, create: true });
-  await write(fd, new TextEncoder().encode(code));
-  await close(fd);
-
-  try {
-    const pid = await spawn(tempPath);
-    await wait(pid);
-  } finally {
-    await unlink(tempPath);
-  }
-}
-```
-
-### Phase 3: Event Integration
-
-AI subscribes to system events:
-
-```typescript
-// AI with autonomous capabilities
-const watcher = await port('watch', { pattern: '/inbox/*' });
-const alerts = await port('pubsub', { subscribe: ['system.alerts.*'] });
-
-// Handle events concurrently
-await Promise.all([
-  handleFileEvents(watcher),
-  handleAlerts(alerts),
-  handleUserInput(stdin),
-]);
-```
-
-### Phase 4: Timer Port (Optional)
-
-Add `timer` port type for cleaner scheduled execution:
-
-```typescript
-// src/kernel/resource/timer-port.ts
-class TimerPort implements Port {
-  private interval: number;
-  private handle: Timer | null = null;
-
-  constructor(opts: { interval: number }) {
-    this.interval = opts.interval;
-  }
-
-  async *recv(): AsyncGenerator<PortMessage> {
-    while (!this._closed) {
-      await sleep(this.interval);
-      yield { op: 'tick', data: { timestamp: Date.now() } };
-    }
-  }
-}
-```
+1. `ai:exec` for autonomous tool use
+2. Streaming responses
+3. Multi-provider support
+4. Context window optimization
 
 ---
 
-## Open Questions (Updated)
+## Open Questions
 
-### 1. TypeScript Execution Model
+### 1. Embedding Storage
 
-| Option | Feasibility | Notes |
-|--------|-------------|-------|
-| Write to temp, spawn | ✅ Works today | Slightly awkward but functional |
-| `exec(code)` syscall | Easy to add | Syntactic sugar over option 1 |
-| Eval in AI process | ❌ Complex | Would need kernel reference injection |
+Should embeddings live in EMS or a dedicated vector store?
 
-**Recommendation**: Start with temp file approach, add `exec()` syscall later.
+| Option | Pros | Cons |
+|--------|------|------|
+| EMS | Unified storage, existing query language | May need vector index extension |
+| Dedicated | Optimized for vector ops | Another system to maintain |
 
 ### 2. Permission Model
 
-| Option | Feasibility | Notes |
-|--------|-------------|-------|
-| User-scoped | ✅ Works today | AI inherits caller's permissions |
-| Root equivalent | ⚠️ Risk | Run AI as privileged user |
-| Escalation | Not implemented | Would need sudo syscall |
+How does AI worker permission work?
 
-**Recommendation**: User-scoped for now. Add sudo later if needed.
+| Option | Notes |
+|--------|-------|
+| Inherits caller | AI has same permissions as requesting user |
+| Dedicated AI user | AI runs as its own principal |
+| Escalation | AI can request elevated permissions (with approval) |
 
-### 3. Code Review / Approval
+### 3. Tool Sandboxing
 
-| Mode | Implementation |
-|------|----------------|
-| Auto | Just execute (current) |
-| Review | AI prints code, waits for 'y' before executing |
-| Hybrid | Categorize commands (safe vs destructive) |
+How much can AI-spawned tools do?
 
-**Recommendation**: Review mode for destructive operations (unlink, write).
-
-### 4. LLM Integration
-
-| Option | Implementation |
-|--------|----------------|
-| HTTP channel | ✅ Use existing channel.open('https', ...) |
-| Dedicated HAL device | Could add `hal.llm` device |
-| External process | Spawn separate LLM client process |
-
-**Recommendation**: HTTP channel for MVP, consider HAL device later.
-
-### 5. Persistence
-
-| Feature | Implementation |
-|---------|----------------|
-| Conversation history | Write to `/home/user/.ai_history` |
-| Preferences | Config file `/home/user/.airc` |
-| Learned patterns | SQLite via EMS |
-
----
-
-## Example Session
-
-```
-> find all log files larger than 10MB and summarize them
-
-AI: I'll search for large log files and analyze them.
-
-[Executing: ls -la /var/log]
-[Executing: stat /var/log/system.log]
-...
-
-Found 3 files over 10MB:
-  - system.log (45 MB)
-  - access.log (12 MB)
-  - error.log (11 MB)
-
-[Reading and analyzing each file...]
-
-Summary:
-  - system.log: Routine startup messages, 3 disk space warnings
-  - access.log: 50,000 requests, top: /api/users, /api/data
-  - error.log: 127 errors, mostly timeouts, spike at 3am
-
-> delete access.log
-
-AI: This will permanently delete /var/log/access.log (12 MB).
-Proceed? [y/N] y
-
-[Executing: rm /var/log/access.log]
-
-Done. File deleted.
-
-> !shell
-
-$ ls /var/log
-system.log  error.log
-$ exit
-
-> (back to AI)
-```
+| Option | Notes |
+|--------|-------|
+| Full access | AI tools have caller's permissions |
+| Restricted | AI tools run in sandbox |
+| Approval | Destructive operations require confirmation |
 
 ---
 
 ## References
 
-- `src/kernel/resource/watch-port.ts` - File system event watching
-- `src/kernel/resource/pubsub-port.ts` - Topic-based pub/sub
-- `src/kernel/loader/vfs-loader.ts` - TypeScript module loading
-- `rom/lib/process/proc.ts` - Process syscalls (spawn, wait, kill)
-- `rom/lib/shell/` - Shell parsing and execution
+- `src/kernel/subsys/auth/` - Auth worker pattern to follow
+- `src/hal/` - HAL device implementations
+- `src/ems/` - Entity storage
+- `rom/lib/shell/` - Existing shell implementation (to reintroduce)
