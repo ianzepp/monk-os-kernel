@@ -51,6 +51,8 @@ import { SyscallDispatcher } from '@src/syscall/index.js';
 import { Gateway } from '@src/gateway/index.js';
 import type { DatabaseConnection } from '@src/ems/connection.js';
 import type { FileDevice } from '@src/hal/file.js';
+import type { Process } from '@src/kernel/types.js';
+import type { Response } from '@src/message.js';
 import { BaseOS } from './base.js';
 
 // =============================================================================
@@ -447,5 +449,169 @@ export class TestOS extends BaseOS {
         }
 
         return this.__gateway;
+    }
+
+    // =========================================================================
+    // SYSCALL TESTING SUPPORT
+    // =========================================================================
+
+    /**
+     * Virtual test process for syscall testing.
+     *
+     * WHY: Allows syscall tests without spawning a real init process.
+     * Created lazily on first syscall invocation.
+     */
+    private testProcess: Process | null = null;
+
+    /**
+     * Create a virtual process for syscall testing.
+     *
+     * WHY: Syscall handlers require a Process object for identity and state.
+     * This creates a minimal virtual process that works for testing without
+     * spawning a real worker.
+     *
+     * @param user - User identity for ACL checks (default: 'test')
+     */
+    private createTestProcess(user = 'test'): Process {
+        return {
+            id: crypto.randomUUID(),
+            parent: '',
+            user,
+            worker: null as unknown as Worker,
+            virtual: true,
+            state: 'running',
+            cmd: '/test',
+            cwd: '/',
+            env: {},
+            args: [],
+            pathDirs: new Map(),
+            handles: new Map(),
+            nextHandle: 3,
+            children: new Map(),
+            nextPid: 1,
+            activeStreams: new Map(),
+            streamPingHandlers: new Map(),
+        };
+    }
+
+    /**
+     * Get or create the test process.
+     *
+     * WHY: Reuses the same test process across syscalls for consistency.
+     * The process is created lazily on first use.
+     */
+    private getTestProcess(): Process {
+        if (!this.testProcess) {
+            this.testProcess = this.createTestProcess();
+        }
+
+        return this.testProcess;
+    }
+
+    /**
+     * Execute a syscall for testing.
+     *
+     * WHY: Override of BaseOS.syscall() that works without init process.
+     * Uses a virtual test process for syscall dispatch, enabling syscall
+     * tests without full kernel boot.
+     *
+     * @param name - Syscall name (e.g., 'file:stat')
+     * @param args - Syscall arguments
+     * @returns Syscall result
+     * @throws Error with code from syscall (e.g., EINVAL, ENOENT)
+     */
+    override async syscall<T = unknown>(name: string, ...args: unknown[]): Promise<T> {
+        if (!this.__dispatcher) {
+            throw new Error('Dispatcher not booted');
+        }
+
+        // WHY: Use test process instead of init process
+        // This enables syscall testing without spawning a real worker
+        const proc = this.getTestProcess();
+
+        const stream = this.__dispatcher.dispatch(proc, name, args);
+
+        // Collect response - same logic as BaseOS.syscall()
+        const items: unknown[] = [];
+        let singleResult: unknown = undefined;
+        let hasOk = false;
+
+        for await (const response of stream) {
+            if (response.op === 'error') {
+                const error = new Error((response.data as { message?: string }).message ?? 'Syscall error');
+
+                (error as Error & { code: string }).code = (response.data as { code: string }).code;
+                throw error;
+            }
+
+            if (response.op === 'ok') {
+                hasOk = true;
+                singleResult = response.data;
+            }
+            else if (response.op === 'item') {
+                items.push(response.data);
+            }
+        }
+
+        // WHY: Return items array for streaming syscalls, single result otherwise
+        if (items.length > 0) {
+            return items as T;
+        }
+
+        if (hasOk) {
+            return singleResult as T;
+        }
+
+        return undefined as T;
+    }
+
+    /**
+     * Execute a streaming syscall for testing.
+     *
+     * WHY: Override of BaseOS.syscallStream() that works without init process.
+     * Returns raw response stream for tests that need to inspect individual
+     * responses (item, done, error).
+     *
+     * @param name - Syscall name (e.g., 'file:readdir')
+     * @param args - Syscall arguments
+     * @returns Async iterable of responses
+     */
+    override syscallStream(name: string, ...args: unknown[]): AsyncIterable<Response> {
+        if (!this.__dispatcher) {
+            throw new Error('Dispatcher not booted');
+        }
+
+        // WHY: Use test process instead of init process
+        const proc = this.getTestProcess();
+
+        return this.__dispatcher.dispatch(proc, name, args);
+    }
+
+    /**
+     * Set the user identity for test syscalls.
+     *
+     * WHY: Some syscalls check user identity for ACL. Tests may need to
+     * simulate different users.
+     *
+     * @param user - User identity (e.g., 'root', 'alice', 'kernel')
+     */
+    setTestUser(user: string): void {
+        const proc = this.getTestProcess();
+
+        proc.user = user;
+    }
+
+    /**
+     * Set the working directory for test syscalls.
+     *
+     * WHY: Some syscalls resolve relative paths against cwd. Tests may
+     * need to simulate different working directories.
+     *
+     * @param cwd - Working directory path
+     */
+    setTestCwd(cwd: string): void {
+        const proc = this.getTestProcess();
+
+        proc.cwd = cwd;
     }
 }
