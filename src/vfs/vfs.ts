@@ -310,8 +310,8 @@ export class VFS {
         // Register built-in models
         // FileModel and FolderModel require EMS dependencies
         if (ems) {
-            this.registerModel(new FileModel(ems.cache, ems.ops));
-            this.registerModel(new FolderModel(ems.cache, ems.ops));
+            this.registerModel(new FileModel(ems.pathCache, ems.ops));
+            this.registerModel(new FolderModel(ems.pathCache, ems.ops));
         }
 
         this.registerModel(new DeviceModel());
@@ -350,7 +350,7 @@ export class VFS {
             await this.ems.exec(schema, { clearModels: true });
 
             // Reload EntityCache to pick up root entity from VFS schema
-            await this.ems.cache.loadFromDatabase(this.ems.db);
+            await this.ems.pathCache.loadFromDatabase(this.ems.db);
         }
 
         // Verify root exists (seeded by VFS schema)
@@ -398,7 +398,7 @@ export class VFS {
         // Root is seeded in schema.sql and loaded into EntityCache.
         // Just verify it exists in cache.
         if (this.ems) {
-            const root = this.ems.cache.getEntity(ROOT_ID);
+            const root = this.ems.pathCache.getEntry(ROOT_ID);
 
             if (!root) {
                 throw new EINVAL('Root entity not found in EntityCache. Database may not be initialized.');
@@ -579,7 +579,7 @@ export class VFS {
 
         const mount = await createEntityMount(
             vfsPath,
-            this.ems.cache,
+            this.ems.pathCache,
             this.ems.ops,
             this.ems.models,
             options,
@@ -1346,7 +1346,7 @@ export class VFS {
     private async findChild(parentId: string, name: string): Promise<string | null> {
         // Try EntityCache first (EMS entities: file, folder)
         if (this.ems) {
-            const childId = this.ems.cache.getChild(parentId, name);
+            const childId = this.ems.pathCache.getChild(parentId, name);
 
             if (childId) {
                 return childId;
@@ -1554,7 +1554,7 @@ export class VFS {
             async getEntity(id: string): Promise<ModelStat | null> {
                 // EMS entities: EntityCache → EntityOps
                 if (self.ems) {
-                    const cached = self.ems.cache.getEntity(id);
+                    const cached = self.ems.pathCache.getEntry(id);
 
                     if (cached) {
                         // Query detail table for full record
@@ -1607,7 +1607,7 @@ export class VFS {
                 while (currentId && currentId !== ROOT_ID) {
                     // EMS entities: use EntityCache
                     if (self.ems) {
-                        const cached = self.ems.cache.getEntity(currentId);
+                        const cached = self.ems.pathCache.getEntry(currentId);
 
                         if (cached) {
                             parts.unshift(cached.pathname);

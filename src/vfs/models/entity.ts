@@ -6,7 +6,7 @@
  * EntityModel provides a unified VFS interface for all entity types stored in
  * the `entities` table. Unlike model-specific implementations (FileModel,
  * FolderModel), EntityModel dispatches to the correct detail table based on
- * the entity's `model` field from EntityCache.
+ * the entity's `model` field from PathCache.
  *
  * This enables polymorphic hierarchy where any VFS-addressable model can exist
  * at any path. A folder can contain files, users, configs, devices - whatever
@@ -15,7 +15,7 @@
  * TWO-TABLE ARCHITECTURE
  * ======================
  * ```
- * EntityCache.resolvePath("/home/ian/settings.json")
+ * PathCache.resolvePath("/home/ian/settings.json")
  *     │
  *     └── returns { id, model: 'config', parent, pathname }
  *                        │
@@ -33,7 +33,7 @@
  * ==========
  * INV-1: Every entity has a row in both `entities` and its detail table
  * INV-2: entity.model determines which detail table to query
- * INV-3: EntityCache is the source of truth for path resolution
+ * INV-3: PathCache is the source of truth for path resolution
  * INV-4: Detail tables are queried by id (primary key), not by path
  *
  * @module vfs/models/entity
@@ -42,7 +42,7 @@
 import { PosixModel } from '@src/vfs/model.js';
 import type { ModelStat, ModelContext, FieldDef, WatchEvent } from '@src/vfs/model.js';
 import type { FileHandle, OpenFlags, OpenOptions, SeekWhence } from '@src/vfs/handle.js';
-import type { EntityCache, CachedEntity } from '@src/ems/entity-cache.js';
+import type { PathCache, PathEntry } from '@src/vfs/path-cache.js';
 import type { EntityOps, EntityRecord } from '@src/ems/entity-ops.js';
 import { ENOENT, EBADF, EACCES, EINVAL, ENOSYS } from '@src/hal/index.js';
 
@@ -100,7 +100,7 @@ const ENTITY_FIELDS: FieldDef[] = [
  * EntityModel - Polymorphic VFS model for entities table.
  *
  * Handles all VFS operations by:
- * 1. Using EntityCache for path resolution (id + model)
+ * 1. Using PathCache for path resolution (id + model)
  * 2. Querying the correct detail table based on entity.model
  * 3. Using HAL for blob storage
  */
@@ -123,9 +123,9 @@ export class EntityModel extends PosixModel {
     // =========================================================================
 
     /**
-     * Entity cache for path resolution.
+     * Path cache for path resolution.
      */
-    private readonly cache: EntityCache;
+    private readonly cache: PathCache;
 
     /**
      * Entity operations for detail table queries.
@@ -139,10 +139,10 @@ export class EntityModel extends PosixModel {
     /**
      * Create an EntityModel.
      *
-     * @param cache - EntityCache for path resolution
+     * @param cache - PathCache for path resolution
      * @param db - EntityOps for detail table queries
      */
-    constructor(cache: EntityCache, db: EntityOps) {
+    constructor(cache: PathCache, db: EntityOps) {
         super();
         this.cache = cache;
         this.db = db;
@@ -189,7 +189,7 @@ export class EntityModel extends PosixModel {
         opts?: OpenOptions,
     ): Promise<FileHandle> {
         // Get entity from cache
-        const entity = this.cache.getEntity(id);
+        const entity = this.cache.getEntry(id);
 
         if (!entity) {
             throw new ENOENT(`Entity not found: ${id}`);
@@ -246,7 +246,7 @@ export class EntityModel extends PosixModel {
      */
     async stat(_ctx: ModelContext, id: string): Promise<ModelStat> {
         // Get entity from cache
-        const entity = this.cache.getEntity(id);
+        const entity = this.cache.getEntry(id);
 
         if (!entity) {
             throw new ENOENT(`Entity not found: ${id}`);
@@ -296,7 +296,7 @@ export class EntityModel extends PosixModel {
      * @throws ENOENT if not found
      */
     async setstat(_ctx: ModelContext, id: string, fields: Partial<ModelStat>): Promise<void> {
-        const entity = this.cache.getEntity(id);
+        const entity = this.cache.getEntry(id);
 
         if (!entity) {
             throw new ENOENT(`Entity not found: ${id}`);
@@ -315,7 +315,7 @@ export class EntityModel extends PosixModel {
         // The observer pipeline handles:
         // - Updating entities.parent if parent changed
         // - Updating entities.pathname if pathname source field changed
-        // - Updating EntityCache
+        // - Updating PathCache
         // Consume the generator to execute the update
         for await (const _ of this.db.updateIds(entity.model, [id], emsFields)) {
             // Consume results
@@ -377,7 +377,7 @@ export class EntityModel extends PosixModel {
      * @throws ENOENT if not found
      */
     async unlink(_ctx: ModelContext, id: string): Promise<void> {
-        const entity = this.cache.getEntity(id);
+        const entity = this.cache.getEntry(id);
 
         if (!entity) {
             throw new ENOENT(`Entity not found: ${id}`);
@@ -393,7 +393,7 @@ export class EntityModel extends PosixModel {
     /**
      * List children of an entity.
      *
-     * Uses EntityCache.listChildren for O(1) lookup.
+     * Uses PathCache.listChildren for O(1) lookup.
      *
      * @param _ctx - Model context (unused)
      * @param id - Parent entity UUID
@@ -459,7 +459,7 @@ class EntityHandleImpl implements FileHandle {
 
     private readonly ctx: ModelContext;
     private readonly db: EntityOps;
-    private readonly entity: CachedEntity;
+    private readonly entity: PathEntry;
     private stat: ModelStat;
 
     // =========================================================================
@@ -469,7 +469,7 @@ class EntityHandleImpl implements FileHandle {
     constructor(
         ctx: ModelContext,
         db: EntityOps,
-        entity: CachedEntity,
+        entity: PathEntry,
         stat: ModelStat,
         content: Uint8Array,
         flags: OpenFlags,

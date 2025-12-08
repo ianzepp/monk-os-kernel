@@ -97,8 +97,8 @@ export interface EntitySystemContext extends SystemContext {
     /** Observer runner */
     runner: ObserverRunner;
 
-    /** Entity cache for path resolution (optional, set by VFS layer) */
-    entityCache?: unknown;
+    /** Path cache for path resolution (optional, set by VFS layer) */
+    pathCache?: unknown;
 }
 
 // =============================================================================
@@ -668,16 +668,16 @@ export class EntityOps {
     }
 
     /**
-     * Set the entity cache for Ring 8 EntityCacheSync observer.
+     * Set the path cache for Ring 8 PathCacheSync observer.
      *
-     * WHY method not constructor: EntityCache may be created after EntityOps,
-     * and the circular dependency (EntityOps → EntityCache → VFS → EntityOps)
+     * WHY method not constructor: PathCache may be created after EntityOps,
+     * and the circular dependency (EntityOps → PathCache → VFS → EntityOps)
      * makes constructor injection complex.
      *
-     * @param entityCache - EntityCache instance
+     * @param pathCache - PathCache instance
      */
-    setEntityCache(entityCache: unknown): void {
-        this.system.entityCache = entityCache;
+    setPathCache(pathCache: unknown): void {
+        this.system.pathCache = pathCache;
     }
 
     getConnection(): DatabaseConnection {

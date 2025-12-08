@@ -100,17 +100,17 @@ export { ModelRecord, type RecordData, type FieldDiff, type RecordDiff } from '.
 export { ModelCache } from './model-cache.js';
 
 // =============================================================================
-// ENTITY CACHE
+// PATH CACHE (re-export from VFS)
 // =============================================================================
 
 export {
-    EntityCache,
+    PathCache,
     ROOT_ID,
-    type CachedEntity,
-    type EntityInput,
-    type EntityUpdate,
-    type CacheStats,
-} from './entity-cache.js';
+    type PathEntry,
+    type PathEntryInput,
+    type PathEntryUpdate,
+    type PathCacheStats,
+} from '@src/vfs/path-cache.js';
 
 // =============================================================================
 // FILTER SYSTEM

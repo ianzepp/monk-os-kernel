@@ -12,7 +12,7 @@
  * │  EMS (this module)                  │  ← Unified entry point
  * ├─────────────────────────────────────┤
  * │  EntityOps                          │  ← Streaming CRUD + observers
- * │  EntityCache                        │  ← Path resolution cache
+ * │  PathCache                          │  ← Path resolution cache (VFS)
  * │  ModelCache                         │  ← Model metadata cache
  * │  ObserverRunner                     │  ← 8-ring observer pipeline
  * ├─────────────────────────────────────┤
@@ -45,7 +45,7 @@ import type { HAL } from '@src/hal/index.js';
 import { EINVAL } from '@src/hal/errors.js';
 import { createDatabase, type DatabaseConnection } from './connection.js';
 import { ModelCache } from './model-cache.js';
-import { EntityCache } from './entity-cache.js';
+import { PathCache } from '@src/vfs/path-cache.js';
 import { EntityOps } from './entity-ops.js';
 import { createObserverRunner, type ObserverRunner } from './observers/index.js';
 import { EntityAPI } from '@src/os/ems.js';
@@ -97,7 +97,7 @@ export class EMS {
     private _models: ModelCache | null = null;
     private _runner: ObserverRunner | null = null;
     private _ops: EntityOps | null = null;
-    private _cache: EntityCache | null = null;
+    private _pathCache: PathCache | null = null;
     private _api: EntityAPI | null = null;
 
     private initialized = false;
@@ -150,12 +150,12 @@ export class EMS {
         // 4. Create entity operations (streaming CRUD with observers)
         this._ops = new EntityOps(this._db, this._models, this._runner);
 
-        // 5. Create entity cache and populate from database
-        this._cache = new EntityCache();
-        await this._cache.loadFromDatabase(this._db);
+        // 5. Create path cache and populate from database
+        this._pathCache = new PathCache();
+        await this._pathCache.loadFromDatabase(this._db);
 
-        // 6. Wire entity cache to ops for Ring 8 EntityCacheSync observer
-        this._ops.setEntityCache(this._cache);
+        // 6. Wire path cache to ops for Ring 8 PathCacheSync observer
+        this._ops.setPathCache(this._pathCache);
 
         this.initialized = true;
     }
@@ -175,7 +175,7 @@ export class EMS {
         this._models = null;
         this._runner = null;
         this._ops = null;
-        this._cache = null;
+        this._pathCache = null;
         this._api = null;
         this.initialized = false;
     }
@@ -218,16 +218,16 @@ export class EMS {
     }
 
     /**
-     * Entity path resolution cache.
+     * Path resolution cache.
      *
      * @throws EINVAL if not initialized
      */
-    get cache(): EntityCache {
-        if (!this._cache) {
+    get pathCache(): PathCache {
+        if (!this._pathCache) {
             throw new EINVAL('EMS not initialized');
         }
 
-        return this._cache;
+        return this._pathCache;
     }
 
     /**

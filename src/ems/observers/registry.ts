@@ -67,7 +67,7 @@ import { DdlCreateModel, DdlCreateField } from '../ring/6/index.js';
 import { Tracked } from '../ring/7/index.js';
 
 // Ring 8: Integration
-import { Cache, EntityCacheSync } from '../ring/8/index.js';
+import { Cache, PathCacheSync } from '../ring/8/index.js';
 
 // =============================================================================
 // FACTORY
@@ -88,7 +88,7 @@ import { Cache, EntityCacheSync } from '../ring/8/index.js';
  * - Ring 6: DdlCreateModel, DdlCreateField (schema management)
  * - Ring 7: Tracked (audit)
  * - Ring 8: Cache (model cache invalidation)
- * - Ring 8: EntityCacheSync (entity cache sync)
+ * - Ring 8: PathCacheSync (entity cache sync)
  *
  * @returns Configured ObserverRunner
  */
@@ -145,7 +145,7 @@ export function createObserverRunner(): ObserverRunner {
     // RING 8: INTEGRATION
     // =========================================================================
     runner.register(new Cache());
-    runner.register(new EntityCacheSync());
+    runner.register(new PathCacheSync());
 
     // =========================================================================
     // RING 9: NOTIFICATION

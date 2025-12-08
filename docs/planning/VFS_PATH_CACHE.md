@@ -1,10 +1,39 @@
 # VFS PathCache (EntityCache Rewrite)
 
-> **Status**: Planning
+> **Status**: Phase 1 In Progress
 > **Affects**: EMS, VFS, entity-cache.ts, Ring 8 observer
 
-Rename EntityCache to PathCache, move ownership to VFS, and convert from
-preload-all to lazy-loading.
+Rename EntityCache to PathCache and move ownership to VFS.
+
+---
+
+## Phased Approach
+
+### Phase 1: Rename Only (Low Risk)
+
+Mechanical refactoring - rename classes/files, move to VFS, update imports.
+**No behavioral changes.**
+
+| Change | Details |
+|--------|---------|
+| EntityCache → PathCache | Class rename |
+| CachedEntity → PathEntry | Type rename |
+| EntityInput → PathEntryInput | Type rename |
+| EntityUpdate → PathEntryUpdate | Type rename |
+| entity-cache.ts → path-cache.ts | File rename |
+| src/ems/ → src/vfs/ | Move to VFS |
+| EntityCacheSync → PathCacheSync | Observer rename |
+| entityCache → pathCache | Property names |
+
+### Phase 2: Lazy-Load Conversion (Future)
+
+Convert from preload-all to lazy-load on cache miss. Requires design work for:
+- Negative caching (non-existent paths)
+- Batch loading (cold path penalty)
+- Cache eviction (unbounded growth)
+- getChildren() completeness tracking
+
+**Phase 2 is NOT part of this PR.**
 
 ---
 
@@ -304,38 +333,54 @@ interface PathCacheAdapter {
 
 ## Implementation Steps
 
-### Step 1: Create PathCache in VFS
+### Phase 1 Steps (Current)
+
+#### Step 1: Create PathCache in VFS
 
 1. Copy `entity-cache.ts` to `src/vfs/path-cache.ts`
 2. Rename EntityCache → PathCache, CachedEntity → PathEntry
-3. Add constructor that takes DatabaseConnection
-4. Convert `get()` methods to lazy-load (query on cache miss)
-5. Remove `loadFromDatabase()`
+3. Rename EntityInput → PathEntryInput, EntityUpdate → PathEntryUpdate
+4. Keep all existing behavior (including `loadFromDatabase()`)
 
-### Step 2: Update Ring 8 Observer
+#### Step 2: Update Ring 8 Observer
 
 1. Rename file to `60-path-cache.ts`
-2. Update interface name to PathCacheAdapter
-3. Update SystemContext property name: `entityCache` → `pathCache`
+2. Rename EntityCacheSync → PathCacheSync
+3. Rename EntityCacheAdapter → PathCacheAdapter
+4. Update SystemContext property name: `entityCache` → `pathCache`
 
-### Step 3: Update EMS
+#### Step 3: Update EMS
 
-1. Remove EntityCache import and creation from `ems.ts`
-2. Remove `loadFromDatabase()` call from `init()`
-3. Update `entity-ops.ts` to expect `pathCache` on SystemContext
+1. Update import path in `ems.ts` (now from vfs/path-cache)
+2. Rename `_cache` → `_pathCache`, `cache` accessor → `pathCache`
+3. Update `entity-ops.ts`: `entityCache` → `pathCache`
 
-### Step 4: Update VFS
+#### Step 4: Update Exports
 
-1. Import PathCache
-2. Create PathCache in `VFS.init()` with EMS db reference
-3. Provide PathCache to EMS SystemContext for Ring 8 observer
-4. Update VFS methods to use PathCache
+1. Update `src/ems/index.ts` - re-export from new location
+2. Update `src/ems/ring/8/index.ts` - use new observer name
+3. Update `src/vfs/index.ts` - export PathCache
 
-### Step 5: Update Tests
+#### Step 5: Update Tests
 
-1. Move entity-cache tests to path-cache
-2. Update tests for lazy-load behavior
-3. Remove tests for `loadFromDatabase()`
+1. Move `spec/ems/entity-cache.test.ts` → `spec/vfs/path-cache.test.ts`
+2. Update class/type names in tests
+
+#### Step 6: Cleanup
+
+1. Delete old `src/ems/entity-cache.ts`
+2. Delete old `src/ems/ring/8/60-entity-cache.ts`
+
+---
+
+### Phase 2 Steps (Future)
+
+1. Remove `loadFromDatabase()` from PathCache
+2. Add lazy-load on cache miss
+3. Add negative caching
+4. Add batch loading for cold paths
+5. Add LRU eviction
+6. Update tests for lazy-load behavior
 
 ---
 

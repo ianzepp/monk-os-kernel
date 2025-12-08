@@ -7,7 +7,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { EntityModel } from '@src/vfs/models/entity.js';
-import { EntityCache, ROOT_ID } from '@src/ems/entity-cache.js';
+import { PathCache, ROOT_ID } from '@src/vfs/path-cache.js';
 import { EntityOps, type EntityRecord } from '@src/ems/entity-ops.js';
 import { createDatabase, type DatabaseConnection } from '@src/ems/connection.js';
 import { ModelCache } from '@src/ems/model-cache.js';
@@ -23,7 +23,7 @@ import { loadVfsSchema } from '../../helpers/test-os.js';
 let hal: BunHAL;
 let db: DatabaseConnection;
 let cache: ModelCache;
-let entityCache: EntityCache;
+let pathCache: PathCache;
 let ops: EntityOps;
 let model: EntityModel;
 let ctx: ModelContext;
@@ -48,12 +48,12 @@ beforeEach(async () => {
     // Create EntityOps
     ops = new EntityOps(db, cache, runner);
 
-    // Create EntityCache and load from database
-    entityCache = new EntityCache();
-    await entityCache.loadFromDatabase(db);
+    // Create PathCache and load from database
+    pathCache = new PathCache();
+    await pathCache.loadFromDatabase(db);
 
     // Create EntityModel
-    model = new EntityModel(entityCache, ops);
+    model = new EntityModel(pathCache, ops);
 
     // Create mock context
     ctx = {
@@ -92,9 +92,9 @@ describe('EntityModel', () => {
         });
     });
 
-    describe('EntityCache integration', () => {
+    describe('PathCache integration', () => {
         it('should load root entity from database', () => {
-            const root = entityCache.getEntity(ROOT_ID);
+            const root = pathCache.getEntry(ROOT_ID);
 
             expect(root).toBeDefined();
             expect(root?.model).toBe('folder');
@@ -102,7 +102,7 @@ describe('EntityModel', () => {
         });
 
         it('should resolve root path', async () => {
-            const id = await entityCache.resolvePath('/', db);
+            const id = await pathCache.resolvePath('/', db);
 
             expect(id).toBe(ROOT_ID);
         });
@@ -157,8 +157,8 @@ describe('EntityModel', () => {
             expect(rows[0]!.pathname).toBe('test-folder');
             expect(rows[0]!.parent).toBe(ROOT_ID);
 
-            // Manually sync cache (in production, Ring 8 EntityCacheSync does this)
-            entityCache.addEntity({
+            // Manually sync cache (in production, Ring 8 PathCacheSync does this)
+            pathCache.addEntry({
                 id,
                 model: 'folder',
                 parent: ROOT_ID,
@@ -166,7 +166,7 @@ describe('EntityModel', () => {
             });
 
             // Verify cache lookup works
-            const entity = entityCache.getEntity(id);
+            const entity = pathCache.getEntry(id);
 
             expect(entity?.pathname).toBe('test-folder');
             expect(entity?.model).toBe('folder');
@@ -187,8 +187,8 @@ describe('EntityModel', () => {
                 owner: 'test-user',
             });
 
-            // Manually sync cache (in production, Ring 8 EntityCacheSync does this)
-            entityCache.addEntity({
+            // Manually sync cache (in production, Ring 8 PathCacheSync does this)
+            pathCache.addEntry({
                 id,
                 model: 'folder',
                 parent: ROOT_ID,
@@ -213,8 +213,8 @@ describe('EntityModel', () => {
                 owner: 'test-user',
             });
 
-            // Manually sync cache (in production, Ring 8 EntityCacheSync does this)
-            entityCache.addEntity({
+            // Manually sync cache (in production, Ring 8 PathCacheSync does this)
+            pathCache.addEntry({
                 id,
                 model: 'folder',
                 parent: ROOT_ID,
@@ -225,7 +225,7 @@ describe('EntityModel', () => {
             await model.unlink(ctx, id);
 
             // Entity should still be in cache (soft delete doesn't remove from cache)
-            const entity = entityCache.getEntity(id);
+            const entity = pathCache.getEntry(id);
 
             expect(entity).toBeDefined();
 

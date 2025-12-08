@@ -1,15 +1,15 @@
 /**
- * EntityCache Performance Tests
+ * PathCache Performance Tests
  *
- * Tests for EntityCache performance at scale:
- * - Path resolution with large entity counts
+ * Tests for PathCache performance at scale:
+ * - Path resolution with large entry counts
  * - Path computation performance
  * - Add/update/remove performance
  * - Memory usage estimates
  */
 
 import { describe, it, expect } from 'bun:test';
-import { EntityCache, ROOT_ID } from '@src/ems/entity-cache.js';
+import { PathCache, ROOT_ID } from '@src/vfs/path-cache.js';
 
 // =============================================================================
 // TIMEOUTS
@@ -25,11 +25,11 @@ const TIMEOUT_LONG = 60_000;
 /**
  * Create a flat structure with many files at root.
  */
-function createFlatStructure(cache: EntityCache, count: number): void {
-    cache.addEntity({ id: ROOT_ID, model: 'folder', parent: null, pathname: '' });
+function createFlatStructure(cache: PathCache, count: number): void {
+    cache.addEntry({ id: ROOT_ID, model: 'folder', parent: null, pathname: '' });
 
     for (let i = 0; i < count; i++) {
-        cache.addEntity({
+        cache.addEntry({
             id: `file-${i}`,
             model: 'file',
             parent: ROOT_ID,
@@ -40,15 +40,15 @@ function createFlatStructure(cache: EntityCache, count: number): void {
 
 /**
  * Create a deep structure with nested folders.
- * Returns the deepest entity ID.
+ * Returns the deepest entry ID.
  */
-function createDeepStructure(cache: EntityCache, depth: number): string {
-    cache.addEntity({ id: ROOT_ID, model: 'folder', parent: null, pathname: '' });
+function createDeepStructure(cache: PathCache, depth: number): string {
+    cache.addEntry({ id: ROOT_ID, model: 'folder', parent: null, pathname: '' });
 
     let parentId = ROOT_ID;
     for (let i = 0; i < depth; i++) {
         const id = `level-${i}`;
-        cache.addEntity({
+        cache.addEntry({
             id,
             model: 'folder',
             parent: parentId,
@@ -59,7 +59,7 @@ function createDeepStructure(cache: EntityCache, depth: number): string {
 
     // Add a file at the deepest level
     const fileId = 'deepest-file';
-    cache.addEntity({
+    cache.addEntry({
         id: fileId,
         model: 'file',
         parent: parentId,
@@ -74,7 +74,7 @@ function createDeepStructure(cache: EntityCache, depth: number): string {
  * Each folder has `width` children, up to `depth` levels.
  */
 function createTreeStructure(
-    cache: EntityCache,
+    cache: PathCache,
     depth: number,
     width: number,
     parentId: string = ROOT_ID,
@@ -87,7 +87,7 @@ function createTreeStructure(
         const id = `node-${counter.value++}`;
         const isFolder = currentDepth < depth - 1;
 
-        cache.addEntity({
+        cache.addEntry({
             id,
             model: isFolder ? 'folder' : 'file',
             parent: parentId,
@@ -116,10 +116,10 @@ function getDeepPath(depth: number): string {
 // PATH RESOLUTION PERFORMANCE
 // =============================================================================
 
-describe('EntityCache: Path Resolution Performance', () => {
+describe('PathCache: Path Resolution Performance', () => {
     describe('flat structure (all files at root)', () => {
-        it('should resolve path with 1,000 entities', () => {
-            const cache = new EntityCache();
+        it('should resolve path with 1,000 entries', () => {
+            const cache = new PathCache();
             createFlatStructure(cache, 1000);
 
             const start = performance.now();
@@ -128,12 +128,12 @@ describe('EntityCache: Path Resolution Performance', () => {
             }
             const elapsed = performance.now() - start;
 
-            console.log(`Resolve 1,000 paths (1K entities): ${elapsed.toFixed(2)}ms (${(elapsed / 1000).toFixed(4)}ms/path)`);
+            console.log(`Resolve 1,000 paths (1K entries): ${elapsed.toFixed(2)}ms (${(elapsed / 1000).toFixed(4)}ms/path)`);
             expect(elapsed).toBeLessThan(50); // 0.05ms per path
         });
 
-        it('should resolve path with 10,000 entities', () => {
-            const cache = new EntityCache();
+        it('should resolve path with 10,000 entries', () => {
+            const cache = new PathCache();
             createFlatStructure(cache, 10000);
 
             const start = performance.now();
@@ -142,12 +142,12 @@ describe('EntityCache: Path Resolution Performance', () => {
             }
             const elapsed = performance.now() - start;
 
-            console.log(`Resolve 1,000 paths (10K entities): ${elapsed.toFixed(2)}ms (${(elapsed / 1000).toFixed(4)}ms/path)`);
+            console.log(`Resolve 1,000 paths (10K entries): ${elapsed.toFixed(2)}ms (${(elapsed / 1000).toFixed(4)}ms/path)`);
             expect(elapsed).toBeLessThan(50);
         });
 
-        it('should resolve path with 100,000 entities', () => {
-            const cache = new EntityCache();
+        it('should resolve path with 100,000 entries', () => {
+            const cache = new PathCache();
             createFlatStructure(cache, 100000);
 
             const start = performance.now();
@@ -156,12 +156,12 @@ describe('EntityCache: Path Resolution Performance', () => {
             }
             const elapsed = performance.now() - start;
 
-            console.log(`Resolve 1,000 paths (100K entities): ${elapsed.toFixed(2)}ms (${(elapsed / 1000).toFixed(4)}ms/path)`);
+            console.log(`Resolve 1,000 paths (100K entries): ${elapsed.toFixed(2)}ms (${(elapsed / 1000).toFixed(4)}ms/path)`);
             expect(elapsed).toBeLessThan(100);
         }, { timeout: TIMEOUT_MEDIUM });
 
-        it('should resolve path with 1,000,000 entities', () => {
-            const cache = new EntityCache();
+        it('should resolve path with 1,000,000 entries', () => {
+            const cache = new PathCache();
             createFlatStructure(cache, 1000000);
 
             const start = performance.now();
@@ -170,7 +170,7 @@ describe('EntityCache: Path Resolution Performance', () => {
             }
             const elapsed = performance.now() - start;
 
-            console.log(`Resolve 1,000 paths (1M entities): ${elapsed.toFixed(2)}ms (${(elapsed / 1000).toFixed(4)}ms/path)`);
+            console.log(`Resolve 1,000 paths (1M entries): ${elapsed.toFixed(2)}ms (${(elapsed / 1000).toFixed(4)}ms/path)`);
             expect(elapsed).toBeLessThan(200);
 
             // Report memory usage
@@ -181,7 +181,7 @@ describe('EntityCache: Path Resolution Performance', () => {
 
     describe('deep structure (nested folders)', () => {
         it('should resolve 10-level deep path', () => {
-            const cache = new EntityCache();
+            const cache = new PathCache();
             createDeepStructure(cache, 10);
             const path = getDeepPath(10);
 
@@ -196,7 +196,7 @@ describe('EntityCache: Path Resolution Performance', () => {
         });
 
         it('should resolve 50-level deep path', () => {
-            const cache = new EntityCache();
+            const cache = new PathCache();
             createDeepStructure(cache, 50);
             const path = getDeepPath(50);
 
@@ -211,7 +211,7 @@ describe('EntityCache: Path Resolution Performance', () => {
         });
 
         it('should resolve 100-level deep path', () => {
-            const cache = new EntityCache();
+            const cache = new PathCache();
             createDeepStructure(cache, 100);
             const path = getDeepPath(100);
 
@@ -231,9 +231,9 @@ describe('EntityCache: Path Resolution Performance', () => {
 // PATH COMPUTATION PERFORMANCE
 // =============================================================================
 
-describe('EntityCache: Path Computation Performance', () => {
-    it('should compute path from deep entity (10 levels)', () => {
-        const cache = new EntityCache();
+describe('PathCache: Path Computation Performance', () => {
+    it('should compute path from deep entry (10 levels)', () => {
+        const cache = new PathCache();
         const fileId = createDeepStructure(cache, 10);
 
         const start = performance.now();
@@ -246,8 +246,8 @@ describe('EntityCache: Path Computation Performance', () => {
         expect(elapsed).toBeLessThan(100);
     });
 
-    it('should compute path from deep entity (50 levels)', () => {
-        const cache = new EntityCache();
+    it('should compute path from deep entry (50 levels)', () => {
+        const cache = new PathCache();
         const fileId = createDeepStructure(cache, 50);
 
         const start = performance.now();
@@ -260,8 +260,8 @@ describe('EntityCache: Path Computation Performance', () => {
         expect(elapsed).toBeLessThan(500);
     });
 
-    it('should compute path from deep entity (100 levels)', () => {
-        const cache = new EntityCache();
+    it('should compute path from deep entry (100 levels)', () => {
+        const cache = new PathCache();
         const fileId = createDeepStructure(cache, 100);
 
         const start = performance.now();
@@ -279,15 +279,15 @@ describe('EntityCache: Path Computation Performance', () => {
 // ADD/UPDATE/REMOVE PERFORMANCE
 // =============================================================================
 
-describe('EntityCache: Mutation Performance', () => {
-    describe('addEntity', () => {
-        it('should add 10,000 entities', () => {
-            const cache = new EntityCache();
-            cache.addEntity({ id: ROOT_ID, model: 'folder', parent: null, pathname: '' });
+describe('PathCache: Mutation Performance', () => {
+    describe('addEntry', () => {
+        it('should add 10,000 entries', () => {
+            const cache = new PathCache();
+            cache.addEntry({ id: ROOT_ID, model: 'folder', parent: null, pathname: '' });
 
             const start = performance.now();
             for (let i = 0; i < 10000; i++) {
-                cache.addEntity({
+                cache.addEntry({
                     id: `file-${i}`,
                     model: 'file',
                     parent: ROOT_ID,
@@ -296,17 +296,17 @@ describe('EntityCache: Mutation Performance', () => {
             }
             const elapsed = performance.now() - start;
 
-            console.log(`Add 10,000 entities: ${elapsed.toFixed(2)}ms (${(elapsed / 10000).toFixed(4)}ms/entity)`);
+            console.log(`Add 10,000 entries: ${elapsed.toFixed(2)}ms (${(elapsed / 10000).toFixed(4)}ms/entry)`);
             expect(elapsed).toBeLessThan(500);
         });
 
-        it('should add 100,000 entities', () => {
-            const cache = new EntityCache();
-            cache.addEntity({ id: ROOT_ID, model: 'folder', parent: null, pathname: '' });
+        it('should add 100,000 entries', () => {
+            const cache = new PathCache();
+            cache.addEntry({ id: ROOT_ID, model: 'folder', parent: null, pathname: '' });
 
             const start = performance.now();
             for (let i = 0; i < 100000; i++) {
-                cache.addEntity({
+                cache.addEntry({
                     id: `file-${i}`,
                     model: 'file',
                     parent: ROOT_ID,
@@ -315,17 +315,17 @@ describe('EntityCache: Mutation Performance', () => {
             }
             const elapsed = performance.now() - start;
 
-            console.log(`Add 100,000 entities: ${elapsed.toFixed(2)}ms (${(elapsed / 100000).toFixed(4)}ms/entity)`);
+            console.log(`Add 100,000 entries: ${elapsed.toFixed(2)}ms (${(elapsed / 100000).toFixed(4)}ms/entry)`);
             expect(elapsed).toBeLessThan(5000);
         }, { timeout: TIMEOUT_MEDIUM });
 
-        it('should add 1,000,000 entities', () => {
-            const cache = new EntityCache();
-            cache.addEntity({ id: ROOT_ID, model: 'folder', parent: null, pathname: '' });
+        it('should add 1,000,000 entries', () => {
+            const cache = new PathCache();
+            cache.addEntry({ id: ROOT_ID, model: 'folder', parent: null, pathname: '' });
 
             const start = performance.now();
             for (let i = 0; i < 1000000; i++) {
-                cache.addEntity({
+                cache.addEntry({
                     id: `file-${i}`,
                     model: 'file',
                     parent: ROOT_ID,
@@ -334,39 +334,39 @@ describe('EntityCache: Mutation Performance', () => {
             }
             const elapsed = performance.now() - start;
 
-            console.log(`Add 1,000,000 entities: ${elapsed.toFixed(2)}ms (${(elapsed / 1000000).toFixed(4)}ms/entity)`);
+            console.log(`Add 1,000,000 entries: ${elapsed.toFixed(2)}ms (${(elapsed / 1000000).toFixed(4)}ms/entry)`);
             expect(elapsed).toBeLessThan(30000);
         }, { timeout: TIMEOUT_LONG });
     });
 
-    describe('updateEntity (rename)', () => {
-        it('should rename 10,000 entities', () => {
-            const cache = new EntityCache();
+    describe('updateEntry (rename)', () => {
+        it('should rename 10,000 entries', () => {
+            const cache = new PathCache();
             createFlatStructure(cache, 10000);
 
             const start = performance.now();
             for (let i = 0; i < 10000; i++) {
-                cache.updateEntity(`file-${i}`, { pathname: `renamed-${i}.txt` });
+                cache.updateEntry(`file-${i}`, { pathname: `renamed-${i}.txt` });
             }
             const elapsed = performance.now() - start;
 
-            console.log(`Rename 10,000 entities: ${elapsed.toFixed(2)}ms (${(elapsed / 10000).toFixed(4)}ms/entity)`);
+            console.log(`Rename 10,000 entries: ${elapsed.toFixed(2)}ms (${(elapsed / 10000).toFixed(4)}ms/entry)`);
             expect(elapsed).toBeLessThan(1000);
         });
     });
 
-    describe('removeEntity', () => {
-        it('should remove 10,000 entities', () => {
-            const cache = new EntityCache();
+    describe('removeEntry', () => {
+        it('should remove 10,000 entries', () => {
+            const cache = new PathCache();
             createFlatStructure(cache, 10000);
 
             const start = performance.now();
             for (let i = 0; i < 10000; i++) {
-                cache.removeEntity(`file-${i}`);
+                cache.removeEntry(`file-${i}`);
             }
             const elapsed = performance.now() - start;
 
-            console.log(`Remove 10,000 entities: ${elapsed.toFixed(2)}ms (${(elapsed / 10000).toFixed(4)}ms/entity)`);
+            console.log(`Remove 10,000 entries: ${elapsed.toFixed(2)}ms (${(elapsed / 10000).toFixed(4)}ms/entry)`);
             expect(elapsed).toBeLessThan(500);
         });
     });
@@ -376,9 +376,9 @@ describe('EntityCache: Mutation Performance', () => {
 // LIST CHILDREN PERFORMANCE
 // =============================================================================
 
-describe('EntityCache: listChildren Performance', () => {
+describe('PathCache: listChildren Performance', () => {
     it('should list 1,000 children (using childrenOf index)', () => {
-        const cache = new EntityCache({ maintainChildrenOf: true });
+        const cache = new PathCache({ maintainChildrenOf: true });
         createFlatStructure(cache, 1000);
 
         const start = performance.now();
@@ -392,7 +392,7 @@ describe('EntityCache: listChildren Performance', () => {
     });
 
     it('should list 1,000 children (without childrenOf index, scan)', () => {
-        const cache = new EntityCache({ maintainChildrenOf: false });
+        const cache = new PathCache({ maintainChildrenOf: false });
         createFlatStructure(cache, 1000);
 
         const start = performance.now();
@@ -406,7 +406,7 @@ describe('EntityCache: listChildren Performance', () => {
     });
 
     it('should list 10,000 children (using childrenOf index)', () => {
-        const cache = new EntityCache({ maintainChildrenOf: true });
+        const cache = new PathCache({ maintainChildrenOf: true });
         createFlatStructure(cache, 10000);
 
         const start = performance.now();
@@ -424,46 +424,46 @@ describe('EntityCache: listChildren Performance', () => {
 // MEMORY USAGE
 // =============================================================================
 
-describe('EntityCache: Memory Usage', () => {
-    it('should report memory estimate for 10,000 entities', () => {
-        const cache = new EntityCache();
+describe('PathCache: Memory Usage', () => {
+    it('should report memory estimate for 10,000 entries', () => {
+        const cache = new PathCache();
         createFlatStructure(cache, 10000);
 
         const stats = cache.getStats();
         const mbUsed = stats.estimatedMemoryBytes / 1024 / 1024;
 
-        console.log(`10,000 entities: ~${mbUsed.toFixed(2)} MB estimated`);
-        console.log(`  - entityCount: ${stats.entityCount}`);
+        console.log(`10,000 entries: ~${mbUsed.toFixed(2)} MB estimated`);
+        console.log(`  - entryCount: ${stats.entryCount}`);
         console.log(`  - childIndexSize: ${stats.childIndexSize}`);
         console.log(`  - childrenOfSize: ${stats.childrenOfSize}`);
 
-        // Should be roughly 2.5-3.5 MB for 10K entities
+        // Should be roughly 2.5-3.5 MB for 10K entries
         expect(mbUsed).toBeLessThan(10);
     });
 
-    it('should report memory estimate for 100,000 entities', () => {
-        const cache = new EntityCache();
+    it('should report memory estimate for 100,000 entries', () => {
+        const cache = new PathCache();
         createFlatStructure(cache, 100000);
 
         const stats = cache.getStats();
         const mbUsed = stats.estimatedMemoryBytes / 1024 / 1024;
 
-        console.log(`100,000 entities: ~${mbUsed.toFixed(2)} MB estimated`);
+        console.log(`100,000 entries: ~${mbUsed.toFixed(2)} MB estimated`);
 
-        // Should be roughly 25-35 MB for 100K entities
+        // Should be roughly 25-35 MB for 100K entries
         expect(mbUsed).toBeLessThan(100);
     }, { timeout: TIMEOUT_MEDIUM });
 
-    it('should report memory estimate for 1,000,000 entities', () => {
-        const cache = new EntityCache();
+    it('should report memory estimate for 1,000,000 entries', () => {
+        const cache = new PathCache();
         createFlatStructure(cache, 1000000);
 
         const stats = cache.getStats();
         const mbUsed = stats.estimatedMemoryBytes / 1024 / 1024;
 
-        console.log(`1,000,000 entities: ~${mbUsed.toFixed(2)} MB estimated`);
+        console.log(`1,000,000 entries: ~${mbUsed.toFixed(2)} MB estimated`);
 
-        // Should be roughly 250-350 MB for 1M entities
+        // Should be roughly 250-350 MB for 1M entries
         expect(mbUsed).toBeLessThan(500);
     }, { timeout: TIMEOUT_LONG });
 });
@@ -472,9 +472,9 @@ describe('EntityCache: Memory Usage', () => {
 // REALISTIC WORKLOADS
 // =============================================================================
 
-describe('EntityCache: Realistic Workloads', () => {
-    it('should handle mixed operations on 10K entities', () => {
-        const cache = new EntityCache();
+describe('PathCache: Realistic Workloads', () => {
+    it('should handle mixed operations on 10K entries', () => {
+        const cache = new PathCache();
         createFlatStructure(cache, 10000);
 
         const start = performance.now();
@@ -488,29 +488,29 @@ describe('EntityCache: Realistic Workloads', () => {
             // Compute 1 path
             cache.computePath(`file-${i}`);
 
-            // Add 1 entity
-            cache.addEntity({
+            // Add 1 entry
+            cache.addEntry({
                 id: `new-${i}`,
                 model: 'file',
                 parent: ROOT_ID,
                 pathname: `new-${i}.txt`,
             });
 
-            // Remove 1 entity
-            cache.removeEntity(`new-${i}`);
+            // Remove 1 entry
+            cache.removeEntry(`new-${i}`);
         }
 
         const elapsed = performance.now() - start;
 
-        console.log(`Mixed ops x 1,000 (on 10K entities): ${elapsed.toFixed(2)}ms (${(elapsed / 1000).toFixed(4)}ms/cycle)`);
+        console.log(`Mixed ops x 1,000 (on 10K entries): ${elapsed.toFixed(2)}ms (${(elapsed / 1000).toFixed(4)}ms/cycle)`);
         expect(elapsed).toBeLessThan(500);
     });
 
     it('should handle tree traversal workload', () => {
-        const cache = new EntityCache();
-        cache.addEntity({ id: ROOT_ID, model: 'folder', parent: null, pathname: '' });
+        const cache = new PathCache();
+        cache.addEntry({ id: ROOT_ID, model: 'folder', parent: null, pathname: '' });
 
-        // Create a tree: 5 levels deep, 10 items per level = 11,111 entities
+        // Create a tree: 5 levels deep, 10 items per level = 11,111 entries
         createTreeStructure(cache, 5, 10);
 
         const nodeIds = cache.getAllIds();

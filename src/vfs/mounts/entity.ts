@@ -46,7 +46,7 @@
 
 import type { FileHandle, OpenFlags, SeekWhence } from '@src/vfs/handle.js';
 import type { ModelStat } from '@src/vfs/model.js';
-import type { EntityCache } from '@src/ems/entity-cache.js';
+import type { PathCache } from '@src/vfs/path-cache.js';
 import type { EntityOps, EntityRecord } from '@src/ems/entity-ops.js';
 import type { ModelCache } from '@src/ems/model-cache.js';
 import { ENOENT, EACCES, EISDIR, ENOTDIR, EBADF, EROFS, EINVAL } from '@src/hal/errors.js';
@@ -73,8 +73,8 @@ export interface EntityMount {
     /** VFS path where mount is attached */
     vfsPath: string;
 
-    /** Entity cache for path/id resolution */
-    cache: EntityCache;
+    /** Path cache for path/id resolution */
+    cache: PathCache;
 
     /** Entity operations for database queries */
     db: EntityOps;
@@ -163,7 +163,7 @@ interface ParsedEntityPath {
  */
 export async function createEntityMount(
     vfsPath: string,
-    cache: EntityCache,
+    cache: PathCache,
     db: EntityOps,
     modelCache: ModelCache,
     options: EntityMountOptions = {},
@@ -230,7 +230,7 @@ async function resolveEntityId(
 ): Promise<string | null> {
     if (mount.field === 'id') {
         // Key is the UUID - verify it exists
-        const entity = mount.cache.getEntity(key);
+        const entity = mount.cache.getEntry(key);
 
         if (!entity || entity.model !== model) {
             return null;
@@ -258,7 +258,7 @@ async function resolveRelatedEntityId(
     key: string,
 ): Promise<string | null> {
     // For relationships, always use 'id' as the key (or the mount's field if same model)
-    const entity = mount.cache.getEntity(key);
+    const entity = mount.cache.getEntry(key);
 
     if (entity && entity.model === model) {
         return key;

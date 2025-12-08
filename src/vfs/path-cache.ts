@@ -1,19 +1,19 @@
 /**
- * EntityCache - In-memory entity index for O(1) path resolution
+ * PathCache - In-memory path resolution cache for O(1) lookups
  *
  * ARCHITECTURE OVERVIEW
  * =====================
- * EntityCache provides fast path resolution and model dispatch by maintaining
- * an in-memory index of all entities in the system. Instead of querying the
- * database for each path component, lookups are pure Map operations.
+ * PathCache provides fast path resolution and model dispatch by maintaining
+ * an in-memory index of path entries. Instead of querying the database for
+ * each path component, lookups are pure Map operations.
  *
- * The cache stores minimal entity metadata:
+ * The cache stores minimal path entry metadata:
  * - id: Entity UUID (primary key)
  * - model: Model name (determines which table has full metadata)
  * - parent: Parent entity UUID (for path traversal)
  * - pathname: VFS path component (derived from model's pathname field)
  *
- * This is approximately 200-250 bytes per entity. For 1 million entities,
+ * This is approximately 200-250 bytes per entry. For 1 million entities,
  * the cache uses ~250-300 MB of memory - acceptable for modern systems.
  *
  * PATH RESOLUTION
@@ -44,11 +44,11 @@
  *
  * INVARIANTS (must always hold true)
  * ===================================
- * INV-1: Every entity in byId has a corresponding entry in childIndex (if has parent)
+ * INV-1: Every entry in byId has a corresponding entry in childIndex (if has parent)
  * INV-2: childIndex key format is always "parentId:pathname"
  * INV-3: Root entity has parent = null
  * INV-4: Cache is eventually consistent with database (sync via Ring 8 observer)
- * INV-5: Entity model field is immutable (never changes after creation)
+ * INV-5: Entry model field is immutable (never changes after creation)
  *
  * CONCURRENCY MODEL
  * =================
@@ -71,14 +71,14 @@
  *
  * MEMORY MANAGEMENT
  * =================
- * - Entities are plain objects (no class instances) for minimal overhead
+ * - Entries are plain objects (no class instances) for minimal overhead
  * - childrenOf index is optional - trade memory for readdir() performance
- * - No WeakMap - we want to keep all entities loaded
+ * - No WeakMap - we want to keep all entries loaded
  *
- * @module model/entity-cache
+ * @module vfs/path-cache
  */
 
-import type { DatabaseConnection } from './connection.js';
+import type { DatabaseConnection } from '../ems/connection.js';
 
 // =============================================================================
 // CONSTANTS
@@ -97,16 +97,16 @@ export const ROOT_ID = '00000000-0000-0000-0000-000000000000';
 // =============================================================================
 
 /**
- * Minimal entity metadata for path resolution.
+ * Minimal path entry metadata for path resolution.
  *
  * WHY minimal: Full entity metadata lives in model-specific tables.
  * The cache only needs enough to:
  * 1. Resolve paths (parent chain + names)
  * 2. Dispatch to correct model (model field)
  *
- * MEMORY: ~200-250 bytes per entity (strings + object overhead)
+ * MEMORY: ~200-250 bytes per entry (strings + object overhead)
  */
-export interface CachedEntity {
+export interface PathEntry {
     /** Entity UUID */
     readonly id: string;
 
@@ -121,11 +121,11 @@ export interface CachedEntity {
 }
 
 /**
- * Entity creation input (for addEntity).
+ * Path entry creation input (for addEntry).
  *
  * WHY separate type: Allows parent to be undefined (will be coerced to null).
  */
-export interface EntityInput {
+export interface PathEntryInput {
     id: string;
     model: string;
     parent?: string | null;
@@ -133,11 +133,11 @@ export interface EntityInput {
 }
 
 /**
- * Entity update input (for updateEntity).
+ * Path entry update input (for updateEntry).
  *
  * WHY Partial: Only changed fields need to be provided.
  */
-export interface EntityUpdate {
+export interface PathEntryUpdate {
     parent?: string | null;
     pathname?: string;
 }
@@ -147,9 +147,9 @@ export interface EntityUpdate {
  *
  * WHY: Monitoring and debugging.
  */
-export interface CacheStats {
-    /** Total entities in cache */
-    entityCount: number;
+export interface PathCacheStats {
+    /** Total entries in cache */
+    entryCount: number;
 
     /** Total entries in child index */
     childIndexSize: number;
@@ -162,15 +162,15 @@ export interface CacheStats {
 }
 
 // =============================================================================
-// ENTITY CACHE CLASS
+// PATH CACHE CLASS
 // =============================================================================
 
 /**
- * In-memory entity index for O(1) path resolution.
+ * In-memory path resolution cache for O(1) lookups.
  *
  * TESTABILITY: All state is inspectable via getter methods.
  */
-export class EntityCache {
+export class PathCache {
     // =========================================================================
     // PRIMARY INDEX
     // =========================================================================
@@ -178,11 +178,11 @@ export class EntityCache {
     /**
      * Primary lookup by UUID.
      *
-     * WHY Map: O(1) access to any entity's minimal metadata.
+     * WHY Map: O(1) access to any entry's minimal metadata.
      * Key: entity UUID
-     * Value: CachedEntity
+     * Value: PathEntry
      */
-    private readonly byId: Map<string, CachedEntity> = new Map();
+    private readonly byId: Map<string, PathEntry> = new Map();
 
     // =========================================================================
     // SECONDARY INDEXES
@@ -195,7 +195,7 @@ export class EntityCache {
      * Key: "parentId:childPathname"
      * Value: child entity UUID
      *
-     * INVARIANT: Every entity with a parent has an entry here.
+     * INVARIANT: Every entry with a parent has an entry here.
      */
     private readonly childIndex: Map<string, string> = new Map();
 
@@ -223,7 +223,7 @@ export class EntityCache {
     // =========================================================================
 
     /**
-     * Create an EntityCache.
+     * Create a PathCache.
      *
      * @param options - Configuration options
      * @param options.maintainChildrenOf - Whether to maintain childrenOf index (default: true)
@@ -258,13 +258,13 @@ export class EntityCache {
         // Load all entities from the entities table
         // Note: entities table has no trashed_at - cache contains ALL entities.
         // Soft-delete status is determined by the detail table's trashed_at.
-        const entities = await db.query<CachedEntity>(
+        const entities = await db.query<PathEntry>(
             'SELECT id, model, parent, pathname FROM entities',
         );
 
         // Add each entity to cache
         for (const entity of entities) {
-            this.addEntity(entity);
+            this.addEntry(entity);
         }
     }
 
@@ -337,7 +337,7 @@ export class EntityCache {
         parentId: string,
         pathname: string,
     ): Promise<string | undefined> {
-        const rows = await db.query<CachedEntity>(
+        const rows = await db.query<PathEntry>(
             'SELECT id, model, parent, pathname FROM entities WHERE parent = ? AND pathname = ?',
             [parentId, pathname],
         );
@@ -349,7 +349,7 @@ export class EntityCache {
         }
 
         // Populate cache for future lookups
-        this.addEntity(entity);
+        this.addEntry(entity);
 
         return entity.id;
     }
@@ -428,21 +428,21 @@ export class EntityCache {
     }
 
     // =========================================================================
-    // ENTITY LOOKUP
+    // ENTRY LOOKUP
     // =========================================================================
 
     /**
-     * Get entity by UUID.
+     * Get entry by UUID.
      *
      * @param id - Entity UUID
-     * @returns CachedEntity or undefined
+     * @returns PathEntry or undefined
      */
-    getEntity(id: string): CachedEntity | undefined {
+    getEntry(id: string): PathEntry | undefined {
         return this.byId.get(id);
     }
 
     /**
-     * Get model name for entity.
+     * Get model name for entry.
      *
      * @param id - Entity UUID
      * @returns Model name or undefined
@@ -452,17 +452,17 @@ export class EntityCache {
     }
 
     /**
-     * Check if entity exists in cache.
+     * Check if entry exists in cache.
      *
      * @param id - Entity UUID
      * @returns true if cached
      */
-    hasEntity(id: string): boolean {
+    hasEntry(id: string): boolean {
         return this.byId.has(id);
     }
 
     /**
-     * Get child entity by parent + pathname.
+     * Get child entry by parent + pathname.
      *
      * @param parentId - Parent entity UUID
      * @param pathname - Child pathname
@@ -473,7 +473,7 @@ export class EntityCache {
     }
 
     /**
-     * List children of an entity.
+     * List children of an entry.
      *
      * @param parentId - Parent entity UUID
      * @returns Array of child entity UUIDs
@@ -489,8 +489,8 @@ export class EntityCache {
         // Fall back to scanning (still fast)
         const results: string[] = [];
 
-        for (const [id, entity] of this.byId) {
-            if (entity.parent === parentId) {
+        for (const [id, entry] of this.byId) {
+            if (entry.parent === parentId) {
                 results.push(id);
             }
         }
@@ -503,14 +503,14 @@ export class EntityCache {
     // =========================================================================
 
     /**
-     * Add an entity to the cache.
+     * Add an entry to the cache.
      *
      * Called by Ring 8 observer after entity creation.
      *
-     * @param input - Entity data
+     * @param input - Entry data
      */
-    addEntity(input: EntityInput): void {
-        const entity: CachedEntity = {
+    addEntry(input: PathEntryInput): void {
+        const entry: PathEntry = {
             id: input.id,
             model: input.model,
             parent: input.parent ?? null,
@@ -518,28 +518,28 @@ export class EntityCache {
         };
 
         // Add to primary index
-        this.byId.set(entity.id, entity);
+        this.byId.set(entry.id, entry);
 
         // Add to child index (if has parent)
-        if (entity.parent) {
-            this.childIndex.set(this.childKey(entity.parent, entity.pathname), entity.id);
+        if (entry.parent) {
+            this.childIndex.set(this.childKey(entry.parent, entry.pathname), entry.id);
 
             // Add to childrenOf index (if enabled)
             if (this.maintainChildrenOf) {
-                let siblings = this.childrenOf.get(entity.parent);
+                let siblings = this.childrenOf.get(entry.parent);
 
                 if (!siblings) {
                     siblings = new Set();
-                    this.childrenOf.set(entity.parent, siblings);
+                    this.childrenOf.set(entry.parent, siblings);
                 }
 
-                siblings.add(entity.id);
+                siblings.add(entry.id);
             }
         }
     }
 
     /**
-     * Update an entity in the cache.
+     * Update an entry in the cache.
      *
      * Handles rename and move (parent change) operations.
      * Called by Ring 8 observer after entity update.
@@ -547,11 +547,11 @@ export class EntityCache {
      * @param id - Entity UUID
      * @param changes - Changed fields
      */
-    updateEntity(id: string, changes: EntityUpdate): void {
+    updateEntry(id: string, changes: PathEntryUpdate): void {
         const existing = this.byId.get(id);
 
         if (!existing) {
-            return; // Entity not in cache (shouldn't happen)
+            return; // Entry not in cache (shouldn't happen)
         }
 
         // Handle rename
@@ -561,8 +561,8 @@ export class EntityCache {
                 this.childIndex.delete(this.childKey(existing.parent, existing.pathname));
             }
 
-            // Create updated entity (immutable update)
-            const updated: CachedEntity = {
+            // Create updated entry (immutable update)
+            const updated: PathEntry = {
                 ...existing,
                 pathname: changes.pathname,
             };
@@ -588,8 +588,8 @@ export class EntityCache {
                 }
             }
 
-            // Create updated entity
-            const updated: CachedEntity = {
+            // Create updated entry
+            const updated: PathEntry = {
                 ...existing,
                 parent: changes.parent ?? null,
             };
@@ -615,13 +615,13 @@ export class EntityCache {
     }
 
     /**
-     * Remove an entity from the cache.
+     * Remove an entry from the cache.
      *
      * Called by Ring 8 observer after entity deletion.
      *
      * @param id - Entity UUID
      */
-    removeEntity(id: string): void {
+    removeEntry(id: string): void {
         const existing = this.byId.get(id);
 
         if (!existing) {
@@ -648,7 +648,7 @@ export class EntityCache {
     }
 
     /**
-     * Clear all cached entities.
+     * Clear all cached entries.
      */
     clear(): void {
         this.byId.clear();
@@ -665,19 +665,19 @@ export class EntityCache {
      *
      * @returns Cache stats
      */
-    getStats(): CacheStats {
-        const entityCount = this.byId.size;
+    getStats(): PathCacheStats {
+        const entryCount = this.byId.size;
         const childIndexSize = this.childIndex.size;
         const childrenOfSize = this.childrenOf.size;
 
-        // Estimate memory: ~250 bytes per entity + index overhead
+        // Estimate memory: ~250 bytes per entry + index overhead
         const estimatedMemoryBytes =
-            entityCount * 250 + // byId entries
+            entryCount * 250 + // byId entries
             childIndexSize * 100 + // childIndex entries (key + value)
             childrenOfSize * 50; // childrenOf entries (key + Set overhead)
 
         return {
-            entityCount,
+            entryCount,
             childIndexSize,
             childrenOfSize,
             estimatedMemoryBytes,
@@ -689,23 +689,23 @@ export class EntityCache {
     // =========================================================================
 
     /**
-     * Get total entity count.
+     * Get total entry count.
      */
     get size(): number {
         return this.byId.size;
     }
 
     /**
-     * Get all entity IDs.
+     * Get all entry IDs.
      */
     getAllIds(): string[] {
         return Array.from(this.byId.keys());
     }
 
     /**
-     * Get all entities.
+     * Get all entries.
      */
-    getAllEntities(): CachedEntity[] {
+    getAllEntries(): PathEntry[] {
         return Array.from(this.byId.values());
     }
 

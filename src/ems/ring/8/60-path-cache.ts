@@ -1,14 +1,14 @@
 /**
- * EntityCache Observer - Ring 8 Integration
+ * PathCache Observer - Ring 8 Integration
  *
  * ARCHITECTURE OVERVIEW
  * =====================
- * EntityCacheSync is a Ring 8 observer that keeps the EntityCache in sync
+ * PathCacheSync is a Ring 8 observer that keeps the PathCache in sync
  * with database mutations. When entities are created, updated, or deleted,
  * this observer updates the in-memory cache.
  *
  * Unlike the ModelCache (Ring 8 priority 50) which caches model metadata,
- * EntityCache stores entity instances for path resolution. This observer
+ * PathCache stores path resolution data for VFS lookups. This observer
  * runs at priority 60 (after model cache invalidation).
  *
  * EXECUTION FLOW
@@ -20,7 +20,7 @@
  *     │
  * Ring 8 (50): Model cache invalidation (if applicable)
  *     │
- * Ring 8 (60, this): ──► entityCache.addEntity(...) ◄── cache updated
+ * Ring 8 (60, this): ──► pathCache.addEntry(...) ◄── cache updated
  *     │
  * Path resolution now works for new entity
  * ```
@@ -30,15 +30,15 @@
  * INV-1: Runs for all tables EXCEPT meta-tables (models, fields, tracked)
  * INV-2: Requires id, pathname, parent fields on the record
  * INV-3: Runs after database persistence (Ring 5)
- * INV-4: EntityCache is eventually consistent with database
+ * INV-4: PathCache is eventually consistent with database
  *
  * SUPPORTED OPERATIONS
  * ====================
- * - create: Adds new entity to cache
- * - update: Updates entity (handles rename and move)
- * - delete: Removes entity from cache (soft delete still removes from cache)
+ * - create: Adds new entry to cache
+ * - update: Updates entry (handles rename and move)
+ * - delete: Removes entry from cache (soft delete still removes from cache)
  *
- * @module model/ring/8/entity-cache
+ * @module model/ring/8/path-cache
  */
 
 import { BaseObserver } from '../../observers/base-observer.js';
@@ -50,7 +50,7 @@ import { ObserverRing, type OperationType } from '../../observers/types.js';
 // =============================================================================
 
 /**
- * Meta-tables that don't have entities in EntityCache.
+ * Meta-tables that don't have entries in PathCache.
  *
  * WHY excluded: These are schema tables, not VFS entities.
  * They don't have parent/name fields for path resolution.
@@ -58,24 +58,24 @@ import { ObserverRing, type OperationType } from '../../observers/types.js';
 const META_TABLES = new Set(['models', 'fields', 'tracked']);
 
 // =============================================================================
-// ENTITY CACHE SYNC OBSERVER
+// PATH CACHE SYNC OBSERVER
 // =============================================================================
 
 /**
- * Syncs EntityCache with database mutations.
+ * Syncs PathCache with database mutations.
  *
  * WHY priority 60: Runs after model cache invalidation (50).
- * Model definitions should be invalidated before we update entity cache.
+ * Model definitions should be invalidated before we update path cache.
  *
  * WHY Ring 8: Post-database integration. Entity must be persisted
  * before we can add it to the cache (need the auto-generated ID).
  */
-export class EntityCacheSync extends BaseObserver {
+export class PathCacheSync extends BaseObserver {
     // =========================================================================
     // CONFIGURATION
     // =========================================================================
 
-    readonly name = 'EntityCacheSync';
+    readonly name = 'PathCacheSync';
 
     /**
      * Ring 8 = Integration.
@@ -97,12 +97,12 @@ export class EntityCacheSync extends BaseObserver {
     // =========================================================================
 
     /**
-     * Update EntityCache based on operation.
+     * Update PathCache based on operation.
      *
      * ALGORITHM:
      * 1. Skip meta-tables (no path resolution needed)
-     * 2. Skip if entityCache not available on system context
-     * 3. Extract entity data from record
+     * 2. Skip if pathCache not available on system context
+     * 3. Extract entry data from record
      * 4. Apply appropriate cache mutation
      *
      * @param context - Observer context
@@ -115,13 +115,13 @@ export class EntityCacheSync extends BaseObserver {
             return;
         }
 
-        // Skip if no entity cache on system context
+        // Skip if no path cache on system context
         // This can happen during testing or before cache is initialized
-        const entityCache = (system as { entityCache?: unknown }).entityCache as
-            | EntityCacheAdapter
+        const pathCache = (system as { pathCache?: unknown }).pathCache as
+            | PathCacheAdapter
             | undefined;
 
-        if (!entityCache) {
+        if (!pathCache) {
             return;
         }
 
@@ -134,15 +134,15 @@ export class EntityCacheSync extends BaseObserver {
 
         switch (operation) {
             case 'create':
-                this.handleCreate(entityCache, model.modelName, record);
+                this.handleCreate(pathCache, model.modelName, record);
                 break;
 
             case 'update':
-                this.handleUpdate(entityCache, id, record);
+                this.handleUpdate(pathCache, id, record);
                 break;
 
             case 'delete':
-                this.handleDelete(entityCache, id);
+                this.handleDelete(pathCache, id);
                 break;
         }
     }
@@ -150,7 +150,7 @@ export class EntityCacheSync extends BaseObserver {
     /**
      * Handle entity creation.
      */
-    private handleCreate(cache: EntityCacheAdapter, modelName: string, record: ModelRecord): void {
+    private handleCreate(cache: PathCacheAdapter, modelName: string, record: ModelRecord): void {
         const id = record.get('id') as string;
         const parent = record.get('parent') as string | null;
         const pathname = record.get('pathname') as string;
@@ -160,7 +160,7 @@ export class EntityCacheSync extends BaseObserver {
             return;
         }
 
-        cache.addEntity({
+        cache.addEntry({
             id,
             model: modelName,
             parent: parent ?? null,
@@ -173,7 +173,7 @@ export class EntityCacheSync extends BaseObserver {
      *
      * Checks for pathname and parent changes, applies to cache.
      */
-    private handleUpdate(cache: EntityCacheAdapter, id: string, record: ModelRecord): void {
+    private handleUpdate(cache: PathCacheAdapter, id: string, record: ModelRecord): void {
         const changes: { pathname?: string; parent?: string | null } = {};
 
         // Check for rename (has() returns true if field was changed)
@@ -198,19 +198,19 @@ export class EntityCacheSync extends BaseObserver {
 
         // Apply changes if any
         if (Object.keys(changes).length > 0) {
-            cache.updateEntity(id, changes);
+            cache.updateEntry(id, changes);
         }
     }
 
     /**
      * Handle entity deletion.
      *
-     * Removes entity from cache. This runs for soft deletes too
+     * Removes entry from cache. This runs for soft deletes too
      * (trashed_at set) because soft-deleted entities should not
      * appear in path resolution.
      */
-    private handleDelete(cache: EntityCacheAdapter, id: string): void {
-        cache.removeEntity(id);
+    private handleDelete(cache: PathCacheAdapter, id: string): void {
+        cache.removeEntry(id);
     }
 }
 
@@ -219,19 +219,19 @@ export class EntityCacheSync extends BaseObserver {
 // =============================================================================
 
 /**
- * Minimal interface for EntityCache.
+ * Minimal interface for PathCache.
  *
- * WHY interface: Avoids circular imports. The actual EntityCache class
+ * WHY interface: Avoids circular imports. The actual PathCache class
  * implements these methods.
  */
-interface EntityCacheAdapter {
-    addEntity(input: { id: string; model: string; parent: string | null; pathname: string }): void;
-    updateEntity(id: string, changes: { pathname?: string; parent?: string | null }): void;
-    removeEntity(id: string): void;
+interface PathCacheAdapter {
+    addEntry(input: { id: string; model: string; parent: string | null; pathname: string }): void;
+    updateEntry(id: string, changes: { pathname?: string; parent?: string | null }): void;
+    removeEntry(id: string): void;
 }
 
 // =============================================================================
 // DEFAULT EXPORT
 // =============================================================================
 
-export default EntityCacheSync;
+export default PathCacheSync;
