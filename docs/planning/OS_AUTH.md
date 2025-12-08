@@ -45,7 +45,7 @@ Auth is a **peer subsystem**, not a layer:
 - Own the permission model (VFS/EMS check `proc.user`)
 - Manage processes (kernel does that)
 
-**Schema ownership:** Auth owns `src/auth/schema.sql` containing `auth_user` and `auth_session` table definitions. Following the established pattern (see `docs/implemented/EMS_SCHEMA_SPLIT.md`), Auth loads its schema via `ems.exec()` during `Auth.init()`.
+**Schema ownership:** Auth owns `src/auth/schema.sql` containing `auth.user` and `auth.session` model definitions (SQL tables: `auth_user`, `auth_session`). Following the established pattern (see `docs/implemented/EMS_SCHEMA_SPLIT.md`), Auth loads its schema via `ems.exec()` during `Auth.init()`.
 
 ---
 
@@ -91,7 +91,7 @@ if (proc.expires && proc.expires < Date.now()) {
 
 // Periodic EMS revalidation - allows session revocation to propagate
 if (proc.session && Date.now() - proc.sessionValidatedAt > REVALIDATE_INTERVAL) {
-    const session = await ems.ops.selectOne('auth_session', { id: proc.session });
+    const session = await ems.ops.selectOne('auth.session', { id: proc.session });
     if (!session || session.expires < Date.now()) {
         // Session revoked or expired in EMS
         proc.user = proc.session = proc.expires = proc.sessionValidatedAt = undefined;
@@ -345,10 +345,10 @@ Server doesn't track refresh timing - `auth:token` always extends session and re
 
 ## Session Storage (EMS)
 
-Sessions stored in `auth_session` table (defined in `src/auth/schema.sql`):
+Sessions stored as `auth.session` entities (SQL table: `auth_session`, defined in `src/auth/schema.sql`):
 
 ```typescript
-// Table: auth_session
+// Model: auth.session (SQL table: auth_session)
 {
     id: 'sess-uuid',
     user_id: 'user-uuid',
@@ -367,7 +367,7 @@ class Auth {
 
     async login(proc: Process, user: string, pass: string): Promise<LoginResult> {
         // Validate credentials (check user entity, hash password)
-        const userEntity = await this.ems.ops.selectOne('auth_user', { username: user });
+        const userEntity = await this.ems.ops.selectOne('auth.user', { username: user });
         if (!userEntity || !await this.verifyPassword(pass, userEntity.password_hash)) {
             throw new EACCES('Invalid credentials');
         }
@@ -375,7 +375,7 @@ class Auth {
         const expiresAt = Date.now() + SESSION_TTL;
 
         // Create session in EMS
-        const session = await this.ems.ops.createOne('auth_session', {
+        const session = await this.ems.ops.createOne('auth.session', {
             user_id: userEntity.id,
             expires: expiresAt,
         });
@@ -402,10 +402,10 @@ class Auth {
 
 ## User Storage (EMS)
 
-Users stored in `auth_user` table (defined in `src/auth/schema.sql`):
+Users stored as `auth.user` entities (SQL table: `auth_user`, defined in `src/auth/schema.sql`):
 
 ```typescript
-// Table: auth_user
+// Model: auth.user (SQL table: auth_user)
 {
     id: 'user-uuid',
     username: 'alice',
@@ -461,6 +461,35 @@ interface ACL {
 }
 ```
 
+**Design rationale (grants vs ACL arrays):**
+
+An alternative design (used in monk-api) stores access as arrays per record:
+```typescript
+// monk-api pattern - fixed access levels as columns
+access_read: uuid[]   // Who can read
+access_edit: uuid[]   // Who can edit
+access_full: uuid[]   // Who has full access
+access_deny: uuid[]   // Who is denied
+```
+
+We chose explicit grants instead for these reasons:
+
+| Feature | Grants (monk-os) | ACL Arrays (monk-api) |
+|---------|------------------|----------------------|
+| Operations | Arbitrary strings (`'read'`, `'signal'`, `'list'`) | Fixed: read/edit/full |
+| Expiration | Built-in `expires` field | Not supported |
+| Multiple grants/user | Yes (different ops, different expiry) | No (in array or not) |
+| Storage | Separate JSON blob per entity | Columns on record |
+| Query "who has access" | Parse JSON | `WHERE $id = ANY(access_read)` |
+
+**Why grants won:**
+- **Operation flexibility**: VFS models need different ops (`file: read/write/delete`, `folder: list/create`, `proc: signal`). Fixed read/edit/full doesn't map cleanly.
+- **Time-limited access**: Grants support `expires` for temporary shares, contractor access, etc.
+- **Simpler mental model**: Explicit grants are easier to audit than inferring access from array membership.
+- **No inheritance complexity**: Each entity has its own ACL. No "what if parent changes?" problems.
+
+**Tradeoff**: ACL arrays are more queryable ("find all files I can read"). Grants require loading and parsing JSON. For monk-os, the flexibility wins over query convenience.
+
 **Existing functions:**
 - `checkAccess(acl, caller, op)` - Check if caller can perform operation
 - `checkAccessAll(acl, caller, ops)` - Check multiple operations
@@ -496,7 +525,7 @@ async function fileOpen(proc: Process, vfs: VFS, path: string, flags: OpenFlags)
 ```
 src/auth/
 ├── index.ts           # Exports Auth class
-├── schema.sql         # Auth tables (auth_user, auth_session) - loaded via ems.exec()
+├── schema.sql         # Auth models (auth.user, auth.session) - loaded via ems.exec()
 ├── auth.ts            # Auth subsystem (login, token, session management)
 ├── types.ts           # Session, User types
 ├── password.ts        # Password hashing (argon2id via HAL crypto)
@@ -535,7 +564,7 @@ Minimal auth with pre-provisioned tokens. No passwords, no user entities.
 
 ### Phase 1: Password Login
 
-1. Create `src/auth/schema.sql` with `auth_user` and `auth_session` tables
+1. Create `src/auth/schema.sql` with `auth.user` and `auth.session` models
 2. Add `Auth.init()` that loads schema via `ems.exec(schema, { clearModels: true })`
 3. Implement `auth:login` with password hashing
 4. Implement `auth:logout`

@@ -91,6 +91,32 @@
 └─────────────────────────────────────────────────────────────┘
 ```
 
+### Naming Conventions
+
+Three delimiters with distinct semantic roles:
+
+| Delimiter | Domain | Example | Semantics |
+|-----------|--------|---------|-----------|
+| `:` | Syscalls | `auth:login`, `vfs:read` | Verb - "do this action in this subsystem" |
+| `.` | Models | `auth.user`, `llm.provider` | Noun - "this entity type owned by this subsystem" |
+| `_` | SQL tables | `auth_user`, `llm_provider` | Physical - derived from model name (`s/\./_/`) |
+
+**Core/foundational types use bare names**: `file`, `folder`, `device`, `models`, `fields` - these are primitives, not "owned" by a subsystem.
+
+**Subsystem-specific types use dot notation**: `auth.user`, `auth.session`, `llm.provider`, `llm.model` - clear ownership, enables wildcard queries (`auth.*`).
+
+**EMS ops use model names** (dot notation):
+```typescript
+await ems.ops.selectOne('auth.user', { username });
+await ems.ops.createOne('auth.session', { user_id, expires });
+```
+
+**SQL tables use underscores** (mechanical transform):
+```sql
+CREATE TABLE auth_user (...);
+CREATE TABLE auth_session (...);
+```
+
 ### Message Flow (Syscall Dispatch)
 ```
 Worker ──postMessage──▶ kernel.onWorkerMessage ──▶ dispatcher.onWorkerMessage()
