@@ -15,7 +15,7 @@ Bring os-coreutils back into the main OS repo under `rom/`.
 | Phase 1 | Copy os-coreutils bin/ and lib/ | **COMPLETE** |
 | Phase 2 | Implement rom/lib/process/ | **COMPLETE** |
 | Phase 3 | Update imports, verify compilation | **COMPLETE** |
-| Phase 4 | Add missing utilities (grep, sql) | Not started |
+| Phase 4 | Add missing utilities (grep, sql) | **PARTIAL** (grep done) |
 | Phase 5 | Cleanup and documentation | Not started |
 
 ### Completed Work
@@ -45,6 +45,9 @@ Bring os-coreutils back into the main OS repo under `rom/`.
      - `access()` returns `Grant[]` directly (no wrapper object)
      - `mtime`/`ctime` are numbers (ms since epoch, not Date objects)
      - `readText()` takes path, stdin uses `recv(0)` for messages
+7. Phase 4 - Added grep utility:
+   - `rom/bin/grep.ts` - Full regex search with -i, -v, -n, -c, -l, -h, -H, -r options
+   - Now 43 utilities total
 
 ---
 
