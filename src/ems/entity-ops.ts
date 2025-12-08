@@ -47,7 +47,7 @@ import type { ObserverContext, SystemContext } from './observers/interfaces.js';
 import type { OperationType } from './observers/types.js';
 import type { EOBSINVALID } from './observers/errors.js';
 import { Filter } from './filter.js';
-import { ENOENT } from '@src/hal/errors.js';
+import { EFAULT, ENOENT } from '@src/hal/errors.js';
 import type {
     FilterData,
     SelectOptions,
@@ -162,6 +162,21 @@ export class EntityOps {
         yield* this.selectAny<T>(modelName, { where: { id: { $in: idArray } } }, options);
     }
 
+    /**
+     * Select first record matching filter, or null if none found.
+     */
+    async selectOne<T extends EntityRecord>(
+        modelName: string,
+        filterData: FilterData = {},
+        options: SelectOptions = {},
+    ): Promise<T | null> {
+        for await (const record of this.selectAny<T>(modelName, { ...filterData, limit: 1 }, options)) {
+            return record;
+        }
+
+        return null;
+    }
+
     // =========================================================================
     // CREATE OPERATIONS (through observer pipeline)
     // =========================================================================
@@ -208,6 +223,20 @@ export class EntityOps {
             // Yield created record directly (no re-read needed)
             yield record.toRecord() as T;
         }
+    }
+
+    /**
+     * Create a single record and return it.
+     */
+    async createOne<T extends EntityRecord>(
+        modelName: string,
+        data: CreateInput<T>,
+    ): Promise<T> {
+        for await (const record of this.createAll<T>(modelName, [data])) {
+            return record;
+        }
+
+        throw new EFAULT('createAll yielded no records');
     }
 
     // =========================================================================
@@ -306,6 +335,21 @@ export class EntityOps {
         yield* this.updateIds<T>(modelName, ids(), changes);
     }
 
+    /**
+     * Update a single record and return it.
+     */
+    async updateOne<T extends EntityRecord>(
+        modelName: string,
+        id: string,
+        changes: Partial<T>,
+    ): Promise<T> {
+        for await (const record of this.updateAll<T>(modelName, [{ id, changes }])) {
+            return record;
+        }
+
+        throw new EFAULT('updateAll yielded no records');
+    }
+
     // =========================================================================
     // DELETE OPERATIONS - Soft Delete (through observer pipeline)
     // =========================================================================
@@ -383,6 +427,20 @@ export class EntityOps {
         };
 
         yield* this.deleteIds<T>(modelName, ids());
+    }
+
+    /**
+     * Soft-delete a single record and return it.
+     */
+    async deleteOne<T extends EntityRecord>(
+        modelName: string,
+        id: string,
+    ): Promise<T> {
+        for await (const record of this.deleteAll<T>(modelName, [{ id }])) {
+            return record;
+        }
+
+        throw new EFAULT('deleteAll yielded no records');
     }
 
     // =========================================================================
@@ -468,6 +526,20 @@ export class EntityOps {
         yield* this.revertAll<T>(modelName, reverts(ids()));
     }
 
+    /**
+     * Revert a single soft-deleted record and return it.
+     */
+    async revertOne<T extends EntityRecord>(
+        modelName: string,
+        id: string,
+    ): Promise<T> {
+        for await (const record of this.revertAll<T>(modelName, [{ id }])) {
+            return record;
+        }
+
+        throw new EFAULT('revertAll yielded no records');
+    }
+
     // =========================================================================
     // EXPIRE OPERATIONS - Hard Delete (through observer pipeline)
     // =========================================================================
@@ -518,6 +590,20 @@ export class EntityOps {
 
             yield existing;
         }
+    }
+
+    /**
+     * Hard-delete a single record and return it.
+     */
+    async expireOne<T extends EntityRecord>(
+        modelName: string,
+        id: string,
+    ): Promise<T> {
+        for await (const record of this.expireAll<T>(modelName, [{ id }])) {
+            return record;
+        }
+
+        throw new EFAULT('expireAll yielded no records');
     }
 
     // =========================================================================
@@ -574,6 +660,20 @@ export class EntityOps {
             // No id provided - always create
             yield* this.createAll<T>(modelName, [data as CreateInput<T>]);
         }
+    }
+
+    /**
+     * Upsert a single record and return it.
+     */
+    async upsertOne<T extends EntityRecord>(
+        modelName: string,
+        data: CreateInput<T>,
+    ): Promise<T> {
+        for await (const record of this.upsertAll<T>(modelName, [data])) {
+            return record;
+        }
+
+        throw new EFAULT('upsertAll yielded no records');
     }
 
     // =========================================================================
