@@ -1,9 +1,13 @@
 # Monk OS AI Layer
 
 > **Status**: Planning
-> **Depends on**: EMS, Shell/Coreutils
+> **Depends on**: EMS (schema split pattern), VFS, Shell/Coreutils
 
 This document captures the architecture for AI integration with Monk OS.
+
+**Prerequisites completed:**
+- EMS schema split (subsystems own their schemas via `ems.exec()`)
+- VFS schema pattern (`src/vfs/schema.sql` as reference implementation)
 
 ---
 
@@ -42,14 +46,14 @@ The AI worker coordinates LLM calls alongside memory and tool execution.
 │                            ▼                               │
 │              ┌─────────────────────────┐                   │
 │              │          EMS            │                   │
-│              │  ┌───────────────────┐  │                   │
-│              │  │ llm.provider      │  │                   │
-│              │  │ llm.model         │  │                   │
-│              │  │ ai.stm, ai.ltm    │  │                   │
-│              │  │ ai.procedural     │  │                   │
-│              │  │ ai.embedding      │  │                   │
-│              │  └───────────────────┘  │                   │
+│              │    (core: entities,     │                   │
+│              │     models, fields)     │                   │
 │              └─────────────────────────┘                   │
+│                                                            │
+│  Subsystem schemas (loaded via ems.exec() at init):        │
+│    src/vfs/schema.sql  → file, folder, device, ...         │
+│    src/llm/schema.sql  → llm_provider, llm_model           │
+│    src/ai/schema.sql   → ai_stm, ai_ltm, ai_procedural, ...│
 └─────────────────────────────────────────────────────────────┘
                           │
                           ▼
@@ -140,6 +144,8 @@ const memories = await syscall('ai:recall', {
 ## Memory Model
 
 Memory is stored as EMS entities. The AI worker queries and manages these.
+
+**Schema ownership:** Memory tables are defined in `src/ai/schema.sql`, loaded during `AI.init()` via `ems.exec()`. Table names use underscores (`ai_stm`, `ai_ltm`) per SQL convention.
 
 ### Memory Types
 
@@ -261,6 +267,8 @@ The LLM subsystem is a kernel service that reads configuration from EMS and disp
 
 Provider and model configuration lives in EMS, not flat config files. Adding a new provider or model is an EMS insert, not a code change.
 
+**Schema ownership:** These tables are defined in `src/llm/schema.sql`, not EMS core. The LLM subsystem loads its schema during `LLM.init()` via `ems.exec()`. Table names use underscores (`llm_provider`) per SQL convention.
+
 ```typescript
 // Provider configuration (how to connect)
 interface LLMProvider {
@@ -367,16 +375,21 @@ Strategy:
 
 ### Phase 1: LLM Subsystem
 
-1. Define `llm.provider` and `llm.model` EMS schemas
-2. Implement OpenAI-format adapter (covers Ollama)
-3. Implement `llm:complete` syscall
-4. Seed initial provider/model records for Ollama
+1. Create `src/llm/schema.sql` with `llm_provider` and `llm_model` tables
+2. Create `src/llm/llm.ts` with `LLM.init()` that calls `ems.exec(schema)`
+3. Implement OpenAI-format adapter (covers Ollama)
+4. Implement `llm:complete` syscall
+5. Seed initial provider/model records for Ollama
+
+**Pattern:** Follow VFS schema split - subsystem owns its schema file, loads via `ems.exec()` during init.
 
 ### Phase 2: AI Worker
 
-1. Create AI worker (kernel subsystem, like Auth)
-2. Implement `ai:complete` and `ai:chat` syscalls
-3. Basic STM storage in EMS
+1. Create `src/ai/schema.sql` with memory tables (`ai_stm`, `ai_ltm`, etc.)
+2. Create AI worker (kernel subsystem, like Auth)
+3. `AI.init()` loads schema via `ems.exec()`
+4. Implement `ai:complete` and `ai:chat` syscalls
+5. Basic STM storage in EMS
 
 ### Phase 3: Shell Integration
 
@@ -436,6 +449,13 @@ How much can AI-spawned tools do?
 ## References
 
 - `src/kernel/subsys/auth/` - Auth worker pattern to follow
-- `src/ems/` - Entity storage (llm.provider, llm.model will live here)
-- `src/ems/schema.sql` - Field behavioral flags pattern
+- `src/ems/schema.sql` - EMS core schema (entities, models, fields, tracked)
+- `src/vfs/schema.sql` - VFS schema (reference for subsystem schema pattern)
+- `src/vfs/vfs.ts` - VFS.init() shows how to load subsystem schema via `ems.exec()`
+- `src/vfs/path-cache.ts` - PathCache for VFS path resolution (renamed from EntityCache)
 - `rom/lib/shell/` - Existing shell implementation (to reintroduce)
+
+### Related Planning Docs
+
+- `docs/implemented/EMS_SCHEMA_SPLIT.md` - Schema split architecture
+- `docs/planning/VFS_PATH_CACHE.md` - PathCache refactor (in progress)
