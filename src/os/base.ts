@@ -803,14 +803,30 @@ export abstract class BaseOS {
             await vfsInst.stat(vfsPath, 'kernel');
         }
         catch {
-            await vfsInst.mkdir(vfsPath, 'kernel', { recursive: true });
+            try {
+                await vfsInst.mkdir(vfsPath, 'kernel', { recursive: true });
+            }
+            catch (mkdirErr) {
+                // EDGE: Directory may have been created by concurrent operation
+                // or exists from previous boot. If it's EEXIST, check if it's a folder.
+                if ((mkdirErr as NodeJS.ErrnoException).code === 'EEXIST') {
+                    const existing = await vfsInst.stat(vfsPath, 'kernel');
+                    if (existing.model !== 'folder') {
+                        throw mkdirErr;
+                    }
+                    // It's a folder - continue
+                }
+                else {
+                    throw mkdirErr;
+                }
+            }
         }
 
         const entries = await fs.readdir(hostPath, { withFileTypes: true });
 
         for (const entry of entries) {
             const srcPath = path.join(hostPath, entry.name);
-            const dstPath = `${vfsPath}/${entry.name}`;
+            const dstPath = path.posix.join(vfsPath, entry.name);
 
             if (entry.isDirectory()) {
                 await this.copyDir(srcPath, dstPath);

@@ -21,7 +21,15 @@ export async function loadServices(self: Kernel): Promise<void> {
         serviceDirs.push('/etc/services');
     }
     catch {
-        await self.vfs.mkdir('/etc/services', 'kernel', { recursive: true });
+        try {
+            await self.vfs.mkdir('/etc/services', 'kernel', { recursive: true });
+        }
+        catch (mkdirErr) {
+            // EDGE: May exist from previous boot but stat failed due to cache miss
+            if ((mkdirErr as NodeJS.ErrnoException).code !== 'EEXIST') {
+                throw mkdirErr;
+            }
+        }
         serviceDirs.push('/etc/services');
     }
 

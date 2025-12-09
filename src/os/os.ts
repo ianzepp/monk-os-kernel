@@ -107,7 +107,13 @@ export class OS extends BaseOS {
             await this.__hal.init();
 
             // 2. EMS (entity management)
-            this.__ems = new EMS(this.__hal);
+            // WHY path: EMS and HAL storage must share the same database for persistence.
+            // Without this, EMS defaults to :memory: while HAL persists to SQLite file,
+            // causing child indexes to survive but entity data to disappear on restart.
+            const emsPath = this.config.storage?.type === 'sqlite'
+                ? (this.config.storage.path ?? '.data/monk.db')
+                : undefined;
+            this.__ems = new EMS(this.__hal, { path: emsPath });
             await this.__ems.init();
 
             // 3. Auth
@@ -130,17 +136,40 @@ export class OS extends BaseOS {
             await this.createStandardDirectories();
 
             // 7. ROM copy (userspace code)
-            const romPath = opts?.romPath ?? this.config.romPath ?? DEFAULT_ROM_PATH;
+            // Skip if filesystem already has content (persistent storage with prior boot)
+            let hasExistingContent = false;
 
             try {
-                await this.copy(romPath, '/');
+                const binStat = await this.__vfs.stat('/bin', 'kernel');
+                if (binStat.model === 'folder') {
+                    // Check if /bin has children (indicates ROM was copied)
+                    let childCount = 0;
+                    for await (const _ of this.__vfs.readdir('/bin', 'kernel')) {
+                        childCount++;
+                        if (childCount > 0) {
+                            hasExistingContent = true;
+                            break;
+                        }
+                    }
+                }
             }
-            catch (err) {
-                // EDGE: ROM directory may not exist in tests
-                const error = err as NodeJS.ErrnoException;
+            catch {
+                // /bin doesn't exist or can't be read - need ROM copy
+            }
 
-                if (error.code !== 'ENOENT') {
-                    throw err;
+            if (!hasExistingContent) {
+                const romPath = opts?.romPath ?? this.config.romPath ?? DEFAULT_ROM_PATH;
+
+                try {
+                    await this.copy(romPath, '/');
+                }
+                catch (err) {
+                    // EDGE: ROM directory may not exist in tests
+                    const error = err as NodeJS.ErrnoException;
+
+                    if (error.code !== 'ENOENT') {
+                        throw err;
+                    }
                 }
             }
 
