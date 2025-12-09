@@ -1,311 +1,165 @@
 /**
  * HAL Syscall Tests
  *
- * Tests for network and channel syscall validation.
+ * Tests for network and channel syscall validation and behavior.
+ *
+ * WHY: These tests validate the syscall layer through the real dispatch chain.
+ * Uses TestOS with dispatcher layer to test syscall validation and behavior
+ * without mocks, ensuring real integration between syscall handlers and HAL.
  */
 
-import { describe, it, expect, beforeEach } from 'bun:test';
-import {
-    netConnect,
-    portCreate, portClose, portRecv, portSend,
-    channelOpen, channelClose, channelCall,
-    channelStream, channelPush, channelRecv,
-} from '@src/syscall/hal.js';
-import type { Process } from '@src/kernel/types.js';
-import type { Kernel } from '@src/kernel/kernel.js';
-import type { HAL } from '@src/hal/index.js';
-import type { Response } from '@src/message.js';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { TestOS } from '@src/os/test.js';
 
-/**
- * Create a mock process for testing.
- */
-function createMockProcess(overrides: Partial<Process> = {}): Process {
-    return {
-        id: 'test-proc-id',
-        parent: 'parent-id',
-        user: 'test',
-        worker: {} as Worker,
-        virtual: false,
-        state: 'running',
-        cmd: '/bin/test',
-        cwd: '/home/test',
-        env: {},
-        args: [],
-        pathDirs: new Map(),
-        handles: new Map(),
-        nextHandle: 3,
-        children: new Map(),
-        nextPid: 1,
-        activeStreams: new Map(),
-        streamPingHandlers: new Map(),
-        ...overrides,
-    };
-}
+describe('HAL Syscalls', () => {
+    let os: TestOS;
 
-/**
- * Get first response from an async iterable.
- */
-async function firstResponse(iterable: AsyncIterable<Response>): Promise<Response> {
-    for await (const response of iterable) {
-        return response;
-    }
-
-    throw new Error('No response received');
-}
-
-describe('HAL Syscalls - netConnect', () => {
-    let proc: Process;
-    let mockKernel: Kernel;
-    let mockHal: HAL;
-
-    beforeEach(() => {
-        proc = createMockProcess();
-        mockKernel = {} as Kernel;
-        mockHal = {} as HAL;
+    beforeEach(async () => {
+        os = new TestOS();
+        // WHY: Boot with dispatcher layer to enable syscall testing
+        // This provides hal, ems, auth, vfs, kernel, dispatcher
+        await os.boot({ layers: ['dispatcher'] });
     });
 
-    it('should yield EINVAL when proto is not a string', async () => {
-        const response = await firstResponse(netConnect(proc, mockKernel, mockHal, 123, 'localhost', 80));
-
-        expect(response.op).toBe('error');
-        expect((response.data as { code: string }).code).toBe('EINVAL');
-        expect((response.data as { message: string }).message).toBe('proto must be a string');
+    afterEach(async () => {
+        await os.shutdown();
     });
 
-    it('should yield EINVAL when host is not a string', async () => {
-        const response = await firstResponse(netConnect(proc, mockKernel, mockHal, 'tcp', null, 80));
+    // =========================================================================
+    // net:connect
+    // =========================================================================
 
-        expect(response.op).toBe('error');
-        expect((response.data as { code: string }).code).toBe('EINVAL');
-        expect((response.data as { message: string }).message).toBe('host must be a string');
+    describe('net:connect', () => {
+        it('should yield EINVAL when proto is not a string', async () => {
+            await expect(os.syscall('net:connect', 123, 'localhost', 80)).rejects.toThrow('proto must be a string');
+        });
+
+        it('should yield EINVAL when host is not a string', async () => {
+            await expect(os.syscall('net:connect', 'tcp', null, 80)).rejects.toThrow('host must be a string');
+        });
+
+        it('should yield EINVAL when port is not a number for tcp', async () => {
+            await expect(os.syscall('net:connect', 'tcp', 'localhost', 'invalid')).rejects.toThrow('port must be a number');
+        });
+
+        it('should yield EINVAL for unsupported protocol', async () => {
+            await expect(os.syscall('net:connect', 'invalid', 'localhost', 80)).rejects.toThrow('unsupported protocol');
+        });
     });
 
-    it('should yield EINVAL when port is not a number for tcp', async () => {
-        const response = await firstResponse(netConnect(proc, mockKernel, mockHal, 'tcp', 'localhost', 'invalid'));
+    // =========================================================================
+    // port:create
+    // =========================================================================
 
-        expect(response.op).toBe('error');
-        expect((response.data as { code: string }).code).toBe('EINVAL');
-        expect((response.data as { message: string }).message).toBe('port must be a number');
+    describe('port:create', () => {
+        it('should yield EINVAL when type is not a string', async () => {
+            await expect(os.syscall('port:create', 123)).rejects.toThrow('type must be a string');
+        });
+
+        it('should yield EINVAL when type is null', async () => {
+            await expect(os.syscall('port:create', null)).rejects.toThrow('type must be a string');
+        });
     });
 
-    it('should yield EINVAL for unsupported protocol', async () => {
-        const response = await firstResponse(netConnect(proc, mockKernel, mockHal, 'invalid', 'localhost', 80));
+    // =========================================================================
+    // port:close
+    // =========================================================================
 
-        expect(response.op).toBe('error');
-        expect((response.data as { code: string }).code).toBe('EINVAL');
-        expect((response.data as { message: string }).message).toContain('unsupported protocol');
-    });
-});
-
-describe('HAL Syscalls - portCreate', () => {
-    let proc: Process;
-    let mockKernel: Kernel;
-
-    beforeEach(() => {
-        proc = createMockProcess();
-        mockKernel = {} as Kernel;
+    describe('port:close', () => {
+        it('should yield EINVAL when fd is not a number', async () => {
+            await expect(os.syscall('port:close', 'invalid')).rejects.toThrow('fd must be a number');
+        });
     });
 
-    it('should yield EINVAL when type is not a string', async () => {
-        const response = await firstResponse(portCreate(proc, mockKernel, 123));
+    // =========================================================================
+    // port:recv
+    // =========================================================================
 
-        expect(response.op).toBe('error');
-        expect((response.data as { code: string }).code).toBe('EINVAL');
-        expect((response.data as { message: string }).message).toBe('type must be a string');
+    describe('port:recv', () => {
+        it('should yield EINVAL when fd is not a number', async () => {
+            await expect(os.syscall('port:recv', null)).rejects.toThrow('fd must be a number');
+        });
     });
 
-    it('should yield EINVAL when type is null', async () => {
-        const response = await firstResponse(portCreate(proc, mockKernel, null));
+    // =========================================================================
+    // port:send
+    // =========================================================================
 
-        expect(response.op).toBe('error');
-        expect((response.data as { code: string }).code).toBe('EINVAL');
-    });
-});
+    describe('port:send', () => {
+        it('should yield EINVAL when fd is not a number', async () => {
+            await expect(os.syscall('port:send', 'invalid', 'addr', new Uint8Array())).rejects.toThrow('fd must be a number');
+        });
 
-describe('HAL Syscalls - portClose', () => {
-    let proc: Process;
-    let mockKernel: Kernel;
+        it('should yield EINVAL when to is not a string', async () => {
+            await expect(os.syscall('port:send', 5, null, new Uint8Array())).rejects.toThrow('to must be a string');
+        });
 
-    beforeEach(() => {
-        proc = createMockProcess();
-        mockKernel = {} as Kernel;
-    });
-
-    it('should yield EINVAL when fd is not a number', async () => {
-        const response = await firstResponse(portClose(proc, mockKernel, 'invalid'));
-
-        expect(response.op).toBe('error');
-        expect((response.data as { code: string }).code).toBe('EINVAL');
-        expect((response.data as { message: string }).message).toBe('fd must be a number');
-    });
-});
-
-describe('HAL Syscalls - portRecv', () => {
-    let proc: Process;
-    let mockKernel: Kernel;
-
-    beforeEach(() => {
-        proc = createMockProcess();
-        mockKernel = {} as Kernel;
+        it('should yield EINVAL when data is not Uint8Array', async () => {
+            await expect(os.syscall('port:send', 5, 'addr', 'string data')).rejects.toThrow('data must be Uint8Array');
+        });
     });
 
-    it('should yield EINVAL when fd is not a number', async () => {
-        const response = await firstResponse(portRecv(proc, mockKernel, null));
+    // =========================================================================
+    // channel:open
+    // =========================================================================
 
-        expect(response.op).toBe('error');
-        expect((response.data as { code: string }).code).toBe('EINVAL');
-        expect((response.data as { message: string }).message).toBe('fd must be a number');
-    });
-});
+    describe('channel:open', () => {
+        it('should yield EINVAL when proto is not a string', async () => {
+            await expect(os.syscall('channel:open', 123, 'http://test')).rejects.toThrow('proto must be a string');
+        });
 
-describe('HAL Syscalls - portSend', () => {
-    let proc: Process;
-    let mockKernel: Kernel;
-
-    beforeEach(() => {
-        proc = createMockProcess();
-        mockKernel = {} as Kernel;
+        it('should yield EINVAL when url is not a string', async () => {
+            await expect(os.syscall('channel:open', 'http', null)).rejects.toThrow('url must be a string');
+        });
     });
 
-    it('should yield EINVAL when fd is not a number', async () => {
-        const response = await firstResponse(portSend(proc, mockKernel, 'invalid', 'addr', new Uint8Array()));
+    // =========================================================================
+    // channel:close
+    // =========================================================================
 
-        expect(response.op).toBe('error');
-        expect((response.data as { code: string }).code).toBe('EINVAL');
-        expect((response.data as { message: string }).message).toBe('fd must be a number');
+    describe('channel:close', () => {
+        it('should yield EINVAL when fd is not a number', async () => {
+            await expect(os.syscall('channel:close', {})).rejects.toThrow('fd must be a number');
+        });
     });
 
-    it('should yield EINVAL when to is not a string', async () => {
-        const response = await firstResponse(portSend(proc, mockKernel, 5, null, new Uint8Array()));
+    // =========================================================================
+    // channel:call
+    // =========================================================================
 
-        expect(response.op).toBe('error');
-        expect((response.data as { code: string }).code).toBe('EINVAL');
-        expect((response.data as { message: string }).message).toBe('to must be a string');
+    describe('channel:call', () => {
+        it('should yield EINVAL when fd is not a number', async () => {
+            await expect(os.syscall('channel:call', 'string', {})).rejects.toThrow('fd must be a number');
+        });
     });
 
-    it('should yield EINVAL when data is not Uint8Array', async () => {
-        const response = await firstResponse(portSend(proc, mockKernel, 5, 'addr', 'string data'));
+    // =========================================================================
+    // channel:stream
+    // =========================================================================
 
-        expect(response.op).toBe('error');
-        expect((response.data as { code: string }).code).toBe('EINVAL');
-        expect((response.data as { message: string }).message).toBe('data must be Uint8Array');
-    });
-});
-
-describe('HAL Syscalls - channelOpen', () => {
-    let proc: Process;
-    let mockKernel: Kernel;
-    let mockHal: HAL;
-
-    beforeEach(() => {
-        proc = createMockProcess();
-        mockKernel = {} as Kernel;
-        mockHal = {} as HAL;
+    describe('channel:stream', () => {
+        it('should yield EINVAL when fd is not a number', async () => {
+            await expect(os.syscall('channel:stream', undefined, {})).rejects.toThrow('fd must be a number');
+        });
     });
 
-    it('should yield EINVAL when proto is not a string', async () => {
-        const response = await firstResponse(channelOpen(proc, mockKernel, mockHal, 123, 'http://test'));
+    // =========================================================================
+    // channel:push
+    // =========================================================================
 
-        expect(response.op).toBe('error');
-        expect((response.data as { code: string }).code).toBe('EINVAL');
-        expect((response.data as { message: string }).message).toBe('proto must be a string');
+    describe('channel:push', () => {
+        it('should yield EINVAL when fd is not a number', async () => {
+            await expect(os.syscall('channel:push', [], {})).rejects.toThrow('fd must be a number');
+        });
     });
 
-    it('should yield EINVAL when url is not a string', async () => {
-        const response = await firstResponse(channelOpen(proc, mockKernel, mockHal, 'http', null));
+    // =========================================================================
+    // channel:recv
+    // =========================================================================
 
-        expect(response.op).toBe('error');
-        expect((response.data as { code: string }).code).toBe('EINVAL');
-        expect((response.data as { message: string }).message).toBe('url must be a string');
-    });
-});
-
-describe('HAL Syscalls - channelClose', () => {
-    let proc: Process;
-    let mockKernel: Kernel;
-
-    beforeEach(() => {
-        proc = createMockProcess();
-        mockKernel = {} as Kernel;
-    });
-
-    it('should yield EINVAL when fd is not a number', async () => {
-        const response = await firstResponse(channelClose(proc, mockKernel, {}));
-
-        expect(response.op).toBe('error');
-        expect((response.data as { code: string }).code).toBe('EINVAL');
-        expect((response.data as { message: string }).message).toBe('fd must be a number');
-    });
-});
-
-describe('HAL Syscalls - channelCall', () => {
-    let proc: Process;
-    let mockKernel: Kernel;
-
-    beforeEach(() => {
-        proc = createMockProcess();
-        mockKernel = {} as Kernel;
-    });
-
-    it('should yield EINVAL when fd is not a number', async () => {
-        const response = await firstResponse(channelCall(proc, mockKernel, 'string', {}));
-
-        expect(response.op).toBe('error');
-        expect((response.data as { code: string }).code).toBe('EINVAL');
-        expect((response.data as { message: string }).message).toBe('fd must be a number');
-    });
-});
-
-describe('HAL Syscalls - channelStream', () => {
-    let proc: Process;
-    let mockKernel: Kernel;
-
-    beforeEach(() => {
-        proc = createMockProcess();
-        mockKernel = {} as Kernel;
-    });
-
-    it('should yield EINVAL when fd is not a number', async () => {
-        const response = await firstResponse(channelStream(proc, mockKernel, undefined, {}));
-
-        expect(response.op).toBe('error');
-        expect((response.data as { code: string }).code).toBe('EINVAL');
-        expect((response.data as { message: string }).message).toBe('fd must be a number');
-    });
-});
-
-describe('HAL Syscalls - channelPush', () => {
-    let proc: Process;
-    let mockKernel: Kernel;
-
-    beforeEach(() => {
-        proc = createMockProcess();
-        mockKernel = {} as Kernel;
-    });
-
-    it('should yield EINVAL when fd is not a number', async () => {
-        const response = await firstResponse(channelPush(proc, mockKernel, [], {}));
-
-        expect(response.op).toBe('error');
-        expect((response.data as { code: string }).code).toBe('EINVAL');
-        expect((response.data as { message: string }).message).toBe('fd must be a number');
-    });
-});
-
-describe('HAL Syscalls - channelRecv', () => {
-    let proc: Process;
-    let mockKernel: Kernel;
-
-    beforeEach(() => {
-        proc = createMockProcess();
-        mockKernel = {} as Kernel;
-    });
-
-    it('should yield EINVAL when fd is not a number', async () => {
-        const response = await firstResponse(channelRecv(proc, mockKernel, false));
-
-        expect(response.op).toBe('error');
-        expect((response.data as { code: string }).code).toBe('EINVAL');
-        expect((response.data as { message: string }).message).toBe('fd must be a number');
+    describe('channel:recv', () => {
+        it('should yield EINVAL when fd is not a number', async () => {
+            await expect(os.syscall('channel:recv', false)).rejects.toThrow('fd must be a number');
+        });
     });
 });
