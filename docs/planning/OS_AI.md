@@ -733,19 +733,18 @@ relationship metadata (`llm.model.provider` → `llm.provider.provider_name`).
 
 **Implementation:** `rom/bin/` (~45 commands)
 
-### Phase 3.5: Real Provider Integration ← CURRENT
+### Phase 3.5: Real Provider Integration ✅ COMPLETE
 
 Test Prior with a capable cloud provider instead of local Ollama.
 
-1. Enable Anthropic provider (set `auth_value`, flip `status` to `active`)
-2. Test Prior end-to-end with Claude via TCP interface
-3. Verify streaming works with SSE format
-4. Document any protocol/adapter issues discovered
+1. ✅ Add `env:` prefix resolver for auth_value (reads from host env via HAL)
+2. ✅ Enable Anthropic provider by default (uses `env:ANTHROPIC_API_KEY`)
+3. ✅ Test Prior end-to-end with Claude via TCP interface
+4. ⏸️ Streaming with SSE (deferred - basic completion works)
 
-**Goal:** Validate the LLM subsystem works with production-grade models before
-building memory and agent features on top.
+**Implementation:** `resolveAuthValue()` in `src/llm/llm.ts`, ~15 lines
 
-### Phase 4: Agent Memory
+### Phase 4: Agent Memory ← CURRENT
 
 1. Create `rom/lib/agent/memory.ts` - AgentMemory class wrapping SQLite
 2. Initialize Prior's `~/.memory/agent.db` with schema
