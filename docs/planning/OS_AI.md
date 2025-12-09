@@ -698,38 +698,30 @@ Strategy:
 
 **Implementation:** `src/llm/` (~2250 lines), `src/syscall/llm.ts` (~350 lines)
 
-### Phase 2: Prior (Main AI Process) ← CURRENT
+### Phase 2: Prior (Main AI Process) ✅ COMPLETE
 
 **Goal:** When `bun start` boots the OS, the Prior process starts and listens for external instructions via TCP.
 
-1. Create Prior user account and home directory during OS init
-   - `auth_user` entry for `prior` (no password, JWT-only)
-   - Home directory `/home/prior/` with `.config/` and `.memory/`
-   - Mint long-lived JWT with full permissions
-   - Write token to `/home/prior/.config/token`
-
-2. Create `rom/bin/prior` executable
-   - Authenticates via JWT on startup
-   - Opens TCP listener (`port:create 'tcp:listen'`)
+1. ✅ Create `rom/bin/prior` executable
+   - Opens TCP listener on port 7777 (`port:create 'tcp:listen'`)
    - Enters receive loop (`port:recv` → handle → respond)
 
-3. Implement basic task execution
+2. ✅ Implement basic task execution
    - Parse JSON instruction from socket
-   - Execute using `llm:complete` and other syscalls
-   - Return JSON result
+   - Execute using `llm:complete` syscall
+   - Return JSON result with status, timing
 
-4. Wire Prior into OS boot sequence
-   - `OS.boot()` spawns Prior after subsystems initialize
+3. ✅ Wire Prior into OS boot sequence
+   - `rom/svc/init.ts` spawns Prior as system service
    - Prior runs as background daemon process
 
-**Syscalls used (all existing):**
-- `port:create`, `port:recv` - TCP listener
-- `handle:send`, `handle:close` - Socket I/O
-- `auth:token` - Authentication
-- `llm:complete`, `llm:chat` - LLM inference
-- `vfs:*` - File operations
+4. ⏸️ Prior user account and JWT auth (deferred)
+   - Runs as system service without auth for now
+   - Will add when Auth subsystem is more complete
 
-### Phase 3: Shell + Coreutils (Userspace)
+**Implementation:** `rom/bin/prior.ts` (~300 lines), `rom/svc/init.ts` (~130 lines)
+
+### Phase 3: Shell + Coreutils (Userspace) ← CURRENT
 
 1. Reintroduce `/bin/shell` to OS userspace
 2. Add basic coreutils (`cat`, `grep`, `head`, `tail`, `wc`)

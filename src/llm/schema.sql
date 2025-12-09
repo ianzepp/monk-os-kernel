@@ -177,35 +177,79 @@ CREATE INDEX IF NOT EXISTS idx_llm_model_capabilities
 -- =============================================================================
 -- SEED DATA: LLM_PROVIDER FIELDS
 -- =============================================================================
+-- Complete field definitions with constraints matching the table DDL.
 
-INSERT OR IGNORE INTO fields (model_name, field_name, type, required, description) VALUES
-    ('llm.provider', 'provider_name', 'text', 1, 'Unique provider identifier'),
-    ('llm.provider', 'api_format', 'text', 1, 'Wire protocol format: openai or anthropic'),
-    ('llm.provider', 'auth_type', 'text', 1, 'Authentication method: none, bearer, x-api-key'),
-    ('llm.provider', 'auth_value', 'text', 0, 'API key or token (null if auth_type=none)'),
-    ('llm.provider', 'endpoint', 'text', 1, 'Base URL for API calls'),
-    ('llm.provider', 'streaming_format', 'text', 1, 'Streaming protocol: ndjson or sse'),
-    ('llm.provider', 'status', 'text', 1, 'Provider status: active or disabled');
+INSERT OR IGNORE INTO fields (
+    model_name, field_name, type, required, default_value, enum_values,
+    unique_, index_, description
+) VALUES
+    ('llm.provider', 'provider_name', 'text', 1, NULL, NULL,
+     1, 0, 'Unique provider identifier'),
+    ('llm.provider', 'api_format', 'text', 1, NULL, '["openai","anthropic"]',
+     0, 0, 'Wire protocol format: openai or anthropic'),
+    ('llm.provider', 'auth_type', 'text', 1, 'none', '["none","bearer","x-api-key"]',
+     0, 0, 'Authentication method: none, bearer, x-api-key'),
+    ('llm.provider', 'auth_value', 'text', 0, NULL, NULL,
+     0, 0, 'API key or token (null if auth_type=none)'),
+    ('llm.provider', 'endpoint', 'text', 1, NULL, NULL,
+     0, 0, 'Base URL for API calls'),
+    ('llm.provider', 'streaming_format', 'text', 1, 'sse', '["ndjson","sse"]',
+     0, 0, 'Streaming protocol: ndjson or sse'),
+    ('llm.provider', 'status', 'text', 1, 'active', '["active","disabled"]',
+     0, 1, 'Provider status: active or disabled');
 
 -- =============================================================================
 -- SEED DATA: LLM_MODEL FIELDS
 -- =============================================================================
+-- Complete field definitions with constraints, defaults, and relationships.
 
-INSERT OR IGNORE INTO fields (model_name, field_name, type, required, description) VALUES
-    ('llm.model', 'model_name', 'text', 1, 'Unique model identifier for syscalls'),
-    ('llm.model', 'provider', 'text', 1, 'Provider hosting this model'),
-    ('llm.model', 'model_id', 'text', 1, 'Provider-specific model identifier'),
-    ('llm.model', 'supports_chat', 'boolean', 0, 'Supports multi-turn chat'),
-    ('llm.model', 'supports_completion', 'boolean', 0, 'Supports single-shot completion'),
-    ('llm.model', 'supports_streaming', 'boolean', 0, 'Supports streaming responses'),
-    ('llm.model', 'supports_embeddings', 'boolean', 0, 'Supports text embeddings'),
-    ('llm.model', 'supports_vision', 'boolean', 0, 'Supports image input'),
-    ('llm.model', 'supports_tools', 'boolean', 0, 'Supports tool/function calling'),
-    ('llm.model', 'context_window', 'integer', 1, 'Maximum input tokens'),
-    ('llm.model', 'max_output', 'integer', 1, 'Maximum output tokens'),
-    ('llm.model', 'strip_markdown', 'boolean', 0, 'Strip markdown fences from output'),
-    ('llm.model', 'system_prompt_style', 'text', 0, 'How to send system prompts: message or prefix'),
-    ('llm.model', 'status', 'text', 1, 'Model status: active or disabled');
+INSERT OR IGNORE INTO fields (
+    model_name, field_name, type, required, default_value, enum_values,
+    relationship_type, related_model, related_field, required_relationship,
+    unique_, index_, description
+) VALUES
+    ('llm.model', 'model_name', 'text', 1, NULL, NULL,
+     NULL, NULL, NULL, 0,
+     1, 0, 'Unique model identifier for syscalls'),
+    ('llm.model', 'provider', 'text', 1, NULL, NULL,
+     'referenced', 'llm.provider', 'provider_name', 1,
+     0, 1, 'Provider hosting this model'),
+    ('llm.model', 'model_id', 'text', 1, NULL, NULL,
+     NULL, NULL, NULL, 0,
+     0, 0, 'Provider-specific model identifier'),
+    ('llm.model', 'supports_chat', 'boolean', 0, '1', NULL,
+     NULL, NULL, NULL, 0,
+     0, 0, 'Supports multi-turn chat'),
+    ('llm.model', 'supports_completion', 'boolean', 0, '1', NULL,
+     NULL, NULL, NULL, 0,
+     0, 0, 'Supports single-shot completion'),
+    ('llm.model', 'supports_streaming', 'boolean', 0, '1', NULL,
+     NULL, NULL, NULL, 0,
+     0, 0, 'Supports streaming responses'),
+    ('llm.model', 'supports_embeddings', 'boolean', 0, '0', NULL,
+     NULL, NULL, NULL, 0,
+     0, 0, 'Supports text embeddings'),
+    ('llm.model', 'supports_vision', 'boolean', 0, '0', NULL,
+     NULL, NULL, NULL, 0,
+     0, 0, 'Supports image input'),
+    ('llm.model', 'supports_tools', 'boolean', 0, '0', NULL,
+     NULL, NULL, NULL, 0,
+     0, 0, 'Supports tool/function calling'),
+    ('llm.model', 'context_window', 'integer', 1, '4096', NULL,
+     NULL, NULL, NULL, 0,
+     0, 0, 'Maximum input tokens'),
+    ('llm.model', 'max_output', 'integer', 1, '4096', NULL,
+     NULL, NULL, NULL, 0,
+     0, 0, 'Maximum output tokens'),
+    ('llm.model', 'strip_markdown', 'boolean', 0, '0', NULL,
+     NULL, NULL, NULL, 0,
+     0, 0, 'Strip markdown fences from output'),
+    ('llm.model', 'system_prompt_style', 'text', 0, 'message', '["message","prefix"]',
+     NULL, NULL, NULL, 0,
+     0, 0, 'How to send system prompts: message or prefix'),
+    ('llm.model', 'status', 'text', 1, 'active', '["active","disabled"]',
+     NULL, NULL, NULL, 0,
+     0, 1, 'Model status: active or disabled');
 
 -- =============================================================================
 -- SEED DATA: DEFAULT PROVIDERS
