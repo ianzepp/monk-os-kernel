@@ -339,21 +339,42 @@ export class LLM {
     }
 
     /**
+     * Resolve an auth_value, handling env: prefix.
+     *
+     * Supports:
+     * - "env:VAR_NAME" → reads from host environment via HAL
+     * - literal value → returned as-is
+     */
+    private resolveAuthValue(value: string | null | undefined): string | undefined {
+        if (!value) {
+            return undefined;
+        }
+
+        if (value.startsWith('env:')) {
+            const envKey = value.slice(4);
+            return this.hal.host.getenv(envKey);
+        }
+
+        return value;
+    }
+
+    /**
      * Build authentication headers for a provider.
      */
     private buildAuthHeaders(provider: LLMProvider): Record<string, string> {
         const headers: Record<string, string> = {};
+        const authValue = this.resolveAuthValue(provider.auth_value);
 
         switch (provider.auth_type) {
             case 'bearer':
-                if (provider.auth_value) {
-                    headers['Authorization'] = `Bearer ${provider.auth_value}`;
+                if (authValue) {
+                    headers['Authorization'] = `Bearer ${authValue}`;
                 }
                 break;
 
             case 'x-api-key':
-                if (provider.auth_value) {
-                    headers['x-api-key'] = provider.auth_value;
+                if (authValue) {
+                    headers['x-api-key'] = authValue;
                 }
                 break;
 

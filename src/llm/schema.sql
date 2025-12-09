@@ -256,10 +256,10 @@ INSERT OR IGNORE INTO fields (
 -- =============================================================================
 -- Pre-configured providers for common setups.
 
-INSERT OR IGNORE INTO llm_provider (provider_name, api_format, auth_type, endpoint, streaming_format, status) VALUES
-    ('ollama', 'openai', 'none', 'http://localhost:11434', 'ndjson', 'active'),
-    ('openai', 'openai', 'bearer', 'https://api.openai.com', 'sse', 'disabled'),
-    ('anthropic', 'anthropic', 'x-api-key', 'https://api.anthropic.com', 'sse', 'disabled');
+INSERT OR IGNORE INTO llm_provider (provider_name, api_format, auth_type, auth_value, endpoint, streaming_format, status) VALUES
+    ('ollama', 'openai', 'none', NULL, 'http://localhost:11434', 'ndjson', 'active'),
+    ('openai', 'openai', 'bearer', 'env:OPENAI_API_KEY', 'https://api.openai.com', 'sse', 'disabled'),
+    ('anthropic', 'anthropic', 'x-api-key', 'env:ANTHROPIC_API_KEY', 'https://api.anthropic.com', 'sse', 'disabled');
 
 -- =============================================================================
 -- SEED DATA: DEFAULT MODELS
