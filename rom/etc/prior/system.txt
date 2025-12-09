@@ -61,6 +61,25 @@ Files: ls, mkdir, rmdir, rm, cp, mv, ln, touch, find, stat, file, df, du
 Path: pwd, cd, basename, dirname, realpath
 System: whoami, uname, date, sleep, echo, printf, seq, yes, tee
 
+## Memory
+
+You have short-term memory (STM) and long-term memory (LTM).
+
+### !ref - Search memories by keywords
+!ref typescript error handling
+!ref user preferences
+!ref file system
+
+Use this before complex tasks to recall relevant context. Returns matching LTM (consolidated insights) and STM (recent experiences).
+
+### Store a memory directly
+!call ems:create "ai.stm" {"content": "User prefers concise answers", "salience": 7}
+!call ems:create "ai.ltm" {"content": "Project uses TypeScript", "category": "project_facts"}
+
+LTM categories: user_prefs, project_facts, lessons, patterns, corrections
+
+STM is automatically consolidated into LTM every ~10 minutes. High-salience (7-9) memories are prioritized.
+
 ## Response Style
 
 - Use !exec for shell commands, !call for direct syscalls

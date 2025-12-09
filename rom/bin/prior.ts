@@ -202,6 +202,19 @@ async function logSession(task: string, result: string, status: 'ok' | 'error'):
         const message = err instanceof Error ? err.message : String(err);
         await eprintln(`prior: failed to log session: ${message}`);
     }
+
+    // Write to short-term memory for later consolidation
+    // Salience: errors are more notable (7), successes are normal (5)
+    try {
+        await call('ems:create', 'ai.stm', {
+            content: `Task: ${task.slice(0, 500)}\nResult (${status}): ${result.slice(0, 1000)}`,
+            context: JSON.stringify({ source: 'task', status }),
+            salience: status === 'error' ? 7 : 5,
+        });
+    }
+    catch {
+        // STM write is non-critical, don't fail the task
+    }
 }
 
 // =============================================================================
@@ -583,6 +596,15 @@ function parseBangCommands(text: string): ParsedBangCommand[] | null {
             continue;
         }
 
+        // !ref keyword1 keyword2 ... - search memories
+        if (trimmed.startsWith('!ref ')) {
+            const keywords = trimmed.slice(5).trim();
+            if (keywords) {
+                results.push({ type: 'ref', args: keywords });
+            }
+            continue;
+        }
+
         // !stm (reserved)
         if (trimmed.startsWith('!stm')) {
             results.push({ type: 'stm', args: trimmed.slice(4).trim() });
@@ -835,6 +857,75 @@ async function executeTask(instruction: Instruction, skipLogging = false): Promi
                         return executeCall(name, args);
                     }
 
+                    case 'ref': {
+                        const keywords = (cmd.args as string).toLowerCase().split(/\s+/);
+                        await eprintln(`prior: !ref searching for: ${keywords.join(', ')}`);
+
+                        const results: string[] = [];
+
+                        // Search LTM (prioritized - these are consolidated insights)
+                        try {
+                            const ltmEntries = await call<Array<{
+                                id: string;
+                                content: string;
+                                category: string;
+                                reinforced: number;
+                            }>>(
+                                'ems:select',
+                                'ai.ltm',
+                                { orderBy: ['-reinforced', '-created_at'], limit: 50 }
+                            );
+
+                            // Simple keyword matching
+                            const ltmMatches = ltmEntries.filter(e => {
+                                const text = e.content.toLowerCase();
+                                return keywords.some(kw => text.includes(kw));
+                            }).slice(0, 5);
+
+                            for (const m of ltmMatches) {
+                                results.push(`[LTM/${m.category}] ${m.content}`);
+                            }
+                        }
+                        catch {
+                            // LTM query failed, continue
+                        }
+
+                        // Search STM (recent experiences)
+                        try {
+                            const stmEntries = await call<Array<{
+                                id: string;
+                                content: string;
+                                salience: number;
+                            }>>(
+                                'ems:select',
+                                'ai.stm',
+                                {
+                                    where: { consolidated: 0 },
+                                    orderBy: ['-salience', '-created_at'],
+                                    limit: 30,
+                                }
+                            );
+
+                            const stmMatches = stmEntries.filter(e => {
+                                const text = e.content.toLowerCase();
+                                return keywords.some(kw => text.includes(kw));
+                            }).slice(0, 3);
+
+                            for (const m of stmMatches) {
+                                results.push(`[STM] ${m.content.slice(0, 200)}`);
+                            }
+                        }
+                        catch {
+                            // STM query failed, continue
+                        }
+
+                        if (results.length === 0) {
+                            return '(no matching memories)';
+                        }
+
+                        return `Relevant memories:\n${results.join('\n\n')}`;
+                    }
+
                     case 'stm':
                         return '[!stm not yet implemented]';
 
@@ -1010,6 +1101,90 @@ interface HttpRequest {
     query: Record<string, string>;
     headers: Record<string, string>;
     body: unknown;
+}
+
+/**
+ * Consolidate short-term memories into long-term storage.
+ * Runs periodically during idle ticks (every ~10 minutes).
+ */
+async function consolidateMemory(): Promise<void> {
+    await eprintln('prior: starting memory consolidation');
+
+    try {
+        // Find unconsolidated STM entries, ordered by salience
+        const stmEntries = await call<Array<{ id: string; content: string; context: string; salience: number }>>(
+            'ems:select',
+            'ai.stm',
+            {
+                where: { consolidated: 0 },
+                orderBy: ['-salience', 'created_at'],
+                limit: 20,
+            }
+        );
+
+        if (stmEntries.length === 0) {
+            await eprintln('prior: no memories to consolidate');
+            return;
+        }
+
+        await eprintln(`prior: consolidating ${stmEntries.length} memories`);
+
+        // Build context for LLM
+        const memoryList = stmEntries
+            .map((m, i) => `[${i + 1}] (salience=${m.salience}) ${m.content}`)
+            .join('\n');
+
+        const result = await executeTask({
+            task: `Review these recent memories and extract lasting insights worth remembering long-term. For each insight, output a JSON object on its own line with format: {"content": "...", "category": "..."}
+
+Categories: user_prefs, project_facts, lessons, patterns, corrections
+
+Memories to review:
+${memoryList}
+
+Output only JSON lines, no commentary. If nothing is worth keeping, output nothing.`,
+        }, true);
+
+        if (result.status === 'ok' && result.result) {
+            // Parse JSON lines from response
+            const lines = result.result.split('\n').filter((l: string) => l.trim().startsWith('{'));
+
+            for (const line of lines) {
+                try {
+                    const insight = JSON.parse(line) as { content: string; category: string };
+
+                    // Create LTM entry
+                    await call('ems:create', 'ai.ltm', {
+                        content: insight.content,
+                        category: insight.category,
+                        source_ids: JSON.stringify(stmEntries.map(e => e.id)),
+                        last_accessed: new Date().toISOString(),
+                    });
+
+                    await eprintln(`prior: stored insight [${insight.category}]: ${insight.content.slice(0, 50)}...`);
+                }
+                catch {
+                    // Skip malformed lines
+                }
+            }
+        }
+
+        // Mark all processed STM entries as consolidated
+        const now = new Date().toISOString();
+
+        for (const entry of stmEntries) {
+            await call('ems:update', 'ai.stm', entry.id, {
+                consolidated: 1,
+                consolidated_at: now,
+            });
+        }
+
+        await eprintln('prior: memory consolidation complete');
+    }
+    catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        await eprintln(`prior: consolidation error: ${message}`);
+    }
 }
 
 /**
@@ -1206,7 +1381,10 @@ async function main(): Promise<void> {
                 await eprintln(`prior: heartbeat tick=${seq} dt=${dt}ms`);
             }
 
-            // Future: check for autonomous work queue, consolidate memory, etc.
+            // Memory consolidation (every 600 ticks = ~10 minutes)
+            if (seq % 600 === 0) {
+                await consolidateMemory();
+            }
         }
         catch (err) {
             const message = err instanceof Error ? err.message : String(err);
