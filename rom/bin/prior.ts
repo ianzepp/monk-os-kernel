@@ -92,6 +92,7 @@ async function log(message: string, requestId?: string): Promise<void> {
 let systemPrompt: string | undefined;
 let identity: string | undefined;
 let memoryContext: string | undefined;
+let emsSchema: string | undefined;
 let tickBusy = false;
 
 // Spawned subagent tracking
@@ -667,6 +668,10 @@ async function executeTask(instruction: Instruction, options: ExecuteTaskOptions
         initialParts.push(`My identity: ${identity}`);
     }
 
+    if (emsSchema) {
+        initialParts.push(`EMS models (database tables):\n${emsSchema}`);
+    }
+
     if (memoryContext) {
         initialParts.push(`Memory context:\n${memoryContext}`);
     }
@@ -931,125 +936,51 @@ async function executeTask(instruction: Instruction, options: ExecuteTaskOptions
                     }
 
                     case 'ems': {
+                        // Delegate to shell commands
                         const emsCmd = cmd.args as { subcommand: string; args: string };
-                        cmdString = `ems ${emsCmd.subcommand} ${emsCmd.args}`.trim();
+                        const subcommand = emsCmd.subcommand;
+                        const emsArgs = emsCmd.args;
 
-                        switch (emsCmd.subcommand) {
-                            case 'describe': {
-                                // !ems describe [model] - show model schemas
-                                const modelArg = emsCmd.args || undefined;
-                                try {
-                                    interface ModelSchema {
-                                        model_name: string;
-                                        status: string;
-                                        description: string | null;
-                                        fields: Array<{
-                                            field_name: string;
-                                            type: string;
-                                            required: boolean;
-                                            unique: boolean;
-                                            description: string | null;
-                                            related_model: string | null;
-                                            enum_values: string[] | null;
-                                        }>;
-                                    }
-
-                                    const models = await collect<ModelSchema>('ems:describe', modelArg);
-
-                                    if (models.length === 0) {
-                                        result = modelArg
-                                            ? `Error: model not found: ${modelArg}`
-                                            : 'No models found.';
-                                    }
-                                    else if (modelArg) {
-                                        // Detailed output for single model
-                                        const m = models[0];
-                                        const lines: string[] = [
-                                            `${m.model_name} (${m.status})`,
-                                        ];
-                                        if (m.description) {
-                                            lines.push(m.description);
-                                        }
-                                        lines.push('', 'Fields:');
-                                        for (const f of m.fields) {
-                                            const attrs = [f.type];
-                                            if (f.related_model) attrs[0] = `${f.type}(${f.related_model})`;
-                                            if (f.required) attrs.push('required');
-                                            if (f.unique) attrs.push('unique');
-                                            if (f.enum_values) attrs.push(`enum[${f.enum_values.length}]`);
-                                            let line = `  - ${f.field_name} (${attrs.join(', ')})`;
-                                            if (f.description) line += ` "${f.description}"`;
-                                            lines.push(line);
-                                        }
-                                        result = lines.join('\n');
-                                    }
-                                    else {
-                                        // Compact listing for all models
-                                        const lines = models.map(m => {
-                                            const desc = m.description ? ` - ${m.description}` : '';
-                                            return `${m.model_name} (${m.fields.length} fields)${desc}`;
-                                        });
-                                        result = lines.join('\n');
-                                    }
-                                }
-                                catch (err) {
-                                    const msg = err instanceof Error ? err.message : String(err);
-                                    result = `Error: ${msg}`;
-                                }
+                        // Map subcommands to shell commands
+                        // list/query are aliases for select
+                        let shellCommand: string;
+                        switch (subcommand) {
+                            case 'describe':
+                                shellCommand = emsArgs ? `describe ${emsArgs}` : 'describe';
                                 break;
-                            }
-
                             case 'select':
                             case 'list':
-                            case 'query': {
-                                // !ems select <model> - alias for ems:select
-                                // Parse: model [where field=value] [limit N]
-                                const parts = emsCmd.args.split(/\s+/);
-                                const emsModel = parts[0];
-                                if (!emsModel) {
-                                    result = 'Error: model name required';
-                                    break;
-                                }
-
-                                // Simple filter parsing
-                                const filter: Record<string, unknown> = {};
-                                let i = 1;
-                                while (i < parts.length) {
-                                    if (parts[i] === 'limit' && parts[i + 1]) {
-                                        filter.limit = parseInt(parts[i + 1], 10);
-                                        i += 2;
-                                    }
-                                    else if (parts[i] === 'where' || parts[i]?.includes('=')) {
-                                        // Skip 'where' keyword if present
-                                        if (parts[i] === 'where') i++;
-                                        // Parse field=value pairs
-                                        while (i < parts.length && parts[i]?.includes('=')) {
-                                            const [field, ...valueParts] = parts[i].split('=');
-                                            const value = valueParts.join('=');
-                                            if (!filter.where) filter.where = {};
-                                            (filter.where as Record<string, unknown>)[field] = value;
-                                            i++;
-                                        }
-                                    }
-                                    else {
-                                        i++;
-                                    }
-                                }
-
-                                try {
-                                    const records = await collect<Record<string, unknown>>('ems:select', emsModel, filter);
-                                    result = JSON.stringify(records, null, 2);
-                                }
-                                catch (err) {
-                                    const msg = err instanceof Error ? err.message : String(err);
-                                    result = `Error: ${msg}`;
-                                }
+                            case 'query':
+                                shellCommand = emsArgs ? `select ${emsArgs}` : 'select';
                                 break;
-                            }
-
+                            case 'create':
+                                shellCommand = emsArgs ? `create ${emsArgs}` : 'create';
+                                break;
+                            case 'update':
+                                shellCommand = emsArgs ? `update ${emsArgs}` : 'update';
+                                break;
+                            case 'delete':
+                                shellCommand = emsArgs ? `delete ${emsArgs}` : 'delete';
+                                break;
+                            case 'revert':
+                                shellCommand = emsArgs ? `revert ${emsArgs}` : 'revert';
+                                break;
+                            case 'expire':
+                                shellCommand = emsArgs ? `expire ${emsArgs}` : 'expire';
+                                break;
                             default:
-                                result = `Error: unknown ems subcommand: ${emsCmd.subcommand}. Use: describe, select, list, query`;
+                                cmdString = `ems ${subcommand}`;
+                                result = `Error: unknown ems subcommand: ${subcommand}. Use: describe, select, create, update, delete, revert, expire`;
+                                break;
                         }
+
+                        if (result) break; // Error case
+
+                        cmdString = shellCommand;
+                        const execResult = await exec(shellCommand);
+                        result = execResult.code === 0
+                            ? execResult.stdout || '(no output)'
+                            : `Error (code ${execResult.code}): ${execResult.stderr || execResult.stdout || 'unknown error'}`;
                         break;
                     }
 
@@ -1439,31 +1370,56 @@ async function main(): Promise<void> {
         tickBusy = true;
 
         try {
-            // First tick: self-discovery (only if no identity exists)
-            if (seq === 1 && !identity) {
-                await log('prior: tick 1 - performing self-discovery');
-
-                const result = await executeTask({
-                    task: 'You just woke up. Describe your environment and capabilities based on your system knowledge. Be concise (2-3 sentences).',
-                }, { skipLogging: true });
-
-                if (result.status === 'ok' && result.result) {
-                    identity = result.result;
-                    await log(`prior: self-discovery complete`);
-                    await log(`prior: ${identity}`);
-
-                    // Persist identity to file
-                    try {
-                        await writeFile(IDENTITY_PATH, identity);
-                        await log(`prior: identity saved to ${IDENTITY_PATH}`);
+            // First tick: load EMS schema (always) and self-discovery (if needed)
+            if (seq === 1) {
+                // Load EMS schema so Prior understands available data models
+                await log('prior: tick 1 - loading EMS schema');
+                try {
+                    interface ModelSchema {
+                        model_name: string;
+                        status: string;
+                        description: string | null;
+                        fields: Array<{ field_name: string; type: string }>;
                     }
-                    catch (err) {
-                        const msg = err instanceof Error ? err.message : String(err);
-                        await log(`prior: failed to save identity: ${msg}`);
-                    }
+                    const models = await collect<ModelSchema>('ems:describe');
+                    const schemaLines = models.map(m => {
+                        const fields = m.fields.map(f => f.field_name).join(', ');
+                        return `${m.model_name}: ${fields}`;
+                    });
+                    emsSchema = schemaLines.join('\n');
+                    await log(`prior: loaded ${models.length} EMS models`);
                 }
-                else {
-                    await log(`prior: self-discovery failed: ${result.error}`);
+                catch (err) {
+                    const msg = err instanceof Error ? err.message : String(err);
+                    await log(`prior: failed to load EMS schema: ${msg}`);
+                }
+
+                // Self-discovery (only if no identity exists)
+                if (!identity) {
+                    await log('prior: tick 1 - performing self-discovery');
+
+                    const result = await executeTask({
+                        task: 'You just woke up. Describe your environment and capabilities based on your system knowledge. Be concise (2-3 sentences).',
+                    }, { skipLogging: true });
+
+                    if (result.status === 'ok' && result.result) {
+                        identity = result.result;
+                        await log(`prior: self-discovery complete`);
+                        await log(`prior: ${identity}`);
+
+                        // Persist identity to file
+                        try {
+                            await writeFile(IDENTITY_PATH, identity);
+                            await log(`prior: identity saved to ${IDENTITY_PATH}`);
+                        }
+                        catch (err) {
+                            const msg = err instanceof Error ? err.message : String(err);
+                            await log(`prior: failed to save identity: ${msg}`);
+                        }
+                    }
+                    else {
+                        await log(`prior: self-discovery failed: ${result.error}`);
+                    }
                 }
             }
 
