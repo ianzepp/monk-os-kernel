@@ -137,8 +137,12 @@ async function executeTask(instruction: Instruction): Promise<TaskResult> {
             prompt = `Context:\n${JSON.stringify(instruction.context, null, 2)}\n\nTask: ${instruction.task}`;
         }
 
+        await eprintln(`prior: calling llm:complete with model=${model}`);
+
         // Call LLM
         const response = await call<CompletionResponse>('llm:complete', model, prompt);
+
+        await eprintln(`prior: llm responded, ${response.text.length} chars`);
 
         return {
             status: 'ok',
@@ -149,6 +153,8 @@ async function executeTask(instruction: Instruction): Promise<TaskResult> {
     }
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+
+        await eprintln(`prior: llm error: ${message}`);
 
         return {
             status: 'error',
@@ -195,10 +201,14 @@ async function handleConnection(socketFd: number, from: string): Promise<void> {
         await eprintln(`prior: received task from ${from}: ${instruction.task.slice(0, 50)}...`);
 
         // Execute task
+        await eprintln(`prior: executing task...`);
         const result = await executeTask(instruction);
+        await eprintln(`prior: task complete, sending response...`);
 
         // Send response
-        await writeSocket(socketFd, JSON.stringify(result) + '\n');
+        const responseJson = JSON.stringify(result) + '\n';
+        await eprintln(`prior: writing ${responseJson.length} bytes to socket`);
+        await writeSocket(socketFd, responseJson);
 
         await eprintln(`prior: completed task in ${result.duration_ms}ms`);
     }
