@@ -39,6 +39,131 @@ import type { Process, Response } from './types.js';
 import { respond } from './types.js';
 
 // =============================================================================
+// SCHEMA INTROSPECTION
+// =============================================================================
+
+/**
+ * Describe model schemas.
+ *
+ * Streams model definitions with their fields. If model is specified,
+ * returns only that model. Otherwise returns all active models.
+ *
+ * Response format per model:
+ * {
+ *   model_name: string,
+ *   status: string,
+ *   description: string | null,
+ *   fields: Array<{
+ *     field_name: string,
+ *     type: string,
+ *     required: boolean,
+ *     unique: boolean,
+ *     description: string | null,
+ *     related_model: string | null,
+ *     enum_values: string[] | null
+ *   }>
+ * }
+ *
+ * @param proc - Calling process (reserved for future ACL)
+ * @param ems - EMS instance
+ * @param model - Optional model name to describe (null = all models)
+ */
+export async function* emsDescribe(
+    _proc: Process,
+    ems: EMS,
+    model?: unknown,
+): AsyncIterable<Response> {
+    // Validate model arg if provided
+    if (model !== undefined && model !== null && typeof model !== 'string') {
+        yield respond.error('EINVAL', 'model must be a string or null');
+        return;
+    }
+
+    try {
+        // Build filter for models query
+        const modelFilter: Record<string, unknown> = {};
+        if (typeof model === 'string') {
+            modelFilter.where = { model_name: model };
+        }
+
+        // Collect models first (need to query fields for each)
+        const models: Array<{
+            model_name: string;
+            status: string;
+            description: string | null;
+        }> = [];
+
+        for await (const row of ems.ops.selectAny('models', modelFilter)) {
+            const rec = row as Record<string, unknown>;
+            models.push({
+                model_name: rec.model_name as string,
+                status: rec.status as string,
+                description: rec.description as string | null,
+            });
+        }
+
+        // If specific model requested but not found
+        if (typeof model === 'string' && models.length === 0) {
+            yield respond.error('ENOENT', `Model not found: ${model}`);
+            return;
+        }
+
+        // For each model, get fields and yield
+        for (const m of models) {
+            const fields: Array<{
+                field_name: string;
+                type: string;
+                required: boolean;
+                unique: boolean;
+                description: string | null;
+                related_model: string | null;
+                enum_values: string[] | null;
+            }> = [];
+
+            for await (const fieldRow of ems.ops.selectAny('fields', {
+                where: { model_name: m.model_name },
+            })) {
+                const f = fieldRow as Record<string, unknown>;
+
+                // Parse enum_values if present (stored as JSON string)
+                let enumValues: string[] | null = null;
+                if (typeof f.enum_values === 'string') {
+                    try {
+                        enumValues = JSON.parse(f.enum_values);
+                    }
+                    catch {
+                        // Malformed JSON, leave as null
+                    }
+                }
+
+                fields.push({
+                    field_name: f.field_name as string,
+                    type: f.type as string,
+                    required: Boolean(f.required),
+                    unique: Boolean(f.unique_),
+                    description: f.description as string | null,
+                    related_model: f.related_model as string | null,
+                    enum_values: enumValues,
+                });
+            }
+
+            yield respond.item({
+                model_name: m.model_name,
+                status: m.status,
+                description: m.description,
+                fields,
+            });
+        }
+
+        yield respond.done();
+    }
+    catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        yield respond.error('EIO', msg);
+    }
+}
+
+// =============================================================================
 // QUERY OPERATIONS
 // =============================================================================
 

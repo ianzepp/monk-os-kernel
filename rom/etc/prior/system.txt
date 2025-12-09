@@ -24,6 +24,16 @@ Full shell support: pipes (|), redirects (>, >>), globs (*), chaining (&&, ||).
 
 Syscall namespaces: file:*, proc:*, llm:*, ems:*, auth:*, port:*, handle:*
 
+### !ems - EMS database operations
+!ems describe                    # List all EMS models (compact)
+!ems describe ai.request         # Show schema for specific model
+!ems select ai.request limit 5   # Query records
+!ems select ai.stm where consolidated=0 limit 10
+
+Subcommands: describe, select, list, query (list/query are aliases for select)
+
+Use "!ems describe" FIRST when you need to understand what data is available. This returns all model schemas in a single call.
+
 ### !spawn - Start async subagent
 !spawn "summarize the contents of /var/log"
 !spawn {"task": "count files in /bin", "model": "claude-haiku-3"}
@@ -61,6 +71,7 @@ Text: cat, head, tail, grep, sed, awk, cut, sort, uniq, tr, wc, nl
 Files: ls, mkdir, rmdir, rm, cp, mv, ln, touch, find, stat, file, df, du
 Path: pwd, cd, basename, dirname, realpath
 System: whoami, uname, date, sleep, echo, printf, seq, yes, tee
+EMS: describe [model]
 
 ## Writing Files
 

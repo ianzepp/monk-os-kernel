@@ -540,3 +540,163 @@ INSERT OR IGNORE INTO fields (
      0, 1, 'Reinforcement count (higher = stronger)'),
     ('ai.ltm', 'last_accessed', 'text', 0, NULL, NULL,
      0, 1, 'Last retrieval timestamp (for decay)');
+
+-- =============================================================================
+-- AI_REQUEST TABLE
+-- =============================================================================
+-- Top-level request tracking. Created when a task arrives, updated on completion.
+--
+-- WHY separate from ai.task: Tasks are work items in a queue. Requests are
+-- execution traces - what happened when Prior processed something.
+-- WHY 4-char ID: Short enough for log prefixes, unique enough for correlation.
+
+INSERT OR IGNORE INTO models (model_name, status, description) VALUES
+    ('ai.request', 'system', 'AI request execution tracking - traces from start to finish');
+
+CREATE TABLE IF NOT EXISTS ai_request (
+    -- Identity (4-char correlation ID, not UUID)
+    id              TEXT PRIMARY KEY,
+    created_at      TEXT DEFAULT (datetime('now')),
+    updated_at      TEXT DEFAULT (datetime('now')),
+    trashed_at      TEXT,
+
+    -- Request metadata
+    task            TEXT NOT NULL,
+    client_addr     TEXT,
+    model           TEXT NOT NULL,
+
+    -- Execution state
+    status          TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'ok', 'error')),
+    result          TEXT,
+    iterations      INTEGER NOT NULL DEFAULT 0,
+
+    -- Timing
+    started_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    completed_at    TEXT,
+    duration_ms     INTEGER,
+
+    -- Token usage (if available from LLM response)
+    prompt_tokens   INTEGER,
+    completion_tokens INTEGER,
+    total_tokens    INTEGER
+);
+
+-- Status index: find running/failed requests
+CREATE INDEX IF NOT EXISTS idx_ai_request_status
+    ON ai_request(status, started_at DESC)
+    WHERE trashed_at IS NULL;
+
+-- Recent requests: debugging and analysis
+CREATE INDEX IF NOT EXISTS idx_ai_request_recent
+    ON ai_request(started_at DESC)
+    WHERE trashed_at IS NULL;
+
+-- Performance analysis: find slow requests
+CREATE INDEX IF NOT EXISTS idx_ai_request_duration
+    ON ai_request(duration_ms DESC)
+    WHERE trashed_at IS NULL AND duration_ms IS NOT NULL;
+
+-- =============================================================================
+-- SEED DATA: AI_REQUEST FIELDS
+-- =============================================================================
+
+INSERT OR IGNORE INTO fields (
+    model_name, field_name, type, required, default_value, enum_values,
+    unique_, index_, description
+) VALUES
+    ('ai.request', 'task', 'text', 1, NULL, NULL,
+     0, 0, 'Original instruction text'),
+    ('ai.request', 'client_addr', 'text', 0, NULL, NULL,
+     0, 0, 'Client address (e.g., 127.0.0.1:58198)'),
+    ('ai.request', 'model', 'text', 1, NULL, NULL,
+     0, 1, 'LLM model used'),
+    ('ai.request', 'status', 'text', 1, 'running', '["running","ok","error"]',
+     0, 1, 'Execution status'),
+    ('ai.request', 'result', 'text', 0, NULL, NULL,
+     0, 0, 'Final response or error message'),
+    ('ai.request', 'iterations', 'integer', 1, '0', NULL,
+     0, 0, 'Agentic loop iteration count'),
+    ('ai.request', 'started_at', 'text', 1, NULL, NULL,
+     0, 1, 'ISO timestamp when request started'),
+    ('ai.request', 'completed_at', 'text', 0, NULL, NULL,
+     0, 0, 'ISO timestamp when request completed'),
+    ('ai.request', 'duration_ms', 'integer', 0, NULL, NULL,
+     0, 1, 'Total request duration in milliseconds'),
+    ('ai.request', 'prompt_tokens', 'integer', 0, NULL, NULL,
+     0, 0, 'Input token count'),
+    ('ai.request', 'completion_tokens', 'integer', 0, NULL, NULL,
+     0, 0, 'Output token count'),
+    ('ai.request', 'total_tokens', 'integer', 0, NULL, NULL,
+     0, 0, 'Total token count');
+
+-- =============================================================================
+-- AI_REQUEST_EVENT TABLE
+-- =============================================================================
+-- Individual events within a request. One per command execution.
+--
+-- WHY per-command: Enables detailed tracing of what Prior did and why.
+-- WHY sequence within iteration: Parallel commands have same iteration, different sequence.
+
+INSERT OR IGNORE INTO models (model_name, status, description) VALUES
+    ('ai.request_event', 'system', 'AI request events - per-command execution trace');
+
+CREATE TABLE IF NOT EXISTS ai_request_event (
+    -- Identity
+    id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    created_at      TEXT DEFAULT (datetime('now')),
+    trashed_at      TEXT,
+
+    -- Parent request
+    request_id      TEXT NOT NULL REFERENCES ai_request(id) ON DELETE CASCADE,
+
+    -- Position in execution
+    iteration       INTEGER NOT NULL,
+    sequence        INTEGER NOT NULL,
+
+    -- Event details
+    event_type      TEXT NOT NULL CHECK (event_type IN ('exec', 'call', 'spawn', 'wait', 'ref', 'coalesce', 'help')),
+    command         TEXT NOT NULL,
+    result          TEXT,
+    duration_ms     INTEGER
+);
+
+-- Request trace: get all events for a request in order
+CREATE INDEX IF NOT EXISTS idx_ai_request_event_trace
+    ON ai_request_event(request_id, iteration, sequence)
+    WHERE trashed_at IS NULL;
+
+-- Command analysis: find patterns in command usage
+CREATE INDEX IF NOT EXISTS idx_ai_request_event_type
+    ON ai_request_event(event_type)
+    WHERE trashed_at IS NULL;
+
+-- =============================================================================
+-- SEED DATA: AI_REQUEST_EVENT FIELDS
+-- =============================================================================
+
+INSERT OR IGNORE INTO fields (
+    model_name, field_name, type, required, default_value, enum_values,
+    relationship_type, related_model, related_field, required_relationship,
+    unique_, index_, description
+) VALUES
+    ('ai.request_event', 'request_id', 'text', 1, NULL, NULL,
+     'referenced', 'ai.request', 'id', 1,
+     0, 1, 'Parent request ID'),
+    ('ai.request_event', 'iteration', 'integer', 1, NULL, NULL,
+     NULL, NULL, NULL, 0,
+     0, 1, 'Agentic loop iteration (1, 2, 3...)'),
+    ('ai.request_event', 'sequence', 'integer', 1, NULL, NULL,
+     NULL, NULL, NULL, 0,
+     0, 0, 'Order within iteration (for parallel commands)'),
+    ('ai.request_event', 'event_type', 'text', 1, NULL, '["exec","call","spawn","wait","ref","coalesce","help"]',
+     NULL, NULL, NULL, 0,
+     0, 1, 'Command type'),
+    ('ai.request_event', 'command', 'text', 1, NULL, NULL,
+     NULL, NULL, NULL, 0,
+     0, 0, 'What was executed'),
+    ('ai.request_event', 'result', 'text', 0, NULL, NULL,
+     NULL, NULL, NULL, 0,
+     0, 0, 'Output or error'),
+    ('ai.request_event', 'duration_ms', 'integer', 0, NULL, NULL,
+     NULL, NULL, NULL, 0,
+     0, 0, 'Command execution time in milliseconds')

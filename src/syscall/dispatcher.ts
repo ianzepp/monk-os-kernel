@@ -71,7 +71,7 @@ import { procGetargs, procGetcwd, procChdir, procGetenv, procSetenv } from './pr
 import { activationGet, poolStats, procTickSubscribe, procTickUnsubscribe } from './process.js';
 
 // EMS syscalls
-import { emsSelect, emsCreate, emsUpdate, emsDelete, emsRevert, emsExpire } from './ems.js';
+import { emsDescribe, emsSelect, emsCreate, emsUpdate, emsDelete, emsRevert, emsExpire } from './ems.js';
 
 // HAL syscalls (network, channel)
 import { netConnect } from './hal.js';
@@ -359,6 +359,15 @@ export class SyscallDispatcher {
                 // =================================================================
                 // EMS SYSCALLS (ems:*)
                 // =================================================================
+
+            case 'ems:describe':
+                if (!this.ems) {
+                    yield respond.error('ENOSYS', 'EMS not available');
+                    break;
+                }
+
+                yield* emsDescribe(proc, this.ems, args[0]);
+                break;
 
             case 'ems:select':
                 if (!this.ems) {

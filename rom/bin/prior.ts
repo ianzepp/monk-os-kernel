@@ -14,6 +14,7 @@
 
 import {
     call,
+    collect,
     syscall,
     onSignal,
     onTick,
@@ -22,6 +23,7 @@ import {
     eprintln,
     debug,
     getpid,
+    getenv,
     sleep,
     readFile,
     writeFile,
@@ -55,12 +57,32 @@ const CONTEXT_PATH = '/var/prior/context.txt';
 // LOGGING
 // =============================================================================
 
+let osId: string | undefined;
+
+/**
+ * Generate a 4-char request ID for correlation.
+ */
+function generateRequestId(): string {
+    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    let id = '';
+    for (let i = 0; i < 4; i++) {
+        id += chars[Math.floor(Math.random() * chars.length)];
+    }
+    return id;
+}
+
 /**
  * Log a message to both stderr and the UDP monitor.
+ * Format: [OSID] message  or  [OSID] [REQID] message
  */
-async function log(message: string): Promise<void> {
-    await eprintln(message);
-    await debug(message);
+async function log(message: string, requestId?: string): Promise<void> {
+    if (osId === undefined) {
+        osId = await getenv('MONK_OS') ?? '????';
+    }
+    const prefix = requestId ? `[${osId}] [${requestId}]` : `[${osId}]`;
+    const formatted = `${prefix} ${message}`;
+    await eprintln(formatted);
+    await debug(formatted);
 }
 
 // =============================================================================
@@ -109,6 +131,7 @@ interface TaskResult {
     error?: string;
     model?: string;
     duration_ms?: number;
+    request_id?: string;
 }
 
 interface CompletionResponse {
@@ -329,7 +352,7 @@ async function exec(shellCmd: string): Promise<ExecResult> {
 // =============================================================================
 
 interface ParsedBangCommand {
-    type: 'exec' | 'call' | 'stm' | 'ltm' | 'help' | 'spawn' | 'wait';
+    type: 'exec' | 'call' | 'stm' | 'ltm' | 'help' | 'spawn' | 'wait' | 'ref' | 'coalesce' | 'ems';
     args: unknown;
 }
 
@@ -461,6 +484,16 @@ function parseBangCommands(text: string): ParsedBangCommand[] | null {
             results.push({ type: 'wait', args: waitMatch[1] });
             continue;
         }
+
+        // !ems <subcommand> [args...]
+        // Supported: describe [model], select <model> [filter], list <model>
+        const emsMatch = trimmed.match(/^!ems\s+(\S+)(?:\s+(.*))?/);
+        if (emsMatch && emsMatch[1]) {
+            const subcommand = emsMatch[1].toLowerCase();
+            const emsArgs = (emsMatch[2] || '').trim();
+            results.push({ type: 'ems', args: { subcommand, args: emsArgs } });
+            continue;
+        }
     }
 
     return results.length > 0 ? results : null;
@@ -541,8 +574,6 @@ function parseArgValue(value: string): unknown {
  */
 async function executeCall(name: string, args: unknown[]): Promise<string> {
     try {
-        await log(`prior: !call ${name} ${JSON.stringify(args)}`);
-
         const result = await call<unknown>(name, ...args);
 
         // Format result for LLM consumption
@@ -564,6 +595,11 @@ async function executeCall(name: string, args: unknown[]): Promise<string> {
 // TASK EXECUTION
 // =============================================================================
 
+interface ExecuteTaskOptions {
+    skipLogging?: boolean;
+    clientAddr?: string;
+}
+
 /**
  * Execute a task using the LLM with agentic loop.
  *
@@ -571,12 +607,58 @@ async function executeCall(name: string, args: unknown[]): Promise<string> {
  * Results are fed back to continue the conversation until
  * the LLM produces a final response without exec calls.
  */
-async function executeTask(instruction: Instruction, skipLogging = false): Promise<TaskResult> {
+async function executeTask(instruction: Instruction, options: ExecuteTaskOptions = {}): Promise<TaskResult> {
+    const { skipLogging = false, clientAddr } = options;
     const startTime = Date.now();
     const model = instruction.model ?? DEFAULT_MODEL;
+    const requestId = generateRequestId();
+
+    // Create ai.request record
+    try {
+        await call('ems:create', 'ai.request', {
+            id: requestId,
+            task: instruction.task,
+            client_addr: clientAddr,
+            model,
+            status: 'running',
+            started_at: new Date().toISOString(),
+        });
+    }
+    catch (err) {
+        // Non-critical - log and continue
+        const msg = err instanceof Error ? err.message : String(err);
+        await log(`prior: failed to create ai.request: ${msg}`, requestId);
+    }
 
     // Conversation history for agentic loop
     const conversation: Array<{ role: 'user' | 'assistant' | 'exec'; content: string }> = [];
+
+    // Event sequence counter (within each iteration)
+    let eventSequence = 0;
+
+    // Helper to record events
+    const recordEvent = async (
+        iteration: number,
+        eventType: string,
+        command: string,
+        result: string,
+        durationMs: number
+    ): Promise<void> => {
+        try {
+            await call('ems:create', 'ai.request_event', {
+                request_id: requestId,
+                iteration,
+                sequence: eventSequence++,
+                event_type: eventType,
+                command,
+                result: result.slice(0, 10000), // Truncate large results
+                duration_ms: durationMs,
+            });
+        }
+        catch {
+            // Non-critical - don't fail the request
+        }
+    };
 
     // Build initial prompt with memory context
     const initialParts: string[] = [];
@@ -638,28 +720,36 @@ async function executeTask(instruction: Instruction, skipLogging = false): Promi
             // Execute all commands in parallel (multi-threaded)
             conversation.push({ role: 'assistant', content: response.text });
 
+            // Reset sequence counter for each iteration
+            eventSequence = 0;
+
             const executeCommand = async (cmd: ParsedBangCommand): Promise<string> => {
+                const cmdStart = Date.now();
+                let result: string;
+                let cmdString: string;
+
                 switch (cmd.type) {
                     case 'exec': {
                         const shellCmd = cmd.args as string;
-                        await log(`prior: !exec ${shellCmd}`);
-
+                        cmdString = shellCmd;
                         const execResult = await exec(shellCmd);
-                        return execResult.code === 0
+                        result = execResult.code === 0
                             ? execResult.stdout || '(no output)'
                             : `Error (code ${execResult.code}): ${execResult.stderr || execResult.stdout || 'unknown error'}`;
+                        break;
                     }
 
                     case 'call': {
                         const { name, args } = cmd.args as { name: string; args: unknown[] };
-                        return executeCall(name, args);
+                        cmdString = `${name} ${JSON.stringify(args)}`;
+                        result = await executeCall(name, args);
+                        break;
                     }
 
                     case 'ref': {
                         const keywords = (cmd.args as string).toLowerCase().split(/\s+/);
-                        await log(`prior: !ref searching for: ${keywords.join(', ')}`);
-
-                        const results: string[] = [];
+                        cmdString = keywords.join(' ');
+                        const refResults: string[] = [];
 
                         // Search LTM (prioritized - these are consolidated insights)
                         try {
@@ -681,7 +771,7 @@ async function executeTask(instruction: Instruction, skipLogging = false): Promi
                             }).slice(0, 5);
 
                             for (const m of ltmMatches) {
-                                results.push(`[LTM/${m.category}] ${m.content}`);
+                                refResults.push(`[LTM/${m.category}] ${m.content}`);
                             }
                         }
                         catch {
@@ -710,43 +800,51 @@ async function executeTask(instruction: Instruction, skipLogging = false): Promi
                             }).slice(0, 3);
 
                             for (const m of stmMatches) {
-                                results.push(`[STM] ${m.content.slice(0, 200)}`);
+                                refResults.push(`[STM] ${m.content.slice(0, 200)}`);
                             }
                         }
                         catch {
                             // STM query failed, continue
                         }
 
-                        if (results.length === 0) {
-                            return '(no matching memories)';
-                        }
-
-                        return `Relevant memories:\n${results.join('\n\n')}`;
+                        result = refResults.length === 0
+                            ? '(no matching memories)'
+                            : `Relevant memories:\n${refResults.join('\n\n')}`;
+                        break;
                     }
 
                     case 'coalesce': {
+                        cmdString = 'coalesce';
                         await consolidateMemory();
-                        return 'Memory consolidation complete.';
+                        result = 'Memory consolidation complete.';
+                        break;
                     }
 
                     case 'stm':
-                        return '[!stm not yet implemented]';
+                        cmdString = String(cmd.args);
+                        result = '[!stm not yet implemented]';
+                        break;
 
                     case 'ltm':
-                        return '[!ltm not yet implemented]';
+                        cmdString = String(cmd.args);
+                        result = '[!ltm not yet implemented]';
+                        break;
 
                     case 'help':
+                        cmdString = 'help';
                         try {
-                            return await readFile(HELP_PATH);
+                            result = await readFile(HELP_PATH);
                         }
                         catch {
-                            return 'Help file not found.';
+                            result = 'Help file not found.';
                         }
+                        break;
 
                     case 'spawn': {
                         const spawnArgs = cmd.args as { task: string; model?: string };
                         const spawnId = generateSpawnId();
                         const spawnModel = spawnArgs.model ?? model;
+                        cmdString = spawnArgs.task;
 
                         await log(`prior: !spawn ${spawnId} "${spawnArgs.task.slice(0, 50)}..."`);
 
@@ -761,7 +859,7 @@ async function executeTask(instruction: Instruction, skipLogging = false): Promi
                         };
 
                         // Start async execution, track in map
-                        const promise = executeTask(subInstruction, true);
+                        const promise = executeTask(subInstruction, { skipLogging: true });
                         const agent: SpawnedAgent = {
                             id: spawnId,
                             task: spawnArgs.task,
@@ -771,86 +869,244 @@ async function executeTask(instruction: Instruction, skipLogging = false): Promi
                         };
 
                         // When promise resolves, mark done and store result
-                        promise.then(result => {
-                            agent.result = result;
+                        promise.then(spawnResult => {
+                            agent.result = spawnResult;
                             agent.done = true;
                         });
 
                         spawnedAgents.set(spawnId, agent);
-                        return spawnId;
+                        result = spawnId;
+                        break;
                     }
 
                     case 'wait': {
                         const waitId = cmd.args as string;
+                        cmdString = waitId;
 
                         // !wait (no id) - wait for all pending spawns
                         if (waitId === 'all') {
                             if (spawnedAgents.size === 0) {
-                                return '(no pending spawns)';
+                                result = '(no pending spawns)';
+                                break;
                             }
 
                             await log(`prior: !wait all (${spawnedAgents.size} pending...)`);
 
-                            const results: string[] = [];
+                            const waitResults: string[] = [];
                             for (const [id, agent] of spawnedAgents) {
-                                const result = await agent.promise;
-                                const text = result.status === 'ok'
-                                    ? result.result ?? '(no result)'
-                                    : `Error: ${result.error ?? 'unknown error'}`;
-                                results.push(`[${id}]: ${text}`);
+                                const agentResult = await agent.promise;
+                                const text = agentResult.status === 'ok'
+                                    ? agentResult.result ?? '(no result)'
+                                    : `Error: ${agentResult.error ?? 'unknown error'}`;
+                                waitResults.push(`[${id}]: ${text}`);
                             }
 
                             spawnedAgents.clear();
-                            return results.join('\n\n');
+                            result = waitResults.join('\n\n');
+                            break;
                         }
 
                         // !wait spawn:id - wait for specific spawn
                         const agent = spawnedAgents.get(waitId);
 
                         if (!agent) {
-                            return `Error: unknown spawn id ${waitId}`;
+                            result = `Error: unknown spawn id ${waitId}`;
                         }
                         else if (agent.done) {
-                            const result = agent.result?.status === 'ok'
+                            result = agent.result?.status === 'ok'
                                 ? agent.result.result ?? '(no result)'
                                 : `Error: ${agent.result?.error ?? 'unknown error'}`;
                             spawnedAgents.delete(waitId);
-                            return result;
                         }
                         else {
                             // Wait for completion
                             await log(`prior: !wait ${waitId} (blocking...)`);
-                            const result = await agent.promise;
+                            const agentResult = await agent.promise;
                             spawnedAgents.delete(waitId);
-                            return result.status === 'ok'
-                                ? result.result ?? '(no result)'
-                                : `Error: ${result.error ?? 'unknown error'}`;
+                            result = agentResult.status === 'ok'
+                                ? agentResult.result ?? '(no result)'
+                                : `Error: ${agentResult.error ?? 'unknown error'}`;
                         }
+                        break;
+                    }
+
+                    case 'ems': {
+                        const emsCmd = cmd.args as { subcommand: string; args: string };
+                        cmdString = `ems ${emsCmd.subcommand} ${emsCmd.args}`.trim();
+
+                        switch (emsCmd.subcommand) {
+                            case 'describe': {
+                                // !ems describe [model] - show model schemas
+                                const modelArg = emsCmd.args || undefined;
+                                try {
+                                    interface ModelSchema {
+                                        model_name: string;
+                                        status: string;
+                                        description: string | null;
+                                        fields: Array<{
+                                            field_name: string;
+                                            type: string;
+                                            required: boolean;
+                                            unique: boolean;
+                                            description: string | null;
+                                            related_model: string | null;
+                                            enum_values: string[] | null;
+                                        }>;
+                                    }
+
+                                    const models = await collect<ModelSchema>('ems:describe', modelArg);
+
+                                    if (models.length === 0) {
+                                        result = modelArg
+                                            ? `Error: model not found: ${modelArg}`
+                                            : 'No models found.';
+                                    }
+                                    else if (modelArg) {
+                                        // Detailed output for single model
+                                        const m = models[0];
+                                        const lines: string[] = [
+                                            `${m.model_name} (${m.status})`,
+                                        ];
+                                        if (m.description) {
+                                            lines.push(m.description);
+                                        }
+                                        lines.push('', 'Fields:');
+                                        for (const f of m.fields) {
+                                            const attrs = [f.type];
+                                            if (f.related_model) attrs[0] = `${f.type}(${f.related_model})`;
+                                            if (f.required) attrs.push('required');
+                                            if (f.unique) attrs.push('unique');
+                                            if (f.enum_values) attrs.push(`enum[${f.enum_values.length}]`);
+                                            let line = `  - ${f.field_name} (${attrs.join(', ')})`;
+                                            if (f.description) line += ` "${f.description}"`;
+                                            lines.push(line);
+                                        }
+                                        result = lines.join('\n');
+                                    }
+                                    else {
+                                        // Compact listing for all models
+                                        const lines = models.map(m => {
+                                            const desc = m.description ? ` - ${m.description}` : '';
+                                            return `${m.model_name} (${m.fields.length} fields)${desc}`;
+                                        });
+                                        result = lines.join('\n');
+                                    }
+                                }
+                                catch (err) {
+                                    const msg = err instanceof Error ? err.message : String(err);
+                                    result = `Error: ${msg}`;
+                                }
+                                break;
+                            }
+
+                            case 'select':
+                            case 'list':
+                            case 'query': {
+                                // !ems select <model> - alias for ems:select
+                                // Parse: model [where field=value] [limit N]
+                                const parts = emsCmd.args.split(/\s+/);
+                                const emsModel = parts[0];
+                                if (!emsModel) {
+                                    result = 'Error: model name required';
+                                    break;
+                                }
+
+                                // Simple filter parsing
+                                const filter: Record<string, unknown> = {};
+                                let i = 1;
+                                while (i < parts.length) {
+                                    if (parts[i] === 'limit' && parts[i + 1]) {
+                                        filter.limit = parseInt(parts[i + 1], 10);
+                                        i += 2;
+                                    }
+                                    else if (parts[i] === 'where' || parts[i]?.includes('=')) {
+                                        // Skip 'where' keyword if present
+                                        if (parts[i] === 'where') i++;
+                                        // Parse field=value pairs
+                                        while (i < parts.length && parts[i]?.includes('=')) {
+                                            const [field, ...valueParts] = parts[i].split('=');
+                                            const value = valueParts.join('=');
+                                            if (!filter.where) filter.where = {};
+                                            (filter.where as Record<string, unknown>)[field] = value;
+                                            i++;
+                                        }
+                                    }
+                                    else {
+                                        i++;
+                                    }
+                                }
+
+                                try {
+                                    const records = await collect<Record<string, unknown>>('ems:select', emsModel, filter);
+                                    result = JSON.stringify(records, null, 2);
+                                }
+                                catch (err) {
+                                    const msg = err instanceof Error ? err.message : String(err);
+                                    result = `Error: ${msg}`;
+                                }
+                                break;
+                            }
+
+                            default:
+                                result = `Error: unknown ems subcommand: ${emsCmd.subcommand}. Use: describe, select, list, query`;
+                        }
+                        break;
                     }
 
                     default:
-                        return '[unknown command]';
+                        cmdString = String(cmd.args);
+                        result = '[unknown command]';
                 }
+
+                // Record the event
+                await recordEvent(iterations, cmd.type, cmdString, result, Date.now() - cmdStart);
+
+                return result;
             };
 
             // Separate waits from other commands - waits must run after spawns
             const waitCommands = bangCommands.filter(cmd => cmd.type === 'wait');
             const otherCommands = bangCommands.filter(cmd => cmd.type !== 'wait');
 
+            // Helper to get short command description for logging
+            const cmdDesc = (cmd: ParsedBangCommand): string => {
+                switch (cmd.type) {
+                    case 'exec': return `!exec ${(cmd.args as string).slice(0, 40)}`;
+                    case 'call': {
+                        const { name } = cmd.args as { name: string };
+                        return `!call ${name}`;
+                    }
+                    case 'spawn': return '!spawn';
+                    case 'wait': return '!wait';
+                    case 'ref': return `!ref ${cmd.args}`;
+                    case 'coalesce': return '!coalesce';
+                    case 'help': return '!help';
+                    case 'ems': {
+                        const { subcommand, args } = cmd.args as { subcommand: string; args: string };
+                        return `!ems ${subcommand} ${args}`.trim().slice(0, 50);
+                    }
+                    default: return `!${cmd.type}`;
+                }
+            };
+
             // Run non-wait commands in parallel
             const otherResults = await Promise.all(otherCommands.map(executeCommand));
 
             // Add those results to conversation
-            for (const resultText of otherResults) {
-                await log(`prior: result: ${resultText.slice(0, 100)}${resultText.length > 100 ? '...' : ''}`);
+            for (let i = 0; i < otherResults.length; i++) {
+                const resultText = otherResults[i];
+                const cmd = cmdDesc(otherCommands[i]);
+                await log(`prior: ${cmd} -> ${resultText.slice(0, 80)}${resultText.length > 80 ? '...' : ''}`);
                 conversation.push({ role: 'exec', content: resultText });
             }
 
             // Now run waits (after spawns are registered)
             const waitResults = await Promise.all(waitCommands.map(executeCommand));
 
-            for (const resultText of waitResults) {
-                await log(`prior: result: ${resultText.slice(0, 100)}${resultText.length > 100 ? '...' : ''}`);
+            for (let i = 0; i < waitResults.length; i++) {
+                const resultText = waitResults[i];
+                const cmd = cmdDesc(waitCommands[i]);
+                await log(`prior: ${cmd} -> ${resultText.slice(0, 80)}${resultText.length > 80 ? '...' : ''}`);
                 conversation.push({ role: 'exec', content: resultText });
             }
         }
@@ -859,11 +1115,28 @@ async function executeTask(instruction: Instruction, skipLogging = false): Promi
             finalResponse = `[Reached maximum iterations (${MAX_EXEC_ITERATIONS}). Last response may be incomplete.]`;
         }
 
+        const durationMs = Date.now() - startTime;
+
+        // Update ai.request record on success
+        try {
+            await call('ems:update', 'ai.request', requestId, {
+                status: 'ok',
+                result: finalResponse.slice(0, 10000), // Truncate large results
+                iterations,
+                completed_at: new Date().toISOString(),
+                duration_ms: durationMs,
+            });
+        }
+        catch {
+            // Non-critical
+        }
+
         const result: TaskResult = {
             status: 'ok',
             result: finalResponse,
             model,
-            duration_ms: Date.now() - startTime,
+            duration_ms: durationMs,
+            request_id: requestId,
         };
 
         if (!skipLogging) {
@@ -874,13 +1147,28 @@ async function executeTask(instruction: Instruction, skipLogging = false): Promi
     }
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+        const durationMs = Date.now() - startTime;
 
-        await log(`prior: error: ${message}`);
+        await log(`prior: error: ${message}`, requestId);
+
+        // Update ai.request record on error
+        try {
+            await call('ems:update', 'ai.request', requestId, {
+                status: 'error',
+                result: message,
+                completed_at: new Date().toISOString(),
+                duration_ms: durationMs,
+            });
+        }
+        catch {
+            // Non-critical
+        }
 
         const result: TaskResult = {
             status: 'error',
             error: message,
-            duration_ms: Date.now() - startTime,
+            duration_ms: durationMs,
+            request_id: requestId,
         };
 
         if (!skipLogging) {
@@ -946,7 +1234,7 @@ Memories to review:
 ${memoryList}
 
 Output only JSON lines, no commentary. If nothing is worth keeping, output nothing.`,
-        }, true);
+        }, { skipLogging: true });
 
         if (result.status === 'ok' && result.result) {
             // Parse JSON lines from response
@@ -1043,7 +1331,7 @@ async function handleConnection(socketFd: number, from: string): Promise<void> {
 
         // Execute task
         await log(`prior: executing task...`);
-        const result = await executeTask(instruction);
+        const result = await executeTask(instruction, { clientAddr: from });
         await log(`prior: task complete, sending response...`);
 
         // Send HTTP response
@@ -1157,7 +1445,7 @@ async function main(): Promise<void> {
 
                 const result = await executeTask({
                     task: 'You just woke up. Describe your environment and capabilities based on your system knowledge. Be concise (2-3 sentences).',
-                }, true);  // skipLogging - self-discovery is internal
+                }, { skipLogging: true });
 
                 if (result.status === 'ok' && result.result) {
                     identity = result.result;
