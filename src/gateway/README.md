@@ -1,6 +1,6 @@
 # Gateway - External Syscall Interface
 
-The Gateway provides external applications access to Monk OS syscalls over TCP. It runs in kernel context (not as a Worker), executing syscalls directly without IPC overhead.
+The Gateway provides external applications access to Monk OS syscalls over TCP and WebSocket. It runs in kernel context (not as a Worker), executing syscalls directly without IPC overhead.
 
 ## Architecture
 
@@ -9,9 +9,9 @@ External Apps                     Monk OS Kernel
 ─────────────                     ──────────────
 os-shell ─────┐
               │  TCP (port 7778)  ┌─────────────────────────────┐
-displayd ─────┼─────────────────▶ │  Gateway                    │
+browsers ─────┤  WebSocket (7779) │  Gateway                    │
               │  msgpack protocol │    │                        │
-os-coreutils ─┘                   │    ▼                        │
+displayd ─────┘                   │    ▼                        │
                                   │  SyscallDispatcher.execute()│
                                   │    │                        │
                                   │    ▼                        │
@@ -24,21 +24,22 @@ Each client connection gets an isolated **virtual process** with its own:
 - Current working directory
 - Environment variables
 
+## Dual Transport Model
+
+Gateway listens on two ports:
+
+| Port | Transport | Framing                         | Clients           |
+|------|-----------|---------------------------------|-------------------|
+| 7778 | TCP       | 4-byte length prefix + msgpack  | os-sdk, os-shell  |
+| 7779 | WebSocket | msgpack per WS binary frame     | browsers          |
+
+Both transports use identical msgpack message format. The only difference is framing:
+- TCP: `[4-byte big-endian length][msgpack payload]`
+- WebSocket: `[msgpack payload]` (WebSocket handles framing natively)
+
 ## Wire Protocol
 
-Length-prefixed MessagePack over TCP.
-
-### Message Framing
-
-Each message is framed as:
-```
-[4-byte big-endian length][msgpack payload]
-```
-
-This allows:
-- Efficient binary parsing (no delimiter scanning)
-- Native `Uint8Array` support (no base64 encoding needed)
-- Smaller message sizes compared to JSON
+MessagePack over TCP (length-prefixed) or WebSocket (native framing).
 
 ### Request
 
@@ -148,13 +149,18 @@ import { Gateway } from '@src/gateway/index.js';
 
 // After dispatcher is created
 const gateway = new Gateway(dispatcher, kernel, hal);
-const port = await gateway.listen(7778);  // Or use 0 for auto-assign
+
+// Listen on both TCP (7778) and WebSocket (7779)
+const port = await gateway.listen(7778, 7779);
+
+// Or just TCP (no WebSocket)
+const port = await gateway.listen(7778);
 
 // On shutdown
 await gateway.shutdown();
 ```
 
-### Client (os-sdk)
+### Client (os-sdk) - TCP
 
 ```typescript
 import { OSClient } from '@monk-api/os-sdk';
@@ -175,6 +181,30 @@ await client.fclose(fd2);
 client.close();
 ```
 
+### Browser Client - WebSocket
+
+```javascript
+// Connect to WebSocket port
+const ws = new WebSocket('ws://localhost:7779');
+ws.binaryType = 'arraybuffer';
+
+ws.onopen = () => {
+    // Send msgpack request
+    const request = msgpack.encode({
+        id: "1",
+        call: "file:readdir",
+        args: ["/"]
+    });
+    ws.send(request);
+};
+
+ws.onmessage = (event) => {
+    // Decode msgpack response
+    const response = msgpack.decode(new Uint8Array(event.data));
+    console.log(response);
+};
+```
+
 ## Design Decisions
 
 ### Why MessagePack (not JSON)?
@@ -184,18 +214,18 @@ client.close();
 - Faster encode/decode
 - Still human-debuggable with tools
 
-### Why length-prefix framing (not newlines)?
+### Why length-prefix framing (not newlines) for TCP?
 
 - No delimiter scanning needed
 - Works with binary payloads containing any byte value
 - Explicit message boundaries
 
-### Why TCP (not Unix socket)?
+### Why TCP + WebSocket (not Unix socket)?
 
-- Well-understood close semantics (FIN/ACK) - avoids teardown issues
-- Network accessible for distributed deployments
-- Works across containers and machines
-- Simple configuration (just a port number)
+- **TCP**: Well-understood close semantics (FIN/ACK) - avoids teardown issues
+- **TCP**: Works across containers and machines
+- **WebSocket**: Only option available to browsers
+- **Both**: Simple configuration (just port numbers)
 
 ### Why kernel context (not Worker)?
 
@@ -221,12 +251,15 @@ client.close();
 | Environment Variable | Default | Description |
 |---------------------|---------|-------------|
 | `MONK_PORT` | `7778` | TCP port for Gateway |
+| `MONK_WS_PORT` | `7779` | WebSocket port for Gateway |
+| `DEBUG` | - | Enable debug logging (set to `gateway`, `1`, or `*`) |
 
 ## Files
 
 ```
 src/gateway/
-├── index.ts     # Exports Gateway class
-├── gateway.ts   # Gateway implementation
+├── index.ts     # Exports Gateway class and constants
+├── gateway.ts   # Gateway implementation (TCP + WebSocket)
+├── debug.ts     # Debug logging utilities
 └── README.md    # This file
 ```

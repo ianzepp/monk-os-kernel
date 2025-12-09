@@ -1,6 +1,6 @@
 # EMS Module
 
-The Entity Management System provides a database-backed entity store with CRUD operations, soft delete, and a powerful query system. It features an 8-ring observer pipeline for mutation processing, streaming queries, and multi-backend support (SQLite, PostgreSQL, memory). All EMS operations are exposed as `ems:*` syscalls.
+The Entity Management System provides a database-backed entity store with CRUD operations, soft delete, and a powerful query system. It features a 10-ring observer pipeline for mutation processing, streaming queries, and multi-backend support (SQLite, PostgreSQL, memory). All EMS operations are exposed as `ems:*` syscalls.
 
 ## Architecture
 
@@ -32,28 +32,27 @@ src/ems/
 ├── model.ts              # Model metadata wrapper
 ├── model-cache.ts        # Async model metadata cache
 ├── model-record.ts       # Change tracking for mutations
-├── entity-cache.ts       # In-memory entity path resolution
-└── observers/
-    ├── index.ts          # Observer pipeline exports
-    ├── types.ts          # Ring definitions
-    ├── interfaces.ts     # Observer contracts
-    ├── base-observer.ts  # Base class for observers
-    ├── runner.ts         # Pipeline execution engine
-    ├── registry.ts       # Observer registration
-    ├── errors.ts         # Observer error codes
-    └── ring/             # Observer implementations by ring
-        ├── 0/            # Data Preparation (UpdateMerger)
-        ├── 1/            # Validation (Frozen, Immutable, Constraints)
-        ├── 4/            # Enrichment (TransformProcessor)
-        ├── 5/            # Database (SqlCreate, SqlUpdate, SqlDelete, PathnameSync)
-        ├── 6/            # DDL (DdlCreateModel, DdlCreateField)
-        ├── 7/            # Audit (Tracked)
-        └── 8/            # Integration (Cache, EntityCacheSync)
+├── observers/
+│   ├── index.ts          # Observer pipeline exports
+│   ├── types.ts          # Ring definitions
+│   ├── interfaces.ts     # Observer contracts
+│   ├── base-observer.ts  # Base class for observers
+│   ├── runner.ts         # Pipeline execution engine
+│   ├── registry.ts       # Observer registration
+│   └── errors.ts         # Observer error codes
+└── ring/                 # Observer implementations by ring
+    ├── 0/                # Data Preparation (UpdateMerger)
+    ├── 1/                # Validation (Frozen, Immutable, Constraints)
+    ├── 4/                # Enrichment (TransformProcessor)
+    ├── 5/                # Database (SqlCreate, SqlUpdate, SqlDelete, PathnameSync)
+    ├── 6/                # DDL (DdlCreateModel, DdlCreateField)
+    ├── 7/                # Audit (Tracked)
+    └── 8/                # Integration (Cache, PathCacheSync)
 ```
 
 ## Observer Pipeline
 
-All mutations flow through an 8-ring observer pipeline. Rings execute in order (0-9), observers within a ring execute by priority (lower first).
+All mutations flow through a 10-ring observer pipeline. Rings execute in order (0-9), observers within a ring execute by priority (lower first).
 
 | Ring | Name | Purpose | Can Reject? |
 |------|------|---------|-------------|
@@ -76,7 +75,8 @@ All mutations flow through an 8-ring observer pipeline. Rings execute in order (
 - **SqlCreate/Update/Delete** (Ring 5): Generates parameterized SQL
 - **PathnameSync** (Ring 5): Updates VFS pathname on entity changes
 - **Tracked** (Ring 7): Records changes to tracked fields for audit
-- **Cache/EntityCacheSync** (Ring 8): Invalidates caches on changes
+- **Cache** (Ring 8): Invalidates model cache on schema changes
+- **PathCacheSync** (Ring 8): Syncs VFS path cache on entity changes
 
 ## Core Components
 
@@ -89,9 +89,12 @@ const ems = new EMS(hal, { path: ':memory:' });
 await ems.init();
 
 // Access components
-ems.ops      // EntityOps - streaming CRUD
-ems.models   // ModelCache - model metadata
-ems.cache    // EntityCache - path resolution
+ems.db          // DatabaseConnection - HAL-based database access
+ems.ops         // EntityOps - streaming CRUD
+ems.models      // ModelCache - model metadata
+ems.pathCache   // PathCache - VFS path resolution
+ems.runner      // ObserverRunner - observer pipeline
+ems.api         // EntityAPI - array-based convenience wrapper
 
 await ems.shutdown();
 ```
@@ -100,11 +103,17 @@ await ems.shutdown();
 
 Entity-aware operations with full observer pipeline.
 
-- `selectAll(model, filter)` - Query with streaming
+- `selectAny(model, filter)` - Query with streaming
+- `selectOne(model, filter)` - Query first match
+- `createAll(model, source)` - Stream created entities
 - `createOne(model, fields)` - Create entity
+- `updateAll(model, source)` - Stream updated entities
 - `updateOne(model, id, changes)` - Update entity
+- `deleteAll(model, source)` - Stream soft-deleted entities
 - `deleteOne(model, id)` - Soft delete
+- `revertAll(model, source)` - Stream restored entities
 - `revertOne(model, id)` - Restore soft-deleted
+- `expireAll(model, source)` - Stream hard-deleted entities
 - `expireOne(model, id)` - Hard delete
 
 ### ModelCache
@@ -114,10 +123,11 @@ Async cached access to model definitions.
 - `get(modelName)` - Get model (returns undefined if not found)
 - `require(modelName)` - Get model (throws if not found)
 - `invalidate(modelName)` - Clear cached entry
+- `clear()` - Clear entire cache
 
-### EntityCache
+### PathCache
 
-In-memory entity index for O(1) path resolution.
+In-memory entity index for O(1) VFS path resolution (from `@src/vfs/path-cache`).
 
 - `resolvePath(path)` - Path to entity ID
 - `computePath(id)` - Entity ID to path

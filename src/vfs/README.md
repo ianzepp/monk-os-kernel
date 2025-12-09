@@ -1,6 +1,6 @@
 # VFS Module
 
-The Virtual File System provides a unified interface for file and directory operations, implementing Plan 9's "everything is a file" philosophy. It coordinates multiple storage backends through a model-based architecture with mount support for host filesystems, process information, and entity data. VFS operations are exposed as `file:*` syscalls (for file/directory operations) and `fs:*` syscalls (for mount operations).
+The Virtual File System provides a unified interface for file and directory operations, implementing Plan 9's "everything is a file" philosophy with BeOS-style queryable entities. VFS operations are exposed as `file:*` syscalls (for file/directory operations) and `fs:*` syscalls (for mount operations).
 
 ## Architecture
 
@@ -10,12 +10,14 @@ The Virtual File System provides a unified interface for file and directory oper
 ├─────────────────────────────────────────────────────────────┤
 │  VFS Class (path resolution, mount table, access control)   │
 ├─────────────────────────────────────────────────────────────┤
-│  Models (FileModel, FolderModel, DeviceModel, ProcModel)    │
+│  Models (FileModel, FolderModel, DeviceModel, LinkModel)    │
+├─────────────────────────────────────────────────────────────┤
+│  PathCache (in-memory O(1) path resolution)                 │
 ├─────────────────────────────────────────────────────────────┤
 │  Storage Backends                                           │
-│  ├── EMS (SQL-backed files and folders)                     │
-│  ├── HAL KV (virtual devices)                               │
-│  └── Host Mounts (passthrough to filesystem)                │
+│  ├── EMS (entities + detail tables for files/folders)       │
+│  ├── HAL KV (virtual devices and links)                     │
+│  └── Synthetic Mounts (proc, entity, host)                  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -29,12 +31,13 @@ src/vfs/
 ├── handle.ts             # FileHandle interface & open flags
 ├── acl.ts                # Access Control List system
 ├── message.ts            # VFS message type definitions
-└── models/
-    ├── entity.ts         # EntityModel (polymorphic EMS-backed)
-    ├── file.ts           # FileModel (standard file storage)
-    ├── folder.ts         # FolderModel (directory containers)
-    ├── device.ts         # DeviceModel (virtual /dev devices)
-    └── link.ts           # LinkModel (symbolic links, disabled)
+├── path-cache.ts         # In-memory path resolution cache
+├── models/
+│   ├── entity.ts         # EntityModel (polymorphic EMS-backed)
+│   ├── file.ts           # FileModel (extends EntityModel)
+│   ├── folder.ts         # FolderModel (extends EntityModel)
+│   ├── device.ts         # DeviceModel (virtual /dev devices)
+│   └── link.ts           # LinkModel (symbolic links, disabled)
 └── mounts/
     ├── host.ts           # HostMount (bridge to host filesystem)
     ├── proc.ts           # ProcMount (synthetic /proc)
@@ -43,14 +46,24 @@ src/vfs/
 
 ## Core Concepts
 
+### Two-Table Architecture
+
+VFS entities use a split storage model:
+
+1. **entities table**: Identity and hierarchy (id, model, parent, pathname)
+2. **Detail tables**: Model-specific fields (file, folder, video, user, etc.)
+
+**PathCache** indexes the entities table in memory for O(1) path resolution without SQL queries.
+
 ### Models
 
 Models define behavior for entity classes. Each implements the `Model` interface:
 
 | Model | Storage | Description |
 |-------|---------|-------------|
-| `FileModel` | EMS (SQL) | Regular files with blob storage |
-| `FolderModel` | EMS (SQL) | Directories containing other entities |
+| `EntityModel` | EMS (entities + detail) | Generic polymorphic model for all EMS entities |
+| `FileModel` | EMS (extends EntityModel) | Files with blob storage (model='file') |
+| `FolderModel` | EMS (extends EntityModel) | Directories (model='folder') |
 | `DeviceModel` | HAL KV | Virtual devices (/dev/null, /dev/random, etc.) |
 | `LinkModel` | HAL KV | Symbolic links (currently disabled) |
 
@@ -59,6 +72,7 @@ Models define behavior for entity classes. Each implements the `Model` interface
 abstract class PosixModel {
     abstract open(ctx, id, flags): Promise<FileHandle>;
     abstract stat(ctx, id): Promise<ModelStat>;
+    abstract setstat(ctx, id, fields): Promise<void>;
     abstract create(ctx, parent, name, fields?): Promise<string>;
     abstract unlink(ctx, id): Promise<void>;
     abstract list(ctx, id): AsyncIterable<string>;
@@ -66,12 +80,29 @@ abstract class PosixModel {
 }
 ```
 
+### PathCache
+
+In-memory index for fast path resolution:
+
+```
+resolvePath("/home/user/docs/report.pdf")
+    │
+    ├─ childIndex.get("root:home")     → uuid-A
+    ├─ childIndex.get("uuid-A:user")   → uuid-B
+    ├─ childIndex.get("uuid-B:docs")   → uuid-C
+    └─ childIndex.get("uuid-C:report") → uuid-D
+
+4 Map lookups, zero SQL queries
+```
+
+Stores ~250 bytes per entity. For 1 million entities: ~250-300 MB RAM.
+
 ### Mount Types
 
 **VFS Native Mounts** (Model-backed):
-- Root filesystem with UUID-first identity
-- Storage keys: `entity:{uuid}`, `access:{uuid}`, `child:{parent}:{name}`
-- Child index for O(1) path lookups
+- Root filesystem backed by EMS
+- Storage: entities table + detail tables
+- PathCache provides O(1) path lookups
 
 **Host Mounts** (filesystem bridge):
 - Maps VFS path prefix to host directory
@@ -94,7 +125,9 @@ Capability-based I/O interface representing an open file.
 ```typescript
 interface FileHandle {
     readonly id: string;
+    readonly path: string;
     readonly flags: OpenFlags;
+    readonly closed: boolean;
     read(size?): Promise<Uint8Array>;
     write(data): Promise<number>;
     seek(offset, whence): Promise<number>;
@@ -138,14 +171,19 @@ Located at `/dev/`:
 1. Normalize path (handle `.`, `..`, ensure leading `/`)
 2. Check entity mounts (longest prefix match)
 3. Check proc mount
-4. Walk VFS storage from root component-by-component
-5. Use child index for O(1) lookups
+4. Check PathCache for VFS entities (O(1) lookup)
+5. Fall back to host mounts if not in VFS
 
 **Storage Keys:**
-- `entity:{uuid}` - JSON ModelStat
+- `entity:{uuid}` - JSON ModelStat (HAL entities only)
 - `access:{uuid}` - JSON-encoded ACL
-- `child:{parent}:{name}` - Child UUID (index)
+- `child:{parent}:{name}` - Child UUID (HAL index for devices/links)
 - `data:{uuid}` - File content blob
+
+**EMS Entities:**
+- Stored in `entities` table + detail table
+- PathCache provides O(1) resolution
+- No HAL entity storage needed
 
 ## Syscall Reference
 
@@ -171,6 +209,7 @@ interface OpenFlags {
     append?: boolean;  // Append mode (writes go to end)
     truncate?: boolean; // Truncate file on open
     create?: boolean;  // Create if doesn't exist
+    exclusive?: boolean; // Fail if exists (with create)
 }
 ```
 
@@ -259,6 +298,7 @@ const newPos = await os.vfs<number>('seek', fd, offset, whence);
 **Errors:**
 - `EBADF` - Bad file descriptor
 - `EINVAL` - Invalid seek on socket/pipe
+- `ENOTSUP` - Seek not supported (devices)
 
 ---
 
@@ -278,13 +318,14 @@ const stat = await os.vfs<Stat>('stat', '/path/to/file');
 **Returns:**
 ```typescript
 interface Stat {
+    id: string;        // Entity UUID
     name: string;      // Base name
-    path: string;      // Full path
-    type: 'file' | 'folder' | 'symlink';
-    model: string;     // VFS model type
+    parent: string | null; // Parent UUID
+    model: string;     // Model type
+    owner: string;     // Owner UUID
     size: number;      // Size in bytes
-    createdAt: string; // ISO timestamp
-    updatedAt: string; // ISO timestamp
+    mtime: number;     // Last modified (ms since epoch)
+    ctime: number;     // Created (ms since epoch)
 }
 ```
 
@@ -308,7 +349,6 @@ const stat = await os.vfs<Stat>('fstat', fd);
 
 **Errors:**
 - `EBADF` - Bad file descriptor
-- `EINVAL` - Not a file handle (socket/pipe)
 
 ---
 
@@ -330,6 +370,7 @@ await os.vfs('mkdir', '/path/to/deep/dir', { recursive: true });
 **Errors:**
 - `EEXIST` - Directory already exists
 - `ENOENT` - Parent directory not found (without `recursive`)
+- `ENOTDIR` - Parent is not a directory
 - `EACCES` - Permission denied
 
 ---
@@ -390,27 +431,13 @@ await os.vfs('rmdir', '/path/to/dir');
 
 ---
 
-#### `file:rename`
-
-Rename a file or directory.
-
-```typescript
-await os.vfs('rename', '/old/path', '/new/path');
-```
-
-**Parameters:**
-- `oldPath: string` - Current path
-- `newPath: string` - New path
-
-**Status:** Not yet implemented (returns `ENOSYS`)
-
----
-
 ### Symbolic Links
 
 #### `file:symlink`
 
 Create a symbolic link.
+
+**Status:** Currently disabled - throws `EPERM`
 
 ```typescript
 await os.vfs('symlink', '/target/path', '/link/path');
@@ -421,8 +448,25 @@ await os.vfs('symlink', '/target/path', '/link/path');
 - `linkPath: string` - Path where symlink is created
 
 **Errors:**
-- `EEXIST` - Link path already exists
-- `EACCES` - Permission denied
+- `EPERM` - Symbolic links are not supported
+
+---
+
+#### `file:readlink`
+
+Read the target of a symbolic link.
+
+```typescript
+const target = await os.vfs<string>('readlink', '/path/to/link');
+```
+
+**Parameters:**
+- `path: string` - Link path
+
+**Returns:** Target path string
+
+**Errors:**
+- `ENOENT` - Link not found or not a symlink
 
 ---
 
@@ -438,9 +482,11 @@ const acl = await os.vfs<ACL>('access', '/path/to/file');
 
 // Set ACL
 await os.vfs('access', '/path/to/file', {
-    owner: 'user-uuid',
-    group: 'group-uuid',
-    mode: 0o755,
+    grants: [
+        { to: 'user-uuid', ops: ['read', 'write'] },
+        { to: '*', ops: ['read'] }
+    ],
+    deny: []
 });
 
 // Clear ACL (restore defaults)
@@ -484,13 +530,11 @@ await os.syscall('fs:mount', 'host:./src', '/app', { readonly: true });
 | Prefix | Description | Example |
 |--------|-------------|---------|
 | `host:` | Host filesystem directory | `host:/home/user/data` |
-| `tmpfs` | In-memory filesystem | `tmpfs` (not yet implemented) |
 
 **Errors:**
 - `EPERM` - Mount policy denies operation
 - `EACCES` - Missing required grant on target
 - `EINVAL` - Unknown mount source type
-- `ENOTSUP` - Mount type not yet supported
 
 ---
 
@@ -575,6 +619,8 @@ const utf16 = await os.text('/path/to/file', 'utf-16');
 | `ENOTEMPTY` | Directory not empty |
 | `EFBIG` | File or listing too large |
 | `ENOSYS` | Function not implemented |
+| `ENOTSUP` | Operation not supported |
+| `EPERM` | Operation not permitted |
 
 ## Examples
 

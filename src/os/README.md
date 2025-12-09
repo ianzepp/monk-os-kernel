@@ -6,7 +6,7 @@ The OS class is the main entry point for Monk OS. It provides a unified interfac
 
 ### Standalone Mode (`exec`)
 
-Use when Monk OS *is* your application. Blocks until shutdown signal.
+Use when Monk OS *is* your application. Blocks until shutdown signal. The Gateway starts on port 7778 (or `MONK_PORT` env var).
 
 ```typescript
 import { OS } from '@monk-api/os';
@@ -14,16 +14,18 @@ import { OS } from '@monk-api/os';
 const os = new OS({
     storage: { type: 'sqlite', path: '.data/monk.db' },
     debug: true,
+    env: { MONK_PORT: '8080' }, // Gateway port (default: 7778)
 });
 
-// Blocks until SIGINT/SIGTERM
+// Blocks until SIGINT/SIGTERM (spawns /svc/init.ts by default)
 const exitCode = await os.exec();
+// or specify custom init: await os.exec({ main: '/app/server.ts' });
 process.exit(exitCode);
 ```
 
 ### Library Mode (`boot`)
 
-Use when Monk OS is a component within your application. Returns immediately.
+Use when Monk OS is a component within your application. Returns immediately. By default, spawns `/svc/init.ts` as PID 1.
 
 ```typescript
 import { OS } from '@monk-api/os';
@@ -31,6 +33,7 @@ import { OS } from '@monk-api/os';
 const os = new OS({ storage: { type: 'memory' } });
 
 await os.boot();
+// or specify custom init: await os.boot({ main: '/app/my-init.ts' });
 
 // Use the OS APIs...
 const content = await os.text('/etc/config.json');
@@ -154,6 +157,21 @@ await os.service('stop', 'httpd');
 await os.service('restart', 'httpd');
 ```
 
+## Gateway (External Syscall Interface)
+
+The Gateway provides a TCP socket interface for external applications to make syscalls. It starts automatically during boot on port 7778 (or `MONK_PORT` env var).
+
+```typescript
+const os = new OS({
+    env: { MONK_PORT: '8080' },  // Custom port (default: 7778)
+});
+
+await os.boot();
+// Gateway is now listening on port 8080
+```
+
+External clients (like `os-shell` or `displayd`) connect to the Gateway to execute syscalls without spawning processes inside the OS.
+
 ## Path Aliases
 
 Configure path aliases for convenience:
@@ -178,10 +196,10 @@ await os.spawn('@app/server.ts');
 
 ```typescript
 interface OSConfig {
-    // Storage backend
+    // Storage backend (used by both HAL and EMS for persistence)
     storage?: {
         type: 'memory' | 'sqlite' | 'postgres';
-        path?: string;  // For sqlite
+        path?: string;  // For sqlite (default: '.data/monk.db')
         url?: string;   // For postgres
     };
 
@@ -196,18 +214,75 @@ interface OSConfig {
 
     // Path to ROM directory on host filesystem (default: './rom')
     romPath?: string;
+
+    // Allow anonymous (unauthenticated) syscalls (default: true)
+    allowAnonymous?: boolean;
 }
 ```
+
+## Boot Options
+
+The `boot()` method accepts optional configuration:
+
+```typescript
+interface BootOpts {
+    // Path to init script inside VFS (default: '/svc/init.ts')
+    main?: string;
+
+    // Enable kernel debug logging (overrides OSConfig.debug)
+    debug?: boolean;
+
+    // Path to ROM directory on host (overrides OSConfig.romPath, default: './rom')
+    romPath?: string;
+}
+
+await os.boot({ main: '/app/server.ts', debug: true });
+```
+
+## State Machine
+
+```
+[created] --boot()--> [booting] --success--> [booted]
+    |                     |                     |
+    |                     | failure             | shutdown()
+    |                     v                     v
+    |                 [failed]              [shutdown]
+    |                                           |
+    +-------------------------------------------+
+               (can boot again after shutdown)
+```
+
+The OS can be booted multiple times over its lifetime. After shutdown, it returns to the created state and can be booted again.
 
 ## Boot Sequence
 
 1. **HAL** - Hardware abstraction layer (entropy, storage, network)
 2. **EMS** - Entity management system (database)
-3. **VFS** - Virtual filesystem
-4. **Standard directories** - /app, /bin, /etc, /home, /svc, /tmp, /usr, /var, /vol
-5. **ROM copy** - Copy bundled userspace from host to VFS
-6. **Kernel + Dispatcher** - Process management, syscall routing
-7. **Init** - Spawn init process (PID 1)
+3. **Auth** - Authentication subsystem (identity management)
+4. **LLM** - Language model inference (AI agents)
+5. **VFS** - Virtual filesystem
+6. **Standard directories** - /app, /bin, /ems, /etc, /home, /svc, /tmp, /usr, /var, /var/log, /vol
+7. **ROM copy** - Copy bundled userspace from host to VFS (skipped if persistent storage has content)
+8. **Kernel + Dispatcher** - Process management, syscall routing
+9. **Gateway** - External syscall interface (TCP socket on port 7778)
+10. **Init** - Spawn init process (PID 1, default: /svc/init.ts)
+
+On boot failure, all partially initialized subsystems are cleaned up in reverse order.
+
+## Shutdown Sequence
+
+When `shutdown()` is called, subsystems are torn down in reverse boot order:
+
+1. Gateway
+2. Kernel (terminates all processes)
+3. Dispatcher
+4. VFS
+5. LLM
+6. Auth
+7. EMS
+8. HAL
+
+The shutdown is idempotent and safe to call multiple times. Any in-flight syscalls will fail with "OS shutdown during syscall" error.
 
 ## Accessing Subsystems
 
@@ -228,12 +303,51 @@ For **testing**, use `TestOS` which provides direct internal access:
 import { TestOS } from '@src/os/test.js';
 
 const os = new TestOS();
-await os.boot({ layers: ['vfs'] });  // Partial boot for faster tests
+
+// Partial boot - only VFS layer (faster tests)
+await os.boot({ layers: ['vfs'] });
+
+// Full boot with init process
+await os.boot({
+    layers: ['kernel'],
+    skipInit: false,  // Spawn /svc/init.ts (default: true, skip for speed)
+    skipRom: false,   // Copy ROM files (default: true, skip for speed)
+});
+
+// Inject existing HAL
+await os.boot({ hal: myHal, layers: ['vfs'] });
 
 // Direct subsystem access for assertions
-const vfs = os.internalVfs;
+const hal = os.internalHal;
 const ems = os.internalEms;
+const auth = os.internalAuth;
+const vfs = os.internalVfs;
 const kernel = os.internalKernel;
+const dispatcher = os.internalDispatcher;
+const gateway = os.internalGateway;
+
+// Test helpers (creates virtual process for syscalls)
+os.setTestUser('alice');  // Set user identity for ACL tests
+os.setTestCwd('/app');    // Set working directory for path tests
+```
+
+Layer dependencies cascade automatically:
+- `gateway` → `dispatcher` → `kernel` → `vfs` → `auth` → `ems` → `hal`
+
+Requesting `{ layers: ['vfs'] }` automatically includes `hal`, `ems`, and `auth`.
+
+**Schema Helpers for Manual EMS Setup:**
+
+If you set up EMS components manually (without TestOS), you need to load VFS schema:
+
+```typescript
+import { loadVfsSchema, loadVfsSchemaWithFileDevice } from '@src/os/test.js';
+
+// With full HAL
+await loadVfsSchema(db, hal);
+
+// With FileDevice only
+await loadVfsSchemaWithFileDevice(db, fileDevice);
 ```
 
 See `spec/README.md` for complete testing patterns.

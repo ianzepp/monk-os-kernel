@@ -28,7 +28,7 @@ The Hardware Abstraction Layer is the lowest TypeScript layer in Monk OS, sittin
 
 ```
 src/hal/
-├── index.ts              # HAL interface, BunHAL class
+├── index.ts              # HAL interface, BunHAL class, error re-exports
 ├── errors.ts             # POSIX-style error classes
 ├── block.ts              # BlockDevice (raw byte storage)
 ├── clock.ts              # ClockDevice (time sources)
@@ -52,15 +52,17 @@ src/hal/
 │   ├── memory.ts         # MemoryStorageEngine
 │   └── postgres.ts       # PostgresStorageEngine
 ├── network/
-│   ├── types.ts          # NetworkDevice, Listener, Socket
+│   ├── types.ts          # NetworkDevice, Listener, Socket, HttpServer, WebSocket types
 │   ├── device.ts         # BunNetworkDevice
 │   ├── listener.ts       # BunListener
-│   └── socket.ts         # BunSocket
+│   ├── socket.ts         # BunSocket
+│   └── websocket-server.ts # BunWebSocketServer, BunWebSocketConnection
 └── channel/
     ├── types.ts          # Channel interface
     ├── device.ts         # BunChannelDevice factory
     ├── http.ts           # HTTP client
-    ├── websocket.ts      # WebSocket bidirectional
+    ├── http-server.ts    # HTTP server channel
+    ├── websocket.ts      # WebSocket client
     ├── sse.ts            # Server-Sent Events
     ├── postgres.ts       # PostgreSQL wire protocol
     └── sqlite.ts         # SQLite interface
@@ -105,18 +107,21 @@ Structured key-value store with ACID transactions.
 
 ### NetworkDevice (`network/`)
 
-TCP/UDP/HTTP networking.
+TCP/HTTP networking with WebSocket support.
 
 | Operation | Description |
 |-----------|-------------|
-| `listen(opts)` | Create server listener |
-| `connect(opts)` | Establish client connection |
-| `serve(opts)` | Start HTTP server |
+| `listen(port, opts?)` | Create TCP server listener |
+| `connect(host, port, opts?)` | Establish TCP client connection |
+| `serve(port, handler, opts?)` | Start HTTP server (with optional WebSocket upgrade) |
+| `listenWebSocket(port, opts?)` | Create WebSocket server with accept pattern |
 
 **Sub-interfaces:**
 - `Listener` - Accept connections (`accept()`, `close()`)
 - `Socket` - Bidirectional byte stream (`read()`, `write()`, `close()`)
 - `HttpServer` - HTTP request/response handling
+- `WebSocketServer` - WebSocket server with accept pattern
+- `WebSocketConnection` - WebSocket client connection
 
 ---
 
@@ -132,6 +137,8 @@ Time-based scheduling and delays.
 | `cancel(handle)` | Cancel specific timer |
 | `cancelAll()` | Cancel all active timers |
 
+**Implementations:** `BunTimerDevice`, `MockTimerDevice`
+
 ---
 
 ### ClockDevice (`clock.ts`)
@@ -144,6 +151,8 @@ Time sources.
 | `monotonic()` | Monotonic nanoseconds (never decreases) |
 | `uptime()` | Time since HAL initialization |
 
+**Implementations:** `BunClockDevice`, `MockClockDevice`
+
 ---
 
 ### EntropyDevice (`entropy.ts`)
@@ -155,6 +164,8 @@ Cryptographically secure random generation.
 | `read(size)` | Get secure random bytes |
 | `uuid()` | Generate RFC 9562 UUID v7 (timestamp-sortable) |
 
+**Implementations:** `BunEntropyDevice`, `SeededEntropyDevice`
+
 ---
 
 ### CryptoDevice (`crypto.ts`)
@@ -163,13 +174,15 @@ Cryptographic operations.
 
 | Operation | Description |
 |-----------|-------------|
-| `hash(alg, data)` | Compute hash (SHA-256, SHA-384, SHA-512) |
-| `encrypt(alg, key, data)` | Encrypt data (AES-256-GCM) |
+| `hash(alg, data)` | Compute hash (SHA-256, SHA-384, SHA-512, SHA-1, MD5, BLAKE2b) |
+| `encrypt(alg, key, data)` | Encrypt data (AES-256-GCM, AES-256-CBC, AES-128-GCM) |
 | `decrypt(alg, key, data)` | Decrypt data |
 | `sign(alg, key, data)` | Create signature |
 | `verify(alg, key, data, sig)` | Verify signature |
 | `generateKey(alg)` | Generate cryptographic key |
-| `deriveKey(alg, password, salt)` | Derive key (argon2id) |
+| `deriveKey(alg, password, salt)` | Derive key (PBKDF2-SHA256, Argon2id) |
+
+**Implementations:** `BunCryptoDevice`
 
 ---
 
@@ -185,6 +198,8 @@ stdin/stdout/stderr interaction.
 | `error(data)` | Write to stderr |
 | `isTTY()` | Check if terminal |
 
+**Implementations:** `BunConsoleDevice`, `BufferConsoleDevice`
+
 ---
 
 ### DNSDevice (`dns.ts`)
@@ -197,6 +212,8 @@ Hostname resolution.
 | `lookup4(hostname)` | Forward IPv4 only |
 | `lookup6(hostname)` | Forward IPv6 only |
 | `reverse(ip)` | Reverse lookup |
+
+**Implementations:** `BunDNSDevice`, `MockDNSDevice`
 
 ---
 
@@ -215,6 +232,8 @@ Escape hatch to host operating system.
 
 **Warning:** Security-sensitive. Command injection risk if input untrusted.
 
+**Implementations:** `BunHostDevice`, `MockHostDevice`
+
 ---
 
 ### IPCDevice (`ipc.ts`)
@@ -231,21 +250,33 @@ Inter-process communication and synchronization.
 
 **Note:** `Atomics.wait()` only works from Workers (not main thread).
 
+**Implementations:** `BunIPCDevice`, `MockIPCDevice`
+
 ---
 
 ### ChannelDevice (`channel/`)
 
-Protocol-aware bidirectional messaging.
+Protocol-aware bidirectional message exchange.
 
 | Protocol | Description |
 |----------|-------------|
 | HTTP/HTTPS | Request/response via fetch() |
-| WebSocket | Full-duplex bidirectional |
-| SSE | Server-to-client push |
+| HTTP Server | Server-side request handling |
+| WebSocket | Full-duplex client connection |
+| SSE | Server-Sent Events |
 | PostgreSQL | Query/result pattern |
 | SQLite | Database interface |
 
-**Operations:** `open(uri, proto, opts)`, `handle(msg)`, `push(msg)`, `recv()`, `close()`
+**Operations:** `open(uri, proto, opts)` returns `Channel` with `exec(msg)` method
+
+**Implementations:**
+- `BunChannelDevice` - Factory for creating channels
+- `BunHttpChannel` - HTTP client
+- `BunHttpServerChannel` - HTTP server
+- `BunWebSocketClientChannel` - WebSocket client
+- `BunSSEServerChannel` - Server-Sent Events
+- `BunPostgresChannel` - PostgreSQL
+- `BunSqliteChannel` - SQLite
 
 ---
 
@@ -259,6 +290,8 @@ Data compression/decompression.
 | `decompress(alg, data)` | Decompress data |
 
 **Note:** Synchronous operations. Suitable for data <10MB.
+
+**Implementations:** `BunCompressionDevice`, `MockCompressionDevice`
 
 ---
 
@@ -274,6 +307,8 @@ Host filesystem access (kernel use only).
 
 **Warning:** Kernel-only. For user-space file I/O, use VFS.
 
+**Implementations:** `BunFileDevice`, `MockFileDevice`
+
 ---
 
 ### JsonDevice (`json.ts`) / YamlDevice (`yaml.ts`)
@@ -284,6 +319,10 @@ Encoding/decoding utilities.
 |-----------|-------------|
 | `parse(text)` | Parse string to object |
 | `stringify(value)` | Serialize object to string |
+
+**Implementations:**
+- JSON: `BunJsonDevice`, `MockJsonDevice`
+- YAML: `BunYamlDevice`, `MockYamlDevice`
 
 ## HAL Interface
 

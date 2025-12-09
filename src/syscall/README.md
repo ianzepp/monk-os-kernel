@@ -20,7 +20,9 @@ The syscall layer is a switch-based routing system that separates syscall orches
 │  ├── process.ts  - proc:*, activation:* syscalls            │
 │  ├── handle.ts   - handle:*, ipc:* syscalls                 │
 │  ├── hal.ts      - net:*, port:*, channel:* syscalls        │
-│  └── pool.ts     - pool:*, worker:* syscalls                │
+│  ├── pool.ts     - pool:*, worker:* syscalls                │
+│  ├── auth.ts     - auth:* syscalls                          │
+│  └── llm.ts      - llm:* syscalls                           │
 ├─────────────────────────────────────────────────────────────┤
 │  StreamController (backpressure management)                 │
 └─────────────────────────────────────────────────────────────┘
@@ -39,6 +41,8 @@ src/syscall/
 ├── handle.ts             # Handle manipulation & IPC syscalls
 ├── hal.ts                # Network/channel syscalls
 ├── pool.ts               # Worker pool syscalls
+├── auth.ts               # Authentication syscalls
+├── llm.ts                # LLM inference syscalls
 └── stream/
     ├── index.ts          # Stream module exports
     ├── types.ts          # Stream types
@@ -89,6 +93,7 @@ Arguments follow pattern: `proc, kernel, [subsystem], [syscall-specific args]`
 | `file:write` | Write to file |
 | `file:seek` | Seek to position |
 | `file:stat` | Get metadata by path |
+| `file:setstat` | Set metadata by path |
 | `file:fstat` | Get metadata by fd |
 | `file:mkdir` | Create directory |
 | `file:unlink` | Remove file/symlink |
@@ -120,6 +125,8 @@ Arguments follow pattern: `proc, kernel, [subsystem], [syscall-specific args]`
 | `proc:chdir` | Change working directory |
 | `proc:getenv` | Get environment variable |
 | `proc:setenv` | Set environment variable |
+| `proc:tick:subscribe` | Subscribe to tick events |
+| `proc:tick:unsubscribe` | Unsubscribe from tick events |
 | `activation:get` | Get activation message |
 
 ---
@@ -128,6 +135,7 @@ Arguments follow pattern: `proc, kernel, [subsystem], [syscall-specific args]`
 
 | Syscall | Purpose |
 |---------|---------|
+| `ems:describe` | Get schema information |
 | `ems:select` | Query entities (streaming) |
 | `ems:create` | Create new entity |
 | `ems:update` | Update entity by ID |
@@ -164,6 +172,7 @@ Arguments follow pattern: `proc, kernel, [subsystem], [syscall-specific args]`
 | `channel:stream` | Stream channel responses |
 | `channel:push` | Push response to channel |
 | `channel:recv` | Receive from channel |
+| `channel:accept` | Accept incoming channel connection |
 
 **Supported Protocols:** tcp, unix, http, https, ws, wss, postgres, sqlite, sse
 
@@ -179,6 +188,34 @@ Arguments follow pattern: `proc, kernel, [subsystem], [syscall-specific args]`
 | `worker:send` | Send message to worker |
 | `worker:recv` | Receive from worker |
 | `worker:release` | Release worker to pool |
+
+---
+
+### Auth Syscalls (`auth.ts`)
+
+| Syscall | Purpose |
+|---------|---------|
+| `auth:token` | Validate JWT, set process identity |
+| `auth:whoami` | Get current user/session info |
+| `auth:login` | Password login, create session |
+| `auth:logout` | Clear session, reset identity |
+| `auth:register` | Create user account |
+| `auth:grant` | Mint scoped tokens (root only) |
+
+**Auth Gating:** Most syscalls require authentication. Only `auth:login`, `auth:token`, and `auth:register` work for anonymous processes. Session expiry is checked lazily on each syscall.
+
+---
+
+### LLM Syscalls (`llm.ts`)
+
+| Syscall | Purpose |
+|---------|---------|
+| `llm:complete` | Single-shot completion |
+| `llm:stream` | Streaming completion |
+| `llm:chat` | Chat completion |
+| `llm:chat:stream` | Streaming chat completion |
+| `llm:embed` | Generate embeddings |
+| `llm:models` | List available models |
 
 ## Stream Controller
 
@@ -246,6 +283,7 @@ Worker                    Kernel
 | `ENOENT` | File not found |
 | `ENOTDIR` | Not a directory |
 | `EPERM` | Permission denied |
+| `EACCES` | Authentication required |
 | `ESRCH` | Process not found |
 | `ETIMEDOUT` | Operation timed out |
 | `ENOSYS` | Syscall not implemented |
