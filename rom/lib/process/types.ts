@@ -120,6 +120,19 @@ export interface SyscallResponse {
 export interface SignalMessage {
     type: 'signal';
     signal: number;
+    payload?: unknown;
+}
+
+/**
+ * Tick signal payload.
+ */
+export interface TickPayload {
+    /** Milliseconds since last tick */
+    dt: number;
+    /** Current timestamp (Date.now()) */
+    now: number;
+    /** Monotonic tick sequence number */
+    seq: number;
 }
 
 /**
@@ -264,6 +277,7 @@ export interface DirEntry {
 
 /** Signal values */
 export const SIGTERM = 15;
+export const SIGTICK = 30;
 export const SIGKILL = 9;
 
 /** Stream backpressure thresholds (match kernel) */

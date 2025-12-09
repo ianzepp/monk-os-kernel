@@ -76,6 +76,7 @@ import { loadServices } from '@src/kernel/kernel/load-services.js';
 import { printk } from '@src/kernel/kernel/printk.js';
 import { formatError } from '@src/kernel/kernel/format-error.js';
 import { interruptProcess } from '@src/kernel/kernel/interrupt-process.js';
+import { startTick, stopTick } from '@src/kernel/kernel/tick.js';
 
 // =============================================================================
 // TYPES
@@ -568,6 +569,14 @@ export class Kernel {
         init.worker = await spawnWorker(this, init, env.initPath);
         init.state = 'running';
 
+        // ---------------------------------------------------------------------
+        // PHASE 6: TICK BROADCASTER
+        // Start the kernel tick for AI processes (monks)
+        // ---------------------------------------------------------------------
+
+        printk(this, 'boot', 'Starting tick broadcaster');
+        startTick(this);
+
         // Boot complete
         this.booted = true;
         printk(this, 'boot', 'Kernel boot complete');
@@ -699,7 +708,15 @@ export class Kernel {
         }
 
         // ---------------------------------------------------------------------
-        // PHASE 3: SERVICE CLEANUP
+        // PHASE 3: TICK CLEANUP
+        // Stop the tick broadcaster before services
+        // ---------------------------------------------------------------------
+
+        printk(this, 'shutdown', 'Stopping tick broadcaster');
+        stopTick(this);
+
+        // ---------------------------------------------------------------------
+        // PHASE 4: SERVICE CLEANUP
         // Stop activation loops and close ports
         // ---------------------------------------------------------------------
 
@@ -730,7 +747,7 @@ export class Kernel {
         }
 
         // ---------------------------------------------------------------------
-        // PHASE 4: STATE CLEANUP
+        // PHASE 5: STATE CLEANUP
         // Clear all internal state
         // ---------------------------------------------------------------------
 
@@ -744,7 +761,7 @@ export class Kernel {
         this.pubsubPorts.clear();
 
         // ---------------------------------------------------------------------
-        // PHASE 5: POOL SHUTDOWN
+        // PHASE 6: POOL SHUTDOWN
         // ---------------------------------------------------------------------
 
         printk(this, 'shutdown', 'Shutting down worker pools');

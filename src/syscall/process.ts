@@ -50,6 +50,7 @@ import { kill } from '@src/kernel/kernel/kill.js';
 import { wait } from '@src/kernel/kernel/wait.js';
 import { getpid } from '@src/kernel/kernel/get-pid.js';
 import { getppid } from '@src/kernel/kernel/get-ppid.js';
+import { subscribeTick, unsubscribeTick } from '@src/kernel/kernel/tick.js';
 
 // =============================================================================
 // HELPER FUNCTIONS
@@ -389,6 +390,43 @@ export async function* activationGet(
     proc: Process,
 ): AsyncIterable<Response> {
     yield respond.ok(proc.activationMessage ?? null);
+}
+
+// =============================================================================
+// TICK SUBSCRIPTION
+// =============================================================================
+
+/**
+ * Subscribe to kernel ticks.
+ *
+ * After subscribing, the process receives SIGTICK signals at regular intervals.
+ * Each tick delivers { dt, now, seq } payload for timing information.
+ *
+ * @param proc - Calling process
+ * @param kernel - Kernel instance
+ */
+export async function* procTickSubscribe(
+    proc: Process,
+    kernel: Kernel,
+): AsyncIterable<Response> {
+    subscribeTick(kernel, proc.id);
+    yield respond.ok();
+}
+
+/**
+ * Unsubscribe from kernel ticks.
+ *
+ * Stops receiving SIGTICK signals.
+ *
+ * @param proc - Calling process
+ * @param kernel - Kernel instance
+ */
+export async function* procTickUnsubscribe(
+    proc: Process,
+    kernel: Kernel,
+): AsyncIterable<Response> {
+    unsubscribeTick(kernel, proc.id);
+    yield respond.ok();
 }
 
 // =============================================================================

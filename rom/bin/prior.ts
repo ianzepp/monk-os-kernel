@@ -16,10 +16,17 @@ import {
     call,
     syscall,
     onSignal,
+    onTick,
+    subscribeTicks,
     println,
     eprintln,
     getpid,
     sleep,
+    readFile,
+    writeFile,
+    appendFile,
+    mkdir,
+    stat,
 } from '@rom/lib/process/index.js';
 import type { Response } from '@rom/lib/process/types.js';
 
@@ -28,7 +35,23 @@ import type { Response } from '@rom/lib/process/types.js';
 // =============================================================================
 
 const DEFAULT_PORT = 7777;
-const DEFAULT_MODEL = 'qwen2.5-coder:1.5b';
+const DEFAULT_MODEL = 'claude-sonnet-4';
+const SYSTEM_PROMPT_PATH = '/etc/prior/system.txt';
+
+// Memory paths
+const MEMORY_DIR = '/var/prior';
+const IDENTITY_PATH = '/var/prior/identity.txt';
+const SESSION_LOG_PATH = '/var/prior/session.log';
+const CONTEXT_PATH = '/var/prior/context.txt';
+
+// =============================================================================
+// STATE
+// =============================================================================
+
+let systemPrompt: string | undefined;
+let identity: string | undefined;
+let memoryContext: string | undefined;
+let tickBusy = false;
 
 // =============================================================================
 // TYPES
@@ -119,48 +142,100 @@ async function writeSocket(socketFd: number, data: string): Promise<void> {
 }
 
 // =============================================================================
+// SESSION LOGGING
+// =============================================================================
+
+/**
+ * Log a task exchange to the session log.
+ */
+async function logSession(task: string, result: string, status: 'ok' | 'error'): Promise<void> {
+    const timestamp = new Date().toISOString();
+    const entry = `[${timestamp}] TASK: ${task.slice(0, 200)}${task.length > 200 ? '...' : ''}\n[${timestamp}] ${status.toUpperCase()}: ${result.slice(0, 500)}${result.length > 500 ? '...' : ''}\n\n`;
+
+    try {
+        await appendFile(SESSION_LOG_PATH, entry);
+    }
+    catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        await eprintln(`prior: failed to log session: ${message}`);
+    }
+}
+
+// =============================================================================
 // TASK EXECUTION
 // =============================================================================
 
 /**
  * Execute a task using the LLM.
  */
-async function executeTask(instruction: Instruction): Promise<TaskResult> {
+async function executeTask(instruction: Instruction, skipLogging = false): Promise<TaskResult> {
     const startTime = Date.now();
     const model = instruction.model ?? DEFAULT_MODEL;
 
     try {
-        // Build prompt from task and context
-        let prompt = instruction.task;
+        // Build prompt with memory context
+        const parts: string[] = [];
 
-        if (instruction.context) {
-            prompt = `Context:\n${JSON.stringify(instruction.context, null, 2)}\n\nTask: ${instruction.task}`;
+        // Include identity if available
+        if (identity) {
+            parts.push(`My identity: ${identity}`);
         }
+
+        // Include memory context if available
+        if (memoryContext) {
+            parts.push(`Memory context:\n${memoryContext}`);
+        }
+
+        // Include instruction context if provided
+        if (instruction.context) {
+            parts.push(`Task context:\n${JSON.stringify(instruction.context, null, 2)}`);
+        }
+
+        // Add the actual task
+        parts.push(`Task: ${instruction.task}`);
+
+        const prompt = parts.join('\n\n');
 
         await eprintln(`prior: calling llm:complete with model=${model}`);
 
-        // Call LLM
-        const response = await call<CompletionResponse>('llm:complete', model, prompt);
+        // Call LLM with system prompt if available
+        const response = await call<CompletionResponse>('llm:complete', model, prompt, {
+            system: systemPrompt,
+        });
 
         await eprintln(`prior: llm responded, ${response.text.length} chars`);
 
-        return {
+        const result: TaskResult = {
             status: 'ok',
             result: response.text,
             model: response.model,
             duration_ms: Date.now() - startTime,
         };
+
+        // Log to session (skip for self-discovery to avoid circular logging)
+        if (!skipLogging) {
+            await logSession(instruction.task, response.text, 'ok');
+        }
+
+        return result;
     }
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);
 
         await eprintln(`prior: llm error: ${message}`);
 
-        return {
+        const result: TaskResult = {
             status: 'error',
             error: message,
             duration_ms: Date.now() - startTime,
         };
+
+        // Log errors too
+        if (!skipLogging) {
+            await logSession(instruction.task, message, 'error');
+        }
+
+        return result;
     }
 }
 
@@ -234,6 +309,101 @@ async function main(): Promise<void> {
     const pid = await getpid();
 
     await println(`prior: starting (pid ${pid})`);
+
+    // Load system prompt
+    try {
+        systemPrompt = await readFile(SYSTEM_PROMPT_PATH);
+        await eprintln(`prior: loaded system prompt (${systemPrompt.length} chars)`);
+    }
+    catch {
+        await eprintln('prior: no system prompt found, running without');
+    }
+
+    // Initialize memory directory
+    try {
+        await mkdir(MEMORY_DIR, { recursive: true });
+        await eprintln(`prior: memory directory ready at ${MEMORY_DIR}`);
+    }
+    catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        await eprintln(`prior: failed to create memory directory: ${message}`);
+    }
+
+    // Load existing identity if available
+    try {
+        identity = await readFile(IDENTITY_PATH);
+        await eprintln(`prior: loaded existing identity (${identity.length} chars)`);
+    }
+    catch {
+        // No identity yet - will be created on first tick
+    }
+
+    // Load existing context if available
+    try {
+        memoryContext = await readFile(CONTEXT_PATH);
+        await eprintln(`prior: loaded memory context (${memoryContext.length} chars)`);
+    }
+    catch {
+        // No context yet - will be created by distillation
+    }
+
+    // Subscribe to kernel ticks for autonomous behavior
+    await subscribeTicks();
+    await eprintln('prior: subscribed to kernel ticks');
+
+    // Register tick handler
+    onTick(async (dt, now, seq) => {
+        // Skip if already processing a tick (prevent overlap)
+        if (tickBusy) {
+            return;
+        }
+
+        tickBusy = true;
+
+        try {
+            // First tick: self-discovery (only if no identity exists)
+            if (seq === 1 && !identity) {
+                await eprintln('prior: tick 1 - performing self-discovery');
+
+                const result = await executeTask({
+                    task: 'You just woke up. Describe your environment and capabilities based on your system knowledge. Be concise (2-3 sentences).',
+                }, true);  // skipLogging - self-discovery is internal
+
+                if (result.status === 'ok' && result.result) {
+                    identity = result.result;
+                    await eprintln(`prior: self-discovery complete`);
+                    await eprintln(`prior: ${identity}`);
+
+                    // Persist identity to file
+                    try {
+                        await writeFile(IDENTITY_PATH, identity);
+                        await eprintln(`prior: identity saved to ${IDENTITY_PATH}`);
+                    }
+                    catch (err) {
+                        const msg = err instanceof Error ? err.message : String(err);
+                        await eprintln(`prior: failed to save identity: ${msg}`);
+                    }
+                }
+                else {
+                    await eprintln(`prior: self-discovery failed: ${result.error}`);
+                }
+            }
+
+            // Periodic heartbeat (every 60 ticks = ~60 seconds)
+            if (seq % 60 === 0) {
+                await eprintln(`prior: heartbeat tick=${seq} dt=${dt}ms`);
+            }
+
+            // Future: check for autonomous work queue, consolidate memory, etc.
+        }
+        catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            await eprintln(`prior: tick error: ${message}`);
+        }
+        finally {
+            tickBusy = false;
+        }
+    });
 
     // Handle shutdown gracefully
     let running = true;

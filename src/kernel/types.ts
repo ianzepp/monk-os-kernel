@@ -223,6 +223,12 @@ export interface ExternalProcessHandle {
  */
 export const SIGTERM = 15;
 export const SIGKILL = 9;
+export const SIGTICK = 30;
+
+/**
+ * Default tick interval (ms)
+ */
+export const TICK_INTERVAL_MS = 1000;
 
 /**
  * Grace period for SIGTERM before SIGKILL (ms)
@@ -310,6 +316,19 @@ export interface SyscallResponse {
 export interface SignalMessage {
     type: 'signal';
     signal: number;
+    payload?: unknown;
+}
+
+/**
+ * Tick signal payload
+ */
+export interface TickPayload {
+    /** Milliseconds since last tick */
+    dt: number;
+    /** Current timestamp (Date.now()) */
+    now: number;
+    /** Monotonic tick sequence number */
+    seq: number;
 }
 
 /**

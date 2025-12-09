@@ -60,12 +60,14 @@ import { formatError } from './format-error.js';
  * @param self - Kernel instance
  * @param proc - Target process
  * @param signal - Signal number (SIGTERM, SIGKILL, etc.)
+ * @param payload - Optional signal payload (used by SIGTICK)
  */
-export function deliverSignal(self: Kernel, proc: Process, signal: number): void {
+export function deliverSignal(self: Kernel, proc: Process, signal: number, payload?: unknown): void {
     // Construct signal message for worker
     const msg: SignalMessage = {
         type: 'signal',
         signal,
+        payload,
     };
 
     // Attempt delivery (best-effort)

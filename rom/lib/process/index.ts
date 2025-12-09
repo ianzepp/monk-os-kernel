@@ -7,7 +7,7 @@
  * @module rom/lib/process
  */
 
-import { syscall, call, collect, onSignal, toError, setDefaultTermHandler } from './syscall.js';
+import { syscall, call, collect, onSignal, onTick, toError, setDefaultTermHandler } from './syscall.js';
 import { respond } from './respond.js';
 import { fromCode } from './types.js';
 import type { Response, OpenFlags, SpawnOpts, ExitStatus, Stat, DirEntry, Grant } from './types.js';
@@ -18,7 +18,8 @@ import type { Response, OpenFlags, SpawnOpts, ExitStatus, Stat, DirEntry, Grant 
 
 export * from './types.js';
 export { respond } from './respond.js';
-export { syscall, call, collect, onSignal, toError } from './syscall.js';
+export { syscall, call, collect, onSignal, onTick, toError } from './syscall.js';
+export type { SignalHandler, TickHandler } from './syscall.js';
 
 // =============================================================================
 // CONSTANTS
@@ -26,6 +27,7 @@ export { syscall, call, collect, onSignal, toError } from './syscall.js';
 
 export const SIGTERM = 15;
 export const SIGKILL = 9;
+export const SIGTICK = 30;
 
 // =============================================================================
 // FILE OPERATIONS
@@ -108,6 +110,34 @@ export async function copyFile(src: string, dest: string): Promise<void> {
     finally {
         await close(srcFd);
         await close(destFd);
+    }
+}
+
+/**
+ * Write string content to a file (creates or overwrites).
+ */
+export async function writeFile(path: string, content: string): Promise<void> {
+    const fd = await open(path, { write: true, create: true, truncate: true });
+
+    try {
+        await write(fd, content);
+    }
+    finally {
+        await close(fd);
+    }
+}
+
+/**
+ * Append string content to a file (creates if doesn't exist).
+ */
+export async function appendFile(path: string, content: string): Promise<void> {
+    const fd = await open(path, { write: true, create: true, append: true });
+
+    try {
+        await write(fd, content);
+    }
+    finally {
+        await close(fd);
     }
 }
 
@@ -409,6 +439,23 @@ export function setenv(name: string, value: string): Promise<void> {
  */
 export function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Subscribe to kernel ticks.
+ *
+ * After subscribing, register a tick handler with onTick() to receive
+ * tick signals. Each tick provides timing info: dt, now, seq.
+ */
+export function subscribeTicks(): Promise<void> {
+    return call<void>('proc:tick:subscribe');
+}
+
+/**
+ * Unsubscribe from kernel ticks.
+ */
+export function unsubscribeTicks(): Promise<void> {
+    return call<void>('proc:tick:unsubscribe');
 }
 
 // Note: onSignal is re-exported from syscall.ts

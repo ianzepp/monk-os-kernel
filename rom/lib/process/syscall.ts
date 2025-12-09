@@ -15,7 +15,8 @@ import type {
     SignalMessage,
     KernelMessage,
 } from './types.js';
-import { fromCode, SIGTERM } from './types.js';
+import { fromCode, SIGTERM, SIGTICK } from './types.js';
+import type { TickPayload } from './types.js';
 
 // =============================================================================
 // WORKER GLOBALS
@@ -58,8 +59,9 @@ const pending = new Map<string, PendingRequest>();
 
 /**
  * Signal handlers registered via onSignal().
+ * Handlers receive an optional payload (used by SIGTICK).
  */
-const signalHandlers = new Map<number, () => void | Promise<void>>();
+const signalHandlers = new Map<number, (payload?: unknown) => void | Promise<void>>();
 
 /**
  * Default SIGTERM handler - exit with code 0.
@@ -156,7 +158,7 @@ async function handleSignal(msg: SignalMessage): Promise<void> {
     const handler = signalHandlers.get(msg.signal);
 
     if (handler) {
-        await handler();
+        await handler(msg.payload);
     }
     else if (msg.signal === SIGTERM && defaultTermHandler) {
         // SIGTERM with no custom handler - use default
@@ -338,6 +340,11 @@ export async function collect<T = unknown>(name: string, ...args: unknown[]): Pr
 // =============================================================================
 
 /**
+ * Signal handler type that can receive an optional payload.
+ */
+export type SignalHandler = (payload?: unknown) => void | Promise<void>;
+
+/**
  * Register a signal handler.
  *
  * Supports two signatures:
@@ -348,8 +355,8 @@ export async function collect<T = unknown>(name: string, ...args: unknown[]): Pr
  * @param handler - Handler function (if first arg is signal)
  */
 export function onSignal(
-    signalOrHandler: number | (() => void | Promise<void>),
-    handler?: () => void | Promise<void>,
+    signalOrHandler: number | SignalHandler,
+    handler?: SignalHandler,
 ): void {
     if (typeof signalOrHandler === 'function') {
         // onSignal(handler) - default to SIGTERM
@@ -361,6 +368,29 @@ export function onSignal(
             signalHandlers.set(signalOrHandler, handler);
         }
     }
+}
+
+/**
+ * Tick handler type for onTick().
+ */
+export type TickHandler = (dt: number, now: number, seq: number) => void | Promise<void>;
+
+/**
+ * Register a tick handler.
+ *
+ * Convenience wrapper around onSignal(SIGTICK, ...) that unpacks
+ * the tick payload into individual parameters.
+ *
+ * NOTE: You must also subscribe to ticks via subscribeTicks() or
+ * call('proc:tick:subscribe') to receive tick signals.
+ *
+ * @param handler - Called on each tick with (dt, now, seq)
+ */
+export function onTick(handler: TickHandler): void {
+    onSignal(SIGTICK, (payload?: unknown) => {
+        const tick = payload as TickPayload;
+        return handler(tick.dt, tick.now, tick.seq);
+    });
 }
 
 /**
