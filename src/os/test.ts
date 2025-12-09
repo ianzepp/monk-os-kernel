@@ -251,6 +251,7 @@ export class TestOS extends BaseOS {
                     this.__ems,
                     this.__hal,
                     this.__auth ?? undefined,
+                    undefined, // LLM
                 );
 
                 // Wire dispatcher to kernel

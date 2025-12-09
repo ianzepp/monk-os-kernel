@@ -40,6 +40,7 @@ import type { OSConfig, OSEvents, OSEventName } from './types.js';
 import type { EMS } from '@src/ems/ems.js';
 import type { EntityOps } from '@src/ems/entity-ops.js';
 import type { Auth } from '@src/auth/index.js';
+import type { LLM } from '@src/llm/index.js';
 import type { SyscallDispatcher } from '@src/syscall/index.js';
 import type { Gateway } from '@src/gateway/index.js';
 
@@ -109,6 +110,16 @@ export abstract class BaseOS {
      * NOTE: Protected to allow TestOS subclass to expose internals for testing.
      */
     protected __auth: Auth | null = null;
+
+    /**
+     * Language Model subsystem.
+     *
+     * WHY: Provides stateless LLM inference for AI agents.
+     * Reads provider/model config from EMS, dispatches to adapters.
+     * INVARIANT: Non-null when booted === true.
+     * NOTE: Protected to allow TestOS subclass to expose internals for testing.
+     */
+    protected __llm: LLM | null = null;
 
     /**
      * Virtual File System.

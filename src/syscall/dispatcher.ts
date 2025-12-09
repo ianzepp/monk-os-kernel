@@ -52,6 +52,7 @@ import type { VFS } from '@src/vfs/index.js';
 import type { EMS } from '@src/ems/ems.js';
 import type { HAL } from '@src/hal/index.js';
 import type { Auth } from '@src/auth/index.js';
+import type { LLM } from '@src/llm/index.js';
 import type { KernelMessage, SyscallRequest } from '@src/kernel/types.js';
 import type { Process, Response } from './types.js';
 import { respond } from './types.js';
@@ -87,6 +88,9 @@ import { poolLease, workerLoad, workerSend, workerRecv, workerRelease } from './
 
 // Auth syscalls
 import { authToken, authWhoami, authLogin, authLogout, authSession, authRegister, authGrant } from './auth.js';
+
+// LLM syscalls
+import { llmComplete, llmStream, llmChat, llmChatStream, llmEmbed, llmModels } from './llm.js';
 
 // Stream controller
 import { StreamController, StallError } from './stream/index.js';
@@ -131,6 +135,7 @@ export class SyscallDispatcher {
         private readonly ems: EMS | undefined,
         private readonly hal: HAL,
         private readonly auth: Auth | undefined,
+        private readonly llm: LLM | undefined,
     ) {}
 
     /**
@@ -565,6 +570,64 @@ export class SyscallDispatcher {
                 }
 
                 yield* authGrant(proc, this.auth, args[0]);
+                break;
+
+                // =================================================================
+                // LLM SYSCALLS (llm:*)
+                // =================================================================
+
+            case 'llm:complete':
+                if (!this.llm) {
+                    yield respond.error('ENOSYS', 'LLM not available');
+                    break;
+                }
+
+                yield* llmComplete(proc, this.llm, args[0], args[1], args[2]);
+                break;
+
+            case 'llm:stream':
+                if (!this.llm) {
+                    yield respond.error('ENOSYS', 'LLM not available');
+                    break;
+                }
+
+                yield* llmStream(proc, this.llm, args[0], args[1], args[2]);
+                break;
+
+            case 'llm:chat':
+                if (!this.llm) {
+                    yield respond.error('ENOSYS', 'LLM not available');
+                    break;
+                }
+
+                yield* llmChat(proc, this.llm, args[0], args[1], args[2]);
+                break;
+
+            case 'llm:chat:stream':
+                if (!this.llm) {
+                    yield respond.error('ENOSYS', 'LLM not available');
+                    break;
+                }
+
+                yield* llmChatStream(proc, this.llm, args[0], args[1], args[2]);
+                break;
+
+            case 'llm:embed':
+                if (!this.llm) {
+                    yield respond.error('ENOSYS', 'LLM not available');
+                    break;
+                }
+
+                yield* llmEmbed(proc, this.llm, args[0], args[1]);
+                break;
+
+            case 'llm:models':
+                if (!this.llm) {
+                    yield respond.error('ENOSYS', 'LLM not available');
+                    break;
+                }
+
+                yield* llmModels(proc, this.llm, args[0]);
                 break;
 
                 // =================================================================

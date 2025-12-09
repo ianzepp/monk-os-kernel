@@ -7,7 +7,7 @@
  * a linear, all-or-nothing boot that initializes all subsystems in order.
  *
  * Subsystem initialization order (boot):
- *   HAL -> EMS -> Auth -> VFS -> dirs -> ROM -> Kernel -> Dispatcher -> Gateway -> Init
+ *   HAL -> EMS -> Auth -> LLM -> VFS -> dirs -> ROM -> Kernel -> Dispatcher -> Gateway -> Init
  *
  * For testing with flexible partial boot, use TestOS instead.
  *
@@ -32,6 +32,7 @@ import { VFS } from '@src/vfs/vfs.js';
 import { Kernel } from '@src/kernel/kernel.js';
 import { EMS } from '@src/ems/ems.js';
 import { Auth } from '@src/auth/index.js';
+import { LLM } from '@src/llm/index.js';
 import { SyscallDispatcher } from '@src/syscall/index.js';
 import { Gateway } from '@src/gateway/index.js';
 import type { BootOpts, ExecOpts } from './types.js';
@@ -117,14 +118,18 @@ export class OS extends BaseOS {
             });
             await this.__auth.init();
 
-            // 4. VFS (virtual filesystem)
+            // 4. LLM (language model inference)
+            this.__llm = new LLM(this.__hal, this.__ems);
+            await this.__llm.init();
+
+            // 5. VFS (virtual filesystem)
             this.__vfs = new VFS(this.__hal, this.__ems);
             await this.__vfs.init();
 
-            // 5. Standard directories
+            // 6. Standard directories
             await this.createStandardDirectories();
 
-            // 6. ROM copy (userspace code)
+            // 7. ROM copy (userspace code)
             const romPath = opts?.romPath ?? this.config.romPath ?? DEFAULT_ROM_PATH;
 
             try {
@@ -139,7 +144,7 @@ export class OS extends BaseOS {
                 }
             }
 
-            // 7. Kernel + Dispatcher
+            // 8. Kernel + Dispatcher
             this.__kernel = new Kernel(this.__hal, this.__ems, this.__vfs);
 
             this.__dispatcher = new SyscallDispatcher(
@@ -148,6 +153,7 @@ export class OS extends BaseOS {
                 this.__ems,
                 this.__hal,
                 this.__auth,
+                this.__llm,
             );
 
             // Wire dispatcher's message handler to kernel
@@ -156,7 +162,7 @@ export class OS extends BaseOS {
                 await this.__dispatcher!.onWorkerMessage(worker, msg);
             };
 
-            // 8. Gateway (external syscall interface)
+            // 9. Gateway (external syscall interface)
             const socketPath = this.config.env?.MONK_SOCKET ?? '/tmp/monk.sock';
 
             this.__gateway = new Gateway(
@@ -167,7 +173,7 @@ export class OS extends BaseOS {
 
             await this.__gateway.listen(socketPath);
 
-            // 9. Init process
+            // 10. Init process
             const initPath = opts?.main ? this.resolvePath(opts.main) : DEFAULT_INIT_PATH;
 
             await this.__kernel.boot({

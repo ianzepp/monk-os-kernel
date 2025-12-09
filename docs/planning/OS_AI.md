@@ -1,6 +1,6 @@
 # Monk OS AI Layer
 
-> **Status**: Planning
+> **Status**: In Progress (Phase 1 Complete)
 > **Depends on**: EMS (schema split pattern), VFS, Auth, Shell/Coreutils
 
 This document captures the architecture for AI integration with Monk OS.
@@ -546,15 +546,19 @@ Strategy:
 
 ## Implementation Plan
 
-### Phase 1: LLM Subsystem (Kernel)
+### Phase 1: LLM Subsystem (Kernel) ✅ COMPLETE
 
-1. Create `src/llm/schema.sql` with `llm_provider` and `llm_model` tables
-2. Create `src/llm/llm.ts` with `LLM.init()` that calls `ems.exec(schema)`
-3. Implement OpenAI-format adapter (covers Ollama)
-4. Implement `llm:complete` syscall
-5. Seed initial provider/model records for Ollama
+1. ✅ Create `src/llm/schema.sql` with `llm_provider` and `llm_model` tables
+2. ✅ Create `src/llm/llm.ts` with `LLM.init()` that calls `ems.exec(schema)`
+3. ✅ Implement OpenAI-format adapter (covers Ollama)
+4. ✅ Implement `llm:complete` syscall
+5. ✅ Seed initial provider/model records for Ollama
+6. ✅ Implement Anthropic adapter
+7. ✅ Implement streaming (`llm:stream`, `llm:chat:stream`)
+8. ✅ Implement embeddings (`llm:embed`)
+9. ✅ Wire LLM into OS boot sequence
 
-**Pattern:** Follow VFS schema split - subsystem owns its schema file, loads via `ems.exec()` during init.
+**Implementation:** `src/llm/` (~2250 lines), `src/syscall/llm.ts` (~350 lines)
 
 ### Phase 2: Shell + Coreutils (Userspace)
 
@@ -585,8 +589,8 @@ Strategy:
 
 ### Phase 5: Advanced
 
-1. Streaming responses (`llm:stream`)
-2. Anthropic adapter
+1. ✅ Streaming responses (`llm:stream`) - done in Phase 1
+2. ✅ Anthropic adapter - done in Phase 1
 3. Multi-agent coordination
 4. Embedding/vector search for semantic memory
 
