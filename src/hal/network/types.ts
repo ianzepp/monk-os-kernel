@@ -489,6 +489,14 @@ export interface Listener extends AsyncDisposable {
      * @returns Listener address
      */
     addr(): { hostname: string; port: number };
+
+    /**
+     * Get the port the listener is bound to.
+     *
+     * WHY: Convenience accessor. When port 0 is specified (auto-assign), this
+     * returns the actual assigned port.
+     */
+    readonly port: number;
 }
 
 // -------------------------------------------------------------------------

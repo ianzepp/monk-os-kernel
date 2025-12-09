@@ -1,7 +1,7 @@
 /**
  * Gateway Performance Tests
  *
- * Measures performance of the Unix socket gateway for external syscall access.
+ * Measures performance of the TCP gateway for external syscall access.
  *
  * Test categories:
  * - Connection latency (connect/disconnect cycles)
@@ -18,9 +18,6 @@ import { pack, unpack } from 'msgpackr';
 import { TestOS } from '../../spec/helpers/test-os.js';
 import { BunNetworkDevice } from '@src/hal/index.js';
 import type { Socket } from '@src/hal/network.js';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
-import { rmSync, existsSync } from 'node:fs';
 
 // =============================================================================
 // CONFIGURATION
@@ -83,13 +80,6 @@ function printResults(title: string, results: BenchResult[]): void {
 }
 
 /**
- * Generate unique socket path for each test run.
- */
-function getTestSocketPath(): string {
-    return join(tmpdir(), `monk-gw-perf-${Date.now()}-${Math.random().toString(36).slice(2)}.sock`);
-}
-
-/**
  * Encode a message as length-prefixed msgpack frame.
  */
 function encodeFrame(message: unknown): Uint8Array {
@@ -113,8 +103,8 @@ class GatewayClient {
     private buffer = new Uint8Array(0);
     private nextId = 1;
 
-    async connect(socketPath: string): Promise<void> {
-        this.socket = await this.network.connect(socketPath, 0);
+    async connect(port: number): Promise<void> {
+        this.socket = await this.network.connect('localhost', port);
     }
 
     async close(): Promise<void> {
@@ -203,27 +193,22 @@ class GatewayClient {
 
 describe('Gateway Performance', () => {
     let os: TestOS;
-    let socketPath: string;
+    let port: number;
 
     beforeAll(async () => {
-        // Use unique socket path to avoid conflicts
-        socketPath = getTestSocketPath();
-
-        // Boot OS with in-memory storage and custom socket path
+        // Boot OS with in-memory storage
         // OS automatically creates and starts Gateway during boot
         os = new TestOS({
             storage: { type: 'memory' },
-            env: { MONK_SOCKET: socketPath },
         });
         await os.boot();
+
+        // Get the auto-assigned port from the gateway
+        port = os.internalGateway.getPort()!;
     });
 
     afterAll(async () => {
         await os?.shutdown();
-
-        if (existsSync(socketPath)) {
-            rmSync(socketPath);
-        }
     });
 
     // =========================================================================
@@ -238,7 +223,7 @@ describe('Gateway Performance', () => {
             const start = performance.now();
 
             for (let i = 0; i < iterations; i++) {
-                const socket = await network.connect(socketPath, 0);
+                const socket = await network.connect('localhost', port);
                 await socket.close();
             }
 
@@ -263,7 +248,7 @@ describe('Gateway Performance', () => {
 
             // Connect all clients
             const sockets = await Promise.all(
-                Array.from({ length: clients }, () => network.connect(socketPath, 0))
+                Array.from({ length: clients }, () => network.connect('localhost', port))
             );
 
             const connectTime = performance.now() - start;
@@ -302,7 +287,7 @@ describe('Gateway Performance', () => {
         it('proc:getcwd latency (500 calls)', async () => {
             const iterations = 500;
             const client = new GatewayClient();
-            await client.connect(socketPath);
+            await client.connect(port);
 
             try {
                 const start = performance.now();
@@ -332,7 +317,7 @@ describe('Gateway Performance', () => {
         it('proc:getpid latency (500 calls)', async () => {
             const iterations = 500;
             const client = new GatewayClient();
-            await client.connect(socketPath);
+            await client.connect(port);
 
             try {
                 const start = performance.now();
@@ -360,7 +345,7 @@ describe('Gateway Performance', () => {
         it('file:stat latency (500 calls)', async () => {
             const iterations = 500;
             const client = new GatewayClient();
-            await client.connect(socketPath);
+            await client.connect(port);
 
             try {
                 const start = performance.now();
@@ -394,7 +379,7 @@ describe('Gateway Performance', () => {
         it('file:readdir with 100 entries', async () => {
             const iterations = 50;
             const client = new GatewayClient();
-            await client.connect(socketPath);
+            await client.connect(port);
 
             // Create test files
             for (let i = 0; i < 100; i++) {
@@ -448,7 +433,7 @@ describe('Gateway Performance', () => {
         it('ems:create single entity (200 ops)', async () => {
             const iterations = 200;
             const client = new GatewayClient();
-            await client.connect(socketPath);
+            await client.connect(port);
 
             try {
                 const start = performance.now();
@@ -480,7 +465,7 @@ describe('Gateway Performance', () => {
         it('ems:select by owner (50 queries)', async () => {
             const iterations = 50;
             const client = new GatewayClient();
-            await client.connect(socketPath);
+            await client.connect(port);
 
             // Pre-create entities
             const owner = `select-test-${Date.now()}`;
@@ -520,7 +505,7 @@ describe('Gateway Performance', () => {
         it('EMS CRUD cycle (100 cycles)', async () => {
             const cycles = 100;
             const client = new GatewayClient();
-            await client.connect(socketPath);
+            await client.connect(port);
 
             try {
                 const start = performance.now();
@@ -578,7 +563,7 @@ describe('Gateway Performance', () => {
             // This test measures sequential throughput on a persistent connection.
             const iterations = 500;
             const client = new GatewayClient();
-            await client.connect(socketPath);
+            await client.connect(port);
 
             try {
                 const start = performance.now();
@@ -612,7 +597,7 @@ describe('Gateway Performance', () => {
             // Create and run clients in parallel
             const clientWork = async () => {
                 const client = new GatewayClient();
-                await client.connect(socketPath);
+                await client.connect(port);
 
                 try {
                     for (let i = 0; i < callsPerClient; i++) {

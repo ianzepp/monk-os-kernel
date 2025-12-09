@@ -192,7 +192,9 @@ export class OS extends BaseOS {
             };
 
             // 9. Gateway (external syscall interface)
-            const socketPath = this.config.env?.MONK_SOCKET ?? '/tmp/monk.sock';
+            const port = this.config.env?.MONK_PORT
+                ? parseInt(this.config.env.MONK_PORT, 10)
+                : 7778;
 
             this.__gateway = new Gateway(
                 this.__dispatcher,
@@ -200,7 +202,7 @@ export class OS extends BaseOS {
                 this.__hal,
             );
 
-            await this.__gateway.listen(socketPath);
+            await this.__gateway.listen(port);
 
             // 10. Init process
             const initPath = opts?.main ? this.resolvePath(opts.main) : DEFAULT_INIT_PATH;

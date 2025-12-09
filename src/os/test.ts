@@ -288,10 +288,8 @@ export class TestOS extends BaseOS {
         // =====================================================================
         if (needGateway && this.__dispatcher && this.__kernel && this.__hal) {
             this.__gateway = new Gateway(this.__dispatcher, this.__kernel, this.__hal);
-            // Use unique socket path per test to avoid conflicts
-            const socketPath = `/tmp/monk-test-${crypto.randomUUID()}.sock`;
-
-            await this.__gateway.listen(socketPath);
+            // Use port 0 (auto-assign) for test isolation
+            await this.__gateway.listen(0);
         }
 
         this.booted = true;

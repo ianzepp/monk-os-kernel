@@ -125,13 +125,26 @@ export class BunListener implements Listener {
      * WHY: Stored for addr() method. May differ from requested (e.g., port 0 auto-assigns).
      * 0 for Unix socket listeners.
      */
-    private port: number;
+    private _port: number;
 
     /**
      * Unix socket path (Unix mode).
      * WHY: Stored for addr() method. Undefined for TCP listeners.
      */
     private unixPath?: string;
+
+    // =========================================================================
+    // ACCESSORS
+    // =========================================================================
+
+    /**
+     * Get the port the listener is bound to.
+     * WHY: Convenience accessor. When port 0 is specified (auto-assign), this
+     * returns the actual assigned port.
+     */
+    get port(): number {
+        return this._port;
+    }
 
     // =========================================================================
     // LIFECYCLE
@@ -155,11 +168,11 @@ export class BunListener implements Listener {
             // Unix socket mode
             this.unixPath = opts.unix;
             this.hostname = 'unix';
-            this.port = 0;
+            this._port = 0;
         }
         else {
             // TCP mode
-            this.port = port;
+            this._port = port;
             this.hostname = opts?.hostname ?? '0.0.0.0';
         }
 
@@ -209,7 +222,7 @@ export class BunListener implements Listener {
         else {
             // TCP mode
             listenConfig.hostname = this.hostname;
-            listenConfig.port = this.port;
+            listenConfig.port = this._port;
             if (opts?.tls) {
                 listenConfig.tls = {
                     key: Bun.file(opts.tls.key),
@@ -362,6 +375,11 @@ export class BunListener implements Listener {
         };
 
         this.server = Bun.listen(listenConfig);
+
+        // Capture actual port (important for port 0 auto-assignment)
+        if (!opts?.unix && this.server.port !== undefined) {
+            this._port = this.server.port;
+        }
     }
 
     // =========================================================================
@@ -502,7 +520,7 @@ export class BunListener implements Listener {
     addr(): { hostname: string; port: number } {
         return {
             hostname: this.hostname,
-            port: this.port,
+            port: this._port,
         };
     }
 }

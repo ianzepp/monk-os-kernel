@@ -14,17 +14,10 @@ import type { Kernel } from '@src/kernel/kernel.js';
 import type { HAL } from '@src/hal/index.js';
 import type { SyscallDispatcher } from '@src/syscall/dispatcher.js';
 import type { Process, Response } from '@src/syscall/types.js';
-import { rmSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 
 // =============================================================================
 // TEST HELPERS
 // =============================================================================
-
-function getTestSocketPath(): string {
-    return join(tmpdir(), `monk-gateway-edge-${Date.now()}-${Math.random().toString(36).slice(2)}.sock`);
-}
 
 function createMockProcess(overrides: Partial<Process> = {}): Process {
     return {
@@ -106,12 +99,12 @@ function encodeFrame(message: unknown): Uint8Array {
  * Send raw bytes to gateway and read response.
  */
 async function sendRawBytes(
-    socketPath: string,
+    port: number,
     data: Uint8Array,
     timeout = 500,
 ): Promise<{ responses: unknown[]; closed: boolean }> {
     const network = new BunNetworkDevice();
-    const socket = await network.connect(socketPath, 0);
+    const socket = await network.connect('localhost', port);
     const responses: unknown[] = [];
     let closed = false;
 
@@ -169,11 +162,11 @@ async function sendRawBytes(
  * Send a msgpack message and read responses.
  */
 async function sendMessage(
-    socketPath: string,
+    port: number,
     message: { id?: string; call?: string; args?: unknown[]; [key: string]: unknown },
     timeout = 500,
 ): Promise<{ responses: Record<string, unknown>[]; closed: boolean }> {
-    const result = await sendRawBytes(socketPath, encodeFrame(message), timeout);
+    const result = await sendRawBytes(port, encodeFrame(message), timeout);
 
     return {
         responses: result.responses as Record<string, unknown>[],
@@ -186,22 +179,17 @@ async function sendMessage(
 // =============================================================================
 
 describe('Gateway Edge Cases', () => {
-    let socketPath: string;
+    let port: number;
     let gateway: Gateway;
     let hal: HAL;
 
     beforeEach(() => {
-        socketPath = getTestSocketPath();
         hal = createMockHAL();
     });
 
     afterEach(async () => {
         if (gateway) {
             await gateway.shutdown();
-        }
-
-        if (existsSync(socketPath)) {
-            rmSync(socketPath);
         }
     });
 
@@ -215,7 +203,7 @@ describe('Gateway Edge Cases', () => {
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
             // Send invalid msgpack with valid length prefix
             const invalidFrame = new Uint8Array(8);
@@ -224,7 +212,7 @@ describe('Gateway Edge Cases', () => {
             view.setUint32(0, 4); // length = 4
             invalidFrame.set([0xff, 0xff, 0xff, 0xff], 4); // invalid msgpack
 
-            const { responses } = await sendRawBytes(socketPath, invalidFrame);
+            const { responses } = await sendRawBytes(port, invalidFrame);
 
             expect(responses.length).toBeGreaterThan(0);
 
@@ -239,9 +227,9 @@ describe('Gateway Edge Cases', () => {
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
-            const { responses } = await sendMessage(socketPath, {});
+            const { responses } = await sendMessage(port, {});
 
             expect(responses.length).toBeGreaterThan(0);
             expect(responses[0]!.op).toBe('error');
@@ -253,10 +241,10 @@ describe('Gateway Edge Cases', () => {
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
             // Send array instead of object
-            const { responses } = await sendRawBytes(socketPath, encodeFrame(['id', 'call', 'args']));
+            const { responses } = await sendRawBytes(port, encodeFrame(['id', 'call', 'args']));
 
             expect(responses.length).toBeGreaterThan(0);
 
@@ -270,12 +258,12 @@ describe('Gateway Edge Cases', () => {
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
             // WHY: msgpack primitives (unlike JSON) unpack successfully but aren't
             // valid request objects. Gateway may error or silently disconnect.
             for (const value of ['string', 42, true, false]) {
-                const { responses } = await sendRawBytes(socketPath, encodeFrame(value));
+                const { responses } = await sendRawBytes(port, encodeFrame(value));
 
                 // Either get error response or no response (silent disconnect)
                 if (responses.length > 0) {
@@ -286,7 +274,7 @@ describe('Gateway Edge Cases', () => {
             }
 
             // null specifically causes property access to throw, so expect no response
-            const { responses: nullResponses } = await sendRawBytes(socketPath, encodeFrame(null));
+            const { responses: nullResponses } = await sendRawBytes(port, encodeFrame(null));
 
             // null.id throws, so no response expected
             expect(nullResponses.length).toBe(0);
@@ -297,7 +285,7 @@ describe('Gateway Edge Cases', () => {
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
             // Create deeply nested object
             let nested: Record<string, unknown> = { deep: true };
@@ -308,7 +296,7 @@ describe('Gateway Edge Cases', () => {
 
             nested = { a: nested };
 
-            const { responses } = await sendRawBytes(socketPath, encodeFrame(nested));
+            const { responses } = await sendRawBytes(port, encodeFrame(nested));
 
             // Should fail on missing call field
             expect(responses.length).toBeGreaterThan(0);
@@ -323,10 +311,10 @@ describe('Gateway Edge Cases', () => {
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
             // Send only 2 bytes of length prefix
-            const { responses, closed } = await sendRawBytes(socketPath, new Uint8Array([0, 0]), 200);
+            const { responses, closed } = await sendRawBytes(port, new Uint8Array([0, 0]), 200);
 
             // Should get no response (buffered waiting for more data) or closed
             expect(responses.length === 0 || closed).toBe(true);
@@ -337,7 +325,7 @@ describe('Gateway Edge Cases', () => {
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
             // Send length prefix claiming 100 bytes but only 10 bytes of payload
             const frame = new Uint8Array(14);
@@ -346,7 +334,7 @@ describe('Gateway Edge Cases', () => {
             view.setUint32(0, 100); // claims 100 bytes
             frame.set([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 4); // only 10 bytes
 
-            const { responses, closed } = await sendRawBytes(socketPath, frame, 200);
+            const { responses, closed } = await sendRawBytes(port, frame, 200);
 
             // Should get no response (buffered waiting for more data) or closed
             expect(responses.length === 0 || closed).toBe(true);
@@ -363,9 +351,9 @@ describe('Gateway Edge Cases', () => {
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
-            const { responses } = await sendMessage(socketPath, { id: 12345 as unknown as string, call: 'test' });
+            const { responses } = await sendMessage(port, { id: 12345 as unknown as string, call: 'test' });
 
             // Should coerce or use as-is
             expect(responses[0]!.op).toBe('ok');
@@ -376,9 +364,9 @@ describe('Gateway Edge Cases', () => {
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
-            const { responses } = await sendMessage(socketPath, { id: null as unknown as string, call: 'test' });
+            const { responses } = await sendMessage(port, { id: null as unknown as string, call: 'test' });
 
             expect(responses[0]!.op).toBe('ok');
         });
@@ -388,9 +376,9 @@ describe('Gateway Edge Cases', () => {
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
-            const { responses } = await sendMessage(socketPath, { id: { nested: 'id' } as unknown as string, call: 'test' });
+            const { responses } = await sendMessage(port, { id: { nested: 'id' } as unknown as string, call: 'test' });
 
             expect(responses[0]!.op).toBe('ok');
         });
@@ -400,9 +388,9 @@ describe('Gateway Edge Cases', () => {
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
-            const { responses } = await sendMessage(socketPath, { id: '1', call: ['file', 'open'] as unknown as string });
+            const { responses } = await sendMessage(port, { id: '1', call: ['file', 'open'] as unknown as string });
 
             // Array is truthy, so should attempt dispatch with stringified call
             expect(['ok', 'error']).toContain(responses[0]!.op);
@@ -413,9 +401,9 @@ describe('Gateway Edge Cases', () => {
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
-            const { responses } = await sendMessage(socketPath, { id: '1', call: 42 as unknown as string });
+            const { responses } = await sendMessage(port, { id: '1', call: 42 as unknown as string });
 
             expect(['ok', 'error']).toContain(responses[0]!.op);
         });
@@ -429,9 +417,9 @@ describe('Gateway Edge Cases', () => {
             });
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
-            const { responses } = await sendMessage(socketPath, { id: '1', call: 'test', args: 'not-array' as unknown as unknown[] });
+            const { responses } = await sendMessage(port, { id: '1', call: 'test', args: 'not-array' as unknown as unknown[] });
 
             // Should use empty array fallback or handle gracefully
             expect(responses[0]!.op).toBe('ok');
@@ -452,7 +440,7 @@ describe('Gateway Edge Cases', () => {
             });
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
             const sqlPayloads = [
                 "'; DROP TABLE users; --",
@@ -463,7 +451,7 @@ describe('Gateway Edge Cases', () => {
             ];
 
             for (const payload of sqlPayloads) {
-                await sendMessage(socketPath, { id: '1', call: 'test', args: [payload] });
+                await sendMessage(port, { id: '1', call: 'test', args: [payload] });
                 // Gateway should pass payload through unchanged - it's the dispatcher's job to handle
                 expect(receivedArgs[0]).toBe(payload);
             }
@@ -478,7 +466,7 @@ describe('Gateway Edge Cases', () => {
             });
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
             const shellPayloads = [
                 '; rm -rf /',
@@ -490,7 +478,7 @@ describe('Gateway Edge Cases', () => {
             ];
 
             for (const payload of shellPayloads) {
-                await sendMessage(socketPath, { id: '1', call: 'test', args: [payload] });
+                await sendMessage(port, { id: '1', call: 'test', args: [payload] });
                 expect(receivedArgs[0]).toBe(payload);
             }
         });
@@ -504,7 +492,7 @@ describe('Gateway Edge Cases', () => {
             });
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
             const pathPayloads = [
                 '../../../etc/passwd',
@@ -515,7 +503,7 @@ describe('Gateway Edge Cases', () => {
             ];
 
             for (const payload of pathPayloads) {
-                await sendMessage(socketPath, { id: '1', call: 'file:open', args: [payload] });
+                await sendMessage(port, { id: '1', call: 'file:open', args: [payload] });
                 expect(receivedArgs[0]).toBe(payload);
             }
         });
@@ -525,7 +513,7 @@ describe('Gateway Edge Cases', () => {
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
             // WHY: msgpack doesn't have __proto__ parsing issues like JSON, but we still
             // test that objects with these keys don't pollute prototypes
@@ -536,7 +524,7 @@ describe('Gateway Edge Cases', () => {
             ];
 
             for (const payload of pollutionPayloads) {
-                const { responses } = await sendRawBytes(socketPath, encodeFrame(payload));
+                const { responses } = await sendRawBytes(port, encodeFrame(payload));
 
                 expect(responses.length).toBeGreaterThan(0);
                 // Should not pollute Object prototype
@@ -554,7 +542,7 @@ describe('Gateway Edge Cases', () => {
             });
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
             const xssPayloads = [
                 '<script>alert(1)</script>',
@@ -564,7 +552,7 @@ describe('Gateway Edge Cases', () => {
             ];
 
             for (const payload of xssPayloads) {
-                await sendMessage(socketPath, { id: '1', call: 'test', args: [payload] });
+                await sendMessage(port, { id: '1', call: 'test', args: [payload] });
                 // Gateway passes through - it's a transport layer
                 expect(receivedArgs[0]).toBe(payload);
             }
@@ -585,9 +573,9 @@ describe('Gateway Edge Cases', () => {
             });
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
-            await sendMessage(socketPath, { id: '1', call: 'test', args: ['Hello 👋 World 🌍'] });
+            await sendMessage(port, { id: '1', call: 'test', args: ['Hello 👋 World 🌍'] });
             expect(receivedArgs[0]).toBe('Hello 👋 World 🌍');
         });
 
@@ -600,9 +588,9 @@ describe('Gateway Edge Cases', () => {
             });
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
-            await sendMessage(socketPath, { id: '1', call: 'test', args: ['before\u0000after'] });
+            await sendMessage(port, { id: '1', call: 'test', args: ['before\u0000after'] });
             expect(receivedArgs[0]).toBe('before\u0000after');
         });
 
@@ -615,9 +603,9 @@ describe('Gateway Edge Cases', () => {
             });
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
-            await sendMessage(socketPath, { id: '1', call: 'test', args: ['Hello'] });
+            await sendMessage(port, { id: '1', call: 'test', args: ['Hello'] });
 
             expect(receivedArgs[0]).toBe('Hello');
         });
@@ -631,10 +619,10 @@ describe('Gateway Edge Cases', () => {
             });
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
             // Emoji that requires surrogate pair
-            await sendMessage(socketPath, { id: '1', call: 'test', args: ['𝕳𝖊𝖑𝖑𝖔'] });
+            await sendMessage(port, { id: '1', call: 'test', args: ['𝕳𝖊𝖑𝖑𝖔'] });
             expect(receivedArgs[0]).toBe('𝕳𝖊𝖑𝖑𝖔');
         });
 
@@ -647,9 +635,9 @@ describe('Gateway Edge Cases', () => {
             });
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
-            await sendMessage(socketPath, { id: '1', call: 'test', args: ['مرحبا بالعالم'] });
+            await sendMessage(port, { id: '1', call: 'test', args: ['مرحبا بالعالم'] });
             expect(receivedArgs[0]).toBe('مرحبا بالعالم');
         });
 
@@ -662,10 +650,10 @@ describe('Gateway Edge Cases', () => {
             });
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
             // Zero-width space, joiner, non-joiner
-            await sendMessage(socketPath, { id: '1', call: 'test', args: ['a\u200B\u200C\u200Db'] });
+            await sendMessage(port, { id: '1', call: 'test', args: ['a\u200B\u200C\u200Db'] });
             expect(receivedArgs[0]).toBe('a\u200B\u200C\u200Db');
         });
     });
@@ -680,9 +668,9 @@ describe('Gateway Edge Cases', () => {
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
-            const { responses } = await sendMessage(socketPath, { id: '1', call: '' });
+            const { responses } = await sendMessage(port, { id: '1', call: '' });
 
             // Empty string is falsy, should error
             expect(responses[0]!.op).toBe('error');
@@ -693,10 +681,10 @@ describe('Gateway Edge Cases', () => {
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
             const longCall = 'a'.repeat(1000);
-            const { responses } = await sendMessage(socketPath, { id: '1', call: longCall }, 1000);
+            const { responses } = await sendMessage(port, { id: '1', call: longCall }, 1000);
 
             expect(responses.length).toBeGreaterThan(0);
         });
@@ -706,11 +694,11 @@ describe('Gateway Edge Cases', () => {
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
             // Use a moderately long id (1KB) to test without timeout issues
             const longId = 'x'.repeat(1000);
-            const { responses } = await sendMessage(socketPath, { id: longId, call: 'test' }, 1000);
+            const { responses } = await sendMessage(port, { id: longId, call: 'test' }, 1000);
 
             expect(responses.length).toBeGreaterThan(0);
             expect(responses[0]!.id).toBe(longId);
@@ -725,9 +713,9 @@ describe('Gateway Edge Cases', () => {
             });
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
-            await sendMessage(socketPath, { id: '1', call: 'test', args: [] });
+            await sendMessage(port, { id: '1', call: 'test', args: [] });
             expect(receivedArgs).toEqual([]);
         });
 
@@ -740,11 +728,11 @@ describe('Gateway Edge Cases', () => {
             });
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
             const manyArgs = Array.from({ length: 1000 }, (_, i) => i);
 
-            await sendMessage(socketPath, { id: '1', call: 'test', args: manyArgs });
+            await sendMessage(port, { id: '1', call: 'test', args: manyArgs });
             expect(receivedArgs).toHaveLength(1000);
         });
 
@@ -753,7 +741,7 @@ describe('Gateway Edge Cases', () => {
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
             // Send two frames concatenated
             const frame1 = encodeFrame({ id: '1', call: 'test' });
@@ -763,7 +751,7 @@ describe('Gateway Edge Cases', () => {
             combined.set(frame1);
             combined.set(frame2, frame1.length);
 
-            const { responses } = await sendRawBytes(socketPath, combined, 1000);
+            const { responses } = await sendRawBytes(port, combined, 1000);
 
             expect(responses.length).toBe(2);
         });
@@ -779,7 +767,7 @@ describe('Gateway Edge Cases', () => {
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
             // Random binary data with valid length prefix
             const garbage = new Uint8Array(260);
@@ -791,7 +779,7 @@ describe('Gateway Edge Cases', () => {
                 garbage[i] = i % 256;
             }
 
-            const { responses } = await sendRawBytes(socketPath, garbage);
+            const { responses } = await sendRawBytes(port, garbage);
 
             expect(responses.length).toBeGreaterThan(0);
 
@@ -805,10 +793,10 @@ describe('Gateway Edge Cases', () => {
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
             // Send just the length prefix with no payload
-            const { responses, closed } = await sendRawBytes(socketPath, new Uint8Array([0, 0, 0, 10]), 200);
+            const { responses, closed } = await sendRawBytes(port, new Uint8Array([0, 0, 0, 10]), 200);
 
             // Either no response (buffered waiting for payload) or connection closed
             expect(responses.length === 0 || closed).toBe(true);
@@ -823,7 +811,7 @@ describe('Gateway Edge Cases', () => {
             });
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
             // Build many frames rapidly
             const frames: Uint8Array[] = [];
@@ -841,7 +829,7 @@ describe('Gateway Edge Cases', () => {
                 offset += frame.length;
             }
 
-            await sendRawBytes(socketPath, combined, 2000);
+            await sendRawBytes(port, combined, 2000);
 
             // All requests should be processed
             expect(callCount.value).toBe(100);
@@ -856,10 +844,10 @@ describe('Gateway Edge Cases', () => {
             });
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
             const network = new BunNetworkDevice();
-            const socket = await network.connect(socketPath, 0);
+            const socket = await network.connect('localhost', port);
 
             // Send frame in small chunks
             const frame = encodeFrame({ id: '1', call: 'test' });
@@ -881,10 +869,10 @@ describe('Gateway Edge Cases', () => {
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
             const network = new BunNetworkDevice();
-            const socket = await network.connect(socketPath, 0);
+            const socket = await network.connect('localhost', port);
 
             // Send frame in two parts
             const frame = encodeFrame({ id: '1', call: 'test' });
@@ -917,18 +905,20 @@ describe('Gateway Edge Cases', () => {
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
             const network = new BunNetworkDevice();
             const sockets: Awaited<ReturnType<typeof network.connect>>[] = [];
 
             // Open many connections
             for (let i = 0; i < 50; i++) {
-                const socket = await network.connect(socketPath, 0);
+                const socket = await network.connect('localhost', port);
 
                 sockets.push(socket);
             }
 
+            // Give time for all connections to be processed
+            await Bun.sleep(50);
             expect(gateway.getClientCount()).toBe(50);
 
             // Close all
@@ -944,13 +934,13 @@ describe('Gateway Edge Cases', () => {
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
             const network = new BunNetworkDevice();
 
             // Rapidly connect/disconnect
             for (let i = 0; i < 20; i++) {
-                const socket = await network.connect(socketPath, 0);
+                const socket = await network.connect('localhost', port);
 
                 await socket.close();
             }
@@ -958,7 +948,7 @@ describe('Gateway Edge Cases', () => {
             await Bun.sleep(100);
 
             // Gateway should still work
-            const { responses } = await sendMessage(socketPath, { id: '1', call: 'test' });
+            const { responses } = await sendMessage(port, { id: '1', call: 'test' });
 
             expect(responses[0]!.op).toBe('ok');
         });
@@ -978,9 +968,9 @@ describe('Gateway Edge Cases', () => {
             });
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
-            await sendMessage(socketPath, { id: '1', call: 'test', args: ['line1\nline2\nline3'] });
+            await sendMessage(port, { id: '1', call: 'test', args: ['line1\nline2\nline3'] });
             expect(receivedArgs[0]).toBe('line1\nline2\nline3');
         });
 
@@ -993,9 +983,9 @@ describe('Gateway Edge Cases', () => {
             });
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
-            await sendMessage(socketPath, { id: '1', call: 'test', args: ['say "hello"'] });
+            await sendMessage(port, { id: '1', call: 'test', args: ['say "hello"'] });
             expect(receivedArgs[0]).toBe('say "hello"');
         });
 
@@ -1008,9 +998,9 @@ describe('Gateway Edge Cases', () => {
             });
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
-            await sendMessage(socketPath, { id: '1', call: 'test', args: ['C:\\Windows\\System32'] });
+            await sendMessage(port, { id: '1', call: 'test', args: ['C:\\Windows\\System32'] });
             expect(receivedArgs[0]).toBe('C:\\Windows\\System32');
         });
 
@@ -1023,10 +1013,10 @@ describe('Gateway Edge Cases', () => {
             });
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
             // Tab, carriage return, form feed, backspace
-            await sendMessage(socketPath, { id: '1', call: 'test', args: ['a\t\r\f\bb'] });
+            await sendMessage(port, { id: '1', call: 'test', args: ['a\t\r\f\bb'] });
             expect(receivedArgs[0]).toBe('a\t\r\f\bb');
         });
     });

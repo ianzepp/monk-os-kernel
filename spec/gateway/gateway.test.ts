@@ -1,7 +1,7 @@
 /**
  * Gateway Tests
  *
- * Tests for the Unix socket gateway that provides external syscall access.
+ * Tests for the TCP gateway that provides external syscall access.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
@@ -12,20 +12,10 @@ import type { Kernel } from '@src/kernel/kernel.js';
 import type { HAL } from '@src/hal/index.js';
 import type { SyscallDispatcher } from '@src/syscall/dispatcher.js';
 import type { Process, Response } from '@src/syscall/types.js';
-import { rmSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 
 // =============================================================================
 // TEST HELPERS
 // =============================================================================
-
-/**
- * Generate unique socket path for each test.
- */
-function getTestSocketPath(): string {
-    return join(tmpdir(), `monk-gateway-test-${Date.now()}-${Math.random().toString(36).slice(2)}.sock`);
-}
 
 /**
  * Create a mock process for testing.
@@ -122,11 +112,11 @@ function encodeFrame(message: unknown): Uint8Array {
  * Send a msgpack message to gateway and read response.
  */
 async function sendMessage(
-    socketPath: string,
+    port: number,
     message: { id: string; call: string; args?: unknown[] },
 ): Promise<{ id: string; op: string; [key: string]: unknown }[]> {
     const network = new BunNetworkDevice();
-    const socket = await network.connect(socketPath, 0);
+    const socket = await network.connect('localhost', port);
 
     try {
         // Send request as length-prefixed msgpack
@@ -187,12 +177,11 @@ async function sendMessage(
 // =============================================================================
 
 describe('Gateway', () => {
-    let socketPath: string;
+    let port: number;
     let gateway: Gateway;
     let hal: HAL;
 
     beforeEach(() => {
-        socketPath = getTestSocketPath();
         hal = createMockHAL();
     });
 
@@ -201,11 +190,6 @@ describe('Gateway', () => {
         if (gateway) {
             await gateway.shutdown();
         }
-
-        // Clean up socket file
-        if (existsSync(socketPath)) {
-            rmSync(socketPath);
-        }
     });
 
     // =========================================================================
@@ -213,29 +197,25 @@ describe('Gateway', () => {
     // =========================================================================
 
     describe('lifecycle', () => {
-        it('should create Unix socket on listen', async () => {
+        it('should listen on TCP port', async () => {
             const kernel = createMockKernel();
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
-            expect(existsSync(socketPath)).toBe(true);
+            expect(port).toBeGreaterThan(0);
+            expect(gateway.isListening()).toBe(true);
         });
 
-        it('should remove stale socket file before listen', async () => {
-            // Create a stale socket file
-            await Bun.write(socketPath, 'stale');
-            expect(existsSync(socketPath)).toBe(true);
-
+        it('should return assigned port when using port 0', async () => {
             const kernel = createMockKernel();
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
-            // Socket should be recreated (file still exists but is now a socket)
-            expect(existsSync(socketPath)).toBe(true);
+            expect(gateway.getPort()).toBe(port);
         });
 
         it('should close listener on shutdown', async () => {
@@ -243,13 +223,13 @@ describe('Gateway', () => {
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
             await gateway.shutdown();
 
             // Connection should fail after shutdown
             const network = new BunNetworkDevice();
 
-            await expect(network.connect(socketPath, 0)).rejects.toThrow();
+            await expect(network.connect('localhost', port)).rejects.toThrow();
         });
 
         it('should be idempotent on shutdown', async () => {
@@ -257,7 +237,7 @@ describe('Gateway', () => {
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
             await gateway.shutdown();
             await gateway.shutdown(); // Should not throw
@@ -274,11 +254,11 @@ describe('Gateway', () => {
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
             // Connect client
             const network = new BunNetworkDevice();
-            const socket = await network.connect(socketPath, 0);
+            const socket = await network.connect('localhost', port);
 
             expect(socket).toBeDefined();
 
@@ -290,13 +270,13 @@ describe('Gateway', () => {
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
             // Connect multiple clients
             const network = new BunNetworkDevice();
-            const client1 = await network.connect(socketPath, 0);
-            const client2 = await network.connect(socketPath, 0);
-            const client3 = await network.connect(socketPath, 0);
+            const client1 = await network.connect('localhost', port);
+            const client2 = await network.connect('localhost', port);
+            const client3 = await network.connect('localhost', port);
 
             expect(client1).toBeDefined();
             expect(client2).toBeDefined();
@@ -326,11 +306,11 @@ describe('Gateway', () => {
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
             // Connect client
             const network = new BunNetworkDevice();
-            const socket = await network.connect(socketPath, 0);
+            const socket = await network.connect('localhost', port);
 
             // Should get disconnected (EOF)
             const data = await socket.read({ timeout: 100 });
@@ -358,9 +338,9 @@ describe('Gateway', () => {
             });
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
-            const responses = await sendMessage(socketPath, {
+            const responses = await sendMessage(port, {
                 id: 'test-1',
                 call: 'proc:getcwd',
                 args: [],
@@ -377,11 +357,11 @@ describe('Gateway', () => {
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
             // Send invalid msgpack (garbage bytes with valid length prefix)
             const network = new BunNetworkDevice();
-            const socket = await network.connect(socketPath, 0);
+            const socket = await network.connect('localhost', port);
 
             const invalidFrame = new Uint8Array(8);
             const view = new DataView(invalidFrame.buffer);
@@ -409,11 +389,11 @@ describe('Gateway', () => {
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
             // Send msgpack without call field
             const network = new BunNetworkDevice();
-            const socket = await network.connect(socketPath, 0);
+            const socket = await network.connect('localhost', port);
 
             await socket.write(encodeFrame({ id: 'test' }));
 
@@ -436,9 +416,9 @@ describe('Gateway', () => {
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
-            const responses = await sendMessage(socketPath, {
+            const responses = await sendMessage(port, {
                 id: 'unique-request-id-123',
                 call: 'proc:getcwd',
             });
@@ -451,11 +431,11 @@ describe('Gateway', () => {
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
             // Send msgpack without id field
             const network = new BunNetworkDevice();
-            const socket = await network.connect(socketPath, 0);
+            const socket = await network.connect('localhost', port);
 
             await socket.write(encodeFrame({ call: 'proc:getcwd' }));
 
@@ -487,9 +467,9 @@ describe('Gateway', () => {
             });
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
-            await sendMessage(socketPath, {
+            await sendMessage(port, {
                 id: 'test-1',
                 call: 'file:open',
                 args: ['/etc/passwd', { read: true }],
@@ -510,9 +490,9 @@ describe('Gateway', () => {
             });
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
-            const responses = await sendMessage(socketPath, {
+            const responses = await sendMessage(port, {
                 id: 'test-1',
                 call: 'ems:select',
                 args: ['User', {}],
@@ -532,9 +512,9 @@ describe('Gateway', () => {
             });
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
-            const responses = await sendMessage(socketPath, {
+            const responses = await sendMessage(port, {
                 id: 'test-1',
                 call: 'file:open',
                 args: ['/nonexistent'],
@@ -553,9 +533,9 @@ describe('Gateway', () => {
             });
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
-            const responses = await sendMessage(socketPath, {
+            const responses = await sendMessage(port, {
                 id: 'test-1',
                 call: 'file:read',
                 args: [3],
@@ -580,9 +560,9 @@ describe('Gateway', () => {
             });
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
-            const responses = await sendMessage(socketPath, {
+            const responses = await sendMessage(port, {
                 id: 'test-1',
                 call: 'file:read',
                 args: [3],
@@ -602,9 +582,9 @@ describe('Gateway', () => {
             });
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
-            const responses = await sendMessage(socketPath, {
+            const responses = await sendMessage(port, {
                 id: 'test-1',
                 call: 'file:write',
                 args: [3, new Uint8Array()],
@@ -630,11 +610,11 @@ describe('Gateway', () => {
             });
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
             // Send both requests on same connection
             const network = new BunNetworkDevice();
-            const socket = await network.connect(socketPath, 0);
+            const socket = await network.connect('localhost', port);
 
             // Send two msgpack frames
             await socket.write(encodeFrame({ id: 'slow', call: 'test' }));
@@ -700,11 +680,11 @@ describe('Gateway', () => {
             });
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
             // Connect and immediately disconnect
             const network = new BunNetworkDevice();
-            const socket = await network.connect(socketPath, 0);
+            const socket = await network.connect('localhost', port);
 
             await socket.write(encodeFrame({ id: '1', call: 'test' }));
             await socket.close();
@@ -713,7 +693,7 @@ describe('Gateway', () => {
             await Bun.sleep(50);
 
             // Gateway should still be functional
-            const responses = await sendMessage(socketPath, {
+            const responses = await sendMessage(port, {
                 id: 'test-2',
                 call: 'proc:getcwd',
             });
@@ -726,13 +706,13 @@ describe('Gateway', () => {
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
             // Connect multiple clients
             const network = new BunNetworkDevice();
             const sockets = await Promise.all([
-                network.connect(socketPath, 0),
-                network.connect(socketPath, 0),
+                network.connect('localhost', port),
+                network.connect('localhost', port),
             ]);
 
             // Shutdown gateway
@@ -763,10 +743,10 @@ describe('Gateway', () => {
             });
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
             // msgpack encodes Uint8Array natively
-            await sendMessage(socketPath, {
+            await sendMessage(port, {
                 id: 'test-1',
                 call: 'file:write',
                 args: [3, { data: new Uint8Array([72, 101, 108, 108, 111]) }],
@@ -791,9 +771,9 @@ describe('Gateway', () => {
             });
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
-            await sendMessage(socketPath, {
+            await sendMessage(port, {
                 id: 'test-1',
                 call: 'test:nested',
                 args: [{
@@ -821,9 +801,9 @@ describe('Gateway', () => {
             });
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
-            await sendMessage(socketPath, {
+            await sendMessage(port, {
                 id: 'test-1',
                 call: 'test:array',
                 args: [[
@@ -854,9 +834,9 @@ describe('Gateway', () => {
             });
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
-            await sendMessage(socketPath, {
+            await sendMessage(port, {
                 id: 'test-1',
                 call: 'test:primitives',
                 args: ['string', 42, true, null],
@@ -875,9 +855,9 @@ describe('Gateway', () => {
             });
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
-            await sendMessage(socketPath, {
+            await sendMessage(port, {
                 id: 'test-1',
                 call: 'file:write',
                 args: [3, { data: new Uint8Array(0) }],
@@ -900,10 +880,10 @@ describe('Gateway', () => {
             const dispatcher = createMockDispatcher();
 
             gateway = new Gateway(dispatcher, kernel, hal);
-            await gateway.listen(socketPath);
+            port = await gateway.listen(0);
 
             const network = new BunNetworkDevice();
-            const socket = await network.connect(socketPath, 0);
+            const socket = await network.connect('localhost', port);
 
             // Send data without newlines to overflow buffer
             // MAX_READ_BUFFER_SIZE is 1MB (1024 * 1024)

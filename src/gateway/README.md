@@ -1,6 +1,6 @@
 # Gateway - External Syscall Interface
 
-The Gateway provides external applications access to Monk OS syscalls over a Unix domain socket. It runs in kernel context (not as a Worker), executing syscalls directly without IPC overhead.
+The Gateway provides external applications access to Monk OS syscalls over TCP. It runs in kernel context (not as a Worker), executing syscalls directly without IPC overhead.
 
 ## Architecture
 
@@ -8,7 +8,7 @@ The Gateway provides external applications access to Monk OS syscalls over a Uni
 External Apps                     Monk OS Kernel
 ─────────────                     ──────────────
 os-shell ─────┐
-              │  Unix socket      ┌─────────────────────────────┐
+              │  TCP (port 7778)  ┌─────────────────────────────┐
 displayd ─────┼─────────────────▶ │  Gateway                    │
               │  msgpack protocol │    │                        │
 os-coreutils ─┘                   │    ▼                        │
@@ -26,7 +26,7 @@ Each client connection gets an isolated **virtual process** with its own:
 
 ## Wire Protocol
 
-Length-prefixed MessagePack over Unix socket.
+Length-prefixed MessagePack over TCP.
 
 ### Message Framing
 
@@ -148,7 +148,7 @@ import { Gateway } from '@src/gateway/index.js';
 
 // After dispatcher is created
 const gateway = new Gateway(dispatcher, kernel, hal);
-await gateway.listen('/tmp/monk.sock');
+const port = await gateway.listen(7778);  // Or use 0 for auto-assign
 
 // On shutdown
 await gateway.shutdown();
@@ -160,7 +160,7 @@ await gateway.shutdown();
 import { OSClient } from '@monk-api/os-sdk';
 
 const client = new OSClient();
-await client.connect({ socketPath: '/tmp/monk.sock' });
+await client.connect({ host: 'localhost', port: 7778 });
 
 // Read a file
 const fd = await client.open('/etc/hosts', { read: true });
@@ -190,12 +190,12 @@ client.close();
 - Works with binary payloads containing any byte value
 - Explicit message boundaries
 
-### Why Unix socket (not TCP)?
+### Why TCP (not Unix socket)?
 
-- Security via filesystem permissions
-- No network exposure
-- Lower overhead for local IPC
-- Standard pattern (Docker, PostgreSQL, MySQL)
+- Well-understood close semantics (FIN/ACK) - avoids teardown issues
+- Network accessible for distributed deployments
+- Works across containers and machines
+- Simple configuration (just a port number)
 
 ### Why kernel context (not Worker)?
 
@@ -215,6 +215,12 @@ client.close();
 - Standard pattern for multiplexed protocols (JSON-RPC, GraphQL)
 - Client controls correlation scheme (UUID, counter, etc.)
 - Gateway stays simple (just echoes ID back)
+
+## Configuration
+
+| Environment Variable | Default | Description |
+|---------------------|---------|-------------|
+| `MONK_PORT` | `7778` | TCP port for Gateway |
 
 ## Files
 

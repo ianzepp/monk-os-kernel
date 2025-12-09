@@ -1,11 +1,11 @@
 /**
- * Gateway - External syscall interface over Unix socket
+ * Gateway - External syscall interface over TCP
  *
  * ARCHITECTURE OVERVIEW
  * =====================
  * The Gateway provides external applications (os-shell, displayd) access to
- * Monk OS syscalls over a Unix domain socket. Each client connection gets an
- * isolated virtual process with its own handle table, cwd, and environment.
+ * Monk OS syscalls over TCP. Each client connection gets an isolated virtual
+ * process with its own handle table, cwd, and environment.
  *
  * This runs in kernel context (not as a Worker), so syscalls execute directly
  * via dispatcher.execute() without postMessage IPC overhead.
@@ -71,7 +71,6 @@
  * @module gateway
  */
 
-import { unlink } from 'node:fs/promises';
 import { pack, unpack } from 'msgpackr';
 import type { Kernel } from '@src/kernel/kernel.js';
 import type { HAL } from '@src/hal/index.js';
@@ -93,53 +92,34 @@ import { debug, debugDecode } from './debug.js';
 const MAX_READ_BUFFER_SIZE = 1024 * 1024;
 
 // =============================================================================
-// TYPES
+// CONSTANTS
 // =============================================================================
 
 /**
- * Injectable dependencies for testing.
- *
- * TESTABILITY: Allows tests to mock filesystem operations and verify behavior
- * without actual Unix socket creation.
+ * Default TCP port for the Gateway.
  */
-export interface GatewayDeps {
-    /** Remove socket file before listening (default: fs.unlink) */
-    unlink: (path: string) => Promise<void>;
-}
-
-/**
- * Create default production dependencies.
- */
-function createDefaultDeps(): GatewayDeps {
-    return {
-        unlink: (path: string) => unlink(path).catch(() => {}),
-    };
-}
+export const DEFAULT_GATEWAY_PORT = 7778;
 
 // =============================================================================
 // GATEWAY CLASS
 // =============================================================================
 
 /**
- * Unix socket gateway for external syscall access.
+ * TCP gateway for external syscall access.
  *
  * Provides external applications (os-shell, displayd) with syscall access.
  * Each client connection gets an isolated virtual process.
  */
 export class Gateway {
     // =========================================================================
-    // CORE DEPENDENCIES
-    // =========================================================================
-
-    /** Injectable dependencies for testing */
-    private readonly deps: GatewayDeps;
-
-    // =========================================================================
     // STATE
     // =========================================================================
 
-    /** Unix socket listener */
+    /** TCP listener */
     private listener?: Listener;
+
+    /** Bound port (set after listen) */
+    private boundPort?: number;
 
     /** Client counter for unique IDs */
     private nextClientId = 1;
@@ -157,10 +137,7 @@ export class Gateway {
         private readonly dispatcher: SyscallDispatcher,
         private readonly kernel: Kernel,
         private readonly hal: HAL,
-        deps?: Partial<GatewayDeps>,
-    ) {
-        this.deps = { ...createDefaultDeps(), ...deps };
-    }
+    ) {}
 
     // =========================================================================
     // PUBLIC ACCESSORS (for testing)
@@ -182,6 +159,14 @@ export class Gateway {
         return this.listener !== undefined;
     }
 
+    /**
+     * Get the port the gateway is listening on.
+     * WHY: When using port 0 (auto-assign), tests need to know the actual port.
+     */
+    getPort(): number | undefined {
+        return this.boundPort;
+    }
+
     // =========================================================================
     // LIFECYCLE
     // =========================================================================
@@ -189,22 +174,21 @@ export class Gateway {
     /**
      * Start listening for external connections.
      *
-     * @param socketPath - Unix socket path (e.g., /tmp/monk.sock)
+     * @param port - TCP port to listen on (use 0 for auto-assign)
+     * @returns The actual port the gateway is listening on
      */
-    async listen(socketPath: string): Promise<void> {
-        // Remove stale socket file
-        // WHY: Unix sockets leave files behind. If we don't remove it,
-        // listen() fails with EADDRINUSE.
-        await this.deps.unlink(socketPath);
-
+    async listen(port: number): Promise<number> {
         // Reset shutdown flag in case gateway is being restarted
         this.shuttingDown = false;
 
-        // Create listener
-        this.listener = await this.hal.network.listen(0, { unix: socketPath });
+        // Create TCP listener
+        this.listener = await this.hal.network.listen(port);
+        this.boundPort = this.listener.port;
 
         // Accept loop (fire-and-forget)
         this.acceptLoop();
+
+        return this.listener.port;
     }
 
     /**
@@ -223,6 +207,7 @@ export class Gateway {
         if (this.listener) {
             await this.listener.close();
             this.listener = undefined;
+            this.boundPort = undefined;
         }
 
         // RC-1 FIX: Copy Set before iteration to avoid mutation during iteration.
