@@ -182,11 +182,13 @@ export function createProcess(
          * WHY MERGE: Parent env is base, child opts override specific keys.
          * WHY COPY: Prevents child from mutating parent's environment.
          * WHY MONK_PID: Process needs to know its own ID to include in syscalls.
+         * WHY MONK_OS: Allows processes to identify which OS instance they're in.
          */
         env: {
             ...(opts.parent?.env ?? {}),
             ...opts.env,
             MONK_PID: id,
+            MONK_OS: self.id,
         },
 
         /**

@@ -78,12 +78,15 @@ import type { Port, PortMessage, UdpSocketOpts } from './types.js';
 interface BunUdpSocket {
     /**
      * Send datagram to remote host:port.
-     * WHY returns number: Bun returns bytes sent (always data.length for UDP)
+     * WHY returns boolean: Bun returns true if sent successfully
      */
-    send(data: Uint8Array, port: number, host: string): number;
+    send(data: Uint8Array, port: number, host: string): boolean;
 
     /** Close the socket and release OS resources */
     close(): void;
+
+    /** Port number the socket is bound to */
+    port: number;
 }
 
 // =============================================================================
@@ -162,9 +165,17 @@ export class UdpPort implements Port {
      * Bun UDP socket instance.
      *
      * WHY: Provides OS-level datagram send/receive.
-     * INVARIANT: Non-null IFF _closed is false (INV-1).
+     * INVARIANT: Non-null IFF _closed is false and initialized (INV-1).
      */
     private socket: BunUdpSocket | null = null;
+
+    /**
+     * Promise for socket initialization.
+     *
+     * WHY: Bun.udpSocket() is async, but constructor can't be async.
+     * We use lazy initialization on first send/recv.
+     */
+    private socketPromise: Promise<BunUdpSocket> | null = null;
 
     /**
      * Socket configuration options.
@@ -180,10 +191,8 @@ export class UdpPort implements Port {
     /**
      * Create a new UDP port.
      *
-     * ALGORITHM:
-     * 1. Store configuration
-     * 2. Start listening on specified address/port
-     * 3. Register datagram callback
+     * Note: Socket is lazily initialized on first send/recv because
+     * Bun.udpSocket() is async.
      *
      * @param id - Unique port identifier
      * @param opts - Socket options (bind address/port)
@@ -193,9 +202,6 @@ export class UdpPort implements Port {
         this.id = id;
         this.opts = opts;
         this.description = description;
-
-        // Start listening immediately - socket is ready after construction
-        this.startListening();
     }
 
     // =========================================================================
@@ -219,10 +225,11 @@ export class UdpPort implements Port {
      * Receive next datagram.
      *
      * ALGORITHM:
-     * 1. Check if port is closed
-     * 2. If messages queued, dequeue and return immediately
-     * 3. Otherwise, create promise and enqueue waiter
-     * 4. When datagram arrives, waiter's promise resolves
+     * 1. Ensure socket is initialized
+     * 2. Check if port is closed
+     * 3. If messages queued, dequeue and return immediately
+     * 4. Otherwise, create promise and enqueue waiter
+     * 5. When datagram arrives, waiter's promise resolves
      *
      * RACE CONDITION:
      * Waiter promises must be rejected/cleared on close() to prevent
@@ -232,6 +239,9 @@ export class UdpPort implements Port {
      * @throws EBADF - If port is closed
      */
     async recv(): Promise<PortMessage> {
+        // Ensure socket is initialized
+        await this.ensureSocket();
+
         // RACE FIX: Check closure state before any operation
         if (this._closed) {
             throw new EBADF('Port closed');
@@ -257,9 +267,10 @@ export class UdpPort implements Port {
      * Send datagram to remote host.
      *
      * ALGORITHM:
-     * 1. Validate port state and parameters
-     * 2. Parse destination address (host:port format)
-     * 3. Send datagram via socket.send()
+     * 1. Ensure socket is initialized
+     * 2. Validate port state and parameters
+     * 3. Parse destination address (host:port format)
+     * 4. Send datagram via socket.send()
      *
      * WHY data is required:
      * UDP is a network protocol - we enforce presence at port boundary.
@@ -272,6 +283,9 @@ export class UdpPort implements Port {
      * @throws EINVAL - If address format is invalid or data is missing
      */
     async send(to: string, data?: Uint8Array, _meta?: Record<string, unknown>): Promise<void> {
+        // Ensure socket is initialized
+        await this.ensureSocket();
+
         // RACE FIX: Check closure state before any operation
         if (this._closed) {
             throw new EBADF('Port closed');
@@ -297,13 +311,8 @@ export class UdpPort implements Port {
             throw new EINVAL('Invalid port number');
         }
 
-        // Socket should be initialized in constructor
-        if (!this.socket) {
-            throw new EBADF('Socket not initialized');
-        }
-
-        // Send datagram (fire-and-forget - UDP has no delivery guarantee)
-        this.socket.send(data, port, host);
+        // Socket guaranteed to be initialized by ensureSocket()
+        this.socket!.send(data, port, host);
     }
 
     // =========================================================================
@@ -352,21 +361,35 @@ export class UdpPort implements Port {
     // =========================================================================
 
     /**
-     * Initialize UDP socket and start receiving datagrams.
+     * Ensure UDP socket is initialized.
+     *
+     * Lazily creates the socket on first use because Bun.udpSocket() is async.
+     * Subsequent calls return immediately if socket already exists.
      *
      * ALGORITHM:
-     * 1. Create Bun UDP socket with specified bind address
-     * 2. Register data callback for incoming datagrams
-     * 3. Register error callback for socket errors
+     * 1. If socket exists, return immediately
+     * 2. If initialization in progress, await existing promise
+     * 3. Otherwise, create socket and register callbacks
      *
-     * WHY self capture:
-     * Callback closures need stable reference to `this`. Arrow functions
-     * in socket config would capture wrong context.
+     * WHY lazy init:
+     * Constructor can't be async, but Bun.udpSocket() returns a Promise.
      */
-    private startListening(): void {
+    private async ensureSocket(): Promise<void> {
+        // Already initialized
+        if (this.socket) {
+            return;
+        }
+
+        // Initialization in progress - wait for it
+        if (this.socketPromise) {
+            await this.socketPromise;
+            return;
+        }
+
+        // Start initialization
         const self = this;
 
-        this.socket = Bun.udpSocket({
+        this.socketPromise = Bun.udpSocket({
             port: this.opts.port,
             hostname: this.opts.host ?? '0.0.0.0',
 
@@ -407,6 +430,9 @@ export class UdpPort implements Port {
                     console.error('UDP socket error:', error);
                 },
             },
-        }) as unknown as BunUdpSocket;
+        }) as Promise<BunUdpSocket>;
+
+        this.socket = await this.socketPromise;
+        this.socketPromise = null;
     }
 }

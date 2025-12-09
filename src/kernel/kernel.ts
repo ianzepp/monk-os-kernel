@@ -426,6 +426,14 @@ export class Kernel {
     // =========================================================================
 
     /**
+     * OS instance identifier.
+     *
+     * WHY: Unique per boot, useful for debugging multi-instance deployments
+     * and correlating logs across restarts. First 4 hex chars of a UUID.
+     */
+    readonly id: string;
+
+    /**
      * Boot state flag.
      *
      * STATE MACHINE:
@@ -466,6 +474,9 @@ export class Kernel {
         this.processes = new ProcessTable();
         this.loader = new VFSLoader(vfs, hal);
         this.poolManager = new PoolManager(hal);
+
+        // Generate OS instance ID (first 4 hex chars of UUID)
+        this.id = hal.entropy.uuid().slice(0, 4);
 
         // NOTE: dispatcher is set externally by OS after construction
         // The syscall layer (src/syscall/) is responsible for syscall routing
