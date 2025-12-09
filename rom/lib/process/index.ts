@@ -18,7 +18,7 @@ import type { Response, OpenFlags, SpawnOpts, ExitStatus, Stat, DirEntry, Grant 
 
 export * from './types.js';
 export { respond } from './respond.js';
-export { onSignal, toError } from './syscall.js';
+export { syscall, call, collect, onSignal, toError } from './syscall.js';
 
 // =============================================================================
 // CONSTANTS

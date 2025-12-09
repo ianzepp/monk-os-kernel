@@ -175,8 +175,18 @@ const ENTITY_COLUMNS = new Set(['id', 'model', 'parent', 'pathname']);
 /**
  * Metadata tables that should NOT be joined with entities.
  * All other tables are assumed to be entity detail tables and get auto-joined.
+ *
+ * WHY llm_provider/llm_model: These are standalone config tables with their own
+ * IDs, not entity-backed tables. They don't participate in the entity system.
  */
-const METADATA_TABLES = new Set(['models', 'fields', 'tracked', 'entities']);
+const METADATA_TABLES = new Set([
+    'models',
+    'fields',
+    'tracked',
+    'entities',
+    'llm_provider',
+    'llm_model',
+]);
 
 // =============================================================================
 // FILTER CLASS
@@ -212,11 +222,15 @@ export class Filter {
     /**
      * Create a new Filter for a table.
      *
-     * @param tableName - Table name (validated for SQL injection)
+     * WHY convert dots to underscores: EMS uses dot notation for model names
+     * (llm.model, llm.provider) but SQL tables use underscores (llm_model,
+     * llm_provider). This conversion happens at the SQL boundary.
+     *
+     * @param tableName - Table name or model name (validated for SQL injection)
      */
     constructor(tableName: string) {
         this.validateIdentifier(tableName, 'table name');
-        this.tableName = tableName;
+        this.tableName = tableName.replace(/\./g, '_');
     }
 
     /**

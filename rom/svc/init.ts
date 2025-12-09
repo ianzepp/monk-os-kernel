@@ -2,15 +2,17 @@
  * Init Process
  *
  * The first process (PID 1) in Monk OS.
- * Runs headless - services (telnetd, httpd) provide access.
+ * Spawns system services and reaps zombie children.
  *
  * Responsibilities:
+ * - Spawn system services (Prior, etc.)
  * - Reap zombie children
  * - Stay alive to keep kernel running
  */
 
 import {
     wait,
+    spawn,
     onSignal,
     sleep,
     getpid,
@@ -19,10 +21,60 @@ import {
     ESRCH,
 } from '@rom/lib/process/index.js';
 
+// =============================================================================
+// CONFIGURATION
+// =============================================================================
+
+/**
+ * System services to spawn at boot.
+ * Each entry is [path, description].
+ */
+const SYSTEM_SERVICES: [string, string][] = [
+    ['/bin/prior.ts', 'prior'],
+];
+
+// =============================================================================
+// STATE
+// =============================================================================
+
 /**
  * Child process tracking
  */
 const children = new Map<number, string>(); // pid -> entry name
+
+// =============================================================================
+// SERVICE MANAGEMENT
+// =============================================================================
+
+/**
+ * Spawn a system service.
+ */
+async function spawnService(path: string, name: string): Promise<void> {
+    try {
+        const pid = await spawn(path);
+
+        children.set(pid, name);
+        await println(`init: started ${name} (pid ${pid})`);
+    }
+    catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+
+        await eprintln(`init: failed to start ${name}: ${message}`);
+    }
+}
+
+/**
+ * Spawn all system services.
+ */
+async function spawnServices(): Promise<void> {
+    for (const [path, name] of SYSTEM_SERVICES) {
+        await spawnService(path, name);
+    }
+}
+
+// =============================================================================
+// MAIN
+// =============================================================================
 
 /**
  * Main init loop
@@ -37,7 +89,10 @@ async function main(): Promise<void> {
         // Silently ignore
     });
 
-    await println('init: running headless (connect via telnet or http)');
+    // Spawn system services
+    await spawnServices();
+
+    await println('init: all services started');
 
     // Reap children forever
     await reapLoop();

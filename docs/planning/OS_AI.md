@@ -24,24 +24,47 @@ This document captures the architecture for AI integration with Monk OS.
 
 **AI = process.** Has PID, state, memory. Multiple instances can run in parallel. Can be spawned, killed, forked. Each agent owns its context and memory.
 
+### Prior vs Monks
+
+| Role | Description |
+|------|-------------|
+| **Prior** | The main AI process. Starts at OS boot, listens for external instructions via TCP, coordinates work. One per OS instance. |
+| **Monk** | Worker AI processes. Spawned by the Prior to handle delegated tasks. Multiple can run in parallel. |
+
+The Prior is the entry point for external orchestration (e.g., Claude Code sending tasks). Initially the Prior handles all work directly. In later phases, it can spawn Monk workers to parallelize complex tasks.
+
+**Naming context:** The external CLI tool that manages multiple Monk OS instances is called "Abbot". The Prior runs each individual OS instance, reporting to the Abbot.
+
 ---
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
+│ External                                                    │
+│   Abbot CLI ──────────────────┐                            │
+│   Claude Code ────────────────┼─── TCP connections         │
+│   Other clients ──────────────┘                            │
+└───────────────────────────────┼─────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────┐
 │ Userspace                                                   │
 │                                                             │
-│   AI Agents (processes with PIDs)                          │
-│   ┌─────────┐  ┌─────────┐  ┌─────────┐                   │
-│   │ agent-1 │  │ agent-2 │  │ agent-3 │                   │
-│   │ PID 42  │  │ PID 43  │  │ PID 44  │                   │
-│   │ coder   │  │ research│  │ chat    │                   │
-│   └────┬────┘  └────┬────┘  └────┬────┘                   │
-│        │            │            │                         │
-│   Tools: /bin/shell, /bin/cat, /bin/grep, /bin/awk, ...   │
-│                                                            │
-└────────────────────────┼───────────────────────────────────┘
+│   ┌─────────────────────────────────────────────────────┐  │
+│   │ Prior (main AI process, tcp:7777)                   │  │
+│   │   - Receives external instructions                  │  │
+│   │   - Executes tasks or delegates to Monks            │  │
+│   └────────────────────┬────────────────────────────────┘  │
+│                        │ spawns                             │
+│   ┌─────────┐  ┌───────┴───┐  ┌─────────┐                  │
+│   │ Monk-1  │  │  Monk-2   │  │ Monk-3  │  (workers)       │
+│   │ PID 42  │  │  PID 43   │  │ PID 44  │                  │
+│   └────┬────┘  └─────┬─────┘  └────┬────┘                  │
+│        │             │             │                        │
+│   Tools: /bin/shell, /bin/cat, /bin/grep, /bin/awk, ...    │
+│                                                             │
+└────────────────────────┼────────────────────────────────────┘
                          │ syscalls (llm:*, vfs:*, etc.)
                          ▼
 ┌─────────────────────────────────────────────────────────────┐
@@ -110,6 +133,121 @@ This document captures the architecture for AI integration with Monk OS.
 **HAL**
 - Pure hardware abstraction (file, network, block)
 - No LLM knowledge - just provides network transport
+
+---
+
+## Prior (Main AI Process)
+
+The Prior is the primary AI process that starts when the OS boots. It listens on a TCP port for external instructions and coordinates all AI work within the OS instance.
+
+### Boot Sequence
+
+```
+OS.boot()
+    │
+    ├── 1. Initialize subsystems (EMS, VFS, Auth, LLM)
+    │
+    ├── 2. Spawn Prior process
+    │      → Authenticates via JWT
+    │      → Opens TCP listener on configured port
+    │
+    └── 3. Prior enters receive loop
+           → Accepts connections
+           → Receives instructions (JSON)
+           → Executes tasks using syscalls
+           → Returns results
+           → Awaits next instruction
+```
+
+### TCP Interface
+
+The Prior uses existing syscalls for networking - no new kernel work required.
+
+**Available syscalls:**
+
+| Syscall | Purpose |
+|---------|---------|
+| `port:create 'tcp:listen' { port }` | Bind TCP port, returns listener fd |
+| `port:recv listenerFd` | Accept connection, returns `{ from, fd: socketFd }` |
+| `handle:send socketFd { op: 'recv' }` | Read from socket (streams chunks) |
+| `handle:send socketFd { op: 'send', data: { data } }` | Write to socket |
+| `handle:close socketFd` | Close socket |
+
+**Example Prior loop:**
+
+```typescript
+// rom/bin/prior - simplified
+async function main() {
+  // Authenticate
+  const token = await vfs.read('~/.config/token');
+  await syscall('auth:token', { jwt: token });
+
+  // Listen for connections
+  const listenerFd = await syscall('port:create', 'tcp:listen', { port: 7777 });
+
+  while (true) {
+    // Accept connection
+    const { fd: socketFd, from } = await syscall('port:recv', listenerFd);
+
+    // Handle connection (read instruction, execute, respond)
+    await handleConnection(socketFd);
+
+    // Close when done
+    await syscall('handle:close', socketFd);
+  }
+}
+
+async function handleConnection(socketFd: number) {
+  // Read instruction (JSON lines)
+  const chunks = [];
+  for await (const response of syscall('handle:send', socketFd, { op: 'recv' })) {
+    if (response.op === 'data') chunks.push(response.data);
+    if (response.op === 'done') break;
+  }
+  const instruction = JSON.parse(Buffer.concat(chunks).toString());
+
+  // Execute task using LLM and other syscalls
+  const result = await executeTask(instruction);
+
+  // Send response
+  const responseBytes = Buffer.from(JSON.stringify(result) + '\n');
+  await syscall('handle:send', socketFd, { op: 'send', data: { data: responseBytes } });
+}
+```
+
+### Wire Protocol
+
+Simple JSON lines over TCP:
+
+```
+Client → Prior:  {"task": "find all TODO comments in src/", "context": {...}}\n
+Prior → Client:  {"status": "ok", "result": "Found 42 TODOs...", "artifacts": [...]}\n
+```
+
+For streaming (later):
+```
+Prior → Client:  {"status": "progress", "message": "Searching files..."}\n
+Prior → Client:  {"status": "progress", "message": "Found 20 matches..."}\n
+Prior → Client:  {"status": "ok", "result": "...", "artifacts": [...]}\n
+```
+
+### Future: Delegating to Monks
+
+In later phases, the Prior can spawn Monk workers for parallel execution:
+
+```
+External (Claude Code)
+    │
+    ▼
+Prior (PID 1, tcp:7777)
+    │
+    ├── Monk-1 (PID 42) ─── subtask A
+    ├── Monk-2 (PID 43) ─── subtask B
+    └── Monk-3 (PID 44) ─── subtask C
+    │
+    ▼
+Prior aggregates results → responds to external
+```
 
 ---
 
@@ -560,39 +698,67 @@ Strategy:
 
 **Implementation:** `src/llm/` (~2250 lines), `src/syscall/llm.ts` (~350 lines)
 
-### Phase 2: Shell + Coreutils (Userspace)
+### Phase 2: Prior (Main AI Process) ← CURRENT
+
+**Goal:** When `bun start` boots the OS, the Prior process starts and listens for external instructions via TCP.
+
+1. Create Prior user account and home directory during OS init
+   - `auth_user` entry for `prior` (no password, JWT-only)
+   - Home directory `/home/prior/` with `.config/` and `.memory/`
+   - Mint long-lived JWT with full permissions
+   - Write token to `/home/prior/.config/token`
+
+2. Create `rom/bin/prior` executable
+   - Authenticates via JWT on startup
+   - Opens TCP listener (`port:create 'tcp:listen'`)
+   - Enters receive loop (`port:recv` → handle → respond)
+
+3. Implement basic task execution
+   - Parse JSON instruction from socket
+   - Execute using `llm:complete` and other syscalls
+   - Return JSON result
+
+4. Wire Prior into OS boot sequence
+   - `OS.boot()` spawns Prior after subsystems initialize
+   - Prior runs as background daemon process
+
+**Syscalls used (all existing):**
+- `port:create`, `port:recv` - TCP listener
+- `handle:send`, `handle:close` - Socket I/O
+- `auth:token` - Authentication
+- `llm:complete`, `llm:chat` - LLM inference
+- `vfs:*` - File operations
+
+### Phase 3: Shell + Coreutils (Userspace)
 
 1. Reintroduce `/bin/shell` to OS userspace
 2. Add basic coreutils (`cat`, `grep`, `head`, `tail`, `wc`)
 3. Add `/bin/sql` - SQLite CLI for userspace database access
 4. Ensure tools can be spawned as child processes
+5. Prior can spawn shell to execute commands
 
-### Phase 3: Agent Runtime (Userspace)
+### Phase 4: Agent Memory
 
-1. Create `rom/bin/agent` - base agent executable
-2. Create `rom/lib/agent/` - shared agent library code
-3. Create `rom/lib/agent/memory.ts` - AgentMemory class wrapping SQLite
-4. Implement agent lifecycle (spawn, authenticate, run, shutdown)
-5. Create agent provisioning script:
-   - Create `auth_user` entry (no password, JWT-only)
-   - Create home directory structure (`~/.config/`, `~/.memory/`)
-   - Mint scoped JWT via `auth:grant` or HAL crypto
-   - Write token to `~/.config/token`
-   - Initialize `~/.memory/agent.db` with schema
+1. Create `rom/lib/agent/memory.ts` - AgentMemory class wrapping SQLite
+2. Initialize Prior's `~/.memory/agent.db` with schema
+3. Implement STM (conversation turns)
+4. Implement LTM (consolidated knowledge)
+5. Add memory consolidation ("sleep")
 
-### Phase 4: Agent Specializations
+### Phase 5: Monk Workers (Delegation)
 
-1. Create specialized agent configs (coder, research, chat)
-2. Implement tool execution (shell spawning)
-3. Add memory consolidation
-4. Implement context window management
+1. Prior can spawn Monk worker processes for subtasks
+2. Monks authenticate with scoped JWTs (limited permissions)
+3. Prior coordinates parallel execution
+4. Prior aggregates results from Monks
 
-### Phase 5: Advanced
+### Phase 6: Advanced
 
 1. ✅ Streaming responses (`llm:stream`) - done in Phase 1
 2. ✅ Anthropic adapter - done in Phase 1
-3. Multi-agent coordination
-4. Embedding/vector search for semantic memory
+3. Embedding/vector search for semantic memory
+4. Agent specializations (coder, research, chat configs)
+5. Context window management
 
 ---
 
