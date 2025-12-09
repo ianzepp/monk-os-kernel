@@ -261,6 +261,38 @@ export async function* fileStat(
 }
 
 /**
+ * Update file metadata (mtime, custom EMS fields, etc.).
+ *
+ * Only needs VFS - no handle involved.
+ *
+ * @param proc - Calling process
+ * @param vfs - VFS instance
+ * @param path - File path
+ * @param fields - Fields to update (partial ModelStat)
+ */
+export async function* fileSetstat(
+    proc: Process,
+    vfs: VFS,
+    path: unknown,
+    fields: unknown,
+): AsyncIterable<Response> {
+    if (typeof path !== 'string') {
+        yield respond.error('EINVAL', 'path must be a string');
+
+        return;
+    }
+
+    if (typeof fields !== 'object' || fields === null) {
+        yield respond.error('EINVAL', 'fields must be an object');
+
+        return;
+    }
+
+    await vfs.setstat(path, proc.user, fields as Record<string, unknown>);
+    yield respond.ok();
+}
+
+/**
  * Get file stats by file descriptor.
  *
  * Needs Kernel (to get handle) and VFS (to stat by path).

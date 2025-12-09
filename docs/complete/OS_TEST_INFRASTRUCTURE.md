@@ -1,6 +1,6 @@
 # Test Infrastructure Refactoring
 
-> **Status**: Partial (Phase 3 Complete)
+> **Status**: Complete
 > **Complexity**: Medium
 > **Dependencies**: None
 
@@ -15,8 +15,8 @@ Simplify test patterns by introducing a BaseOS class hierarchy with flexible boo
 | Phase 1 | **Complete** | BaseOS hierarchy (base.ts, os.ts extends BaseOS, test.ts with TestOS) |
 | Phase 2 | **Complete** | Migrate tests using createOsStack() to TestOS |
 | Phase 3 | **Complete** | Migrate syscall tests from mock factories to TestOS |
-| Phase 4 | Pending | Remove OS public getters (use TestOS.internal* instead) |
-| Phase 5 | Pending | Documentation updates |
+| Phase 4 | **Complete** | Remove OS public getters (use TestOS.internal* instead) |
+| Phase 5 | **Complete** | Documentation updates |
 
 **Phase 1 deliverables:**
 - `src/os/base.ts` - BaseOS abstract class with shared functionality
@@ -28,6 +28,19 @@ Simplify test patterns by introducing a BaseOS class hierarchy with flexible boo
 - Added syscall testing support to TestOS (virtual test process, setTestUser, setTestCwd)
 - All 8 syscall test files migrated (192 tests passing, 8 skipped)
 - Net reduction: ~926 lines deleted (mock helpers removed)
+
+**Phase 4 deliverables:**
+- Removed public getters from BaseOS: `getHAL()`, `getVFS()`, `getKernel()`, `getEMS()`, `getServices()`, `getEnv()`
+- Kept `getEntityOps()` (used internally by EntityAPI)
+- Updated `spec/kernel/shutdown.test.ts` to use syscalls instead of getters
+- Updated `spec/os.test.ts` with class hierarchy tests
+- Exported `BaseOS` and `TestOS` from main index
+
+**Phase 5 deliverables:**
+- Created `spec/README.md` documenting test patterns
+- Updated `AGENTS.md` with TestOS guidance
+- Updated `src/os/README.md` with syscall examples
+- Updated `src/ems/README.md` reference
 
 ---
 

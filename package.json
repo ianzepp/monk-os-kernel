@@ -13,9 +13,9 @@
     },
     "scripts": {
         "start": "bun scripts/start.ts",
-        "start:sqlite": "bun scripts/start.ts --sqlite",
+        "start:sqlite": "bun scripts/start.ts --sqlite .data/monk.db",
         "shell": "bun scripts/shell.ts",
-        "shell:sqlite": "bun scripts/shell.ts --sqlite",
+        "shell:sqlite": "bun scripts/shell.ts --sqlite .data/monk.db",
         "build": "scripts/build.sh",
         "build:warn": "scripts/build-warn.sh",
         "build:standalone": "scripts/build-standalone.sh",

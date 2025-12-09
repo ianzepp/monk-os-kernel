@@ -404,7 +404,7 @@ By default, `ems:select` excludes soft-deleted records. The underlying EntityOps
 - `'include'` - Both deleted and non-deleted
 - `'only'` - Only deleted records
 
-Note: The syscall layer currently uses the default behavior. For advanced trash handling, use the EntityOps API directly via `os.getEMS().ops`.
+Note: The syscall layer currently uses the default behavior. For advanced trash handling in tests, use `TestOS.internalEms.ops` to access EntityOps directly.
 
 ---
 

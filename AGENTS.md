@@ -428,14 +428,13 @@ class OS {
     // Service management
     async service(action: string, nameOrPid?: string | number): Promise<unknown>;
 
-    // Subsystem accessors
-    getHAL(): HAL;
-    getVFS(): VFS;
-    getKernel(): Kernel;
-    getEMS(): EMS;
-    getServices(): Map<string, ServiceDef>;
-    getEnv(): Record<string, string>;
+    // Internal accessor (for EntityAPI only)
+    getEntityOps(): EntityOps;
 }
+
+// For tests, use TestOS which provides internal* accessors:
+// TestOS.internalHal, internalVfs, internalKernel, internalEms, internalAuth
+// See spec/README.md for testing patterns
 ```
 
 **Boot Sequence**:

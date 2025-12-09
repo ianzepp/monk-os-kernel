@@ -15,6 +15,8 @@
 // OS public API
 export {
     OS,
+    BaseOS,
+    TestOS,
     type StorageConfig,
     type OSConfig,
     type BootOpts,

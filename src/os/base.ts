@@ -65,7 +65,7 @@ export abstract class BaseOS {
     /**
      * OS configuration provided at construction.
      *
-     * WHY: Stored for reference during boot() and for getEnv().
+     * WHY: Stored for reference during boot().
      * INVARIANT: Never null after construction.
      */
     protected config: OSConfig;
@@ -708,62 +708,6 @@ export abstract class BaseOS {
     }
 
     /**
-     * Get the HAL instance.
-     *
-     * WHY: Needed for testing and advanced use cases.
-     * @throws EINVAL if OS not booted
-     */
-    getHAL(): HAL {
-        if (!this.__hal) {
-            throw new EINVAL('OS not booted');
-        }
-
-        return this.__hal;
-    }
-
-    /**
-     * Get the VFS instance.
-     *
-     * WHY: Needed for testing and advanced use cases.
-     * @throws EINVAL if OS not booted
-     */
-    getVFS(): VFS {
-        if (!this.__vfs) {
-            throw new EINVAL('OS not booted');
-        }
-
-        return this.__vfs;
-    }
-
-    /**
-     * Get the Kernel instance.
-     *
-     * WHY: Needed for testing and advanced use cases.
-     * @throws EINVAL if OS not booted
-     */
-    getKernel(): Kernel {
-        if (!this.__kernel) {
-            throw new EINVAL('OS not booted');
-        }
-
-        return this.__kernel;
-    }
-
-    /**
-     * Get the EMS instance.
-     *
-     * WHY: Needed for testing and advanced use cases.
-     * @throws EINVAL if OS not booted
-     */
-    getEMS(): EMS {
-        if (!this.__ems) {
-            throw new EINVAL('OS not booted');
-        }
-
-        return this.__ems;
-    }
-
-    /**
      * Get the EntityOps instance (for EntityAPI).
      *
      * WHY: Used internally by EntityAPI class (src/os/ems.ts:102).
@@ -775,24 +719,6 @@ export abstract class BaseOS {
         }
 
         return this.__ems.ops;
-    }
-
-    /**
-     * Get active services.
-     */
-    getServices(): Map<string, ServiceDef> {
-        if (!this.__kernel?.isBooted()) {
-            return new Map();
-        }
-
-        return this.__kernel.getServices();
-    }
-
-    /**
-     * Get the OS environment variables.
-     */
-    getEnv(): Record<string, string> {
-        return this.config.env ?? {};
     }
 
     // =========================================================================

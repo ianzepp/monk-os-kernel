@@ -1,11 +1,14 @@
 /**
  * OS Class Tests
  *
- * Tests for the public OS API as described in planning/OS_BOOT_EXEC.md.
+ * Tests for the public OS API.
+ *
+ * NOTE: Production OS is tested here. For subsystem access in tests,
+ * use TestOS with internal* getters instead.
  */
 
 import { describe, it, expect, afterEach } from 'bun:test';
-import { OS } from '@src/index.js';
+import { OS, TestOS, BaseOS } from '@src/index.js';
 
 describe('OS', () => {
     let os: OS | null = null;
@@ -66,39 +69,27 @@ describe('OS', () => {
             expect(os.isBooted()).toBe(true);
         });
 
-        it('should initialize HAL', async () => {
+        it('should initialize subsystems (verify via syscall)', async () => {
             os = new OS();
             await os.boot();
 
-            const hal = os.getHAL();
+            // Verify VFS is working via syscall
+            const stat = await os.syscall<{ model: string }>('file:stat', '/');
 
-            expect(hal).toBeDefined();
-            expect(hal.entropy).toBeDefined();
-            expect(hal.storage).toBeDefined();
-        });
-
-        it('should initialize VFS', async () => {
-            os = new OS();
-            await os.boot();
-
-            const vfs = os.getVFS();
-
-            expect(vfs).toBeDefined();
+            expect(stat.model).toBe('folder');
         });
 
         it('should create /dev devices', async () => {
             os = new OS();
             await os.boot();
 
-            const vfs = os.getVFS();
-
-            // Check that standard devices exist
-            const consoleStat = await vfs.stat('/dev/console', 'kernel');
+            // Check that standard devices exist via syscalls
+            const consoleStat = await os.syscall<{ model: string }>('file:stat', '/dev/console');
 
             expect(consoleStat).toBeDefined();
             expect(consoleStat.model).toBe('device');
 
-            const nullStat = await vfs.stat('/dev/null', 'kernel');
+            const nullStat = await os.syscall<{ model: string }>('file:stat', '/dev/null');
 
             expect(nullStat).toBeDefined();
             expect(nullStat.model).toBe('device');
@@ -144,27 +135,6 @@ describe('OS', () => {
             expect(os.isBooted()).toBe(false);
         });
     });
-
-    describe('getHAL()', () => {
-        it('should throw if not booted', () => {
-            os = new OS();
-            expect(() => os!.getHAL()).toThrow('OS not booted');
-        });
-    });
-
-    describe('getVFS()', () => {
-        it('should throw if not booted', () => {
-            os = new OS();
-            expect(() => os!.getVFS()).toThrow('OS not booted');
-        });
-    });
-
-    describe('getKernel()', () => {
-        it('should throw if not booted', () => {
-            os = new OS();
-            expect(() => os!.getKernel()).toThrow('OS not booted');
-        });
-    });
 });
 
 describe('OS with aliases', () => {
@@ -195,5 +165,96 @@ describe('OS with aliases', () => {
         });
 
         expect(os.resolvePath('@src/main.ts')).toBe('/vol/src/main.ts');
+    });
+});
+
+// =============================================================================
+// Class Hierarchy Tests
+// =============================================================================
+
+describe('BaseOS hierarchy', () => {
+    it('should have OS extending BaseOS', () => {
+        const os = new OS();
+
+        expect(os).toBeInstanceOf(BaseOS);
+        expect(os).toBeInstanceOf(OS);
+    });
+
+    it('should have TestOS extending BaseOS', () => {
+        const os = new TestOS();
+
+        expect(os).toBeInstanceOf(BaseOS);
+        expect(os).toBeInstanceOf(TestOS);
+    });
+
+    it('should share common functionality between OS and TestOS', () => {
+        const prodOs = new OS();
+        const testOs = new TestOS();
+
+        // Both should have the same public methods
+        expect(typeof prodOs.alias).toBe('function');
+        expect(typeof testOs.alias).toBe('function');
+        expect(typeof prodOs.resolvePath).toBe('function');
+        expect(typeof testOs.resolvePath).toBe('function');
+        expect(typeof prodOs.isBooted).toBe('function');
+        expect(typeof testOs.isBooted).toBe('function');
+        expect(typeof prodOs.shutdown).toBe('function');
+        expect(typeof testOs.shutdown).toBe('function');
+    });
+});
+
+describe('TestOS internal accessors', () => {
+    let os: TestOS | null = null;
+
+    afterEach(async () => {
+        if (os?.isBooted()) {
+            await os.shutdown();
+        }
+
+        os = null;
+    });
+
+    it('should provide internalHal after boot', async () => {
+        os = new TestOS();
+        await os.boot({ layers: ['hal'] });
+
+        expect(os.internalHal).toBeDefined();
+        expect(os.internalHal.entropy).toBeDefined();
+    });
+
+    it('should provide internalVfs after boot', async () => {
+        os = new TestOS();
+        await os.boot({ layers: ['vfs'] });
+
+        expect(os.internalVfs).toBeDefined();
+    });
+
+    it('should provide internalEms after boot', async () => {
+        os = new TestOS();
+        await os.boot({ layers: ['ems'] });
+
+        expect(os.internalEms).toBeDefined();
+    });
+
+    it('should provide internalAuth after boot', async () => {
+        os = new TestOS();
+        await os.boot({ layers: ['auth'] });
+
+        expect(os.internalAuth).toBeDefined();
+    });
+
+    it('should provide internalKernel after boot', async () => {
+        os = new TestOS();
+        await os.boot({ layers: ['kernel'] });
+
+        expect(os.internalKernel).toBeDefined();
+    });
+
+    it('should throw if accessing internal* before boot', () => {
+        os = new TestOS();
+
+        expect(() => os!.internalHal).toThrow('HAL not booted');
+        expect(() => os!.internalVfs).toThrow('VFS not booted');
+        expect(() => os!.internalEms).toThrow('EMS not booted');
     });
 });

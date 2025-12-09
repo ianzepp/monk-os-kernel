@@ -211,14 +211,32 @@ interface OSConfig {
 
 ## Accessing Subsystems
 
-For advanced use cases, access internal subsystems directly:
+For **production code**, use syscalls rather than direct subsystem access:
 
 ```typescript
-const hal = os.getHAL();       // Hardware abstraction
-const vfs = os.getVFS();       // Virtual filesystem
-const kernel = os.getKernel(); // Process management
-const ems = os.getEMS();       // Entity management
+// File operations via syscall
+const stat = await os.syscall('file:stat', '/etc/config.json');
+const fd = await os.syscall('file:open', '/tmp/data.txt', { write: true, create: true });
+
+// Entity operations via syscall
+const users = await os.ems('select', 'User', { where: { active: true } });
 ```
+
+For **testing**, use `TestOS` which provides direct internal access:
+
+```typescript
+import { TestOS } from '@src/os/test.js';
+
+const os = new TestOS();
+await os.boot({ layers: ['vfs'] });  // Partial boot for faster tests
+
+// Direct subsystem access for assertions
+const vfs = os.internalVfs;
+const ems = os.internalEms;
+const kernel = os.internalKernel;
+```
+
+See `spec/README.md` for complete testing patterns.
 
 ## Example: Complete Application
 
