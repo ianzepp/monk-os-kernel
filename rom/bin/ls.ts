@@ -74,8 +74,10 @@ async function listDirectory(
             }
         }
         else {
-            // Default: space-separated
-            await println(filtered.map(e => e.name).join('  '));
+            // Default: one per line (matches common ls | wc -l expectation)
+            for (const entry of filtered) {
+                await println(entry.name);
+            }
         }
 
         return 0;

@@ -124,9 +124,16 @@ export class AnthropicAdapter implements Adapter {
         model: LLMModel,
         request: CompletionRequest,
     ): Promise<CompletionResponse> {
+        const messages = this.buildMessagesFromPrompt(request.prompt);
+
+        // Add system message if provided
+        if (request.system) {
+            messages.unshift({ role: 'system', content: request.system });
+        }
+
         const chatRequest: ChatRequest = {
             model: request.model,
-            messages: this.buildMessagesFromPrompt(request.prompt, request.system),
+            messages,
             temperature: request.temperature,
             max_tokens: request.max_tokens,
             stop: request.stop,
@@ -146,9 +153,16 @@ export class AnthropicAdapter implements Adapter {
         model: LLMModel,
         request: CompletionRequest,
     ): AsyncIterable<StreamChunk> {
+        const messages = this.buildMessagesFromPrompt(request.prompt);
+
+        // Add system message if provided
+        if (request.system) {
+            messages.unshift({ role: 'system', content: request.system });
+        }
+
         const chatRequest: ChatRequest = {
             model: request.model,
-            messages: this.buildMessagesFromPrompt(request.prompt, request.system),
+            messages,
             temperature: request.temperature,
             max_tokens: request.max_tokens,
             stop: request.stop,
@@ -263,10 +277,9 @@ export class AnthropicAdapter implements Adapter {
     /**
      * Build chat messages from a simple prompt.
      *
-     * Note: System prompt is handled separately in Anthropic API,
-     * so we only return user messages here.
+     * Note: System prompt is handled separately - caller adds it to messages.
      */
-    private buildMessagesFromPrompt(prompt: string, _system?: string): ChatMessage[] {
+    private buildMessagesFromPrompt(prompt: string): ChatMessage[] {
         return [{ role: 'user', content: prompt }];
     }
 

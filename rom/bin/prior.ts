@@ -27,8 +27,21 @@ import {
     appendFile,
     mkdir,
     stat,
+    spawn,
+    wait,
+    pipe,
+    close,
+    recv,
+    getcwd,
+    readdirAll,
 } from '@rom/lib/process/index.js';
 import type { Response } from '@rom/lib/process/types.js';
+import {
+    parseCommand,
+    flattenPipeline,
+    expandGlobs,
+    type GlobEntry,
+} from '@rom/lib/shell/index.js';
 
 // =============================================================================
 // CONFIGURATION
@@ -52,6 +65,27 @@ let systemPrompt: string | undefined;
 let identity: string | undefined;
 let memoryContext: string | undefined;
 let tickBusy = false;
+
+// Spawned subagent tracking
+interface SpawnedAgent {
+    id: string;
+    task: string;
+    model: string;
+    promise: Promise<TaskResult>;
+    result?: TaskResult;
+    done: boolean;
+}
+
+const spawnedAgents = new Map<string, SpawnedAgent>();
+
+function generateSpawnId(): string {
+    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    let id = '';
+    for (let i = 0; i < 8; i++) {
+        id += chars[Math.floor(Math.random() * chars.length)];
+    }
+    return `spawn:${id}`;
+}
 
 // =============================================================================
 // TYPES
@@ -80,6 +114,15 @@ interface CompletionResponse {
         total_tokens: number;
     };
 }
+
+interface ExecResult {
+    stdout: string;
+    stderr: string;
+    code: number;
+}
+
+// Maximum iterations for agentic loop (prevent runaway)
+const MAX_EXEC_ITERATIONS = 10;
 
 // =============================================================================
 // SOCKET I/O HELPERS
@@ -162,59 +205,775 @@ async function logSession(task: string, result: string, status: 'ok' | 'error'):
 }
 
 // =============================================================================
+// COMMAND EXECUTION
+// =============================================================================
+
+/**
+ * Helper for glob expansion - reads directory entries.
+ */
+async function readdirForGlob(path: string): Promise<GlobEntry[]> {
+    try {
+        const entries = await readdirAll(path);
+        const result: GlobEntry[] = [];
+
+        for (const entry of entries) {
+            result.push({
+                name: entry.name,
+                isDirectory: entry.model === 'folder',
+            });
+        }
+
+        return result;
+    }
+    catch {
+        return [];
+    }
+}
+
+/**
+ * Find command in /bin directory.
+ */
+async function findCommand(command: string): Promise<string | null> {
+    // Absolute path
+    if (command.startsWith('/')) {
+        try {
+            await stat(command);
+            return command;
+        }
+        catch {
+            return null;
+        }
+    }
+
+    // Search in /bin
+    const binPath = `/bin/${command}.ts`;
+
+    try {
+        await stat(binPath);
+        return binPath;
+    }
+    catch {
+        return null;
+    }
+}
+
+/**
+ * Execute commands sequentially (for && and ;) and concatenate output.
+ *
+ * Unlike pipes, each command runs independently and outputs are combined.
+ */
+async function execSequential(commands: string[]): Promise<ExecResult> {
+    // Split on && and ; to get individual commands
+    const allCommands: string[] = [];
+    for (const cmd of commands) {
+        const parts = cmd.split(/\s*(?:&&|;)\s*/);
+        for (const part of parts) {
+            const trimmed = part.trim();
+            if (trimmed) {
+                allCommands.push(trimmed);
+            }
+        }
+    }
+
+    const outputs: string[] = [];
+    let lastCode = 0;
+
+    for (const cmd of allCommands) {
+        // Run each command as a single-element pipeline
+        const result = await exec([cmd]);
+        if (result.stdout) {
+            outputs.push(result.stdout);
+        }
+        if (result.stderr) {
+            outputs.push(result.stderr);
+        }
+        lastCode = result.code;
+
+        // For &&, stop on first failure
+        if (result.code !== 0 && commands.some(c => c.includes('&&'))) {
+            break;
+        }
+    }
+
+    return {
+        stdout: outputs.join('\n'),
+        stderr: '',
+        code: lastCode,
+    };
+}
+
+/**
+ * Execute parallel commands (for &) and concatenate output.
+ *
+ * Each segment separated by & runs in parallel.
+ */
+async function execParallel(commands: string[]): Promise<ExecResult> {
+    // Split on & to get parallel segments
+    const segments: string[] = [];
+    for (const cmd of commands) {
+        const parts = cmd.split(/\s*&\s*/);
+        for (const part of parts) {
+            const trimmed = part.trim();
+            // Skip 'wait' - it's a shell builtin we don't need
+            if (trimmed && trimmed !== 'wait') {
+                segments.push(trimmed);
+            }
+        }
+    }
+
+    if (segments.length === 0) {
+        return { stdout: '', stderr: '', code: 0 };
+    }
+
+    // Run all segments in parallel
+    const promises = segments.map(segment => exec([segment]));
+    const results = await Promise.all(promises);
+
+    // Combine outputs
+    const outputs: string[] = [];
+    let lastCode = 0;
+
+    for (const result of results) {
+        if (result.stdout) {
+            outputs.push(result.stdout);
+        }
+        if (result.stderr) {
+            outputs.push(result.stderr);
+        }
+        if (result.code !== 0) {
+            lastCode = result.code;
+        }
+    }
+
+    return {
+        stdout: outputs.join('\n'),
+        stderr: '',
+        code: lastCode,
+    };
+}
+
+/**
+ * Execute a pipeline of commands and capture output.
+ *
+ * @param commands - Array of shell command strings (e.g., ["ls -la", "grep foo"])
+ * @returns Execution result with stdout, stderr, and exit code
+ */
+async function exec(commands: string[]): Promise<ExecResult> {
+    if (commands.length === 0) {
+        return { stdout: '', stderr: '', code: 0 };
+    }
+
+    // Check for & (parallel execution)
+    const hasParallel = commands.some(cmd => /\s*&\s*/.test(cmd) && !/&&/.test(cmd));
+
+    if (hasParallel) {
+        return execParallel(commands);
+    }
+
+    // Check for && or ; (sequential execution with concatenated output)
+    // These run commands independently and combine output
+    const hasSequential = commands.some(cmd => /\s*(?:&&|;)\s*/.test(cmd));
+
+    if (hasSequential) {
+        return execSequential(commands);
+    }
+
+    // Normalize pipe syntax: split "cmd1 | cmd2" into array elements
+    const normalized: string[] = [];
+    for (const cmd of commands) {
+        const parts = cmd.split(/\s*\|\s*/);
+        for (const part of parts) {
+            const trimmed = part.trim();
+            if (trimmed) {
+                normalized.push(trimmed);
+            }
+        }
+    }
+
+    if (normalized.length === 0) {
+        return { stdout: '', stderr: '', code: 0 };
+    }
+
+    commands = normalized;
+
+    const cwd = await getcwd();
+
+    // Parse all commands
+    const parsedCommands = commands.map(cmd => parseCommand(cmd)).filter(Boolean);
+
+    if (parsedCommands.length === 0) {
+        return { stdout: '', stderr: 'No valid commands', code: 1 };
+    }
+
+    // For capturing final output, we create a pipe
+    // The last command writes to the pipe, we read from it
+    const [outputReadFd, outputWriteFd] = await pipe();
+
+    // Track all pipes for cleanup
+    const pipeFds: number[] = [outputReadFd, outputWriteFd];
+    const spawnedPids: number[] = [];
+
+    try {
+        // Create inter-command pipes (N-1 pipes for N commands)
+        const interPipes: Array<[number, number]> = [];
+
+        for (let i = 0; i < parsedCommands.length - 1; i++) {
+            const [readFd, writeFd] = await pipe();
+            interPipes.push([readFd, writeFd]);
+            pipeFds.push(readFd, writeFd);
+        }
+
+        // Spawn each command
+        for (let i = 0; i < parsedCommands.length; i++) {
+            const parsed = parsedCommands[i]!;
+            const pipeline = flattenPipeline(parsed);
+            const cmd = pipeline[0]!;
+
+            // Expand globs in arguments
+            const expandedArgs = await expandGlobs(cmd.args, cwd, readdirForGlob);
+
+            // Find command
+            const cmdPath = await findCommand(cmd.command);
+
+            if (!cmdPath) {
+                return { stdout: '', stderr: `${cmd.command}: command not found`, code: 127 };
+            }
+
+            // Determine stdin/stdout for this command
+            const isFirst = i === 0;
+            const isLast = i === parsedCommands.length - 1;
+
+            // stdin: first command inherits, others read from previous pipe
+            const stdinFd = isFirst ? undefined : interPipes[i - 1]![0];
+
+            // stdout: last command writes to output pipe, others write to next pipe
+            const stdoutFd = isLast ? outputWriteFd : interPipes[i]![1];
+
+            const pid = await spawn(cmdPath, {
+                args: [cmd.command, ...expandedArgs],
+                cwd,
+                stdin: stdinFd,
+                stdout: stdoutFd,
+            });
+
+            spawnedPids.push(pid);
+        }
+
+        // Close write ends of pipes in parent (so reads see EOF when children exit)
+        await close(outputWriteFd);
+
+        for (const [, writeFd] of interPipes) {
+            await close(writeFd);
+        }
+
+        // Read output from the final command
+        const outputChunks: string[] = [];
+
+        for await (const response of recv(outputReadFd)) {
+            if (response.op === 'item' && response.data) {
+                const data = response.data as { text?: string };
+                if (data.text) {
+                    outputChunks.push(data.text);
+                }
+            }
+            else if (response.op === 'done' || response.op === 'error') {
+                break;
+            }
+        }
+
+        // Wait for all processes
+        let lastCode = 0;
+
+        for (const pid of spawnedPids) {
+            const status = await wait(pid);
+            lastCode = status.code;
+        }
+
+        // Close remaining read fds
+        await close(outputReadFd).catch(() => {});
+
+        for (const [readFd] of interPipes) {
+            await close(readFd).catch(() => {});
+        }
+
+        return {
+            stdout: outputChunks.join(''),
+            stderr: '',
+            code: lastCode,
+        };
+    }
+    catch (err) {
+        // Cleanup on error
+        for (const fd of pipeFds) {
+            await close(fd).catch(() => {});
+        }
+
+        const message = err instanceof Error ? err.message : String(err);
+        return { stdout: '', stderr: message, code: 1 };
+    }
+}
+
+// =============================================================================
+// COMMAND PARSING
+// =============================================================================
+
+interface ParsedBangCommand {
+    type: 'exec' | 'call' | 'stm' | 'ltm' | 'help' | 'spawn' | 'wait';
+    args: unknown;
+}
+
+const HELP_PATH = '/etc/prior/help.txt';
+
+/**
+ * Parse ! commands from LLM response.
+ *
+ * Supported commands:
+ *   !exec ["ls -la", "grep foo"]           # shell pipeline
+ *   !call syscall:name arg1 arg2 ...       # direct syscall
+ *   !stm ...                               # short-term memory (reserved)
+ *   !ltm ...                               # long-term memory (reserved)
+ *
+ * @param text - LLM response text
+ * @returns Array of parsed commands, or null if none found
+ */
+function parseBangCommands(text: string): ParsedBangCommand[] | null {
+    const results: ParsedBangCommand[] = [];
+    const lines = text.split('\n');
+
+    for (const line of lines) {
+        const trimmed = line.trim();
+
+        // !exec ["cmd1", "cmd2", ...]
+        const execMatch = trimmed.match(/^!exec\s+(\[.+\])/);
+        if (execMatch && execMatch[1]) {
+            try {
+                const commands = JSON.parse(execMatch[1]) as unknown;
+                if (Array.isArray(commands) && commands.every(c => typeof c === 'string')) {
+                    results.push({ type: 'exec', args: commands });
+                }
+            }
+            catch {
+                // Invalid JSON, skip
+            }
+            continue;
+        }
+
+        // !call syscall:name arg1 arg2 ... OR !call syscall:name [arg1, arg2]
+        const callMatch = trimmed.match(/^!call\s+(\S+)\s*(.*)/);
+        if (callMatch && callMatch[1]) {
+            const syscallName = callMatch[1];
+            const argsStr = (callMatch[2] || '').trim();
+
+            // Check if args are a JSON array
+            let args: unknown[];
+            if (argsStr.startsWith('[')) {
+                try {
+                    const parsed = JSON.parse(argsStr);
+                    args = Array.isArray(parsed) ? parsed : [parsed];
+                }
+                catch {
+                    args = parseCallArgs(argsStr);
+                }
+            }
+            else {
+                args = parseCallArgs(argsStr);
+            }
+
+            results.push({ type: 'call', args: { name: syscallName, args } });
+            continue;
+        }
+
+        // !stm (reserved)
+        if (trimmed.startsWith('!stm')) {
+            results.push({ type: 'stm', args: trimmed.slice(4).trim() });
+            continue;
+        }
+
+        // !ltm (reserved)
+        if (trimmed.startsWith('!ltm')) {
+            results.push({ type: 'ltm', args: trimmed.slice(4).trim() });
+            continue;
+        }
+
+        // !help
+        if (trimmed === '!help' || trimmed.startsWith('!help ')) {
+            results.push({ type: 'help', args: null });
+            continue;
+        }
+
+        // !spawn "task" or !spawn {"task": "...", "model": "..."}
+        // Also handles LLM confusion: !spawn spawn:xyz "task" (strips the spawn:id)
+        const spawnMatch = trimmed.match(/^!spawn\s+(.+)/);
+        if (spawnMatch && spawnMatch[1]) {
+            let argStr = spawnMatch[1].trim();
+
+            // Strip any spawn:id the LLM mistakenly added
+            argStr = argStr.replace(/^spawn:[a-z0-9]+\s+/, '');
+
+            let spawnArgs: { task: string; model?: string };
+
+            // Try JSON object first
+            if (argStr.startsWith('{')) {
+                try {
+                    spawnArgs = JSON.parse(argStr) as { task: string; model?: string };
+                }
+                catch {
+                    // Fall back to quoted string
+                    spawnArgs = { task: argStr.replace(/^["']|["']$/g, '') };
+                }
+            }
+            else {
+                // Quoted or plain string
+                spawnArgs = { task: argStr.replace(/^["']|["']$/g, '') };
+            }
+
+            results.push({ type: 'spawn', args: spawnArgs });
+            continue;
+        }
+
+        // !wait spawn:id OR !wait (waits for all)
+        if (trimmed === '!wait') {
+            results.push({ type: 'wait', args: 'all' });
+            continue;
+        }
+        const waitMatch = trimmed.match(/^!wait\s+(spawn:[a-z0-9]+)/);
+        if (waitMatch && waitMatch[1]) {
+            results.push({ type: 'wait', args: waitMatch[1] });
+            continue;
+        }
+    }
+
+    return results.length > 0 ? results : null;
+}
+
+/**
+ * Parse arguments for !call command.
+ *
+ * Tries to parse each space-separated token as JSON, falls back to string.
+ * Handles quoted strings with spaces.
+ */
+function parseCallArgs(argsStr: string): unknown[] {
+    if (!argsStr.trim()) return [];
+
+    const args: unknown[] = [];
+    let current = '';
+    let inQuote: string | null = null;
+    let escape = false;
+
+    for (const char of argsStr) {
+        if (escape) {
+            current += char;
+            escape = false;
+            continue;
+        }
+
+        if (char === '\\') {
+            escape = true;
+            continue;
+        }
+
+        if ((char === '"' || char === "'") && !inQuote) {
+            inQuote = char;
+            current += char;
+            continue;
+        }
+
+        if (char === inQuote) {
+            inQuote = null;
+            current += char;
+            continue;
+        }
+
+        if (char === ' ' && !inQuote) {
+            if (current) {
+                args.push(parseArgValue(current));
+                current = '';
+            }
+            continue;
+        }
+
+        current += char;
+    }
+
+    if (current) {
+        args.push(parseArgValue(current));
+    }
+
+    return args;
+}
+
+/**
+ * Parse a single argument value - try JSON first, fall back to string.
+ */
+function parseArgValue(value: string): unknown {
+    // Try parsing as JSON (handles numbers, booleans, objects, arrays, quoted strings)
+    try {
+        return JSON.parse(value);
+    }
+    catch {
+        // Not valid JSON, return as plain string
+        return value;
+    }
+}
+
+/**
+ * Execute a !call syscall command.
+ */
+async function executeCall(name: string, args: unknown[]): Promise<string> {
+    try {
+        await eprintln(`prior: !call ${name} ${JSON.stringify(args)}`);
+
+        const result = await call<unknown>(name, ...args);
+
+        // Format result for LLM consumption
+        if (result === undefined || result === null) {
+            return '(no result)';
+        }
+        if (typeof result === 'string') {
+            return result;
+        }
+        return JSON.stringify(result, null, 2);
+    }
+    catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return `Error: ${message}`;
+    }
+}
+
+// =============================================================================
 // TASK EXECUTION
 // =============================================================================
 
 /**
- * Execute a task using the LLM.
+ * Execute a task using the LLM with agentic loop.
+ *
+ * The LLM can output exec([...]) calls to run shell commands.
+ * Results are fed back to continue the conversation until
+ * the LLM produces a final response without exec calls.
  */
 async function executeTask(instruction: Instruction, skipLogging = false): Promise<TaskResult> {
     const startTime = Date.now();
     const model = instruction.model ?? DEFAULT_MODEL;
 
+    // Conversation history for agentic loop
+    const conversation: Array<{ role: 'user' | 'assistant' | 'exec'; content: string }> = [];
+
+    // Build initial prompt with memory context
+    const initialParts: string[] = [];
+
+    if (identity) {
+        initialParts.push(`My identity: ${identity}`);
+    }
+
+    if (memoryContext) {
+        initialParts.push(`Memory context:\n${memoryContext}`);
+    }
+
+    if (instruction.context) {
+        initialParts.push(`Task context:\n${JSON.stringify(instruction.context, null, 2)}`);
+    }
+
+    initialParts.push(`Task: ${instruction.task}`);
+
+    conversation.push({ role: 'user', content: initialParts.join('\n\n') });
+
     try {
-        // Build prompt with memory context
-        const parts: string[] = [];
+        let finalResponse = '';
+        let iterations = 0;
 
-        // Include identity if available
-        if (identity) {
-            parts.push(`My identity: ${identity}`);
+        // Agentic loop: run until LLM produces response without exec() calls
+        while (iterations < MAX_EXEC_ITERATIONS) {
+            iterations++;
+
+            // Build prompt from conversation history
+            const prompt = conversation.map(turn => {
+                if (turn.role === 'user') {
+                    return `User: ${turn.content}`;
+                }
+                else if (turn.role === 'assistant') {
+                    return `Assistant: ${turn.content}`;
+                }
+                else {
+                    return `[Exec Result]:\n${turn.content}`;
+                }
+            }).join('\n\n');
+
+            await eprintln(`prior: iteration ${iterations}, calling llm:complete with model=${model}`);
+
+            const response = await call<CompletionResponse>('llm:complete', model, prompt, {
+                system: systemPrompt,
+            });
+
+            await eprintln(`prior: llm responded, ${response.text.length} chars`);
+
+            // Check for ! commands
+            const bangCommands = parseBangCommands(response.text);
+
+            if (!bangCommands || bangCommands.length === 0) {
+                // No commands - this is the final response
+                finalResponse = response.text;
+                break;
+            }
+
+            // Execute all commands in parallel (multi-threaded)
+            conversation.push({ role: 'assistant', content: response.text });
+
+            const executeCommand = async (cmd: ParsedBangCommand): Promise<string> => {
+                switch (cmd.type) {
+                    case 'exec': {
+                        const commands = cmd.args as string[];
+                        await eprintln(`prior: !exec ${JSON.stringify(commands)}`);
+
+                        const execResult = await exec(commands);
+                        return execResult.code === 0
+                            ? execResult.stdout || '(no output)'
+                            : `Error (code ${execResult.code}): ${execResult.stderr || execResult.stdout || 'unknown error'}`;
+                    }
+
+                    case 'call': {
+                        const { name, args } = cmd.args as { name: string; args: unknown[] };
+                        return executeCall(name, args);
+                    }
+
+                    case 'stm':
+                        return '[!stm not yet implemented]';
+
+                    case 'ltm':
+                        return '[!ltm not yet implemented]';
+
+                    case 'help':
+                        try {
+                            return await readFile(HELP_PATH);
+                        }
+                        catch {
+                            return 'Help file not found.';
+                        }
+
+                    case 'spawn': {
+                        const spawnArgs = cmd.args as { task: string; model?: string };
+                        const spawnId = generateSpawnId();
+                        const spawnModel = spawnArgs.model ?? model;
+
+                        await eprintln(`prior: !spawn ${spawnId} "${spawnArgs.task.slice(0, 50)}..."`);
+
+                        // Create instruction for subagent (inherits context)
+                        const subInstruction: Instruction = {
+                            task: spawnArgs.task,
+                            context: {
+                                spawned_by: 'prior',
+                                parent_identity: identity,
+                            },
+                            model: spawnModel,
+                        };
+
+                        // Start async execution, track in map
+                        const promise = executeTask(subInstruction, true);
+                        const agent: SpawnedAgent = {
+                            id: spawnId,
+                            task: spawnArgs.task,
+                            model: spawnModel,
+                            promise,
+                            done: false,
+                        };
+
+                        // When promise resolves, mark done and store result
+                        promise.then(result => {
+                            agent.result = result;
+                            agent.done = true;
+                        });
+
+                        spawnedAgents.set(spawnId, agent);
+                        return spawnId;
+                    }
+
+                    case 'wait': {
+                        const waitId = cmd.args as string;
+
+                        // !wait (no id) - wait for all pending spawns
+                        if (waitId === 'all') {
+                            if (spawnedAgents.size === 0) {
+                                return '(no pending spawns)';
+                            }
+
+                            await eprintln(`prior: !wait all (${spawnedAgents.size} pending...)`);
+
+                            const results: string[] = [];
+                            for (const [id, agent] of spawnedAgents) {
+                                const result = await agent.promise;
+                                const text = result.status === 'ok'
+                                    ? result.result ?? '(no result)'
+                                    : `Error: ${result.error ?? 'unknown error'}`;
+                                results.push(`[${id}]: ${text}`);
+                            }
+
+                            spawnedAgents.clear();
+                            return results.join('\n\n');
+                        }
+
+                        // !wait spawn:id - wait for specific spawn
+                        const agent = spawnedAgents.get(waitId);
+
+                        if (!agent) {
+                            return `Error: unknown spawn id ${waitId}`;
+                        }
+                        else if (agent.done) {
+                            const result = agent.result?.status === 'ok'
+                                ? agent.result.result ?? '(no result)'
+                                : `Error: ${agent.result?.error ?? 'unknown error'}`;
+                            spawnedAgents.delete(waitId);
+                            return result;
+                        }
+                        else {
+                            // Wait for completion
+                            await eprintln(`prior: !wait ${waitId} (blocking...)`);
+                            const result = await agent.promise;
+                            spawnedAgents.delete(waitId);
+                            return result.status === 'ok'
+                                ? result.result ?? '(no result)'
+                                : `Error: ${result.error ?? 'unknown error'}`;
+                        }
+                    }
+
+                    default:
+                        return '[unknown command]';
+                }
+            };
+
+            // Separate waits from other commands - waits must run after spawns
+            const waitCommands = bangCommands.filter(cmd => cmd.type === 'wait');
+            const otherCommands = bangCommands.filter(cmd => cmd.type !== 'wait');
+
+            // Run non-wait commands in parallel
+            const otherResults = await Promise.all(otherCommands.map(executeCommand));
+
+            // Add those results to conversation
+            for (const resultText of otherResults) {
+                await eprintln(`prior: result: ${resultText.slice(0, 100)}${resultText.length > 100 ? '...' : ''}`);
+                conversation.push({ role: 'exec', content: resultText });
+            }
+
+            // Now run waits (after spawns are registered)
+            const waitResults = await Promise.all(waitCommands.map(executeCommand));
+
+            for (const resultText of waitResults) {
+                await eprintln(`prior: result: ${resultText.slice(0, 100)}${resultText.length > 100 ? '...' : ''}`);
+                conversation.push({ role: 'exec', content: resultText });
+            }
         }
 
-        // Include memory context if available
-        if (memoryContext) {
-            parts.push(`Memory context:\n${memoryContext}`);
+        if (iterations >= MAX_EXEC_ITERATIONS) {
+            finalResponse = `[Reached maximum iterations (${MAX_EXEC_ITERATIONS}). Last response may be incomplete.]`;
         }
-
-        // Include instruction context if provided
-        if (instruction.context) {
-            parts.push(`Task context:\n${JSON.stringify(instruction.context, null, 2)}`);
-        }
-
-        // Add the actual task
-        parts.push(`Task: ${instruction.task}`);
-
-        const prompt = parts.join('\n\n');
-
-        await eprintln(`prior: calling llm:complete with model=${model}`);
-
-        // Call LLM with system prompt if available
-        const response = await call<CompletionResponse>('llm:complete', model, prompt, {
-            system: systemPrompt,
-        });
-
-        await eprintln(`prior: llm responded, ${response.text.length} chars`);
 
         const result: TaskResult = {
             status: 'ok',
-            result: response.text,
-            model: response.model,
+            result: finalResponse,
+            model,
             duration_ms: Date.now() - startTime,
         };
 
-        // Log to session (skip for self-discovery to avoid circular logging)
         if (!skipLogging) {
-            await logSession(instruction.task, response.text, 'ok');
+            await logSession(instruction.task, finalResponse, 'ok');
         }
 
         return result;
@@ -222,7 +981,7 @@ async function executeTask(instruction: Instruction, skipLogging = false): Promi
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);
 
-        await eprintln(`prior: llm error: ${message}`);
+        await eprintln(`prior: error: ${message}`);
 
         const result: TaskResult = {
             status: 'error',
@@ -230,7 +989,6 @@ async function executeTask(instruction: Instruction, skipLogging = false): Promi
             duration_ms: Date.now() - startTime,
         };
 
-        // Log errors too
         if (!skipLogging) {
             await logSession(instruction.task, message, 'error');
         }
