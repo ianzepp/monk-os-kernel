@@ -725,15 +725,15 @@ relationship metadata (`llm.model.provider` → `llm.provider.provider_name`).
 
 **Implementation:** `rom/bin/prior.ts` (~300 lines), `rom/svc/init.ts` (~130 lines)
 
-### Phase 3: Shell + Coreutils (Userspace) ← CURRENT
+### Phase 3: Shell + Coreutils (Userspace) ✅ COMPLETE
 
-1. Reintroduce `/bin/shell` to OS userspace
-2. Add basic coreutils (`cat`, `grep`, `head`, `tail`, `wc`)
-3. Add `/bin/sql` - SQLite CLI for userspace database access
-4. Ensure tools can be spawned as child processes
-5. Prior can spawn shell to execute commands
+1. ✅ `/bin/shell` - command interpreter
+2. ✅ Coreutils - 40+ commands (cat, grep, awk, sed, find, sort, uniq, etc.)
+3. ⏸️ `/bin/sql` - SQLite CLI (on hold)
 
-### Phase 4: Agent Memory
+**Implementation:** `rom/bin/` (~45 commands)
+
+### Phase 4: Agent Memory ← CURRENT
 
 1. Create `rom/lib/agent/memory.ts` - AgentMemory class wrapping SQLite
 2. Initialize Prior's `~/.memory/agent.db` with schema
@@ -755,6 +755,7 @@ relationship metadata (`llm.model.provider` → `llm.provider.provider_name`).
 3. Embedding/vector search for semantic memory
 4. Agent specializations (coder, research, chat configs)
 5. Context window management
+6. Tool execution (Prior spawns shell, captures output) - requires capable models
 
 ---
 
