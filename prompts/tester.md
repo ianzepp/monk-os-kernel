@@ -84,7 +84,6 @@ Group by error type, not file location:
 
 ```
 Agent 1: HAL mock updates
-  - spec/helpers/test-mocks.ts (if exists)
   - All files with "missing properties from type 'HAL'"
 
 Agent 2: Unused imports & variables

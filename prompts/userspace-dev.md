@@ -141,13 +141,11 @@ import { resolvePath } from '@rom/lib/shell';
 | Library | Purpose | Key Exports |
 |---------|---------|-------------|
 | `@rom/lib/args` | Argument parsing | `parseArgs()`, `parseDuration()` |
-| `@rom/lib/process` | Syscalls, I/O | `recv`, `send`, `open`, `read`, `write`, `exit`, `println`, `eprintln` |
-| `@rom/lib/shell` | Shell utilities | `resolvePath()` |
-| `@rom/lib/path` | Path manipulation | `basename()`, `dirname()`, `join()` |
-| `@rom/lib/utils` | Common utilities | `formatError()`, `sortBy()` |
-| `@rom/lib/format` | Output formatting | Table formatting, alignment |
-| `@rom/lib/glob` | Pattern matching | `glob()`, `match()` |
-| `@rom/lib/io` | High-level I/O | `ByteReader`, `ByteWriter` |
+| `@rom/lib/process` | Syscalls, I/O | `recv`, `send`, `open`, `read`, `write`, `exit`, `println`, `eprintln`, `ByteReader` |
+| `@rom/lib/shell` | Shell utilities | `parseArgs()`, `resolvePath()`, `expandGlobs()` |
+| `@rom/lib/path` | Path manipulation | `resolvePath()`, `dirname()` |
+| `@rom/lib/format` | Output formatting | `formatMode()`, `formatSize()`, `formatDate()` |
+| `@rom/lib/glob` | Pattern matching | `isGlob()`, `globToRegex()` |
 
 ### Argument Parsing
 
@@ -895,16 +893,17 @@ describe('command-name', () => {
     });
 
     it('should do something', async () => {
-        // Spawn shell with command, capture output via redirect
-        const handle = await os.process.spawn('/bin/shell.ts', {
+        // Spawn shell with command via syscall
+        const pid = await os.syscall<number>('proc:spawn', '/bin/shell.ts', {
             args: ['shell', '-c', 'echo hello > /tmp/out'],
         });
 
-        const result = await handle.wait();
-        expect(result.exitCode).toBe(EXIT.SUCCESS);
+        // Wait for process to exit
+        const status = await os.syscall<{ code: number }>('proc:wait', pid);
+        expect(status.code).toBe(EXIT.SUCCESS);
 
-        // Read captured output via OS filesystem API
-        const stdout = await os.fs.readText('/tmp/out');
+        // Read captured output via syscall
+        const stdout = await os.text('/tmp/out');
         expect(stdout).toBe('hello\n');
     });
 });
@@ -912,9 +911,9 @@ describe('command-name', () => {
 
 ### Key Principles
 
-1. **Use `OS` API, not kernel internals**
-   - `os.process.spawn()` - NOT `kernel.boot()` or `kernel.spawnExternal()`
-   - `os.fs.readText()` - NOT `vfs.open()` directly
+1. **Use `OS` syscall API, not kernel internals**
+   - `os.syscall('proc:spawn', ...)` - NOT `kernel.boot()` or `kernel.spawnExternal()`
+   - `os.text('/path')` or `os.read('/path')` - NOT `vfs.open()` directly
    - Let the shell handle piping - that's the userspace code we're testing
 
 2. **Fresh OS per test** (`beforeEach`)
@@ -924,7 +923,7 @@ describe('command-name', () => {
 
 3. **Output capture via shell redirects**
    - Use `command > /tmp/out` in the shell command
-   - Read with `os.fs.readText('/tmp/out')`
+   - Read with `os.text('/tmp/out')`
    - This tests the real shell redirect path
 
 4. **Test through the shell**
@@ -941,14 +940,14 @@ For test files with many similar tests, extract a helper:
  * Run a shell command and capture output.
  */
 async function run(command: string): Promise<{ exitCode: number; stdout: string }> {
-    const handle = await os.process.spawn('/bin/shell.ts', {
+    const pid = await os.syscall<number>('proc:spawn', '/bin/shell.ts', {
         args: ['shell', '-c', `${command} > /tmp/out`],
     });
 
-    const result = await handle.wait();
-    const stdout = await os.fs.readText('/tmp/out');
+    const status = await os.syscall<{ code: number }>('proc:wait', pid);
+    const stdout = await os.text('/tmp/out');
 
-    return { exitCode: result.exitCode, stdout };
+    return { exitCode: status.code, stdout };
 }
 
 // Usage
@@ -975,8 +974,8 @@ jest.mock('@rom/lib/process', () => ({ ... }));
 // GOOD: Using OS public API
 const os = new OS();
 await os.boot();
-const handle = await os.process.spawn('/bin/shell.ts', { ... });
-const content = await os.fs.readText('/tmp/out');
+const pid = await os.syscall<number>('proc:spawn', '/bin/shell.ts', { ... });
+const content = await os.text('/tmp/out');
 ```
 
 ### Test Location
