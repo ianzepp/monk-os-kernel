@@ -50,6 +50,7 @@ import type { Kernel } from '../kernel.js';
 import type { Process } from '../types.js';
 import { EBADF } from '../errors.js';
 import { unrefHandle } from './unref-handle.js';
+import { printk } from './printk.js';
 
 /**
  * Close a handle by removing fd mapping and decrementing refcount.
@@ -91,6 +92,12 @@ export async function closeHandle(self: Kernel, proc: Process, h: number): Promi
 
     if (!handleId) {
         throw new EBADF(`Bad file descriptor: ${h}`);
+    }
+
+    // DEBUG: Log when listener fd might be closed
+    const handle = self.handles.get(handleId);
+    if (handle?.type === 'port') {
+        printk(self, 'debug', `closeHandle: closing PORT fd ${h} (${handleId.slice(0, 8)}) for process ${proc.cmd}`);
     }
 
     // CRITICAL: Remove from process BEFORE decrementing refcount
