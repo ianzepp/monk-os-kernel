@@ -43,6 +43,7 @@ import { getPortFromHandle } from '@src/kernel/kernel/get-port-from-handle.js';
 import { recvPort } from '@src/kernel/kernel/recv-port.js';
 import { closeHandle } from '@src/kernel/kernel/close-handle.js';
 import { openChannel } from '@src/kernel/kernel/open-channel.js';
+import { acceptChannel } from '@src/kernel/kernel/accept-channel.js';
 import { getChannelFromHandle } from '@src/kernel/kernel/get-channel-from-handle.js';
 
 // =============================================================================
@@ -422,4 +423,46 @@ export async function* channelRecv(
     const msg = await channel.recv();
 
     yield respond.ok(msg);
+}
+
+/**
+ * Wrap an accepted socket in a protocol-aware channel.
+ *
+ * Takes a socket fd (from port:recv on tcp:listen) and wraps it in a channel
+ * for protocol-aware I/O. The socket fd is consumed - caller gets a new
+ * channel fd.
+ *
+ * @param proc - Calling process
+ * @param kernel - Kernel instance
+ * @param _hal - HAL instance (unused)
+ * @param socketFd - Socket descriptor from port:recv
+ * @param proto - Protocol (http, http-server, sse)
+ * @param opts - Protocol-specific options
+ */
+export async function* channelAccept(
+    proc: Process,
+    kernel: Kernel,
+    _hal: HAL,
+    socketFd: unknown,
+    proto: unknown,
+    opts?: unknown,
+): AsyncIterable<Response> {
+    if (typeof socketFd !== 'number') {
+        yield respond.error('EINVAL', 'socketFd must be a number');
+        return;
+    }
+
+    if (typeof proto !== 'string') {
+        yield respond.error('EINVAL', 'proto must be a string');
+        return;
+    }
+
+    try {
+        const channelFd = await acceptChannel(kernel, proc, socketFd, proto, opts as ChannelOpts | undefined);
+        yield respond.ok(channelFd);
+    }
+    catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        yield respond.error('EIO', message);
+    }
 }

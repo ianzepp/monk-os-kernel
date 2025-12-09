@@ -8,27 +8,36 @@ Prior is the primary AI agent in Monk OS. It runs as PID 1, listens on TCP port 
 # Start the OS
 bun start:sqlite
 
-# Send a task
-(echo '{"task": "list files in /bin"}'; sleep 10) | nc localhost 7777
+# Send a task via HTTP
+curl -X POST http://localhost:7777 \
+  -H "Content-Type: application/json" \
+  -d '{"task": "list files in /bin"}'
 ```
 
 ## Architecture
 
 ```
-External Client (Claude Code, Abbot, nc)
+External Client (curl, fetch, any HTTP client)
          │
-         │ TCP :7777
+         │ HTTP POST :7777
+         ▼
+┌─────────────────────────────────────┐
+│  HTTP Server Channel                │
+│  (parses HTTP, extracts JSON body)  │
+└─────────────────────────────────────┘
+         │
+         │ { task, model? }
          ▼
 ┌─────────────────────────────────────┐
 │  Prior (PID 1)                      │
 │                                     │
-│  1. Receive task JSON               │
+│  1. Receive task from HTTP request  │
 │  2. Call LLM with system prompt     │
 │  3. Parse ! commands from response  │
 │  4. Execute commands                │
 │  5. Feed output back to LLM         │
 │  6. Repeat until no ! commands      │
-│  7. Return final response           │
+│  7. Return HTTP response with JSON  │
 └─────────────────────────────────────┘
          │
          │ syscalls
@@ -38,23 +47,33 @@ External Client (Claude Code, Abbot, nc)
 └─────────────────────────────────────┘
 ```
 
-## Task Protocol
+## HTTP API
 
-Send JSON over TCP:
+**Endpoint:** `POST http://localhost:7777`
 
+**Request:**
 ```json
-{"task": "how many files are in /bin?"}
-{"task": "create a file at /tmp/test.txt with 'hello'", "model": "claude-sonnet-4"}
+{
+  "task": "how many files are in /bin?",
+  "model": "claude-sonnet-4"  // optional, defaults to claude-sonnet-4
+}
 ```
 
-Receive JSON response:
-
+**Response:**
 ```json
 {
   "status": "ok",
   "result": "There are 45 files in /bin.",
   "model": "claude-sonnet-4",
   "duration_ms": 3200
+}
+```
+
+**Error Response:**
+```json
+{
+  "error": "Bad request",
+  "message": "Missing or invalid task field"
 }
 ```
 

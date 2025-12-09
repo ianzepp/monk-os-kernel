@@ -51,6 +51,7 @@
 import type { Socket } from '../network/types.js';
 import type { Channel, ChannelDevice, ChannelOpts } from './types.js';
 import { BunHttpChannel } from './http.js';
+import { BunHttpServerChannel } from './http-server.js';
 import { BunWebSocketClientChannel } from './websocket.js';
 import { BunSSEServerChannel } from './sse.js';
 import { BunPostgresChannel } from './postgres.js';
@@ -166,6 +167,12 @@ export class BunChannelDevice implements ChannelDevice {
      */
     async accept(socket: Socket, proto: string, opts?: ChannelOpts): Promise<Channel> {
         switch (proto) {
+            case 'http':
+            case 'http-server':
+                // WHY: HTTP server channel handles request parsing and response formatting.
+                // Wraps raw socket with HTTP/1.1 protocol handling.
+                return new BunHttpServerChannel(socket, opts);
+
             case 'sse':
                 // WHY: SSE is HTTP-compatible and works on raw sockets. The channel
                 // sends HTTP response headers then streams events in text/event-stream format.

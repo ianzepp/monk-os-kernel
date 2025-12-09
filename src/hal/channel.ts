@@ -88,6 +88,7 @@ export type { Channel, ChannelDevice, ChannelOpts, HttpRequest, QueryData } from
 // WHY: Each protocol has dedicated implementation in ./channel/ subdirectory
 export { BunChannelDevice } from './channel/device.js';
 export { BunHttpChannel } from './channel/http.js';
+export { BunHttpServerChannel } from './channel/http-server.js';
 export { BunWebSocketClientChannel } from './channel/websocket.js';
 export { BunSSEServerChannel } from './channel/sse.js';
 export { BunPostgresChannel } from './channel/postgres.js';

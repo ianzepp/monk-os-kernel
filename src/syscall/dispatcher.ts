@@ -77,7 +77,7 @@ import { emsSelect, emsCreate, emsUpdate, emsDelete, emsRevert, emsExpire } from
 import { netConnect } from './hal.js';
 import { portCreate, portClose, portRecv, portSend } from './hal.js';
 import { channelOpen, channelClose, channelCall, channelStream } from './hal.js';
-import { channelPush, channelRecv } from './hal.js';
+import { channelPush, channelRecv, channelAccept } from './hal.js';
 
 // Handle/IPC syscalls
 import { handleRedirect, handleRestore, handleSend, handleClose } from './handle.js';
@@ -464,6 +464,10 @@ export class SyscallDispatcher {
 
             case 'channel:recv':
                 yield* channelRecv(proc, this.kernel, args[0]);
+                break;
+
+            case 'channel:accept':
+                yield* channelAccept(proc, this.kernel, this.hal, args[0], args[1], args[2]);
                 break;
 
                 // =================================================================

@@ -1002,34 +1002,64 @@ async function executeTask(instruction: Instruction, skipLogging = false): Promi
 // =============================================================================
 
 /**
- * Handle a single client connection.
+ * HTTP request from channel.
+ */
+interface HttpRequest {
+    method: string;
+    path: string;
+    query: Record<string, string>;
+    headers: Record<string, string>;
+    body: unknown;
+}
+
+/**
+ * Handle a single client connection using HTTP channel.
  */
 async function handleConnection(socketFd: number, from: string): Promise<void> {
+    let channelFd: number | undefined;
+
     try {
-        // Read instruction
-        const rawData = await readSocket(socketFd);
+        // Wrap socket in HTTP server channel
+        channelFd = await call<number>('channel:accept', socketFd, 'http');
 
-        if (!rawData) {
-            await writeSocket(socketFd, JSON.stringify({ status: 'error', error: 'Empty request' }) + '\n');
+        // Receive HTTP request (parsed by channel)
+        // channel:recv returns { op: 'request', data: HttpRequest }
+        const recvResult = await call<{ op: string; data: HttpRequest }>('channel:recv', channelFd);
+        const request = recvResult.data;
+
+        await eprintln(`prior: ${request.method} ${request.path} from ${from}`);
+
+        // Only accept POST to root
+        if (request.method !== 'POST' || (request.path !== '/' && request.path !== '')) {
+            await call<void>('channel:push', channelFd, {
+                op: 'ok',
+                data: {
+                    status: 405,
+                    body: { error: 'Method not allowed', message: 'Use POST /' },
+                },
+            });
             return;
         }
 
-        // Parse JSON
-        let instruction: Instruction;
+        // Parse instruction from body
+        const body = request.body as Record<string, unknown> | null;
 
-        try {
-            instruction = JSON.parse(rawData) as Instruction;
-        }
-        catch {
-            await writeSocket(socketFd, JSON.stringify({ status: 'error', error: 'Invalid JSON' }) + '\n');
+        if (!body || typeof body.task !== 'string') {
+            await call<void>('channel:push', channelFd, {
+                op: 'ok',
+                data: {
+                    status: 400,
+                    body: { error: 'Bad request', message: 'Missing or invalid task field' },
+                },
+            });
             return;
         }
 
-        // Validate
-        if (!instruction.task || typeof instruction.task !== 'string') {
-            await writeSocket(socketFd, JSON.stringify({ status: 'error', error: 'Missing or invalid task field' }) + '\n');
-            return;
-        }
+        const instruction: Instruction = {
+            task: body.task,
+            context: body.context as Record<string, unknown> | undefined,
+            model: body.model as string | undefined,
+        };
 
         await eprintln(`prior: received task from ${from}: ${instruction.task.slice(0, 50)}...`);
 
@@ -1038,10 +1068,14 @@ async function handleConnection(socketFd: number, from: string): Promise<void> {
         const result = await executeTask(instruction);
         await eprintln(`prior: task complete, sending response...`);
 
-        // Send response
-        const responseJson = JSON.stringify(result) + '\n';
-        await eprintln(`prior: writing ${responseJson.length} bytes to socket`);
-        await writeSocket(socketFd, responseJson);
+        // Send HTTP response
+        await call<void>('channel:push', channelFd, {
+            op: 'ok',
+            data: {
+                status: 200,
+                body: result,
+            },
+        });
 
         await eprintln(`prior: completed task in ${result.duration_ms}ms`);
     }
@@ -1050,11 +1084,31 @@ async function handleConnection(socketFd: number, from: string): Promise<void> {
 
         await eprintln(`prior: connection error: ${message}`);
 
-        try {
-            await writeSocket(socketFd, JSON.stringify({ status: 'error', error: message }) + '\n');
+        // Try to send error response
+        if (channelFd !== undefined) {
+            try {
+                await call<void>('channel:push', channelFd, {
+                    op: 'ok',
+                    data: {
+                        status: 500,
+                        body: { error: 'Internal error', message },
+                    },
+                });
+            }
+            catch {
+                // Ignore write errors during error handling
+            }
         }
-        catch {
-            // Ignore write errors during error handling
+    }
+    finally {
+        // Close channel (this also closes the underlying socket)
+        if (channelFd !== undefined) {
+            try {
+                await call<void>('channel:close', channelFd);
+            }
+            catch {
+                // Ignore close errors
+            }
         }
     }
 }
@@ -1199,11 +1253,8 @@ async function main(): Promise<void> {
 
             await eprintln(`prior: connection from ${msg.from}`);
 
-            // Handle connection (sequentially for now)
+            // Handle connection (channel:accept consumes socket fd, handleConnection closes channel)
             await handleConnection(msg.fd, msg.from);
-
-            // Close socket
-            await call<void>('handle:close', msg.fd);
         }
         catch (err) {
             if (!running) {
