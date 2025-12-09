@@ -698,6 +698,10 @@ Strategy:
 
 **Implementation:** `src/llm/` (~2250 lines), `src/syscall/llm.ts` (~350 lines)
 
+**Schema:** `llm.provider` and `llm.model` are true EMS models with complete field
+definitions including `unique_`, `index_`, `enum_values`, `default_value`, and
+relationship metadata (`llm.model.provider` → `llm.provider.provider_name`).
+
 ### Phase 2: Prior (Main AI Process) ✅ COMPLETE
 
 **Goal:** When `bun start` boots the OS, the Prior process starts and listens for external instructions via TCP.
