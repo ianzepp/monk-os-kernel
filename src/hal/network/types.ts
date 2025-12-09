@@ -657,6 +657,177 @@ export interface UpgradeServer<T = unknown> {
 }
 
 // -------------------------------------------------------------------------
+// WebSocket Server (Accept Pattern)
+// -------------------------------------------------------------------------
+
+/**
+ * Options for WebSocket server creation.
+ *
+ * WHY: Enables configuration of WebSocket-specific settings like max payload size.
+ */
+export interface WebSocketServerOpts {
+    /**
+     * Hostname to bind to (default: '0.0.0.0').
+     */
+    hostname?: string;
+
+    /**
+     * Maximum payload size in bytes (default: 1MB to match TCP MAX_READ_BUFFER_SIZE).
+     *
+     * WHY: Prevents memory exhaustion from oversized messages.
+     * Matches TCP's 1MB limit for consistency across transports.
+     */
+    maxPayloadLength?: number;
+}
+
+/**
+ * WebSocket connection with async message iteration.
+ *
+ * WHY: Provides an async iterator interface for receiving messages, matching
+ * the pattern used by TCP sockets (read loop) rather than callbacks.
+ * This enables the Gateway to use the same processMessage() logic for both
+ * TCP and WebSocket transports.
+ *
+ * DESIGN RATIONALE:
+ * - Async iteration for messages: Natural async/await code, matches TCP pattern
+ * - sendBinary() for responses: Fire-and-forget binary sending
+ * - close() for cleanup: Graceful connection termination
+ *
+ * INVARIANTS:
+ * - Iteration ends when connection closes
+ * - sendBinary() may fail silently if connection is closing
+ * - close() is idempotent
+ *
+ * CONCURRENCY MODEL:
+ * - Multiple sendBinary() calls: Safe, queued internally by Bun
+ * - Iteration and send: Independent, both safe concurrently
+ * - close() during iteration: Ends iteration gracefully
+ */
+export interface WebSocketConnection {
+    /**
+     * Remote IP address of the client.
+     *
+     * WHY: Essential for logging and debugging.
+     */
+    readonly remoteAddress: string;
+
+    /**
+     * Send binary data to the client.
+     *
+     * WHY: Gateway sends msgpack-encoded responses as binary.
+     * Fire-and-forget pattern matches TCP write semantics.
+     *
+     * @param data - Binary data to send
+     * @returns true if queued successfully, false if failed (e.g., closing)
+     */
+    sendBinary(data: Uint8Array): boolean;
+
+    /**
+     * Close the WebSocket connection.
+     *
+     * @param code - Close code (default: 1000 = normal closure)
+     * @param reason - Human-readable close reason
+     */
+    close(code?: number, reason?: string): void;
+
+    /**
+     * Async iterator for incoming binary messages.
+     *
+     * WHY: Enables read-loop pattern matching TCP:
+     * ```typescript
+     * for await (const message of ws) {
+     *     await processMessage(message);
+     * }
+     * ```
+     *
+     * BEHAVIOR:
+     * - Yields Uint8Array for binary messages
+     * - Ignores text messages (Gateway protocol is binary only)
+     * - Ends iteration on connection close
+     *
+     * RACE CONDITION:
+     * Messages may arrive while processing previous message. Implementation
+     * buffers messages in a queue to ensure none are lost.
+     */
+    [Symbol.asyncIterator](): AsyncIterator<Uint8Array>;
+}
+
+/**
+ * WebSocket server with accept pattern.
+ *
+ * WHY: Enables Gateway to use the same accept-loop pattern for WebSocket
+ * as it does for TCP. This keeps the Gateway code parallel:
+ *
+ * TCP:  while (true) { socket = await listener.accept(); handleClient(socket); }
+ * WS:   while (true) { ws = await wsServer.accept(); handleWebSocketClient(ws); }
+ *
+ * DESIGN RATIONALE:
+ * - accept() blocks until connection: Natural async/await code
+ * - port property: Useful when port 0 specified (auto-assign)
+ * - close() for shutdown: Stops accepting, cleans up resources
+ *
+ * INVARIANTS:
+ * - accept() throws after close()
+ * - close() is idempotent
+ * - port is assigned after construction
+ *
+ * CONCURRENCY MODEL:
+ * - Multiple accept() calls: Each gets different connection (no races)
+ * - accept() during close(): Throws error
+ *
+ * MEMORY MANAGEMENT:
+ * - Server owns HTTP listener resources
+ * - Accepted connections are independent (caller manages lifecycle)
+ * - close() releases server resources, not active connections
+ */
+export interface WebSocketServer {
+    /**
+     * Port the server is listening on.
+     *
+     * WHY: When port 0 is specified, Bun auto-assigns a port.
+     * This property reveals the actual assigned port.
+     */
+    readonly port: number;
+
+    /**
+     * Accept the next WebSocket connection.
+     *
+     * Blocks until a client connects and completes WebSocket handshake.
+     *
+     * ALGORITHM:
+     * 1. If connection queued: Return immediately
+     * 2. Otherwise: Wait for next connection
+     * 3. Return WebSocketConnection ready for I/O
+     *
+     * RACE CONDITION:
+     * Connection may arrive during the check. Implementation buffers
+     * pending connections in a queue.
+     *
+     * @returns Promise resolving to connected WebSocket
+     * @throws Error if server is closed
+     */
+    accept(): Promise<WebSocketConnection>;
+
+    /**
+     * Stop the WebSocket server.
+     *
+     * Stops accepting new connections. Does not close active connections
+     * (caller's responsibility).
+     *
+     * ALGORITHM:
+     * 1. Stop HTTP server (releases port)
+     * 2. Wake any pending accept() with error
+     *
+     * INVARIANTS:
+     * - Idempotent (safe to call multiple times)
+     * - Active connections not affected
+     *
+     * @returns Promise resolving when server stopped
+     */
+    close(): Promise<void>;
+}
+
+// -------------------------------------------------------------------------
 // HTTP Server
 // -------------------------------------------------------------------------
 
@@ -871,4 +1042,38 @@ export interface NetworkDevice {
      * ```
      */
     serve<T = unknown>(port: number, handler: HttpHandler<T>, opts?: ServeOpts<T>): Promise<HttpServer>;
+
+    /**
+     * Create a WebSocket server with accept pattern.
+     *
+     * Returns immediately with a listening server. Connections are queued until
+     * accept() is called, similar to TCP listeners.
+     *
+     * WHY: Gateway needs parallel accept loops for TCP and WebSocket. This
+     * provides the same pattern: accept() blocks until connection, then returns
+     * a connection object for I/O.
+     *
+     * ALGORITHM:
+     * 1. Start HTTP server on port
+     * 2. Upgrade all requests to WebSocket
+     * 3. Queue connections for accept()
+     * 4. Return WebSocketServer handle
+     *
+     * Bun implementation: Bun.serve() with WebSocket handlers that queue
+     * connections for accept() consumption.
+     *
+     * @param port - Port to listen on
+     * @param opts - Optional server options (hostname, maxPayloadLength)
+     * @returns Promise resolving to WebSocket server handle
+     *
+     * @example
+     * ```typescript
+     * const wsServer = await network.listenWebSocket(7779);
+     * while (true) {
+     *     const ws = await wsServer.accept();
+     *     handleWebSocketClient(ws);
+     * }
+     * ```
+     */
+    listenWebSocket(port: number, opts?: WebSocketServerOpts): Promise<WebSocketServer>;
 }

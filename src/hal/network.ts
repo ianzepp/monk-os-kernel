@@ -62,6 +62,9 @@ export type {
     ServeOpts,
     HttpServer,
     NetworkDevice,
+    WebSocketServerOpts,
+    WebSocketConnection,
+    WebSocketServer,
 } from './network/types.js';
 
 // =============================================================================
@@ -71,3 +74,4 @@ export type {
 export { BunNetworkDevice } from './network/device.js';
 export { BunListener } from './network/listener.js';
 export { BunSocket } from './network/socket.js';
+export { BunWebSocketServer, BunWebSocketConnection } from './network/websocket-server.js';

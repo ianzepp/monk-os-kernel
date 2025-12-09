@@ -77,9 +77,12 @@ import type {
     ServeOpts,
     Socket,
     UpgradeServer,
+    WebSocketServer,
+    WebSocketServerOpts,
 } from './types.js';
 import { BunSocket } from './socket.js';
 import { BunListener } from './listener.js';
+import { BunWebSocketServer } from './websocket-server.js';
 
 // =============================================================================
 // MAIN CLASS
@@ -393,5 +396,28 @@ export class BunNetworkDevice implements NetworkDevice {
                 };
             },
         };
+    }
+
+    // =========================================================================
+    // WEBSOCKET SERVER (Accept Pattern)
+    // =========================================================================
+
+    /**
+     * Create a WebSocket server with accept pattern.
+     *
+     * ALGORITHM:
+     * 1. Delegate to BunWebSocketServer constructor
+     * 2. BunWebSocketServer internally calls Bun.serve() with WebSocket handlers
+     * 3. Return initialized server ready to accept connections
+     *
+     * WHY: Enables Gateway to use same accept-loop pattern for WebSocket as TCP.
+     * This keeps Gateway code parallel and reduces complexity.
+     *
+     * @param port - Port number to listen on
+     * @param opts - Optional server configuration
+     * @returns Promise resolving to ready-to-use WebSocket server
+     */
+    async listenWebSocket(port: number, opts?: WebSocketServerOpts): Promise<WebSocketServer> {
+        return new BunWebSocketServer(port, opts);
     }
 }
