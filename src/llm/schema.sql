@@ -259,7 +259,7 @@ INSERT OR IGNORE INTO fields (
 INSERT OR IGNORE INTO llm_provider (provider_name, api_format, auth_type, auth_value, endpoint, streaming_format, status) VALUES
     ('ollama', 'openai', 'none', NULL, 'http://localhost:11434', 'ndjson', 'active'),
     ('openai', 'openai', 'bearer', 'env:OPENAI_API_KEY', 'https://api.openai.com', 'sse', 'disabled'),
-    ('anthropic', 'anthropic', 'x-api-key', 'env:ANTHROPIC_API_KEY', 'https://api.anthropic.com', 'sse', 'disabled');
+    ('anthropic', 'anthropic', 'x-api-key', 'env:ANTHROPIC_API_KEY', 'https://api.anthropic.com', 'sse', 'active');
 
 -- =============================================================================
 -- SEED DATA: DEFAULT MODELS
@@ -288,8 +288,8 @@ INSERT OR IGNORE INTO llm_model (
     ('gpt-4o-mini', 'openai', 'gpt-4o-mini',
      1, 1, 1, 0, 1, 1, 128000, 16384, 0, 'message', 'disabled'),
 
-    -- Anthropic models (disabled by default - needs API key)
+    -- Anthropic models (active - uses env:ANTHROPIC_API_KEY)
     ('claude-sonnet-4', 'anthropic', 'claude-sonnet-4-20250514',
-     1, 1, 1, 0, 1, 1, 200000, 8192, 0, 'message', 'disabled'),
+     1, 1, 1, 0, 1, 1, 200000, 8192, 0, 'message', 'active'),
     ('claude-haiku-3.5', 'anthropic', 'claude-3-5-haiku-20241022',
-     1, 1, 1, 0, 1, 1, 200000, 8192, 0, 'message', 'disabled');
+     1, 1, 1, 0, 1, 1, 200000, 8192, 0, 'message', 'active');
