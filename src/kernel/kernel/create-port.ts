@@ -239,7 +239,7 @@ export async function createPort(
             // Create port with bind configuration (lazy bind on first recv)
             // WHY LAZY: Allows port creation to succeed even if address in use
             // Actual bind happens in UdpPort.recv(), errors surface there
-            port = new UdpPort(portId, { bind: udpOpts.port, address: udpOpts.host }, description);
+            port = new UdpPort(portId, { port: udpOpts.port, host: udpOpts.host }, description);
             break;
         }
 

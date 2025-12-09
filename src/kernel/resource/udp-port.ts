@@ -367,8 +367,8 @@ export class UdpPort implements Port {
         const self = this;
 
         this.socket = Bun.udpSocket({
-            port: this.opts.bind,
-            hostname: this.opts.address ?? '0.0.0.0',
+            port: this.opts.port,
+            hostname: this.opts.host ?? '0.0.0.0',
 
             socket: {
                 /**

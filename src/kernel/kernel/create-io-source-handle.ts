@@ -268,7 +268,7 @@ export async function createIOSourceHandle(
             // WHY LAZY BIND: UdpPort binds socket on first recv(), not construction
             const port = new UdpPort(
                 portId,
-                { bind: source.port, address: source.host },
+                { port: source.port, host: source.host },
                 description,
             );
 

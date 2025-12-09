@@ -117,7 +117,7 @@ export { WatchPort, type VfsWatchEvent } from './watch-port.js';
  * both recv() for incoming datagrams and send() for outgoing.
  *
  * Usage:
- *   const port = new UdpPort(hal, { bind: 9000 });
+ *   const port = new UdpPort(id, { port: 9000 }, description);
  *   const msg = await port.recv();  // msg: { from: "ip:port", data: Uint8Array }
  *   await port.send("192.168.1.100:9000", data);
  */

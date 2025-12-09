@@ -314,7 +314,7 @@ export interface UdpSocketOpts {
      *
      * INVARIANT: 0-65535 range (validated by HAL network device).
      */
-    bind: number;
+    port: number;
 
     /**
      * Local address to bind.
@@ -328,5 +328,5 @@ export interface UdpSocketOpts {
      *
      * @default "0.0.0.0"
      */
-    address?: string;
+    host?: string;
 }

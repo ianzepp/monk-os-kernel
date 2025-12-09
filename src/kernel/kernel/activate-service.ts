@@ -242,7 +242,7 @@ export async function activateService(
             const portId = self.hal.entropy.uuid();
             const description = `service:${name}:udp:bind:${activation.host ?? '0.0.0.0'}:${activation.port}`;
 
-            const port = new UdpPort(portId, { bind: activation.port, address: activation.host }, description);
+            const port = new UdpPort(portId, { port: activation.port, host: activation.host }, description);
 
             // Store for cleanup on service stop
             self.activationPorts.set(name, port);

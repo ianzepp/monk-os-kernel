@@ -162,7 +162,7 @@ export function connect(proto: 'unix', path: string): Promise<number>;
 
 ```typescript
 export function port(type: 'tcp:listen', opts: { port: number; host?: string }): Promise<number>;
-export function port(type: 'udp', opts: { bind: number }): Promise<number>;
+export function port(type: 'udp', opts: { port: number; host?: string }): Promise<number>;
 export function port(type: 'watch', opts: { pattern: string }): Promise<number>;
 export function port(type: 'pubsub', opts: { subscribe: string[] }): Promise<number>;
 

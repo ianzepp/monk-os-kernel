@@ -51,7 +51,7 @@ const resp = await conn.read(); // comes from 10.0.0.1:8080
 **Port** = explicit addressing. You're bound to receive from many sources, send to many destinations.
 
 ```typescript
-const sock = await kernel.port('udp', { bind: 9000 });
+const sock = await kernel.port('udp', { port: 9000 });
 await sock.send('10.0.0.1:9001', data);  // explicit destination
 await sock.send('10.0.0.2:9001', data);  // different destination
 const msg = await sock.recv();            // msg.from tells you who sent it
@@ -184,7 +184,7 @@ for await (const msg of listener) {
 UDP socket. Send/receive datagrams with addresses.
 
 ```typescript
-const sock = await kernel.port('udp', { bind: 9000 });
+const sock = await kernel.port('udp', { port: 9000 });
 
 // Send to specific address
 await sock.send('10.0.0.1:9001', data);
@@ -361,7 +361,7 @@ async function echoServer(kernel: Kernel) {
 
 ```typescript
 async function timeServer(kernel: Kernel) {
-  const sock = await kernel.port('udp', { bind: 37 });
+  const sock = await kernel.port('udp', { port: 37 });
 
   for await (const msg of sock) {
     // RFC 868: 32-bit seconds since 1900-01-01

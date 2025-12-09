@@ -20,6 +20,7 @@ import {
     subscribeTicks,
     println,
     eprintln,
+    debug,
     getpid,
     sleep,
     readFile,
@@ -33,15 +34,8 @@ import {
     close,
     recv,
     getcwd,
-    readdirAll,
 } from '@rom/lib/process/index.js';
 import type { Response } from '@rom/lib/process/types.js';
-import {
-    parseCommand,
-    flattenPipeline,
-    expandGlobs,
-    type GlobEntry,
-} from '@rom/lib/shell/index.js';
 
 // =============================================================================
 // CONFIGURATION
@@ -56,6 +50,18 @@ const MEMORY_DIR = '/var/prior';
 const IDENTITY_PATH = '/var/prior/identity.txt';
 const SESSION_LOG_PATH = '/var/prior/session.log';
 const CONTEXT_PATH = '/var/prior/context.txt';
+
+// =============================================================================
+// LOGGING
+// =============================================================================
+
+/**
+ * Log a message to both stderr and the UDP monitor.
+ */
+async function log(message: string): Promise<void> {
+    await eprintln(message);
+    await debug(message);
+}
 
 // =============================================================================
 // STATE
@@ -200,7 +206,7 @@ async function logSession(task: string, result: string, status: 'ok' | 'error'):
     }
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        await eprintln(`prior: failed to log session: ${message}`);
+        await log(`prior: failed to log session: ${message}`);
     }
 
     // Write to short-term memory for later consolidation
@@ -220,28 +226,6 @@ async function logSession(task: string, result: string, status: 'ok' | 'error'):
 // =============================================================================
 // COMMAND EXECUTION
 // =============================================================================
-
-/**
- * Helper for glob expansion - reads directory entries.
- */
-async function readdirForGlob(path: string): Promise<GlobEntry[]> {
-    try {
-        const entries = await readdirAll(path);
-        const result: GlobEntry[] = [];
-
-        for (const entry of entries) {
-            result.push({
-                name: entry.name,
-                isDirectory: entry.model === 'folder',
-            });
-        }
-
-        return result;
-    }
-    catch {
-        return [];
-    }
-}
 
 /**
  * Find command in /bin directory.
@@ -271,215 +255,40 @@ async function findCommand(command: string): Promise<string | null> {
 }
 
 /**
- * Execute commands sequentially (for && and ;) and concatenate output.
+ * Execute a shell command and capture output.
  *
- * Unlike pipes, each command runs independently and outputs are combined.
- */
-async function execSequential(commands: string[]): Promise<ExecResult> {
-    // Split on && and ; to get individual commands
-    const allCommands: string[] = [];
-    for (const cmd of commands) {
-        const parts = cmd.split(/\s*(?:&&|;)\s*/);
-        for (const part of parts) {
-            const trimmed = part.trim();
-            if (trimmed) {
-                allCommands.push(trimmed);
-            }
-        }
-    }
-
-    const outputs: string[] = [];
-    let lastCode = 0;
-
-    for (const cmd of allCommands) {
-        // Run each command as a single-element pipeline
-        const result = await exec([cmd]);
-        if (result.stdout) {
-            outputs.push(result.stdout);
-        }
-        if (result.stderr) {
-            outputs.push(result.stderr);
-        }
-        lastCode = result.code;
-
-        // For &&, stop on first failure
-        if (result.code !== 0 && commands.some(c => c.includes('&&'))) {
-            break;
-        }
-    }
-
-    return {
-        stdout: outputs.join('\n'),
-        stderr: '',
-        code: lastCode,
-    };
-}
-
-/**
- * Execute parallel commands (for &) and concatenate output.
+ * Routes command through /bin/shell.ts for full shell support:
+ * - Pipes (|)
+ * - Redirects (>, >>)
+ * - Chaining (&&, ||, ;)
+ * - Globs (*, ?)
+ * - Variable expansion ($VAR)
  *
- * Each segment separated by & runs in parallel.
- */
-async function execParallel(commands: string[]): Promise<ExecResult> {
-    // Split on & to get parallel segments
-    const segments: string[] = [];
-    for (const cmd of commands) {
-        const parts = cmd.split(/\s*&\s*/);
-        for (const part of parts) {
-            const trimmed = part.trim();
-            // Skip 'wait' - it's a shell builtin we don't need
-            if (trimmed && trimmed !== 'wait') {
-                segments.push(trimmed);
-            }
-        }
-    }
-
-    if (segments.length === 0) {
-        return { stdout: '', stderr: '', code: 0 };
-    }
-
-    // Run all segments in parallel
-    const promises = segments.map(segment => exec([segment]));
-    const results = await Promise.all(promises);
-
-    // Combine outputs
-    const outputs: string[] = [];
-    let lastCode = 0;
-
-    for (const result of results) {
-        if (result.stdout) {
-            outputs.push(result.stdout);
-        }
-        if (result.stderr) {
-            outputs.push(result.stderr);
-        }
-        if (result.code !== 0) {
-            lastCode = result.code;
-        }
-    }
-
-    return {
-        stdout: outputs.join('\n'),
-        stderr: '',
-        code: lastCode,
-    };
-}
-
-/**
- * Execute a pipeline of commands and capture output.
- *
- * @param commands - Array of shell command strings (e.g., ["ls -la", "grep foo"])
+ * @param shellCmd - Shell command string (passed directly to shell -c)
  * @returns Execution result with stdout, stderr, and exit code
  */
-async function exec(commands: string[]): Promise<ExecResult> {
-    if (commands.length === 0) {
+async function exec(shellCmd: string): Promise<ExecResult> {
+    if (!shellCmd.trim()) {
         return { stdout: '', stderr: '', code: 0 };
     }
-
-    // Check for & (parallel execution)
-    const hasParallel = commands.some(cmd => /\s*&\s*/.test(cmd) && !/&&/.test(cmd));
-
-    if (hasParallel) {
-        return execParallel(commands);
-    }
-
-    // Check for && or ; (sequential execution with concatenated output)
-    // These run commands independently and combine output
-    const hasSequential = commands.some(cmd => /\s*(?:&&|;)\s*/.test(cmd));
-
-    if (hasSequential) {
-        return execSequential(commands);
-    }
-
-    // Normalize pipe syntax: split "cmd1 | cmd2" into array elements
-    const normalized: string[] = [];
-    for (const cmd of commands) {
-        const parts = cmd.split(/\s*\|\s*/);
-        for (const part of parts) {
-            const trimmed = part.trim();
-            if (trimmed) {
-                normalized.push(trimmed);
-            }
-        }
-    }
-
-    if (normalized.length === 0) {
-        return { stdout: '', stderr: '', code: 0 };
-    }
-
-    commands = normalized;
 
     const cwd = await getcwd();
 
-    // Parse all commands
-    const parsedCommands = commands.map(cmd => parseCommand(cmd)).filter(Boolean);
-
-    if (parsedCommands.length === 0) {
-        return { stdout: '', stderr: 'No valid commands', code: 1 };
-    }
-
-    // For capturing final output, we create a pipe
-    // The last command writes to the pipe, we read from it
+    // Create pipe to capture output
     const [outputReadFd, outputWriteFd] = await pipe();
 
-    // Track all pipes for cleanup
-    const pipeFds: number[] = [outputReadFd, outputWriteFd];
-    const spawnedPids: number[] = [];
-
     try {
-        // Create inter-command pipes (N-1 pipes for N commands)
-        const interPipes: Array<[number, number]> = [];
+        // Spawn shell with -c to execute command
+        const pid = await spawn('/bin/shell.ts', {
+            args: ['shell', '-c', shellCmd],
+            cwd,
+            stdout: outputWriteFd,
+        });
 
-        for (let i = 0; i < parsedCommands.length - 1; i++) {
-            const [readFd, writeFd] = await pipe();
-            interPipes.push([readFd, writeFd]);
-            pipeFds.push(readFd, writeFd);
-        }
-
-        // Spawn each command
-        for (let i = 0; i < parsedCommands.length; i++) {
-            const parsed = parsedCommands[i]!;
-            const pipeline = flattenPipeline(parsed);
-            const cmd = pipeline[0]!;
-
-            // Expand globs in arguments
-            const expandedArgs = await expandGlobs(cmd.args, cwd, readdirForGlob);
-
-            // Find command
-            const cmdPath = await findCommand(cmd.command);
-
-            if (!cmdPath) {
-                return { stdout: '', stderr: `${cmd.command}: command not found`, code: 127 };
-            }
-
-            // Determine stdin/stdout for this command
-            const isFirst = i === 0;
-            const isLast = i === parsedCommands.length - 1;
-
-            // stdin: first command inherits, others read from previous pipe
-            const stdinFd = isFirst ? undefined : interPipes[i - 1]![0];
-
-            // stdout: last command writes to output pipe, others write to next pipe
-            const stdoutFd = isLast ? outputWriteFd : interPipes[i]![1];
-
-            const pid = await spawn(cmdPath, {
-                args: [cmd.command, ...expandedArgs],
-                cwd,
-                stdin: stdinFd,
-                stdout: stdoutFd,
-            });
-
-            spawnedPids.push(pid);
-        }
-
-        // Close write ends of pipes in parent (so reads see EOF when children exit)
+        // Close write end in parent so we see EOF when shell exits
         await close(outputWriteFd);
 
-        for (const [, writeFd] of interPipes) {
-            await close(writeFd);
-        }
-
-        // Read output from the final command
+        // Read output
         const outputChunks: string[] = [];
 
         for await (const response of recv(outputReadFd)) {
@@ -494,32 +303,21 @@ async function exec(commands: string[]): Promise<ExecResult> {
             }
         }
 
-        // Wait for all processes
-        let lastCode = 0;
+        // Wait for shell to complete
+        const status = await wait(pid);
 
-        for (const pid of spawnedPids) {
-            const status = await wait(pid);
-            lastCode = status.code;
-        }
-
-        // Close remaining read fds
+        // Close read end
         await close(outputReadFd).catch(() => {});
-
-        for (const [readFd] of interPipes) {
-            await close(readFd).catch(() => {});
-        }
 
         return {
             stdout: outputChunks.join(''),
             stderr: '',
-            code: lastCode,
+            code: status.code,
         };
     }
     catch (err) {
-        // Cleanup on error
-        for (const fd of pipeFds) {
-            await close(fd).catch(() => {});
-        }
+        await close(outputReadFd).catch(() => {});
+        await close(outputWriteFd).catch(() => {});
 
         const message = err instanceof Error ? err.message : String(err);
         return { stdout: '', stderr: message, code: 1 };
@@ -541,7 +339,7 @@ const HELP_PATH = '/etc/prior/help.txt';
  * Parse ! commands from LLM response.
  *
  * Supported commands:
- *   !exec ["ls -la", "grep foo"]           # shell pipeline
+ *   !exec <shell command>                  # shell command (passed directly to shell)
  *   !call syscall:name arg1 arg2 ...       # direct syscall
  *   !stm ...                               # short-term memory (reserved)
  *   !ltm ...                               # long-term memory (reserved)
@@ -556,17 +354,11 @@ function parseBangCommands(text: string): ParsedBangCommand[] | null {
     for (const line of lines) {
         const trimmed = line.trim();
 
-        // !exec ["cmd1", "cmd2", ...]
-        const execMatch = trimmed.match(/^!exec\s+(\[.+\])/);
-        if (execMatch && execMatch[1]) {
-            try {
-                const commands = JSON.parse(execMatch[1]) as unknown;
-                if (Array.isArray(commands) && commands.every(c => typeof c === 'string')) {
-                    results.push({ type: 'exec', args: commands });
-                }
-            }
-            catch {
-                // Invalid JSON, skip
+        // !exec <shell command> - everything after !exec is passed to shell
+        if (trimmed.startsWith('!exec ')) {
+            const shellCmd = trimmed.slice(6).trim();
+            if (shellCmd) {
+                results.push({ type: 'exec', args: shellCmd });
             }
             continue;
         }
@@ -602,6 +394,12 @@ function parseBangCommands(text: string): ParsedBangCommand[] | null {
             if (keywords) {
                 results.push({ type: 'ref', args: keywords });
             }
+            continue;
+        }
+
+        // !coalesce - force memory consolidation
+        if (trimmed === '!coalesce') {
+            results.push({ type: 'coalesce', args: null });
             continue;
         }
 
@@ -743,7 +541,7 @@ function parseArgValue(value: string): unknown {
  */
 async function executeCall(name: string, args: unknown[]): Promise<string> {
     try {
-        await eprintln(`prior: !call ${name} ${JSON.stringify(args)}`);
+        await log(`prior: !call ${name} ${JSON.stringify(args)}`);
 
         const result = await call<unknown>(name, ...args);
 
@@ -820,13 +618,13 @@ async function executeTask(instruction: Instruction, skipLogging = false): Promi
                 }
             }).join('\n\n');
 
-            await eprintln(`prior: iteration ${iterations}, calling llm:complete with model=${model}`);
+            await log(`prior: iteration ${iterations}, calling llm:complete with model=${model}`);
 
             const response = await call<CompletionResponse>('llm:complete', model, prompt, {
                 system: systemPrompt,
             });
 
-            await eprintln(`prior: llm responded, ${response.text.length} chars`);
+            await log(`prior: llm responded, ${response.text.length} chars`);
 
             // Check for ! commands
             const bangCommands = parseBangCommands(response.text);
@@ -843,10 +641,10 @@ async function executeTask(instruction: Instruction, skipLogging = false): Promi
             const executeCommand = async (cmd: ParsedBangCommand): Promise<string> => {
                 switch (cmd.type) {
                     case 'exec': {
-                        const commands = cmd.args as string[];
-                        await eprintln(`prior: !exec ${JSON.stringify(commands)}`);
+                        const shellCmd = cmd.args as string;
+                        await log(`prior: !exec ${shellCmd}`);
 
-                        const execResult = await exec(commands);
+                        const execResult = await exec(shellCmd);
                         return execResult.code === 0
                             ? execResult.stdout || '(no output)'
                             : `Error (code ${execResult.code}): ${execResult.stderr || execResult.stdout || 'unknown error'}`;
@@ -859,7 +657,7 @@ async function executeTask(instruction: Instruction, skipLogging = false): Promi
 
                     case 'ref': {
                         const keywords = (cmd.args as string).toLowerCase().split(/\s+/);
-                        await eprintln(`prior: !ref searching for: ${keywords.join(', ')}`);
+                        await log(`prior: !ref searching for: ${keywords.join(', ')}`);
 
                         const results: string[] = [];
 
@@ -926,6 +724,11 @@ async function executeTask(instruction: Instruction, skipLogging = false): Promi
                         return `Relevant memories:\n${results.join('\n\n')}`;
                     }
 
+                    case 'coalesce': {
+                        await consolidateMemory();
+                        return 'Memory consolidation complete.';
+                    }
+
                     case 'stm':
                         return '[!stm not yet implemented]';
 
@@ -945,7 +748,7 @@ async function executeTask(instruction: Instruction, skipLogging = false): Promi
                         const spawnId = generateSpawnId();
                         const spawnModel = spawnArgs.model ?? model;
 
-                        await eprintln(`prior: !spawn ${spawnId} "${spawnArgs.task.slice(0, 50)}..."`);
+                        await log(`prior: !spawn ${spawnId} "${spawnArgs.task.slice(0, 50)}..."`);
 
                         // Create instruction for subagent (inherits context)
                         const subInstruction: Instruction = {
@@ -986,7 +789,7 @@ async function executeTask(instruction: Instruction, skipLogging = false): Promi
                                 return '(no pending spawns)';
                             }
 
-                            await eprintln(`prior: !wait all (${spawnedAgents.size} pending...)`);
+                            await log(`prior: !wait all (${spawnedAgents.size} pending...)`);
 
                             const results: string[] = [];
                             for (const [id, agent] of spawnedAgents) {
@@ -1016,7 +819,7 @@ async function executeTask(instruction: Instruction, skipLogging = false): Promi
                         }
                         else {
                             // Wait for completion
-                            await eprintln(`prior: !wait ${waitId} (blocking...)`);
+                            await log(`prior: !wait ${waitId} (blocking...)`);
                             const result = await agent.promise;
                             spawnedAgents.delete(waitId);
                             return result.status === 'ok'
@@ -1039,7 +842,7 @@ async function executeTask(instruction: Instruction, skipLogging = false): Promi
 
             // Add those results to conversation
             for (const resultText of otherResults) {
-                await eprintln(`prior: result: ${resultText.slice(0, 100)}${resultText.length > 100 ? '...' : ''}`);
+                await log(`prior: result: ${resultText.slice(0, 100)}${resultText.length > 100 ? '...' : ''}`);
                 conversation.push({ role: 'exec', content: resultText });
             }
 
@@ -1047,7 +850,7 @@ async function executeTask(instruction: Instruction, skipLogging = false): Promi
             const waitResults = await Promise.all(waitCommands.map(executeCommand));
 
             for (const resultText of waitResults) {
-                await eprintln(`prior: result: ${resultText.slice(0, 100)}${resultText.length > 100 ? '...' : ''}`);
+                await log(`prior: result: ${resultText.slice(0, 100)}${resultText.length > 100 ? '...' : ''}`);
                 conversation.push({ role: 'exec', content: resultText });
             }
         }
@@ -1072,7 +875,7 @@ async function executeTask(instruction: Instruction, skipLogging = false): Promi
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);
 
-        await eprintln(`prior: error: ${message}`);
+        await log(`prior: error: ${message}`);
 
         const result: TaskResult = {
             status: 'error',
@@ -1108,7 +911,7 @@ interface HttpRequest {
  * Runs periodically during idle ticks (every ~10 minutes).
  */
 async function consolidateMemory(): Promise<void> {
-    await eprintln('prior: starting memory consolidation');
+    await log('prior: starting memory consolidation');
 
     try {
         // Find unconsolidated STM entries, ordered by salience
@@ -1123,11 +926,11 @@ async function consolidateMemory(): Promise<void> {
         );
 
         if (stmEntries.length === 0) {
-            await eprintln('prior: no memories to consolidate');
+            await log('prior: no memories to consolidate');
             return;
         }
 
-        await eprintln(`prior: consolidating ${stmEntries.length} memories`);
+        await log(`prior: consolidating ${stmEntries.length} memories`);
 
         // Build context for LLM
         const memoryList = stmEntries
@@ -1161,7 +964,7 @@ Output only JSON lines, no commentary. If nothing is worth keeping, output nothi
                         last_accessed: new Date().toISOString(),
                     });
 
-                    await eprintln(`prior: stored insight [${insight.category}]: ${insight.content.slice(0, 50)}...`);
+                    await log(`prior: stored insight [${insight.category}]: ${insight.content.slice(0, 50)}...`);
                 }
                 catch {
                     // Skip malformed lines
@@ -1179,11 +982,11 @@ Output only JSON lines, no commentary. If nothing is worth keeping, output nothi
             });
         }
 
-        await eprintln('prior: memory consolidation complete');
+        await log('prior: memory consolidation complete');
     }
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        await eprintln(`prior: consolidation error: ${message}`);
+        await log(`prior: consolidation error: ${message}`);
     }
 }
 
@@ -1202,7 +1005,7 @@ async function handleConnection(socketFd: number, from: string): Promise<void> {
         const recvResult = await call<{ op: string; data: HttpRequest }>('channel:recv', channelFd);
         const request = recvResult.data;
 
-        await eprintln(`prior: ${request.method} ${request.path} from ${from}`);
+        await log(`prior: ${request.method} ${request.path} from ${from}`);
 
         // Only accept POST to root
         if (request.method !== 'POST' || (request.path !== '/' && request.path !== '')) {
@@ -1236,12 +1039,12 @@ async function handleConnection(socketFd: number, from: string): Promise<void> {
             model: body.model as string | undefined,
         };
 
-        await eprintln(`prior: received task from ${from}: ${instruction.task.slice(0, 50)}...`);
+        await log(`prior: received task from ${from}: ${instruction.task.slice(0, 50)}...`);
 
         // Execute task
-        await eprintln(`prior: executing task...`);
+        await log(`prior: executing task...`);
         const result = await executeTask(instruction);
-        await eprintln(`prior: task complete, sending response...`);
+        await log(`prior: task complete, sending response...`);
 
         // Send HTTP response
         await call<void>('channel:push', channelFd, {
@@ -1252,12 +1055,12 @@ async function handleConnection(socketFd: number, from: string): Promise<void> {
             },
         });
 
-        await eprintln(`prior: completed task in ${result.duration_ms}ms`);
+        await log(`prior: completed task in ${result.duration_ms}ms`);
     }
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);
 
-        await eprintln(`prior: connection error: ${message}`);
+        await log(`prior: connection error: ${message}`);
 
         // Try to send error response
         if (channelFd !== undefined) {
@@ -1295,31 +1098,31 @@ async function handleConnection(socketFd: number, from: string): Promise<void> {
 async function main(): Promise<void> {
     const pid = await getpid();
 
-    await println(`prior: starting (pid ${pid})`);
+    await log(`prior: starting (pid ${pid})`);
 
     // Load system prompt
     try {
         systemPrompt = await readFile(SYSTEM_PROMPT_PATH);
-        await eprintln(`prior: loaded system prompt (${systemPrompt.length} chars)`);
+        await log(`prior: loaded system prompt (${systemPrompt.length} chars)`);
     }
     catch {
-        await eprintln('prior: no system prompt found, running without');
+        await log('prior: no system prompt found, running without');
     }
 
     // Initialize memory directory
     try {
         await mkdir(MEMORY_DIR, { recursive: true });
-        await eprintln(`prior: memory directory ready at ${MEMORY_DIR}`);
+        await log(`prior: memory directory ready at ${MEMORY_DIR}`);
     }
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        await eprintln(`prior: failed to create memory directory: ${message}`);
+        await log(`prior: failed to create memory directory: ${message}`);
     }
 
     // Load existing identity if available
     try {
         identity = await readFile(IDENTITY_PATH);
-        await eprintln(`prior: loaded existing identity (${identity.length} chars)`);
+        await log(`prior: loaded existing identity (${identity.length} chars)`);
     }
     catch {
         // No identity yet - will be created on first tick
@@ -1328,7 +1131,7 @@ async function main(): Promise<void> {
     // Load existing context if available
     try {
         memoryContext = await readFile(CONTEXT_PATH);
-        await eprintln(`prior: loaded memory context (${memoryContext.length} chars)`);
+        await log(`prior: loaded memory context (${memoryContext.length} chars)`);
     }
     catch {
         // No context yet - will be created by distillation
@@ -1336,7 +1139,7 @@ async function main(): Promise<void> {
 
     // Subscribe to kernel ticks for autonomous behavior
     await subscribeTicks();
-    await eprintln('prior: subscribed to kernel ticks');
+    await log('prior: subscribed to kernel ticks');
 
     // Register tick handler
     onTick(async (dt, now, seq) => {
@@ -1350,7 +1153,7 @@ async function main(): Promise<void> {
         try {
             // First tick: self-discovery (only if no identity exists)
             if (seq === 1 && !identity) {
-                await eprintln('prior: tick 1 - performing self-discovery');
+                await log('prior: tick 1 - performing self-discovery');
 
                 const result = await executeTask({
                     task: 'You just woke up. Describe your environment and capabilities based on your system knowledge. Be concise (2-3 sentences).',
@@ -1358,27 +1161,27 @@ async function main(): Promise<void> {
 
                 if (result.status === 'ok' && result.result) {
                     identity = result.result;
-                    await eprintln(`prior: self-discovery complete`);
-                    await eprintln(`prior: ${identity}`);
+                    await log(`prior: self-discovery complete`);
+                    await log(`prior: ${identity}`);
 
                     // Persist identity to file
                     try {
                         await writeFile(IDENTITY_PATH, identity);
-                        await eprintln(`prior: identity saved to ${IDENTITY_PATH}`);
+                        await log(`prior: identity saved to ${IDENTITY_PATH}`);
                     }
                     catch (err) {
                         const msg = err instanceof Error ? err.message : String(err);
-                        await eprintln(`prior: failed to save identity: ${msg}`);
+                        await log(`prior: failed to save identity: ${msg}`);
                     }
                 }
                 else {
-                    await eprintln(`prior: self-discovery failed: ${result.error}`);
+                    await log(`prior: self-discovery failed: ${result.error}`);
                 }
             }
 
             // Periodic heartbeat (every 60 ticks = ~60 seconds)
             if (seq % 60 === 0) {
-                await eprintln(`prior: heartbeat tick=${seq} dt=${dt}ms`);
+                await log(`prior: heartbeat tick=${seq} dt=${dt}ms`);
             }
 
             // Memory consolidation (every 600 ticks = ~10 minutes)
@@ -1388,7 +1191,7 @@ async function main(): Promise<void> {
         }
         catch (err) {
             const message = err instanceof Error ? err.message : String(err);
-            await eprintln(`prior: tick error: ${message}`);
+            await log(`prior: tick error: ${message}`);
         }
         finally {
             tickBusy = false;
@@ -1400,7 +1203,7 @@ async function main(): Promise<void> {
 
     onSignal(() => {
         running = false;
-        eprintln('prior: received shutdown signal');
+        log('prior: received shutdown signal');
     });
 
     // Create TCP listener
@@ -1409,12 +1212,12 @@ async function main(): Promise<void> {
 
     try {
         listenerFd = await call<number>('port:create', 'tcp:listen', { port });
-        await println(`prior: listening on tcp://0.0.0.0:${port}`);
+        await log(`prior: listening on tcp://0.0.0.0:${port}`);
     }
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);
 
-        await eprintln(`prior: failed to bind port ${port}: ${message}`);
+        await log(`prior: failed to bind port ${port}: ${message}`);
         return;
     }
 
@@ -1425,11 +1228,11 @@ async function main(): Promise<void> {
             const msg = await call<{ from: string; fd: number }>('port:recv', listenerFd);
 
             if (!msg.fd) {
-                await eprintln('prior: received connection without socket fd');
+                await log('prior: received connection without socket fd');
                 continue;
             }
 
-            await eprintln(`prior: connection from ${msg.from}`);
+            await log(`prior: connection from ${msg.from}`);
 
             // Handle connection (channel:accept consumes socket fd, handleConnection closes channel)
             await handleConnection(msg.fd, msg.from);
@@ -1441,7 +1244,7 @@ async function main(): Promise<void> {
 
             const message = err instanceof Error ? err.message : String(err);
 
-            await eprintln(`prior: accept error: ${message}`);
+            await log(`prior: accept error: ${message}`);
             await sleep(1000); // Back off on errors
         }
     }
@@ -1454,10 +1257,10 @@ async function main(): Promise<void> {
         // Ignore close errors during shutdown
     }
 
-    await println('prior: shutdown complete');
+    await log('prior: shutdown complete');
 }
 
 // Run
 main().catch(async (err) => {
-    await eprintln(`prior: fatal error: ${err}`);
+    await log(`prior: fatal error: ${err}`);
 });

@@ -31,7 +31,8 @@
         "lint": "eslint src rom spec",
         "lint:fix": "eslint src rom spec --fix",
         "audit": "bun scripts/audit.ts",
-        "kill": "bun scripts/kill.ts"
+        "kill": "bun scripts/kill.ts",
+        "monitor": "bun scripts/monitor.ts"
     },
     "keywords": [
         "os",

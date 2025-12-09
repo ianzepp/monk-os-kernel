@@ -127,7 +127,7 @@ for await (const msg of listener) {
 }
 
 // UDP - addressed datagrams
-const sock = await kernel.port('udp', { bind: 9000 });
+const sock = await kernel.port('udp', { port: 9000 });
 await sock.send('10.0.0.1:9001', data);
 const msg = await sock.recv();  // msg.from = sender address
 
