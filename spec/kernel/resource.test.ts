@@ -32,6 +32,7 @@ describe('ListenerPort', () => {
             accept: mock(() => Promise.resolve(mockSocket)),
             close: mock(() => Promise.resolve()),
             addr: mock(() => ({ hostname: '0.0.0.0', port: 8080 })),
+            port: 8080,
             [Symbol.asyncDispose]: mock(() => Promise.resolve()),
         };
     }

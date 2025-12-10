@@ -131,7 +131,7 @@ async function main(): Promise<void> {
 
         // Single model = detailed output
         if (modelArg) {
-            await println(formatDetailed(models[0]));
+            await println(formatDetailed(models[0]!));
         }
         // All models = compact listing
         else {

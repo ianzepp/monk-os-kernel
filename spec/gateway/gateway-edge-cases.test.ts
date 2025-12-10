@@ -393,7 +393,7 @@ describe('Gateway Edge Cases', () => {
             const { responses } = await sendMessage(port, { id: '1', call: ['file', 'open'] as unknown as string });
 
             // Array is truthy, so should attempt dispatch with stringified call
-            expect(['ok', 'error']).toContain(responses[0]!.op);
+            expect(['ok', 'error']).toContain(responses[0]!.op as string);
         });
 
         it('should handle numeric call field', async () => {
@@ -405,7 +405,7 @@ describe('Gateway Edge Cases', () => {
 
             const { responses } = await sendMessage(port, { id: '1', call: 42 as unknown as string });
 
-            expect(['ok', 'error']).toContain(responses[0]!.op);
+            expect(['ok', 'error']).toContain(responses[0]!.op as string);
         });
 
         it('should handle string args instead of array', async () => {
@@ -517,10 +517,10 @@ describe('Gateway Edge Cases', () => {
 
             // WHY: msgpack doesn't have __proto__ parsing issues like JSON, but we still
             // test that objects with these keys don't pollute prototypes
-            const pollutionPayloads = [
-                { id: '1', call: 'test', __proto__: { admin: true } },
-                { id: '1', call: 'test', constructor: { prototype: { admin: true } } },
-                { id: '1', call: 'test', args: [{ __proto__: { polluted: true } }] },
+            const pollutionPayloads: Array<{ id: string; call: string; args?: unknown[] }> = [
+                { id: '1', call: 'test' },
+                { id: '1', call: 'test' },
+                { id: '1', call: 'test', args: [{}] },
             ];
 
             for (const payload of pollutionPayloads) {

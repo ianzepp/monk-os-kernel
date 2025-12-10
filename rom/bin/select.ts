@@ -40,12 +40,12 @@ function parseArgs(args: string[]): { model: string; filter: ParsedFilter } {
         throw new Error('model name required');
     }
 
-    const model = args[1];
+    const model = args[1]!;
     const filter: ParsedFilter = {};
     let i = 2;
 
     while (i < args.length) {
-        const token = args[i].toLowerCase();
+        const token = args[i]!.toLowerCase();
 
         if (token === 'limit') {
             i++;
@@ -53,7 +53,7 @@ function parseArgs(args: string[]): { model: string; filter: ParsedFilter } {
                 throw new Error('expected number after limit');
             }
 
-            filter.limit = parseInt(args[i], 10);
+            filter.limit = parseInt(args[i]!, 10);
             if (isNaN(filter.limit)) {
                 throw new Error('limit must be a number');
             }
@@ -64,7 +64,7 @@ function parseArgs(args: string[]): { model: string; filter: ParsedFilter } {
             i++;
             // Parse field=value pairs until we hit another keyword or end
             while (i < args.length) {
-                const pair = args[i];
+                const pair = args[i]!;
 
                 if (['limit', 'order'].includes(pair.toLowerCase())) {
                     break;
@@ -92,14 +92,14 @@ function parseArgs(args: string[]): { model: string; filter: ParsedFilter } {
                 filter.orderBy = [];
             }
 
-            while (i < args.length && !['limit', 'where'].includes(args[i].toLowerCase())) {
-                filter.orderBy.push(args[i]);
+            while (i < args.length && !['limit', 'where'].includes(args[i]!.toLowerCase())) {
+                filter.orderBy.push(args[i]!);
                 i++;
             }
         }
-        else if (args[i].includes('=')) {
+        else if (args[i]!.includes('=')) {
             // Bare field=value (without 'where' keyword)
-            const pair = args[i];
+            const pair = args[i]!;
             const eqIdx = pair.indexOf('=');
             const field = pair.slice(0, eqIdx);
             const value = parseValue(pair.slice(eqIdx + 1));

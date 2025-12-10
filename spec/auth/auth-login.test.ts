@@ -41,7 +41,7 @@ describe('Auth Phase 1', () => {
             }
 
             expect(users.length).toBe(1);
-            expect(users[0].username).toBe('root');
+            expect(users[0]!.username).toBe('root');
         });
 
         it('should not duplicate root user on repeated init', async () => {
@@ -99,7 +99,7 @@ describe('Auth Phase 1', () => {
             }
 
             expect(sessions.length).toBe(1);
-            expect(sessions[0].user_id).toBe(ROOT_USER_ID);
+            expect(sessions[0]!.user_id).toBe(ROOT_USER_ID);
         });
 
         it('should return valid JWT on login', async () => {

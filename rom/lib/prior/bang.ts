@@ -445,7 +445,14 @@ async function executeSpawn(spawnArgs: SpawnArgs, ctx: BangExecutionContext): Pr
     // Start async execution, track in state
     const promise = ctx.executeTask(subInstruction, { skipLogging: true });
 
-    const agent = {
+    const agent: {
+        id: string;
+        task: string;
+        model: string;
+        promise: Promise<TaskResult>;
+        done: boolean;
+        result?: TaskResult;
+    } = {
         id: spawnId,
         task: spawnArgs.task,
         model: spawnModel,

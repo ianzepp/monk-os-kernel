@@ -47,7 +47,7 @@ describe('Auth Phase 2', () => {
             const result = await auth.login('alice', 'password123');
 
             expect(result).not.toBeNull();
-            expect(result!.user).toBe(userId);
+            expect(result!.user).toBe(userId!);
         });
 
         it('should reject duplicate username', async () => {
@@ -99,7 +99,7 @@ describe('Auth Phase 2', () => {
             }
 
             expect(sessions.length).toBe(1);
-            expect(sessions[0].user_id).toBe('svc:monitor');
+            expect(sessions[0]!.user_id).toBe('svc:monitor');
         });
 
         it('should include scopes in JWT', async () => {

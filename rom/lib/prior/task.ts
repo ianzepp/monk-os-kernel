@@ -204,7 +204,7 @@ export async function executeTask(
 
             // Add those results to conversation
             for (let i = 0; i < otherResults.length; i++) {
-                const resultText = otherResults[i];
+                const resultText = otherResults[i]!;
                 const cmd = getBangCommandDescription(otherCommands[i]!);
 
                 await log(`prior: ${cmd} -> ${resultText.slice(0, 80)}${resultText.length > 80 ? '...' : ''}`);
@@ -217,7 +217,7 @@ export async function executeTask(
             );
 
             for (let i = 0; i < waitResults.length; i++) {
-                const resultText = waitResults[i];
+                const resultText = waitResults[i]!;
                 const cmd = getBangCommandDescription(waitCommands[i]!);
 
                 await log(`prior: ${cmd} -> ${resultText.slice(0, 80)}${resultText.length > 80 ? '...' : ''}`);

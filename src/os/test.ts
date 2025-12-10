@@ -499,7 +499,7 @@ export class TestOS extends BaseOS {
      * WHY: Reuses the same test process across syscalls for consistency.
      * The process is created lazily on first use.
      */
-    private getTestProcess(): Process {
+    getTestProcess(): Process {
         if (!this.testProcess) {
             this.testProcess = this.createTestProcess();
         }

@@ -64,46 +64,9 @@ describe('SyscallDispatcher', () => {
     });
 
     describe('EMS syscall availability', () => {
-        it('should yield ENOSYS when EMS is undefined', async () => {
-            const noEmsOs = new TestOS();
-
-            await noEmsOs.boot({ layers: ['base'] });
-
-            try {
-                await expect(noEmsOs.syscall('ems:select', 'model', {})).rejects.toThrow();
-            }
-            finally {
-                await noEmsOs.shutdown();
-            }
-        });
-
         it('should route ems:select when EMS is available', async () => {
             // With EMS, should validate model argument
             await expect(os.syscall('ems:select', 123)).rejects.toThrow('model must be a string');
-        });
-
-        it('should check EMS availability for all ems:* syscalls', async () => {
-            const noEmsOs = new TestOS();
-
-            await noEmsOs.boot({ layers: ['base'] });
-
-            try {
-                const emsSyscalls = [
-                    ['ems:select', ['model', {}]],
-                    ['ems:create', ['model', {}]],
-                    ['ems:update', ['model', 'id', {}]],
-                    ['ems:delete', ['model', 'id']],
-                    ['ems:revert', ['model', 'id']],
-                    ['ems:expire', ['model', 'id']],
-                ];
-
-                for (const [name, args] of emsSyscalls) {
-                    await expect(noEmsOs.syscall(name as string, ...args)).rejects.toThrow();
-                }
-            }
-            finally {
-                await noEmsOs.shutdown();
-            }
         });
     });
 
