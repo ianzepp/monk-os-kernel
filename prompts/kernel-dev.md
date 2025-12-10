@@ -362,6 +362,41 @@ isResourceHeld(id: string): boolean {
 
 ---
 
+## HAL Boundary
+
+### Never Use Bun Primitives Outside HAL
+
+**CRITICAL**: All Bun APIs must be accessed through HAL. The kernel, VFS, EMS, and syscall layers must NEVER import or call Bun primitives directly.
+
+```typescript
+// BAD - Direct Bun usage in kernel code
+import { $ } from 'bun';
+const socket = Bun.udpSocket({ port: 9999 });
+const hash = Bun.hash(content);
+const file = Bun.file('/tmp/foo');
+await Bun.sleep(1000);
+
+// GOOD - Use HAL abstractions
+// For UDP: use hal.network (when implemented) or kernel ports
+// For hashing: use hal.crypto.hash()
+// For files: use hal.file or VFS
+// For timing: use hal.timer.setTimeout()
+```
+
+**WHY**:
+1. **Testability**: HAL can be mocked for unit tests without real I/O
+2. **Portability**: Decouples from Bun-specific APIs
+3. **Consistency**: Single source of truth for platform operations
+4. **Visibility**: `bun run build:warn` catches violations
+
+**Current Violations** (tracked in `docs/bugs/`):
+- `src/kernel/resource/udp-port.ts` - Uses `Bun.udpSocket()` directly
+- `src/kernel/loader/vfs-loader.ts` - Uses `Bun.Transpiler` and `Bun.hash()`
+
+**If HAL doesn't support what you need**: Add it to HAL first, then use it. Don't bypass HAL "just this once."
+
+---
+
 ## Error Handling Patterns
 
 ### Use Typed Errors, Not Generic Error
@@ -456,5 +491,6 @@ private sendResponse(proc: Process, id: string, response: Response): void {
 - [ ] Every non-trivial method has algorithm/race condition documentation
 - [ ] Error handling logs failures, doesn't swallow silently
 - [ ] **No `new Error()` - use typed errors (ENOENT, EINVAL, etc.)**
+- [ ] **No Bun primitives - use HAL abstractions**
 - [ ] Constants have WHY comments explaining chosen values
 - [ ] Section markers create clear visual structure

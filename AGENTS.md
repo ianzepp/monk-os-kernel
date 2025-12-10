@@ -905,6 +905,7 @@ await client.close(fd);
 6. **Permissions checked at open-time** - Once authorized, Handle is capability
 7. **Workers are process boundaries** - Communication via syscalls/postMessage only
 8. **UUID identity for everything** - Files, processes, handles, ports
+9. **No Bun primitives outside HAL** - Use HAL abstractions; if missing, add to HAL first
 
 ### Error Handling
 - **NEVER use `new Error()`** — Always use typed errors from `src/hal/errors.ts`
