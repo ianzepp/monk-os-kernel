@@ -67,6 +67,21 @@ export default async function main(): Promise<void> {
 
 Commands that read files and output their contents.
 
+**Simple version** (for small files, loads entire file into memory):
+
+```typescript
+import { readText, println } from '@rom/lib/process/index.js';
+
+async function processFile(path: string): Promise<void> {
+    const content = await readText(path);
+    for (const line of content.split('\n')) {
+        await println(line);
+    }
+}
+```
+
+**Streaming version** (for large files, processes chunks):
+
 ```typescript
 import {
     getargs, getcwd, open, read, close,
@@ -348,12 +363,14 @@ import {
 // File operations
 import {
     open,           // Open file -> fd
-    read,           // Read from fd (async iterator)
+    read,           // Read from fd (async iterator of Uint8Array)
     write,          // Write bytes to fd
     close,          // Close fd
     stat,           // File info
-    readFile,       // Read entire file as string
+    readText,       // Read entire file as string (simple)
+    readFileBytes,  // Read entire file as Uint8Array
     writeFile,      // Write string to file
+    appendFile,     // Append string to file
     mkdir,          // Create directory
     readdirAll,     // List directory contents
 } from '@rom/lib/process/index.js';
@@ -363,8 +380,10 @@ import {
     recv,           // Receive messages from fd (async iterator)
 } from '@rom/lib/process/index.js';
 
-// Shell utilities
+// Shell utilities (parseArgs re-exported from @rom/lib/args)
 import { parseArgs, resolvePath } from '@rom/lib/shell';
+// Or import parseArgs directly:
+// import { parseArgs } from '@rom/lib/args';
 ```
 
 ---
