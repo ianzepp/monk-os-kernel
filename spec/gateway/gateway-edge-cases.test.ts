@@ -50,7 +50,7 @@ function createMockHAL(): HAL {
 }
 
 function createMockKernel(init?: Process): Kernel {
-    const initProcess = init ?? createMockProcess({ cmd: '/svc/init.ts' });
+    const initProcess = init ?? createMockProcess({ cmd: '/app/init.ts' });
     const processes = new Map<string, Process>([[initProcess.id, initProcess]]);
 
     return {

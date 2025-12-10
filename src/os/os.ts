@@ -51,7 +51,6 @@ const STANDARD_DIRECTORIES = [
     '/ems',
     '/etc',
     '/home',
-    '/svc',
     '/tmp',
     '/usr',
     '/var',
@@ -62,7 +61,7 @@ const STANDARD_DIRECTORIES = [
 /**
  * Default init process path.
  */
-const DEFAULT_INIT_PATH = '/svc/init.ts';
+const DEFAULT_INIT_PATH = '/app/init.ts';
 
 /**
  * Default ROM source path on host filesystem.
