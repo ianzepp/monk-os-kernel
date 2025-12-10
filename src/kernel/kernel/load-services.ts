@@ -30,6 +30,7 @@ export async function loadServices(self: Kernel): Promise<void> {
                 throw mkdirErr;
             }
         }
+
         serviceDirs.push('/etc/services');
     }
 

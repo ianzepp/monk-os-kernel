@@ -113,6 +113,7 @@ export class OS extends BaseOS {
             const emsPath = this.config.storage?.type === 'sqlite'
                 ? (this.config.storage.path ?? '.data/monk.db')
                 : undefined;
+
             this.__ems = new EMS(this.__hal, { path: emsPath });
             await this.__ems.init();
 
@@ -141,9 +142,11 @@ export class OS extends BaseOS {
 
             try {
                 const binStat = await this.__vfs.stat('/bin', 'kernel');
+
                 if (binStat.model === 'folder') {
                     // Check if /bin has children (indicates ROM was copied)
                     let childCount = 0;
+
                     for await (const _ of this.__vfs.readdir('/bin', 'kernel')) {
                         childCount++;
                         if (childCount > 0) {

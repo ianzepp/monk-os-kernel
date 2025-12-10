@@ -179,7 +179,9 @@ function parseArguments(args: string[]): { options: FindOptions; errors: string[
     while (i < args.length) {
         const arg = args[i];
 
-        if (arg === undefined) break;
+        if (arg === undefined) {
+            break;
+        }
 
         // Stop at first expression (starts with -)
         if (arg.startsWith('-') && arg !== '-') {
@@ -199,7 +201,9 @@ function parseArguments(args: string[]): { options: FindOptions; errors: string[
     while (i < args.length) {
         const arg = args[i];
 
-        if (arg === undefined) break;
+        if (arg === undefined) {
+            break;
+        }
 
         switch (arg) {
             case '--help':
@@ -357,17 +361,23 @@ function parseArguments(args: string[]): { options: FindOptions; errors: string[
 function parseSize(spec: string): { bytes: number; compare: 'gt' | 'lt' | 'eq' } | null {
     const match = spec.match(/^([+-])?(\d+)([cwbkMG])?$/);
 
-    if (!match) return null;
+    if (!match) {
+        return null;
+    }
 
     const prefix = match[1];
     const numStr = match[2];
     const suffix = match[3] ?? 'b';
 
-    if (numStr === undefined) return null;
+    if (numStr === undefined) {
+        return null;
+    }
 
     const num = parseInt(numStr, 10);
 
-    if (isNaN(num)) return null;
+    if (isNaN(num)) {
+        return null;
+    }
 
     const multipliers: Record<string, number> = {
         'c': 1,
@@ -397,16 +407,22 @@ function parseSize(spec: string): { bytes: number; compare: 'gt' | 'lt' | 'eq' }
 function parseMtime(spec: string): { days: number; compare: 'gt' | 'lt' | 'eq' } | null {
     const match = spec.match(/^([+-])?(\d+)$/);
 
-    if (!match) return null;
+    if (!match) {
+        return null;
+    }
 
     const prefix = match[1];
     const numStr = match[2];
 
-    if (numStr === undefined) return null;
+    if (numStr === undefined) {
+        return null;
+    }
 
     const days = parseInt(numStr, 10);
 
-    if (isNaN(days)) return null;
+    if (isNaN(days)) {
+        return null;
+    }
 
     const compare = prefix === '+' ? 'gt' : prefix === '-' ? 'lt' : 'eq';
 
@@ -444,9 +460,17 @@ function matchesFile(file: FileInfo, opts: FindOptions, newerMtime: number | nul
         if (sizeSpec) {
             const { bytes, compare } = sizeSpec;
 
-            if (compare === 'gt' && file.size <= bytes) return false;
-            if (compare === 'lt' && file.size >= bytes) return false;
-            if (compare === 'eq' && file.size !== bytes) return false;
+            if (compare === 'gt' && file.size <= bytes) {
+                return false;
+            }
+
+            if (compare === 'lt' && file.size >= bytes) {
+                return false;
+            }
+
+            if (compare === 'eq' && file.size !== bytes) {
+                return false;
+            }
         }
     }
 
@@ -459,9 +483,17 @@ function matchesFile(file: FileInfo, opts: FindOptions, newerMtime: number | nul
             const now = Date.now();
             const fileAgeDays = Math.floor((now - file.mtime) / (24 * 60 * 60 * 1000));
 
-            if (compare === 'gt' && fileAgeDays <= days) return false;
-            if (compare === 'lt' && fileAgeDays >= days) return false;
-            if (compare === 'eq' && fileAgeDays !== days) return false;
+            if (compare === 'gt' && fileAgeDays <= days) {
+                return false;
+            }
+
+            if (compare === 'lt' && fileAgeDays >= days) {
+                return false;
+            }
+
+            if (compare === 'eq' && fileAgeDays !== days) {
+                return false;
+            }
         }
     }
 
@@ -524,7 +556,9 @@ async function* findFiles(
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         await eprintln(`find: '${path}': ${msg}`);
+
         return;
     }
 
@@ -565,6 +599,7 @@ async function* findFiles(
         }
         catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
+
             await eprintln(`find: '${path}': ${msg}`);
         }
     }
@@ -581,6 +616,7 @@ export default async function main(): Promise<void> {
     // Handle --help
     if (options.paths.length === 1 && options.paths[0] === '--help') {
         await println(HELP_TEXT);
+
         return exit(EXIT_SUCCESS);
     }
 
@@ -604,10 +640,12 @@ export default async function main(): Promise<void> {
 
         try {
             const newerStat = await stat(newerPath);
+
             newerMtime = newerStat.mtime;
         }
         catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
+
             await eprintln(`find: '${options.newer}': ${msg}`);
 
             return exit(EXIT_FAILURE);
@@ -624,6 +662,7 @@ export default async function main(): Promise<void> {
         }
         catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
+
             await eprintln(`find: '${pathArg}': ${msg}`);
             hadError = true;
             continue;

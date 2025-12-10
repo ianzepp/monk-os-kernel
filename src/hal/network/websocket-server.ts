@@ -191,8 +191,10 @@ export class BunWebSocketConnection implements WebSocketConnection {
         if (this.closed) {
             return false;
         }
+
         try {
             const result = this.ws.send(data);
+
             // Bun returns bytes sent, or -1 if dropped due to backpressure
             return result >= 0;
         }
@@ -239,6 +241,7 @@ export class BunWebSocketConnection implements WebSocketConnection {
         while (!this.closed) {
             // Check queue first
             const queued = this.messageQueue.shift();
+
             if (queued !== undefined) {
                 yield queued;
                 continue;
@@ -253,6 +256,7 @@ export class BunWebSocketConnection implements WebSocketConnection {
             if (msg === null) {
                 break;
             }
+
             yield msg;
         }
     }
@@ -348,9 +352,11 @@ export class BunWebSocketServer implements WebSocketServer {
                 // Upgrade to WebSocket (all requests on this port are WS)
                 // WHY: Pass data property - Bun requires it for typing
                 const upgraded = server.upgrade(req, { data: undefined });
+
                 if (upgraded) {
                     return undefined;
                 }
+
                 // Not a WebSocket request - reject
                 return new Response('WebSocket expected', { status: 400 });
             },
@@ -359,13 +365,15 @@ export class BunWebSocketServer implements WebSocketServer {
                 maxPayloadLength,
 
                 // Connection opened - queue for accept()
-                open: (ws) => {
+                open: ws => {
                     // Create wrapper and store mapping
                     const conn = new BunWebSocketConnection(ws);
+
                     this.connectionMap.set(ws, conn);
 
                     // Deliver to waiting accept() or queue
                     const waiter = this.acceptWaiters.shift();
+
                     if (waiter) {
                         waiter.resolve(conn);
                     }
@@ -377,6 +385,7 @@ export class BunWebSocketServer implements WebSocketServer {
                 // Message received - route to connection wrapper
                 message: (ws, message) => {
                     const conn = this.connectionMap.get(ws);
+
                     if (conn && message instanceof Uint8Array) {
                         conn.pushMessage(message);
                     }
@@ -387,8 +396,9 @@ export class BunWebSocketServer implements WebSocketServer {
                 },
 
                 // Connection closed - notify wrapper
-                close: (ws) => {
+                close: ws => {
                     const conn = this.connectionMap.get(ws);
+
                     if (conn) {
                         conn.pushClose();
                         this.connectionMap.delete(ws);
@@ -430,6 +440,7 @@ export class BunWebSocketServer implements WebSocketServer {
 
         // Check for pending connection
         const pending = this.pendingConnections.shift();
+
         if (pending) {
             return Promise.resolve(pending);
         }
@@ -454,9 +465,11 @@ export class BunWebSocketServer implements WebSocketServer {
 
         // Reject all pending accept() waiters
         const error = new Error('WebSocket server is closed');
+
         for (const waiter of this.acceptWaiters) {
             waiter.reject(error);
         }
+
         this.acceptWaiters = [];
 
         // Clear pending connections

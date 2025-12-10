@@ -66,6 +66,7 @@ describe('SyscallDispatcher', () => {
     describe('EMS syscall availability', () => {
         it('should yield ENOSYS when EMS is undefined', async () => {
             const noEmsOs = new TestOS();
+
             await noEmsOs.boot({ layers: ['base'] });
 
             try {
@@ -83,6 +84,7 @@ describe('SyscallDispatcher', () => {
 
         it('should check EMS availability for all ems:* syscalls', async () => {
             const noEmsOs = new TestOS();
+
             await noEmsOs.boot({ layers: ['base'] });
 
             try {

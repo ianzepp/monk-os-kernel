@@ -102,6 +102,7 @@ export function startTick(kernel: Kernel): void {
     // Guard against double start
     if (state.timerHandle) {
         printk(kernel, 'tick', 'Tick broadcaster already running');
+
         return;
     }
 
@@ -202,6 +203,7 @@ function broadcastTick(kernel: Kernel): void {
  */
 export function subscribeTick(kernel: Kernel, processId: string): void {
     const state = getTickState(kernel);
+
     state.subscribers.add(processId);
     printk(kernel, 'tick', `Process ${processId.slice(0, 8)} subscribed to ticks`);
 }
@@ -214,6 +216,7 @@ export function subscribeTick(kernel: Kernel, processId: string): void {
  */
 export function unsubscribeTick(kernel: Kernel, processId: string): void {
     const state = getTickState(kernel);
+
     state.subscribers.delete(processId);
     printk(kernel, 'tick', `Process ${processId.slice(0, 8)} unsubscribed from ticks`);
 }
@@ -227,6 +230,7 @@ export function unsubscribeTick(kernel: Kernel, processId: string): void {
  */
 export function isTickSubscriber(kernel: Kernel, processId: string): boolean {
     const state = getTickState(kernel);
+
     return state.subscribers.has(processId);
 }
 
@@ -238,6 +242,7 @@ export function isTickSubscriber(kernel: Kernel, processId: string): boolean {
  */
 export function getTickInfo(kernel: Kernel): { seq: number; subscribers: number } {
     const state = getTickState(kernel);
+
     return {
         seq: state.seq,
         subscribers: state.subscribers.size,

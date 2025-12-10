@@ -33,7 +33,10 @@ function parseFieldValues(args: string[]): Record<string, unknown> | null {
 
     for (const arg of args) {
         const eqIndex = arg.indexOf('=');
-        if (eqIndex === -1) continue;
+
+        if (eqIndex === -1) {
+            continue;
+        }
 
         const key = arg.slice(0, eqIndex);
         let value: unknown = arg.slice(eqIndex + 1);
@@ -45,6 +48,7 @@ function parseFieldValues(args: string[]): Record<string, unknown> | null {
         catch {
             // Keep as string - remove surrounding quotes if present
             const strValue = value as string;
+
             if ((strValue.startsWith('"') && strValue.endsWith('"')) ||
                 (strValue.startsWith("'") && strValue.endsWith("'"))) {
                 value = strValue.slice(1, -1);
@@ -68,6 +72,7 @@ async function main(): Promise<void> {
         await println('  create ai.stm content="hello world" salience=5');
         await println('  create ai.ltm content="User prefers dark mode" category=user_prefs');
         await exit(0);
+
         return;
     }
 
@@ -78,28 +83,33 @@ async function main(): Promise<void> {
 
     // Try field=value syntax first
     const fieldValues = parseFieldValues(dataArgs);
+
     if (fieldValues) {
         fields = fieldValues;
     }
     else {
         // Try as JSON
         const jsonStr = dataArgs.join(' ');
+
         try {
             fields = JSON.parse(jsonStr);
         }
         catch {
             await eprintln('create: invalid JSON or field=value syntax');
             await exit(1);
+
             return;
         }
     }
 
     try {
         const created = await call<Record<string, unknown>>('ems:create', model, fields);
+
         await println(JSON.stringify(created, null, 2));
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         await eprintln(`create: ${msg}`);
         await exit(1);
     }

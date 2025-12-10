@@ -51,6 +51,7 @@ describe('Auth Syscalls', () => {
             await os.syscall('auth:token', original.token);
 
             const proc = os.getTestProcess();
+
             expect(proc.user).toBe('bob');
             expect(proc.session).toBeTruthy();
             expect(proc.expires).toBeGreaterThan(Date.now());
@@ -89,6 +90,7 @@ describe('Auth Syscalls', () => {
     describe('auth:whoami', () => {
         it('should return user and session for authenticated process', async () => {
             const original = await os.internalAuth.mintToken('charlie');
+
             await os.syscall('auth:token', original.token);
 
             const data = await os.syscall<{ user: string | null; session: string | null }>('auth:whoami');
@@ -180,6 +182,7 @@ describe('Auth Syscalls', () => {
     describe('auth:grant', () => {
         it('should reject non-root caller', async () => {
             const token = await os.internalAuth.mintToken('alice');
+
             await os.syscall('auth:token', token.token);
 
             await expect(os.syscall('auth:grant', { principal: 'svc:test' }))

@@ -200,11 +200,13 @@ export class AnthropicAdapter implements Adapter {
         for await (const response of responses) {
             if (response.op === 'ok') {
                 const data = response.data as AnthropicResponse;
+
                 return this.parseResponse(data, model);
             }
 
             if (response.op === 'error') {
                 const err = response.data as { code?: string; message?: string };
+
                 throw new Error(`Anthropic API error: ${err.code} - ${err.message}`);
             }
         }
@@ -248,6 +250,7 @@ export class AnthropicAdapter implements Adapter {
             }
             else if (response.op === 'error') {
                 const err = response.data as { code?: string; message?: string };
+
                 throw new Error(`Anthropic API error: ${err.code} - ${err.message}`);
             }
             else if (response.op === 'done') {
@@ -367,6 +370,7 @@ export class AnthropicAdapter implements Adapter {
                         done: false,
                     };
                 }
+
                 break;
 
             case 'message_delta':
@@ -378,6 +382,7 @@ export class AnthropicAdapter implements Adapter {
                         finish_reason: this.mapStopReason(data.delta.stop_reason),
                     };
                 }
+
                 break;
 
             case 'message_stop':

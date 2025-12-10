@@ -119,22 +119,28 @@ export async function* fileClose(
 
     // Get handle to check type before closing
     const handleId = proc.handles.get(fd);
+
     if (!handleId) {
         yield respond.error('EBADF', `Bad file descriptor: ${fd}`);
+
         return;
     }
 
     const handle = kernel.handles.get(handleId);
+
     if (!handle) {
         yield respond.error('EBADF', `Bad file descriptor: ${fd}`);
+
         return;
     }
 
     // Only allow closing file-like handles via file:close
     // Ports and channels have their own close syscalls (port:close, channel:close)
     const allowedTypes = ['file', 'pipe', 'socket'];
+
     if (!allowedTypes.includes(handle.type)) {
         yield respond.error('EINVAL', `Cannot close ${handle.type} handle with file:close (use ${handle.type}:close)`);
+
         return;
     }
 

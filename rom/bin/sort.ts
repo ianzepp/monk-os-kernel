@@ -191,6 +191,7 @@ export default async function main(): Promise<void> {
 
     if (parsed.flags.help) {
         await println(HELP_TEXT);
+
         return exit(EXIT_SUCCESS);
     }
 
@@ -214,6 +215,7 @@ export default async function main(): Promise<void> {
 
         if (!key) {
             await eprintln(`sort: invalid key specification: ${parsed.flags.key}`);
+
             return exit(EXIT_USAGE);
         }
     }
@@ -255,6 +257,7 @@ export default async function main(): Promise<void> {
             if (file === '-') {
                 // POSIX: "-" means read from stdin
                 const stdinItems = await collectFromStdin();
+
                 items.push(...stdinItems);
             }
             else {
@@ -283,6 +286,7 @@ export default async function main(): Promise<void> {
         }
 
         await eprintln('sort: input is not sorted');
+
         return exit(EXIT_FAILURE);
     }
 
@@ -327,6 +331,7 @@ export default async function main(): Promise<void> {
             }
 
             seen.add(uniqueKey);
+
             return true;
         });
     }
@@ -393,6 +398,7 @@ async function collectFromFile(cwd: string, file: string): Promise<SortItem[] | 
 
         // EDGE: Remove empty last element from trailing newline
         const lastLine = lines[lines.length - 1];
+
         if (lastLine !== undefined && lastLine === '') {
             lines.pop();
         }
@@ -404,7 +410,9 @@ async function collectFromFile(cwd: string, file: string): Promise<SortItem[] | 
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         await eprintln(`sort: ${file}: ${msg}`);
+
         return null;
     }
 }
@@ -424,6 +432,7 @@ async function writeToFile(cwd: string, outputPath: string, items: SortItem[]): 
 
         try {
             const output = items.map(i => i.text + '\n').join('');
+
             await write(fd, new TextEncoder().encode(output));
         }
         finally {
@@ -432,6 +441,7 @@ async function writeToFile(cwd: string, outputPath: string, items: SortItem[]): 
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         await eprintln(`sort: ${outputPath}: ${msg}`);
         await exit(EXIT_FAILURE);
     }

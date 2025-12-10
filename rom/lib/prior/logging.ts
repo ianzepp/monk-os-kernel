@@ -51,13 +51,16 @@ let osId: string | undefined;
  */
 function generateId(length: number): string {
     let id = '';
+
     for (let i = 0; i < length; i++) {
         const index = Math.floor(Math.random() * ID_CHARS.length);
         const char = ID_CHARS[index];
+
         if (char !== undefined) {
             id += char;
         }
     }
+
     return id;
 }
 
@@ -95,8 +98,10 @@ export async function log(message: string, requestId?: string): Promise<void> {
     if (osId === undefined) {
         osId = await getenv('MONK_OS') ?? '????';
     }
+
     const prefix = requestId ? `[${osId}] [${requestId}]` : `[${osId}]`;
     const formatted = `${prefix} ${message}`;
+
     await eprintln(formatted);
     await debug(formatted);
 }

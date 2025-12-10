@@ -57,6 +57,7 @@ export async function handleConnection(socketFd: number, from: string): Promise<
                     body: { error: 'Method not allowed', message: 'Use POST /' },
                 },
             });
+
             return;
         }
 
@@ -71,6 +72,7 @@ export async function handleConnection(socketFd: number, from: string): Promise<
                     body: { error: 'Bad request', message: 'Missing or invalid task field' },
                 },
             });
+
             return;
         }
 
@@ -85,6 +87,7 @@ export async function handleConnection(socketFd: number, from: string): Promise<
         // Execute task
         await log(`prior: executing task...`);
         const result = await executeTask(instruction, { clientAddr: from }, consolidateMemory);
+
         await log(`prior: task complete, sending response...`);
 
         // Send HTTP response

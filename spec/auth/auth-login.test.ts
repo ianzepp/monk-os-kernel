@@ -47,6 +47,7 @@ describe('Auth Phase 1', () => {
         it('should not duplicate root user on repeated init', async () => {
             // Create another Auth instance and init again
             const auth2 = new Auth(hal, ems, { allowAnonymous: false });
+
             await auth2.init();
 
             // Should still have only one root user
@@ -179,6 +180,7 @@ describe('Auth Phase 1', () => {
                 allowAnonymous: false,
                 sessionTTL: 1, // 1ms TTL
             });
+
             await shortAuth.init();
 
             const result = await shortAuth.login('root', DEFAULT_ROOT_PASSWORD);

@@ -95,6 +95,7 @@ export default async function main(): Promise<void> {
 
     try {
         const systemPrompt = await readFile(SYSTEM_PROMPT_PATH);
+
         setSystemPrompt(systemPrompt);
         await log(`prior: loaded system prompt (${systemPrompt.length} chars)`);
     }
@@ -112,6 +113,7 @@ export default async function main(): Promise<void> {
     }
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+
         await log(`prior: failed to create memory directory: ${message}`);
     }
 
@@ -121,6 +123,7 @@ export default async function main(): Promise<void> {
 
     try {
         const identity = await readFile(IDENTITY_PATH);
+
         setIdentity(identity);
         await log(`prior: loaded existing identity (${identity.length} chars)`);
     }
@@ -134,6 +137,7 @@ export default async function main(): Promise<void> {
 
     try {
         const memoryContext = await readFile(CONTEXT_PATH);
+
         setMemoryContext(memoryContext);
         await log(`prior: loaded memory context (${memoryContext.length} chars)`);
     }
@@ -162,6 +166,7 @@ export default async function main(): Promise<void> {
         }
         catch (err) {
             const message = err instanceof Error ? err.message : String(err);
+
             await log(`prior: tick error: ${message}`);
         }
         finally {
@@ -193,7 +198,9 @@ export default async function main(): Promise<void> {
     }
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+
         await log(`prior: failed to bind port ${port}: ${message}`);
+
         return;
     }
 
@@ -222,6 +229,7 @@ export default async function main(): Promise<void> {
             }
 
             const message = err instanceof Error ? err.message : String(err);
+
             await log(`prior: accept error: ${message}`);
             await sleep(1000); // Back off on errors
         }
@@ -278,13 +286,16 @@ async function handleFirstTick(): Promise<void> {
         const models = await collect<ModelSchema>('ems:describe');
         const schemaLines = models.map(m => {
             const fields = m.fields.map(f => f.field_name).join(', ');
+
             return `${m.model_name}: ${fields}`;
         });
+
         setEmsSchema(schemaLines.join('\n'));
         await log(`prior: loaded ${models.length} EMS models`);
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         await log(`prior: failed to load EMS schema: ${msg}`);
     }
 
@@ -297,7 +308,7 @@ async function handleFirstTick(): Promise<void> {
                 task: 'You just woke up. Describe your environment and capabilities based on your system knowledge. Be concise (2-3 sentences).',
             },
             { skipLogging: true },
-            consolidateMemory
+            consolidateMemory,
         );
 
         if (result.status === 'ok' && result.result) {
@@ -312,6 +323,7 @@ async function handleFirstTick(): Promise<void> {
             }
             catch (err) {
                 const msg = err instanceof Error ? err.message : String(err);
+
                 await log(`prior: failed to save identity: ${msg}`);
             }
         }

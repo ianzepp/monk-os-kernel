@@ -58,9 +58,11 @@ function formatField(field: FieldSchema): string {
     if (field.required) {
         attrs.push('required');
     }
+
     if (field.unique) {
         attrs.push('unique');
     }
+
     if (field.enum_values && field.enum_values.length > 0) {
         attrs.push(`enum[${field.enum_values.length}]`);
     }
@@ -103,6 +105,7 @@ function formatDetailed(model: ModelSchema): string {
 function formatCompact(model: ModelSchema): string {
     const fieldCount = model.fields.length;
     const desc = model.description ? ` - ${model.description}` : '';
+
     return `${model.model_name} (${fieldCount} fields)${desc}`;
 }
 
@@ -122,6 +125,7 @@ async function main(): Promise<void> {
             else {
                 await println('No models found.');
             }
+
             return;
         }
 
@@ -138,6 +142,7 @@ async function main(): Promise<void> {
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         await eprintln(`describe: ${msg}`);
         await exit(1);
     }

@@ -161,6 +161,7 @@ async function grepFile(
 
                 const lines = buffer.split('\n');
                 const remaining = lines.pop();
+
                 buffer = remaining ?? '';
 
                 for (const line of lines) {
@@ -220,6 +221,7 @@ async function grepFile(
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         await eprintln(`grep: ${displayName}: ${msg}`);
         hadError = true;
     }
@@ -253,12 +255,15 @@ async function grepStdin(
     for await (const msg of recv(0)) {
         if (msg.op === 'item' && msg.data) {
             const data = msg.data as { text?: string };
+
             if (data.text) {
                 // Split on newlines in case text contains multiple lines
                 const lines = data.text.split('\n');
 
                 for (const line of lines) {
-                    if (line.length === 0 && lines.length > 1) continue;
+                    if (line.length === 0 && lines.length > 1) {
+                        continue;
+                    }
 
                     lineNum++;
                     const matches = regex.test(line);
@@ -302,12 +307,15 @@ async function collectFiles(path: string, cwd: string): Promise<string[]> {
         const entries = await readdirAll(path);
 
         for (const entry of entries) {
-            if (entry.name.startsWith('.')) continue;
+            if (entry.name.startsWith('.')) {
+                continue;
+            }
 
             const fullPath = join(path, entry.name);
 
             if (entry.model === 'folder') {
                 const subFiles = await collectFiles(fullPath, cwd);
+
                 files.push(...subFiles);
             }
             else if (entry.model === 'file') {
@@ -335,6 +343,7 @@ export default async function main(): Promise<void> {
         for (const err of parsed.errors) {
             await eprintln(`grep: ${err}`);
         }
+
         return exit(EXIT_ERROR);
     }
 
@@ -343,12 +352,14 @@ export default async function main(): Promise<void> {
         for (const flag of parsed.unknown) {
             await eprintln(`grep: unknown option: ${flag}`);
         }
+
         return exit(EXIT_ERROR);
     }
 
     // Help
     if (parsed.flags.help) {
         await println(HELP_TEXT);
+
         return exit(EXIT_MATCH);
     }
 
@@ -356,6 +367,7 @@ export default async function main(): Promise<void> {
     if (parsed.positional.length < 1) {
         await eprintln('grep: missing pattern');
         await eprintln("Try 'grep --help' for more information.");
+
         return exit(EXIT_ERROR);
     }
 
@@ -377,11 +389,14 @@ export default async function main(): Promise<void> {
 
     try {
         const flags = opts.ignoreCase ? 'i' : '';
+
         regex = new RegExp(pattern, flags);
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         await eprintln(`grep: invalid pattern: ${msg}`);
+
         return exit(EXIT_ERROR);
     }
 
@@ -395,8 +410,10 @@ export default async function main(): Promise<void> {
     // Stdin mode
     if (fileArgs.length === 0) {
         const result = await grepStdin(regex, opts);
+
         totalMatches = result.matchCount;
         await send(1, respond.done());
+
         return exit(totalMatches > 0 ? EXIT_MATCH : EXIT_NO_MATCH);
     }
 
@@ -412,6 +429,7 @@ export default async function main(): Promise<void> {
             if (info.model === 'folder') {
                 if (opts.recursive) {
                     const subFiles = await collectFiles(resolved, cwd);
+
                     for (const f of subFiles) {
                         filesToSearch.push({ path: f, displayName: f });
                     }
@@ -427,6 +445,7 @@ export default async function main(): Promise<void> {
         }
         catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
+
             await eprintln(`grep: ${fileArg}: ${msg}`);
             hadError = true;
         }
@@ -439,8 +458,11 @@ export default async function main(): Promise<void> {
     // Search each file
     for (const { path, displayName } of filesToSearch) {
         const result = await grepFile(path, displayName, regex, opts, showFilename);
+
         totalMatches += result.matchCount;
-        if (result.hadError) hadError = true;
+        if (result.hadError) {
+            hadError = true;
+        }
     }
 
     await send(1, respond.done());

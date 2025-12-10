@@ -5,7 +5,6 @@
     "": {
       "name": "@monk-api/os",
       "dependencies": {
-        "acorn": "^8.15.0",
         "acorn-loose": "^8.5.2",
         "msgpackr": "^1.11.5",
       },
@@ -17,14 +16,6 @@
         "typescript": "^5.6.3",
         "typescript-eslint": "^8.48.1",
       },
-    },
-    "packages/httpd": {
-      "name": "@monk-api/httpd",
-      "version": "0.1.0",
-    },
-    "packages/jsond": {
-      "name": "@monk-api/jsond",
-      "version": "0.1.0",
     },
   },
   "packages": {
@@ -53,10 +44,6 @@
     "@humanwhocodes/module-importer": ["@humanwhocodes/module-importer@1.0.1", "", {}, "sha512-bxveV4V8v5Yb4ncFTT3rPSgZBOpCkjfK0y4oVVVJwIuDVBRMDXrPyXRL988i5ap9m9bnyEEjWfm5WkBmtffLfA=="],
 
     "@humanwhocodes/retry": ["@humanwhocodes/retry@0.4.3", "", {}, "sha512-bV0Tgo9K4hfPCek+aMAn81RppFKv2ySDQeMoSZuvTASywNTnVJCArCZE2FWqpvIatKu7VMRLWlR1EazvVhDyhQ=="],
-
-    "@monk-api/httpd": ["@monk-api/httpd@workspace:packages/httpd"],
-
-    "@monk-api/jsond": ["@monk-api/jsond@workspace:packages/jsond"],
 
     "@msgpackr-extract/msgpackr-extract-darwin-arm64": ["@msgpackr-extract/msgpackr-extract-darwin-arm64@3.0.3", "", { "os": "darwin", "cpu": "arm64" }, "sha512-QZHtlVgbAdy2zAqNA9Gu1UpIuI8Xvsd1v8ic6B2pZmeFnFcMWiPLfWXh7TVw4eGEZ/C9TH281KwhVoeQUKbyjw=="],
 

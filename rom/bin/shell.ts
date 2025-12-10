@@ -507,11 +507,13 @@ async function executeSingleCommand(
 
             if (stdout !== undefined) {
                 const saved = await redirect(1, stdout);
+
                 savedHandles.push({ target: 1, saved });
             }
 
             if (stdin !== undefined) {
                 const saved = await redirect(0, stdin);
+
                 savedHandles.push({ target: 0, saved });
             }
 

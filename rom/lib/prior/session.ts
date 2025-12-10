@@ -43,7 +43,7 @@ import { log } from './logging.js';
 export async function logSession(
     task: string,
     result: string,
-    status: 'ok' | 'error'
+    status: 'ok' | 'error',
 ): Promise<void> {
     const timestamp = new Date().toISOString();
 
@@ -59,6 +59,7 @@ export async function logSession(
     }
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+
         await log(`prior: failed to log session: ${message}`);
     }
 

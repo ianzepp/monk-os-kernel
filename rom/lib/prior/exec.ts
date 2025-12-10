@@ -46,6 +46,7 @@ export async function findCommand(command: string): Promise<string | null> {
     if (command.startsWith('/')) {
         try {
             await stat(command);
+
             return command;
         }
         catch {
@@ -58,6 +59,7 @@ export async function findCommand(command: string): Promise<string | null> {
 
     try {
         await stat(binPath);
+
         return binPath;
     }
     catch {
@@ -109,6 +111,7 @@ export async function exec(shellCmd: string): Promise<ExecResult> {
         for await (const response of recv(outputReadFd)) {
             if (response.op === 'item' && response.data) {
                 const data = response.data as { text?: string };
+
                 if (data.text) {
                     outputChunks.push(data.text);
                 }
@@ -135,6 +138,7 @@ export async function exec(shellCmd: string): Promise<ExecResult> {
         await close(outputWriteFd).catch(() => {});
 
         const message = err instanceof Error ? err.message : String(err);
+
         return { stdout: '', stderr: message, code: 1 };
     }
 }
@@ -157,13 +161,16 @@ export async function executeCall(name: string, args: unknown[]): Promise<string
         if (result === undefined || result === null) {
             return '(no result)';
         }
+
         if (typeof result === 'string') {
             return result;
         }
+
         return JSON.stringify(result, null, 2);
     }
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+
         return `Error: ${message}`;
     }
 }

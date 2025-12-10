@@ -58,7 +58,6 @@
 import {
     getargs,
     getcwd,
-    readText,
     readFile,
     recv,
     print,
@@ -296,7 +295,10 @@ async function readStdin(): Promise<string> {
     for await (const msg of recv(0)) {
         if (msg.op === 'item' && msg.data) {
             const data = msg.data as { text?: string };
-            if (data.text) chunks.push(data.text);
+
+            if (data.text) {
+                chunks.push(data.text);
+            }
         }
         else if (msg.op === 'done' || msg.op === 'ok' || msg.op === 'error') {
             break;

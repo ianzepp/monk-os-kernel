@@ -7,9 +7,8 @@
  * @module rom/lib/process
  */
 
-import { syscall, call, collect, onSignal, onTick, toError, setDefaultTermHandler } from './syscall.js';
+import { syscall, call, collect, toError, setDefaultTermHandler } from './syscall.js';
 import { respond } from './respond.js';
-import { fromCode } from './types.js';
 import type { Response, OpenFlags, SpawnOpts, ExitStatus, Stat, DirEntry, Grant } from './types.js';
 
 // =============================================================================
@@ -438,7 +437,7 @@ export function setenv(name: string, value: string): Promise<void> {
  * Sleep for specified milliseconds.
  */
 export function sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+    return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 /**

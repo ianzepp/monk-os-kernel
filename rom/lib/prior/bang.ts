@@ -30,7 +30,6 @@ import { call, readFile } from '@rom/lib/process/index.js';
 
 import type {
     ParsedBangCommand,
-    BangCommandType,
     SpawnArgs,
     EmsArgs,
     CallArgs,
@@ -66,6 +65,7 @@ export function parseBangCommands(text: string): ParsedBangCommand[] | null {
     for (const line of lines) {
         const trimmed = line.trim();
         const parsed = parseLine(trimmed);
+
         if (parsed) {
             results.push(parsed);
         }
@@ -81,23 +81,28 @@ function parseLine(trimmed: string): ParsedBangCommand | null {
     // !exec <shell command> - everything after !exec is passed to shell
     if (trimmed.startsWith('!exec ')) {
         const shellCmd = trimmed.slice(6).trim();
+
         if (shellCmd) {
             return { type: 'exec', args: shellCmd };
         }
+
         return null;
     }
 
     // !call syscall:name arg1 arg2 ... OR !call syscall:name [arg1, arg2]
     const callMatch = trimmed.match(/^!call\s+(\S+)\s*(.*)/);
+
     if (callMatch && callMatch[1]) {
         const syscallName = callMatch[1];
         const argsStr = (callMatch[2] || '').trim();
 
         // Check if args are a JSON array
         let args: unknown[];
+
         if (argsStr.startsWith('[')) {
             try {
                 const parsed = JSON.parse(argsStr);
+
                 args = Array.isArray(parsed) ? parsed : [parsed];
             }
             catch {
@@ -114,9 +119,11 @@ function parseLine(trimmed: string): ParsedBangCommand | null {
     // !ref keyword1 keyword2 ... - search memories
     if (trimmed.startsWith('!ref ')) {
         const keywords = trimmed.slice(5).trim();
+
         if (keywords) {
             return { type: 'ref', args: keywords };
         }
+
         return null;
     }
 
@@ -143,6 +150,7 @@ function parseLine(trimmed: string): ParsedBangCommand | null {
     // !spawn "task" or !spawn {"task": "...", "model": "..."}
     // Also handles LLM confusion: !spawn spawn:xyz "task" (strips the spawn:id)
     const spawnMatch = trimmed.match(/^!spawn\s+(.+)/);
+
     if (spawnMatch && spawnMatch[1]) {
         let argStr = spawnMatch[1].trim();
 
@@ -173,16 +181,20 @@ function parseLine(trimmed: string): ParsedBangCommand | null {
     if (trimmed === '!wait') {
         return { type: 'wait', args: 'all' };
     }
+
     const waitMatch = trimmed.match(/^!wait\s+(spawn:[a-z0-9]+)/);
+
     if (waitMatch && waitMatch[1]) {
         return { type: 'wait', args: waitMatch[1] };
     }
 
     // !ems <subcommand> [args...]
     const emsMatch = trimmed.match(/^!ems\s+(\S+)(?:\s+(.*))?/);
+
     if (emsMatch && emsMatch[1]) {
         const subcommand = emsMatch[1].toLowerCase();
         const emsArgs = (emsMatch[2] || '').trim();
+
         return { type: 'ems', args: { subcommand, args: emsArgs } as EmsArgs };
     }
 
@@ -196,7 +208,9 @@ function parseLine(trimmed: string): ParsedBangCommand | null {
  * Handles quoted strings with spaces.
  */
 export function parseCallArgs(argsStr: string): unknown[] {
-    if (!argsStr.trim()) return [];
+    if (!argsStr.trim()) {
+        return [];
+    }
 
     const args: unknown[] = [];
     let current = '';
@@ -232,6 +246,7 @@ export function parseCallArgs(argsStr: string): unknown[] {
                 args.push(parseArgValue(current));
                 current = '';
             }
+
             continue;
         }
 
@@ -286,12 +301,13 @@ export interface BangExecutionContext {
  */
 export async function executeBangCommand(
     cmd: ParsedBangCommand,
-    ctx: BangExecutionContext
+    ctx: BangExecutionContext,
 ): Promise<string> {
     switch (cmd.type) {
         case 'exec': {
             const shellCmd = cmd.args as string;
             const execResult = await exec(shellCmd);
+
             return execResult.code === 0
                 ? execResult.stdout || '(no output)'
                 : `Error (code ${execResult.code}): ${execResult.stderr || execResult.stdout || 'unknown error'}`;
@@ -299,6 +315,7 @@ export async function executeBangCommand(
 
         case 'call': {
             const { name, args } = cmd.args as CallArgs;
+
             return await executeCall(name, args);
         }
 
@@ -307,6 +324,7 @@ export async function executeBangCommand(
 
         case 'coalesce':
             await ctx.consolidateMemory();
+
             return 'Memory consolidation complete.';
 
         case 'stm':
@@ -344,12 +362,13 @@ async function executeRef(keywordsStr: string): Promise<string> {
         const ltmEntries = await call<LtmEntry[]>(
             'ems:select',
             'ai.ltm',
-            { orderBy: ['-reinforced', '-created_at'], limit: 50 }
+            { orderBy: ['-reinforced', '-created_at'], limit: 50 },
         );
 
         // Simple keyword matching
         const ltmMatches = ltmEntries.filter(e => {
             const text = e.content.toLowerCase();
+
             return keywords.some(kw => text.includes(kw));
         }).slice(0, 5);
 
@@ -370,11 +389,12 @@ async function executeRef(keywordsStr: string): Promise<string> {
                 where: { consolidated: 0 },
                 orderBy: ['-salience', '-created_at'],
                 limit: 30,
-            }
+            },
         );
 
         const stmMatches = stmEntries.filter(e => {
             const text = e.content.toLowerCase();
+
             return keywords.some(kw => text.includes(kw));
         }).slice(0, 3);
 
@@ -440,6 +460,7 @@ async function executeSpawn(spawnArgs: SpawnArgs, ctx: BangExecutionContext): Pr
     });
 
     setSpawnedAgent(spawnId, agent);
+
     return spawnId;
 }
 
@@ -450,6 +471,7 @@ async function executeWait(waitId: string): Promise<string> {
     // !wait (no id) - wait for all pending spawns
     if (waitId === 'all') {
         const agents = getAllSpawnedAgents();
+
         if (agents.size === 0) {
             return '(no pending spawns)';
         }
@@ -457,15 +479,18 @@ async function executeWait(waitId: string): Promise<string> {
         await log(`prior: !wait all (${agents.size} pending...)`);
 
         const waitResults: string[] = [];
+
         for (const [id, agent] of agents) {
             const agentResult = await agent.promise;
             const text = agentResult.status === 'ok'
                 ? agentResult.result ?? '(no result)'
                 : `Error: ${agentResult.error ?? 'unknown error'}`;
+
             waitResults.push(`[${id}]: ${text}`);
         }
 
         clearSpawnedAgents();
+
         return waitResults.join('\n\n');
     }
 
@@ -480,14 +505,18 @@ async function executeWait(waitId: string): Promise<string> {
         const result = agent.result?.status === 'ok'
             ? agent.result.result ?? '(no result)'
             : `Error: ${agent.result?.error ?? 'unknown error'}`;
+
         deleteSpawnedAgent(waitId);
+
         return result;
     }
 
     // Wait for completion
     await log(`prior: !wait ${waitId} (blocking...)`);
     const agentResult = await agent.promise;
+
     deleteSpawnedAgent(waitId);
+
     return agentResult.status === 'ok'
         ? agentResult.result ?? '(no result)'
         : `Error: ${agentResult.error ?? 'unknown error'}`;
@@ -501,6 +530,7 @@ async function executeEms(emsCmd: EmsArgs): Promise<string> {
 
     // Map subcommands to shell commands
     let shellCommand: string;
+
     switch (subcommand) {
         case 'describe':
             shellCommand = args ? `describe ${args}` : 'describe';
@@ -530,6 +560,7 @@ async function executeEms(emsCmd: EmsArgs): Promise<string> {
     }
 
     const execResult = await exec(shellCommand);
+
     return execResult.code === 0
         ? execResult.stdout || '(no output)'
         : `Error (code ${execResult.code}): ${execResult.stderr || execResult.stdout || 'unknown error'}`;
@@ -548,8 +579,10 @@ export function getBangCommandDescription(cmd: ParsedBangCommand): string {
             return `!exec ${(cmd.args as string).slice(0, 40)}`;
         case 'call': {
             const { name } = cmd.args as CallArgs;
+
             return `!call ${name}`;
         }
+
         case 'spawn':
             return '!spawn';
         case 'wait':
@@ -562,8 +595,10 @@ export function getBangCommandDescription(cmd: ParsedBangCommand): string {
             return '!help';
         case 'ems': {
             const { subcommand, args } = cmd.args as EmsArgs;
+
             return `!ems ${subcommand} ${args}`.trim().slice(0, 50);
         }
+
         default:
             return `!${cmd.type}`;
     }

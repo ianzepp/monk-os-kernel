@@ -34,6 +34,7 @@ async function main(): Promise<void> {
         await println('');
         await println('Note: This performs a soft delete. Use "expire" for permanent deletion.');
         await exit(0);
+
         return;
     }
 
@@ -42,10 +43,12 @@ async function main(): Promise<void> {
 
     try {
         const deleted = await call<Record<string, unknown>>('ems:delete', model, id);
+
         await println(JSON.stringify(deleted, null, 2));
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         await eprintln(`delete: ${msg}`);
         await exit(1);
     }

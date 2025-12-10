@@ -51,11 +51,13 @@ export async function* llmComplete(
 ): AsyncIterable<Response> {
     if (typeof model !== 'string' || model.length === 0) {
         yield respond.error('EINVAL', 'model must be a non-empty string');
+
         return;
     }
 
     if (typeof prompt !== 'string') {
         yield respond.error('EINVAL', 'prompt must be a string');
+
         return;
     }
 
@@ -77,6 +79,7 @@ export async function* llmComplete(
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         yield respond.error('EIO', msg);
     }
 }
@@ -101,11 +104,13 @@ export async function* llmStream(
 ): AsyncIterable<Response> {
     if (typeof model !== 'string' || model.length === 0) {
         yield respond.error('EINVAL', 'model must be a non-empty string');
+
         return;
     }
 
     if (typeof prompt !== 'string') {
         yield respond.error('EINVAL', 'prompt must be a string');
+
         return;
     }
 
@@ -129,6 +134,7 @@ export async function* llmStream(
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         yield respond.error('EIO', msg);
     }
 }
@@ -155,11 +161,13 @@ export async function* llmChat(
 ): AsyncIterable<Response> {
     if (typeof model !== 'string' || model.length === 0) {
         yield respond.error('EINVAL', 'model must be a non-empty string');
+
         return;
     }
 
     if (!Array.isArray(messages)) {
         yield respond.error('EINVAL', 'messages must be an array');
+
         return;
     }
 
@@ -167,6 +175,7 @@ export async function* llmChat(
     for (const msg of messages) {
         if (typeof msg !== 'object' || msg === null) {
             yield respond.error('EINVAL', 'each message must be an object');
+
             return;
         }
 
@@ -174,6 +183,7 @@ export async function* llmChat(
 
         if (typeof m.role !== 'string' || typeof m.content !== 'string') {
             yield respond.error('EINVAL', 'each message must have role and content strings');
+
             return;
         }
     }
@@ -195,6 +205,7 @@ export async function* llmChat(
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         yield respond.error('EIO', msg);
     }
 }
@@ -219,11 +230,13 @@ export async function* llmChatStream(
 ): AsyncIterable<Response> {
     if (typeof model !== 'string' || model.length === 0) {
         yield respond.error('EINVAL', 'model must be a non-empty string');
+
         return;
     }
 
     if (!Array.isArray(messages)) {
         yield respond.error('EINVAL', 'messages must be an array');
+
         return;
     }
 
@@ -231,6 +244,7 @@ export async function* llmChatStream(
     for (const msg of messages) {
         if (typeof msg !== 'object' || msg === null) {
             yield respond.error('EINVAL', 'each message must be an object');
+
             return;
         }
 
@@ -238,6 +252,7 @@ export async function* llmChatStream(
 
         if (typeof m.role !== 'string' || typeof m.content !== 'string') {
             yield respond.error('EINVAL', 'each message must have role and content strings');
+
             return;
         }
     }
@@ -261,6 +276,7 @@ export async function* llmChatStream(
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         yield respond.error('EIO', msg);
     }
 }
@@ -285,16 +301,19 @@ export async function* llmEmbed(
 ): AsyncIterable<Response> {
     if (typeof model !== 'string' || model.length === 0) {
         yield respond.error('EINVAL', 'model must be a non-empty string');
+
         return;
     }
 
     if (typeof input !== 'string' && !Array.isArray(input)) {
         yield respond.error('EINVAL', 'input must be a string or array of strings');
+
         return;
     }
 
     if (Array.isArray(input) && !input.every(i => typeof i === 'string')) {
         yield respond.error('EINVAL', 'all inputs must be strings');
+
         return;
     }
 
@@ -308,6 +327,7 @@ export async function* llmEmbed(
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         yield respond.error('EIO', msg);
     }
 }
@@ -343,6 +363,7 @@ export async function* llmModels(
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         yield respond.error('EIO', msg);
     }
 }

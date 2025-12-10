@@ -129,6 +129,7 @@ async function main(): Promise<void> {
 
 function formatTime(ms: number): { epoch: string; human: string } {
     const date = new Date(ms);
+
     return {
         epoch: Math.floor(ms / 1000).toString(),
         human: date.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ''),

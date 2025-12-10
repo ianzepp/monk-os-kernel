@@ -449,20 +449,24 @@ export async function* channelAccept(
 ): AsyncIterable<Response> {
     if (typeof socketFd !== 'number') {
         yield respond.error('EINVAL', 'socketFd must be a number');
+
         return;
     }
 
     if (typeof proto !== 'string') {
         yield respond.error('EINVAL', 'proto must be a string');
+
         return;
     }
 
     try {
         const channelFd = await acceptChannel(kernel, proc, socketFd, proto, opts as ChannelOpts | undefined);
+
         yield respond.ok(channelFd);
     }
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+
         yield respond.error('EIO', message);
     }
 }

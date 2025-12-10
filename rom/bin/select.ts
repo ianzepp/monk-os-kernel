@@ -52,10 +52,12 @@ function parseArgs(args: string[]): { model: string; filter: ParsedFilter } {
             if (i >= args.length) {
                 throw new Error('expected number after limit');
             }
+
             filter.limit = parseInt(args[i], 10);
             if (isNaN(filter.limit)) {
                 throw new Error('limit must be a number');
             }
+
             i++;
         }
         else if (token === 'where') {
@@ -63,23 +65,33 @@ function parseArgs(args: string[]): { model: string; filter: ParsedFilter } {
             // Parse field=value pairs until we hit another keyword or end
             while (i < args.length) {
                 const pair = args[i];
+
                 if (['limit', 'order'].includes(pair.toLowerCase())) {
                     break;
                 }
+
                 if (pair.includes('=')) {
                     const eqIdx = pair.indexOf('=');
                     const field = pair.slice(0, eqIdx);
                     const value = parseValue(pair.slice(eqIdx + 1));
-                    if (!filter.where) filter.where = {};
+
+                    if (!filter.where) {
+                        filter.where = {};
+                    }
+
                     filter.where[field] = value;
                 }
+
                 i++;
             }
         }
         else if (token === 'order') {
             i++;
             // Parse order fields
-            if (!filter.orderBy) filter.orderBy = [];
+            if (!filter.orderBy) {
+                filter.orderBy = [];
+            }
+
             while (i < args.length && !['limit', 'where'].includes(args[i].toLowerCase())) {
                 filter.orderBy.push(args[i]);
                 i++;
@@ -91,7 +103,11 @@ function parseArgs(args: string[]): { model: string; filter: ParsedFilter } {
             const eqIdx = pair.indexOf('=');
             const field = pair.slice(0, eqIdx);
             const value = parseValue(pair.slice(eqIdx + 1));
-            if (!filter.where) filter.where = {};
+
+            if (!filter.where) {
+                filter.where = {};
+            }
+
             filter.where[field] = value;
             i++;
         }
@@ -115,20 +131,30 @@ function parseValue(str: string): unknown {
 
     // Try number
     const num = parseFloat(str);
+
     if (!isNaN(num) && String(num) === str) {
         return num;
     }
 
     // Try integer (handles "0", "1", etc.)
     const int = parseInt(str, 10);
+
     if (!isNaN(int) && String(int) === str) {
         return int;
     }
 
     // Booleans
-    if (str.toLowerCase() === 'true') return true;
-    if (str.toLowerCase() === 'false') return false;
-    if (str.toLowerCase() === 'null') return null;
+    if (str.toLowerCase() === 'true') {
+        return true;
+    }
+
+    if (str.toLowerCase() === 'false') {
+        return false;
+    }
+
+    if (str.toLowerCase() === 'null') {
+        return null;
+    }
 
     // String
     return str;
@@ -146,6 +172,7 @@ async function main(): Promise<void> {
         await println('  select ai.request where status=ok');
         await println('  select ai.stm where consolidated=0 limit 10');
         await exit(0);
+
         return;
     }
 
@@ -154,12 +181,15 @@ async function main(): Promise<void> {
 
         // Build ems:select filter object
         const selectFilter: Record<string, unknown> = {};
+
         if (filter.where) {
             selectFilter.where = filter.where;
         }
+
         if (filter.limit) {
             selectFilter.limit = filter.limit;
         }
+
         if (filter.orderBy && filter.orderBy.length > 0) {
             selectFilter.orderBy = filter.orderBy;
         }
@@ -168,7 +198,7 @@ async function main(): Promise<void> {
         const records = await collect<Record<string, unknown>>(
             'ems:select',
             model,
-            Object.keys(selectFilter).length > 0 ? selectFilter : undefined
+            Object.keys(selectFilter).length > 0 ? selectFilter : undefined,
         );
 
         // Output as JSON
@@ -176,6 +206,7 @@ async function main(): Promise<void> {
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         await eprintln(`select: ${msg}`);
         await exit(1);
     }

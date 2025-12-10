@@ -262,7 +262,7 @@ export function syscall(name: string, ...args: unknown[]): AsyncIterable<Respons
                     }
 
                     // Wait for next response
-                    return new Promise((resolve) => {
+                    return new Promise(resolve => {
                         stream.waiting = resolve;
                     });
                 },
@@ -389,6 +389,7 @@ export type TickHandler = (dt: number, now: number, seq: number) => void | Promi
 export function onTick(handler: TickHandler): void {
     onSignal(SIGTICK, (payload?: unknown) => {
         const tick = payload as TickPayload;
+
         return handler(tick.dt, tick.now, tick.seq);
     });
 }

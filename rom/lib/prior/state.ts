@@ -194,6 +194,7 @@ export function clearSpawnedAgents(): void {
  */
 export function markAgentDone(id: string, result: TaskResult): void {
     const agent = spawnedAgents.get(id);
+
     if (agent) {
         agent.result = result;
         agent.done = true;

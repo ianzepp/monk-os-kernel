@@ -383,6 +383,7 @@ export class UdpPort implements Port {
         // Initialization in progress - wait for it
         if (this.socketPromise) {
             await this.socketPromise;
+
             return;
         }
 

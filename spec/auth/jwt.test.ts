@@ -87,8 +87,12 @@ describe('JWT', () => {
             let base64 = payloadPart!.replace(/-/g, '+').replace(/_/g, '/');
             const padding = base64.length % 4;
 
-            if (padding === 2) base64 += '==';
-            else if (padding === 3) base64 += '=';
+            if (padding === 2) {
+                base64 += '==';
+            }
+            else if (padding === 3) {
+                base64 += '=';
+            }
 
             const payloadJson = atob(base64);
             const payloadObj = JSON.parse(payloadJson);

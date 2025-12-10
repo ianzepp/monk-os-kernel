@@ -96,6 +96,7 @@ export async function closeHandle(self: Kernel, proc: Process, h: number): Promi
 
     // DEBUG: Log when listener fd might be closed
     const handle = self.handles.get(handleId);
+
     if (handle?.type === 'port') {
         printk(self, 'debug', `closeHandle: closing PORT fd ${h} (${handleId.slice(0, 8)}) for process ${proc.cmd}`);
     }

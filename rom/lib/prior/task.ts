@@ -79,7 +79,7 @@ interface ConversationTurn {
 export async function executeTask(
     instruction: Instruction,
     options: ExecuteTaskOptions = {},
-    consolidateMemory: () => Promise<void>
+    consolidateMemory: () => Promise<void>,
 ): Promise<TaskResult> {
     const { skipLogging = false, clientAddr } = options;
     const startTime = Date.now();
@@ -100,6 +100,7 @@ export async function executeTask(
     catch (err) {
         // Non-critical - log and continue
         const msg = err instanceof Error ? err.message : String(err);
+
         await log(`prior: failed to create ai.request: ${msg}`, requestId);
     }
 
@@ -115,7 +116,7 @@ export async function executeTask(
         eventType: string,
         command: string,
         result: string,
-        durationMs: number
+        durationMs: number,
     ): Promise<void> => {
         try {
             await call('ems:create', 'ai.request_event', {
@@ -135,6 +136,7 @@ export async function executeTask(
 
     // Build initial prompt with memory context
     const initialPrompt = buildInitialPrompt(instruction);
+
     conversation.push({ role: 'user', content: initialPrompt });
 
     // Create execution context for bang commands
@@ -197,25 +199,27 @@ export async function executeTask(
 
             // Run non-wait commands in parallel
             const otherResults = await Promise.all(
-                otherCommands.map(cmd => executeAndRecord(cmd, ctx, iterations, recordEvent))
+                otherCommands.map(cmd => executeAndRecord(cmd, ctx, iterations, recordEvent)),
             );
 
             // Add those results to conversation
             for (let i = 0; i < otherResults.length; i++) {
                 const resultText = otherResults[i];
                 const cmd = getBangCommandDescription(otherCommands[i]!);
+
                 await log(`prior: ${cmd} -> ${resultText.slice(0, 80)}${resultText.length > 80 ? '...' : ''}`);
                 conversation.push({ role: 'exec', content: resultText });
             }
 
             // Now run waits (after spawns are registered)
             const waitResults = await Promise.all(
-                waitCommands.map(cmd => executeAndRecord(cmd, ctx, iterations, recordEvent))
+                waitCommands.map(cmd => executeAndRecord(cmd, ctx, iterations, recordEvent)),
             );
 
             for (let i = 0; i < waitResults.length; i++) {
                 const resultText = waitResults[i];
                 const cmd = getBangCommandDescription(waitCommands[i]!);
+
                 await log(`prior: ${cmd} -> ${resultText.slice(0, 80)}${resultText.length > 80 ? '...' : ''}`);
                 conversation.push({ role: 'exec', content: resultText });
             }
@@ -300,16 +304,19 @@ function buildInitialPrompt(instruction: Instruction): string {
     const parts: string[] = [];
 
     const identity = getIdentity();
+
     if (identity) {
         parts.push(`My identity: ${identity}`);
     }
 
     const emsSchema = getEmsSchema();
+
     if (emsSchema) {
         parts.push(`EMS models (database tables):\n${emsSchema}`);
     }
 
     const memoryContext = getMemoryContext();
+
     if (memoryContext) {
         parts.push(`Memory context:\n${memoryContext}`);
     }
@@ -330,11 +337,13 @@ async function executeAndRecord(
     cmd: ParsedBangCommand,
     ctx: BangExecutionContext,
     iteration: number,
-    recordEvent: (iteration: number, eventType: string, command: string, result: string, durationMs: number) => Promise<void>
+    recordEvent: (iteration: number, eventType: string, command: string, result: string, durationMs: number) => Promise<void>,
 ): Promise<string> {
     const cmdStart = Date.now();
     const result = await executeBangCommand(cmd, ctx);
     const cmdString = getBangCommandDescription(cmd);
+
     await recordEvent(iteration, cmd.type, cmdString, result, Date.now() - cmdStart);
+
     return result;
 }

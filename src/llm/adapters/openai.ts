@@ -102,6 +102,7 @@ export class OpenAIAdapter implements Adapter {
         // Check if this is Ollama - use native endpoint for better streaming
         if (this.isOllama(provider)) {
             yield* this.ollamaGenerateStream(channel, model, request);
+
             return;
         }
 
@@ -144,11 +145,13 @@ export class OpenAIAdapter implements Adapter {
         for await (const response of responses) {
             if (response.op === 'ok') {
                 const data = response.data as OpenAIChatResponse;
+
                 return this.parseCompletionResponse(data, model);
             }
 
             if (response.op === 'error') {
                 const err = response.data as { code?: string; message?: string };
+
                 throw new Error(`OpenAI API error: ${err.code} - ${err.message}`);
             }
         }
@@ -189,6 +192,7 @@ export class OpenAIAdapter implements Adapter {
             }
             else if (response.op === 'error') {
                 const err = response.data as { code?: string; message?: string };
+
                 throw new Error(`OpenAI API error: ${err.code} - ${err.message}`);
             }
             else if (response.op === 'done') {
@@ -230,6 +234,7 @@ export class OpenAIAdapter implements Adapter {
         for await (const response of responses) {
             if (response.op === 'ok') {
                 const data = response.data as OpenAIEmbeddingResponse;
+
                 return {
                     embeddings: data.data.map(d => d.embedding),
                     model: data.model,
@@ -239,6 +244,7 @@ export class OpenAIAdapter implements Adapter {
 
             if (response.op === 'error') {
                 const err = response.data as { code?: string; message?: string };
+
                 throw new Error(`OpenAI API error: ${err.code} - ${err.message}`);
             }
         }
@@ -305,6 +311,7 @@ export class OpenAIAdapter implements Adapter {
             }
             else if (response.op === 'error') {
                 const err = response.data as { code?: string; message?: string };
+
                 throw new Error(`Ollama API error: ${err.code} - ${err.message}`);
             }
             else if (response.op === 'done') {
@@ -344,10 +351,12 @@ export class OpenAIAdapter implements Adapter {
             for await (const response of responses) {
                 if (response.op === 'ok') {
                     const data = response.data as OllamaEmbeddingResponse;
+
                     embeddings.push(data.embedding);
                 }
                 else if (response.op === 'error') {
                     const err = response.data as { code?: string; message?: string };
+
                     throw new Error(`Ollama API error: ${err.code} - ${err.message}`);
                 }
             }

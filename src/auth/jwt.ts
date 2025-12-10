@@ -52,7 +52,7 @@ import type { JWTHeader, JWTPayload } from './types.js';
  *
  * WHY: We only support HS256, so header is constant. Pre-encode it.
  */
-const JWT_HEADER: JWTHeader = {
+const _JWT_HEADER: JWTHeader = {
     alg: 'HS256',
     typ: 'JWT',
 };

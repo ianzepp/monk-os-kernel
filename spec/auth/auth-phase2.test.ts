@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { Auth, ROOT_USER_ID, DEFAULT_ROOT_PASSWORD } from '@src/auth/index.js';
+import { Auth } from '@src/auth/index.js';
 import { EMS } from '@src/ems/ems.js';
 import { BunHAL } from '@src/hal/index.js';
 

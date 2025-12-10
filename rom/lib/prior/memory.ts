@@ -57,11 +57,12 @@ export async function consolidateMemory(): Promise<void> {
                 where: { consolidated: 0 },
                 orderBy: ['-salience', 'created_at'],
                 limit: 20,
-            }
+            },
         );
 
         if (stmEntries.length === 0) {
             await log('prior: no memories to consolidate');
+
             return;
         }
 
@@ -126,6 +127,7 @@ Output only JSON lines, no commentary. If nothing is worth keeping, output nothi
     }
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+
         await log(`prior: consolidation error: ${message}`);
     }
 }

@@ -352,6 +352,7 @@ export class LLM {
 
         if (value.startsWith('env:')) {
             const envKey = value.slice(4);
+
             return this.hal.host.getenv(envKey);
         }
 
@@ -370,12 +371,14 @@ export class LLM {
                 if (authValue) {
                     headers['Authorization'] = `Bearer ${authValue}`;
                 }
+
                 break;
 
             case 'x-api-key':
                 if (authValue) {
                     headers['x-api-key'] = authValue;
                 }
+
                 break;
 
             case 'none':

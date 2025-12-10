@@ -32,7 +32,6 @@ import type { HAL } from '@src/hal/index.js';
 import { EINVAL } from '@src/hal/index.js';
 import type { VFS } from '@src/vfs/vfs.js';
 import type { Kernel } from '@src/kernel/kernel.js';
-import type { ServiceDef } from '@src/kernel/services.js';
 import type { Process } from '@src/kernel/types.js';
 import type { Response } from '@src/message.js';
 import { fromCode } from '@src/hal/errors.js';
@@ -811,6 +810,7 @@ export abstract class BaseOS {
                 // or exists from previous boot. If it's EEXIST, check if it's a folder.
                 if ((mkdirErr as NodeJS.ErrnoException).code === 'EEXIST') {
                     const existing = await vfsInst.stat(vfsPath, 'kernel');
+
                     if (existing.model !== 'folder') {
                         throw mkdirErr;
                     }

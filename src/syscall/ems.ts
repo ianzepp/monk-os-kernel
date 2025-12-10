@@ -76,12 +76,14 @@ export async function* emsDescribe(
     // Validate model arg if provided
     if (model !== undefined && model !== null && typeof model !== 'string') {
         yield respond.error('EINVAL', 'model must be a string or null');
+
         return;
     }
 
     try {
         // Build filter for models query
         const modelFilter: Record<string, unknown> = {};
+
         if (typeof model === 'string') {
             modelFilter.where = { model_name: model };
         }
@@ -95,6 +97,7 @@ export async function* emsDescribe(
 
         for await (const row of ems.ops.selectAny('models', modelFilter)) {
             const rec = row as Record<string, unknown>;
+
             models.push({
                 model_name: rec.model_name as string,
                 status: rec.status as string,
@@ -105,6 +108,7 @@ export async function* emsDescribe(
         // If specific model requested but not found
         if (typeof model === 'string' && models.length === 0) {
             yield respond.error('ENOENT', `Model not found: ${model}`);
+
             return;
         }
 
@@ -127,6 +131,7 @@ export async function* emsDescribe(
 
                 // Parse enum_values if present (stored as JSON string)
                 let enumValues: string[] | null = null;
+
                 if (typeof f.enum_values === 'string') {
                     try {
                         enumValues = JSON.parse(f.enum_values);
@@ -159,6 +164,7 @@ export async function* emsDescribe(
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         yield respond.error('EIO', msg);
     }
 }

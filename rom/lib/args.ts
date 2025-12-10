@@ -278,6 +278,7 @@ export function parseArgs(
                 // ECHO BEHAVIOR: Unknown flag stops parsing, becomes positional
                 if (options.stopAtFirstPositional === true) {
                     result.positional.push(...args.slice(i));
+
                     return result;
                 }
 
@@ -347,6 +348,7 @@ export function parseArgs(
                 // ECHO BEHAVIOR: Unknown flag stops parsing, becomes positional
                 if (options.stopAtFirstPositional === true) {
                     result.positional.push(...args.slice(i));
+
                     return result;
                 }
 

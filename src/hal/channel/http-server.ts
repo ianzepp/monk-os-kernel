@@ -113,6 +113,7 @@ export class BunHttpServerChannel implements Channel {
     constructor(socket: Socket, _opts?: ChannelOpts) {
         this.socket = socket;
         const stat = socket.stat();
+
         this.description = `http-server:${stat.remoteAddr}:${stat.remotePort}`;
     }
 
@@ -138,6 +139,7 @@ export class BunHttpServerChannel implements Channel {
     async *handle(msg: Message): AsyncIterable<Response> {
         if (this._closed) {
             yield respond.error('EBADF', 'Channel closed');
+
             return;
         }
 
@@ -145,22 +147,26 @@ export class BunHttpServerChannel implements Channel {
             case 'recv':
                 try {
                     const request = await this.recvRequest();
+
                     yield respond.ok(request);
                 }
                 catch (err) {
                     yield respond.error('EIO', (err as Error).message);
                 }
+
                 break;
 
             case 'send':
                 try {
                     const responseData = msg.data as HttpServerResponse;
+
                     await this.sendResponse(responseData);
                     yield respond.ok();
                 }
                 catch (err) {
                     yield respond.error('EIO', (err as Error).message);
                 }
+
                 break;
 
             default:
@@ -179,6 +185,7 @@ export class BunHttpServerChannel implements Channel {
      */
     async recv(): Promise<Message> {
         const request = await this.recvRequest();
+
         return { op: 'request', data: request };
     }
 
@@ -208,6 +215,7 @@ export class BunHttpServerChannel implements Channel {
                 if (buffer.length === 0) {
                     throw new Error('Connection closed before request received');
                 }
+
                 break;
             }
 
@@ -252,6 +260,7 @@ export class BunHttpServerChannel implements Channel {
                 const pairParts = pair.split('=');
                 const key = pairParts[0];
                 const value = pairParts[1];
+
                 if (key) {
                     query[decodeURIComponent(key)] = value ? decodeURIComponent(value) : '';
                 }
@@ -263,11 +272,17 @@ export class BunHttpServerChannel implements Channel {
 
         for (let i = 1; i < lines.length; i++) {
             const line = lines[i];
-            if (!line) continue;
+
+            if (!line) {
+                continue;
+            }
+
             const colonIndex = line.indexOf(':');
+
             if (colonIndex > 0) {
                 const key = line.substring(0, colonIndex).trim().toLowerCase();
                 const value = line.substring(colonIndex + 1).trim();
+
                 headers[key] = value;
             }
         }
@@ -282,7 +297,11 @@ export class BunHttpServerChannel implements Channel {
 
             while (bodyBuffer.length < contentLength) {
                 const chunk = await this.socket.read({ timeout: 30000 });
-                if (chunk.length === 0) break;
+
+                if (chunk.length === 0) {
+                    break;
+                }
+
                 bodyBuffer += this.decoder.decode(chunk, { stream: true });
             }
 
@@ -320,6 +339,7 @@ export class BunHttpServerChannel implements Channel {
         }
         else if (response.op === 'error') {
             const errorData = response.data as { code: string; message: string };
+
             await this.sendResponse({
                 status: 500,
                 body: { error: errorData.code, message: errorData.message },
@@ -400,6 +420,7 @@ export class BunHttpServerChannel implements Channel {
             502: 'Bad Gateway',
             503: 'Service Unavailable',
         };
+
         return statusTexts[status] || 'Unknown';
     }
 
@@ -408,7 +429,10 @@ export class BunHttpServerChannel implements Channel {
     // =========================================================================
 
     async close(): Promise<void> {
-        if (this._closed) return;
+        if (this._closed) {
+            return;
+        }
+
         this._closed = true;
         await this.socket.close();
     }

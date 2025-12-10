@@ -44,6 +44,7 @@ export async function readSocket(socketFd: number): Promise<string> {
 
             // Check for newline (JSON lines protocol)
             const lastChunk = response.bytes;
+
             if (lastChunk.includes(10)) { // \n
                 break;
             }
@@ -53,6 +54,7 @@ export async function readSocket(socketFd: number): Promise<string> {
         }
         else if (response.op === 'error') {
             const err = response.data as { code: string; message: string };
+
             throw new Error(`Socket read error: ${err.code} - ${err.message}`);
         }
     }
@@ -90,6 +92,7 @@ export async function writeSocket(socketFd: number, data: string): Promise<void>
         }
         else if (response.op === 'error') {
             const err = response.data as { code: string; message: string };
+
             throw new Error(`Socket write error: ${err.code} - ${err.message}`);
         }
     }

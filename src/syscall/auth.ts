@@ -325,6 +325,7 @@ export async function* authRegister(
     }
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+
         yield respond.error('EIO', message);
 
         return;

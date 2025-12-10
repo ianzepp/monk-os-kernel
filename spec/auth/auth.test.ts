@@ -6,7 +6,6 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { Auth } from '@src/auth/auth.js';
-import { verifyJWT } from '@src/auth/jwt.js';
 import type { HAL } from '@src/hal/index.js';
 import { BunEntropyDevice } from '@src/hal/entropy.js';
 
@@ -34,6 +33,7 @@ describe('Auth', () => {
     describe('init/shutdown', () => {
         it('should initialize successfully', async () => {
             const newAuth = new Auth(hal);
+
             await newAuth.init();
 
             // Should be able to mint tokens after init
@@ -53,6 +53,7 @@ describe('Auth', () => {
 
         it('should return null from validateToken after shutdown', async () => {
             const result = await auth.mintToken('test-user');
+
             await auth.shutdown();
 
             const decoded = await auth.validateToken(result.token);
@@ -128,6 +129,7 @@ describe('Auth', () => {
 
         it('should return null for token from different Auth instance', async () => {
             const otherAuth = new Auth(hal);
+
             await otherAuth.init();
 
             const result = await otherAuth.mintToken('alice');
@@ -158,6 +160,7 @@ describe('Auth', () => {
         it('should return null for expired token', async () => {
             // Use 1 second TTL since JWT exp is in seconds
             const original = await auth.mintToken('alice', 1000); // 1s TTL
+
             await new Promise(resolve => setTimeout(resolve, 1100)); // Wait for expiry
 
             const refreshed = await auth.refreshToken(original.token);
@@ -182,6 +185,7 @@ describe('Auth', () => {
     describe('configuration', () => {
         it('should respect allowAnonymous config', async () => {
             const noAnonAuth = new Auth(hal, undefined, { allowAnonymous: false });
+
             await noAnonAuth.init();
 
             expect(noAnonAuth.isAnonymousAllowed()).toBe(false);
@@ -192,6 +196,7 @@ describe('Auth', () => {
         it('should respect sessionTTL config', async () => {
             const customTTL = 60 * 60 * 1000; // 1 hour
             const customAuth = new Auth(hal, undefined, { sessionTTL: customTTL });
+
             await customAuth.init();
 
             expect(customAuth.getSessionTTL()).toBe(customTTL);
