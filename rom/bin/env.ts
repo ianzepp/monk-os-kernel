@@ -33,7 +33,7 @@
 // IMPORTS
 // =============================================================================
 
-import { println, exit, getargs, send, respond } from '@rom/lib/process/index.js';
+import { println, exit, getargs, getenv, send, respond } from '@rom/lib/process/index.js';
 import { parseArgs } from '@rom/lib/args';
 
 // =============================================================================
@@ -80,13 +80,11 @@ export default async function main(): Promise<void> {
         return exit(EXIT_SUCCESS);
     }
 
-    // Get environment from process
-    const env = process.env;
+    // Get environment from Monk OS process
+    const env = await getenv();
 
     for (const [key, value] of Object.entries(env)) {
-        if (value !== undefined) {
-            await println(`${key}=${value}`);
-        }
+        await println(`${key}=${value}`);
     }
 
     await send(1, respond.done());
