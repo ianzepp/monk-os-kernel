@@ -4,16 +4,16 @@
  * Scheduled AI task execution using EMS-backed agent entities.
  * Combines crond's scheduling with Prior's AI capabilities.
  *
- * Agents are stored as 'agent' entities and can be managed via:
- *   ems:create agent { name, prompt, schedule, model }
- *   ems:update agent <id> { enabled: false }
- *   ems:select agent { enabled: true }
- *   ems:delete agent <id>
+ * Agents are stored as 'agentd.agent' entities and can be managed via:
+ *   ems:create agentd.agent { name, prompt, schedule, model }
+ *   ems:update agentd.agent <id> { enabled: false }
+ *   ems:select agentd.agent { enabled: true }
+ *   ems:delete agentd.agent <id>
  *
  * Examples:
  *
  *   // Short-term memory consolidation (every 10 minutes)
- *   ems:create agent {
+ *   ems:create agentd.agent {
  *       name: "memory-short",
  *       prompt: "Review the last 10 minutes of activity. Extract key facts.",
  *       schedule: "*\/10 * * * *",
@@ -21,7 +21,7 @@
  *   }
  *
  *   // Daily summary (every evening at 6pm)
- *   ems:create agent {
+ *   ems:create agentd.agent {
  *       name: "daily-summary",
  *       prompt: "Summarize today's key events and decisions.",
  *       schedule: "0 18 * * *",
@@ -29,7 +29,7 @@
  *   }
  *
  *   // Health check (every hour)
- *   ems:create agent {
+ *   ems:create agentd.agent {
  *       name: "health-check",
  *       prompt: "Review system state. Flag any anomalies or concerns.",
  *       schedule: "0 * * * *",
@@ -240,7 +240,7 @@ async function executeAgent(agent: Agent): Promise<void> {
 
     // Update agent status
     try {
-        await call('ems:update', 'agent', agent.id, {
+        await call('ems:update', 'agentd.agent', agent.id, {
             last_run: startTime,
             last_result: result,
             last_error: error,
@@ -321,7 +321,7 @@ export default async function main(): Promise<void> {
         let agents: Agent[];
 
         try {
-            agents = await collect<Agent>('ems:select', 'agent', {
+            agents = await collect<Agent>('ems:select', 'agentd.agent', {
                 where: { enabled: true },
             });
         }
