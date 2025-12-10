@@ -9,7 +9,7 @@
         "fire_at": {
             "type": "timestamp",
             "required": true,
-            "index": true,
+            "indexed": "simple",
             "description": "When to fire the syscall"
         },
         "syscall": {
@@ -24,7 +24,7 @@
         "fired": {
             "type": "boolean",
             "default_value": "0",
-            "index": true,
+            "indexed": "simple",
             "description": "Timer has fired"
         },
         "fired_at": {

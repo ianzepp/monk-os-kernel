@@ -5,7 +5,7 @@
         "window_id": {
             "type": "uuid",
             "required": true,
-            "index": true,
+            "indexed": "simple",
             "relationship_type": "owned",
             "related_model": "window",
             "cascade_delete": true,
@@ -13,7 +13,7 @@
         },
         "element_id": {
             "type": "uuid",
-            "index": true,
+            "indexed": "simple",
             "description": "Element containing selection"
         },
         "text": {

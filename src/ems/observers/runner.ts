@@ -244,9 +244,16 @@ export class ObserverRunner {
 
             // After Ring 1, check for accumulated validation errors
             if (ring === VALIDATION_RING && context.errors.length > 0) {
+                // Build detailed message with all validation errors
+                const details = context.errors.map(e => {
+                    const field = (e as EOBSINVALID).field;
+
+                    return field ? `${field}: ${e.message}` : e.message;
+                }).join('; ');
+
                 throw new AggregateError(
                     context.errors,
-                    `Validation failed with ${context.errors.length} error(s)`,
+                    `Validation failed: ${details}`,
                 );
             }
         }

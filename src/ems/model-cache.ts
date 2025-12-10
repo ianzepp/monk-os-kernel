@@ -115,8 +115,7 @@ interface FieldQueryResult {
     required_relationship: number;
     immutable: number;
     sudo: number;
-    unique_: number;
-    index_: number;
+    indexed: string | null;
     tracked: number;
     searchable: number;
     transform: string | null;
@@ -147,7 +146,7 @@ const FIELDS_QUERY = `
     SELECT id, model_name, field_name, type, is_array, required, default_value,
            minimum, maximum, pattern, enum_values, relationship_type, related_model,
            related_field, relationship_name, cascade_delete, required_relationship,
-           immutable, sudo, unique_, index_, tracked, searchable, transform, description
+           immutable, sudo, indexed, tracked, searchable, transform, description
     FROM fields
     WHERE model_name = ? AND trashed_at IS NULL
     ORDER BY field_name

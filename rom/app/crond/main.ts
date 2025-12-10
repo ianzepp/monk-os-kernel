@@ -71,7 +71,9 @@ function parseField(field: string, min: number, max: number): Set<number> {
 
     for (const part of field.split(',')) {
         if (part === '*') {
-            for (let i = min; i <= max; i++) values.add(i);
+            for (let i = min; i <= max; i++) {
+                values.add(i);
+            }
         }
         else if (part.includes('/')) {
             const splitParts = part.split('/');
@@ -80,14 +82,18 @@ function parseField(field: string, min: number, max: number): Set<number> {
             const step = parseInt(stepStr, 10);
             const start = range === '*' ? min : parseInt(range, 10);
 
-            for (let i = start; i <= max; i += step) values.add(i);
+            for (let i = start; i <= max; i += step) {
+                values.add(i);
+            }
         }
         else if (part.includes('-')) {
             const splitParts = part.split('-');
             const start = parseInt(splitParts[0] ?? '0', 10);
             const end = parseInt(splitParts[1] ?? '0', 10);
 
-            for (let i = start; i <= end; i++) values.add(i);
+            for (let i = start; i <= end; i++) {
+                values.add(i);
+            }
         }
         else {
             values.add(parseInt(part, 10));
@@ -238,7 +244,9 @@ export default async function main(): Promise<void> {
 
     // Tick handler - check jobs every minute
     onTick(async (_dt, _now, seq) => {
-        if (!running) return;
+        if (!running) {
+            return;
+        }
 
         const now = new Date();
         const currentMinute = now.getMinutes();

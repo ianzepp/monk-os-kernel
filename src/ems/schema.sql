@@ -287,12 +287,9 @@ CREATE TABLE IF NOT EXISTS fields (
     -- sudo: Requires elevated access to modify this specific field
     sudo        INTEGER DEFAULT 0,
 
-    -- unique_: Unique constraint on field value within model
-    -- WHY trailing underscore: 'unique' is a SQL keyword
-    unique_     INTEGER DEFAULT 0,
-
-    -- index_: Create database index for faster queries
-    index_      INTEGER DEFAULT 0,
+    -- indexed: Create database index for faster queries
+    -- NULL = no index, 'simple' = regular index, 'unique' = unique constraint index
+    indexed     TEXT CHECK (indexed IN ('simple', 'unique')),
 
     -- tracked: Record changes to this field in tracked table
     tracked     INTEGER DEFAULT 0,
@@ -425,8 +422,7 @@ INSERT OR IGNORE INTO fields (model_name, field_name, type, required, descriptio
     ('fields', 'required_relationship', 'boolean', 0, 'Related record must exist'),
     ('fields', 'immutable', 'boolean', 0, 'Cannot change after creation'),
     ('fields', 'sudo', 'boolean', 0, 'Requires sudo to modify'),
-    ('fields', 'unique_', 'boolean', 0, 'Unique constraint on values'),
-    ('fields', 'index_', 'boolean', 0, 'Create database index'),
+    ('fields', 'indexed', 'text', 0, 'Index type: simple or unique'),
     ('fields', 'tracked', 'boolean', 0, 'Track changes in audit log'),
     ('fields', 'searchable', 'boolean', 0, 'Include in full-text search'),
     ('fields', 'transform', 'text', 0, 'Auto-transform: lowercase, trim, uppercase'),

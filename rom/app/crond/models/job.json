@@ -24,12 +24,12 @@
         "enabled": {
             "type": "boolean",
             "default_value": "1",
-            "index": true,
+            "indexed": "simple",
             "description": "Job is active"
         },
         "next_run": {
             "type": "timestamp",
-            "index": true,
+            "indexed": "simple",
             "description": "Next scheduled execution time"
         },
         "last_run": {
