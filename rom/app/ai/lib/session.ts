@@ -1,5 +1,5 @@
 /**
- * Prior Session Logging - Audit trail and STM integration
+ * AI App Session Logging - Audit trail and STM integration
  *
  * PURPOSE
  * =======
@@ -17,7 +17,7 @@
  * - Errors: 7 (more notable, worth remembering)
  * - Successes: 5 (normal, may be consolidated)
  *
- * @module rom/lib/prior/session
+ * @module rom/app/ai/lib/session
  */
 
 // =============================================================================
@@ -60,7 +60,7 @@ export async function logSession(
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);
 
-        await log(`prior: failed to log session: ${message}`);
+        await log(`ai: failed to log session: ${message}`);
     }
 
     // Write to short-term memory for later consolidation

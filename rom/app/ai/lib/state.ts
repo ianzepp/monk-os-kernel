@@ -1,10 +1,10 @@
 /**
- * Prior State - Global state management for the Prior AI process
+ * AI App State - Global state management for the AI process
  *
  * PURPOSE
  * =======
- * Manages the global state for Prior including loaded prompts, identity,
- * memory context, and spawned subagent tracking.
+ * Manages the global state for the AI process including loaded prompts,
+ * identity, memory context, and spawned subagent tracking.
  *
  * DESIGN RATIONALE
  * ================
@@ -12,10 +12,10 @@
  * This allows state to be shared across library modules while keeping
  * the interface explicit.
  *
- * WHY NOT CLASS: Prior is a single-instance process. A singleton object
- * is simpler than a class instance passed everywhere.
+ * WHY NOT CLASS: The AI app is a single-instance process. A singleton
+ * object is simpler than a class instance passed everywhere.
  *
- * @module rom/lib/prior/state
+ * @module rom/app/ai/lib/state
  */
 
 // =============================================================================

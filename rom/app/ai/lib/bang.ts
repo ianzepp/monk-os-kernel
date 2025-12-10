@@ -1,5 +1,5 @@
 /**
- * Prior Bang Commands - Parser and executor for ! commands
+ * AI App Bang Commands - Parser and executor for ! commands
  *
  * PURPOSE
  * =======
@@ -19,7 +19,7 @@
  * !help                              - Show help
  * !stm / !ltm                        - Memory operations (reserved)
  *
- * @module rom/lib/prior/bang
+ * @module rom/app/ai/lib/bang
  */
 
 // =============================================================================
@@ -430,7 +430,7 @@ async function executeSpawn(spawnArgs: SpawnArgs, ctx: BangExecutionContext): Pr
     const spawnId = generateSpawnId();
     const spawnModel = spawnArgs.model ?? ctx.currentModel;
 
-    await log(`prior: !spawn ${spawnId} "${spawnArgs.task.slice(0, 50)}..."`);
+    await log(`ai: !spawn ${spawnId} "${spawnArgs.task.slice(0, 50)}..."`);
 
     // Create instruction for subagent (inherits context)
     const subInstruction = {
@@ -483,7 +483,7 @@ async function executeWait(waitId: string): Promise<string> {
             return '(no pending spawns)';
         }
 
-        await log(`prior: !wait all (${agents.size} pending...)`);
+        await log(`ai: !wait all (${agents.size} pending...)`);
 
         const waitResults: string[] = [];
 
@@ -519,7 +519,7 @@ async function executeWait(waitId: string): Promise<string> {
     }
 
     // Wait for completion
-    await log(`prior: !wait ${waitId} (blocking...)`);
+    await log(`ai: !wait ${waitId} (blocking...)`);
     const agentResult = await agent.promise;
 
     deleteSpawnedAgent(waitId);

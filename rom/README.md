@@ -135,13 +135,13 @@ The kernel and userspace are completely separate - they share no code at runtime
 
 ## Writing Userspace Code
 
-1. Put your code in `rom/svc/` (for services) or create a new directory
+1. Put your code in `rom/app/` (for apps) or create a new directory
 2. Import only from `@rom/...` or relative paths
 3. Use the process library for all kernel interactions
 4. Export a `default` function as your entry point
 
 ```typescript
-// rom/svc/myservice.ts
+// rom/app/myapp/main.ts
 import { println, sleep } from '@rom/lib/process/index.js';
 
 export default async function main() {
