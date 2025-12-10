@@ -1,0 +1,76 @@
+{
+    "description": "Scheduled cron job",
+    "passthrough": false,
+    "fields": {
+        "name": {
+            "type": "text",
+            "required": true,
+            "description": "Job name/identifier"
+        },
+        "spec": {
+            "type": "text",
+            "required": true,
+            "description": "Cron expression (e.g., '*/5 * * * *')"
+        },
+        "command": {
+            "type": "text",
+            "required": true,
+            "description": "Command or script path to execute"
+        },
+        "args": {
+            "type": "jsonb",
+            "description": "Arguments to pass to command"
+        },
+        "enabled": {
+            "type": "boolean",
+            "default_value": "1",
+            "index": true,
+            "description": "Job is active"
+        },
+        "next_run": {
+            "type": "timestamp",
+            "index": true,
+            "description": "Next scheduled execution time"
+        },
+        "last_run": {
+            "type": "timestamp",
+            "description": "Last execution time"
+        },
+        "last_status": {
+            "type": "integer",
+            "description": "Exit code of last run"
+        },
+        "last_error": {
+            "type": "text",
+            "description": "Error message from last run (if failed)"
+        },
+        "run_count": {
+            "type": "integer",
+            "default_value": "0",
+            "description": "Total number of executions"
+        },
+        "fail_count": {
+            "type": "integer",
+            "default_value": "0",
+            "description": "Number of failed executions"
+        },
+        "timeout": {
+            "type": "integer",
+            "description": "Max execution time in seconds"
+        },
+        "retry_on_fail": {
+            "type": "boolean",
+            "default_value": "0",
+            "description": "Retry immediately on failure"
+        },
+        "max_retries": {
+            "type": "integer",
+            "default_value": "0",
+            "description": "Maximum retry attempts"
+        },
+        "owner_pid": {
+            "type": "text",
+            "description": "Process that created this job"
+        }
+    }
+}
