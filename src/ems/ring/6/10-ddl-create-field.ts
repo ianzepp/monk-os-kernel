@@ -141,9 +141,3 @@ export abstract class DdlCreateFieldBase extends BaseObserver {
     }
 }
 
-// =============================================================================
-// RE-EXPORTS FOR BACKWARDS COMPATIBILITY
-// =============================================================================
-
-export { DdlCreateFieldSqlite } from './10-ddl-create-field.sqlite.js';
-export { DdlCreateFieldPostgres } from './10-ddl-create-field.postgres.js';

@@ -130,9 +130,3 @@ export abstract class DdlCreateModelBase extends BaseObserver {
     }
 }
 
-// =============================================================================
-// RE-EXPORTS FOR BACKWARDS COMPATIBILITY
-// =============================================================================
-
-export { DdlCreateModelSqlite } from './10-ddl-create-model.sqlite.js';
-export { DdlCreateModelPostgres } from './10-ddl-create-model.postgres.js';
