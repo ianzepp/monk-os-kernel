@@ -325,17 +325,27 @@ export async function* procChdir(
 // =============================================================================
 
 /**
- * Get environment variable.
+ * Get environment variable(s).
+ *
+ * If name is provided, returns that variable's value.
+ * If name is omitted (undefined), returns all environment variables as an object.
  *
  * Only needs Process - no kernel access needed.
  *
  * @param proc - Calling process
- * @param name - Variable name
+ * @param name - Variable name (optional - if omitted, returns all vars)
  */
 export async function* procGetenv(
     proc: Process,
     name: unknown,
 ): AsyncIterable<Response> {
+    // If no name provided, return all env vars
+    if (name === undefined) {
+        yield respond.ok({ ...proc.env });
+
+        return;
+    }
+
     if (typeof name !== 'string') {
         yield respond.error('EINVAL', 'name must be a string');
 

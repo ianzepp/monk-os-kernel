@@ -287,6 +287,34 @@ main() {
     fi
 
     # =========================================================================
+    # CHECK 10: process.env usage outside HAL
+    # =========================================================================
+    # Environment variables should be accessed through HAL, not directly via
+    # process.env. This ensures consistent handling and testability.
+    # Exemptions:
+    #   - src/hal/: HAL's job is to provide env access
+    #   - src/boot.ts: Bootstrap before HAL is available
+    log_check "process.env usage outside HAL"
+
+    local env_results
+    env_results=$(grep -rn 'process\.env' src/ --include='*.ts' 2>/dev/null \
+        | grep -v '/hal/' \
+        | grep -v 'boot.ts' \
+        || true)
+
+    if [[ -n "$env_results" ]]; then
+        local count=$(echo "$env_results" | wc -l | tr -d ' ')
+        total_warnings=$((total_warnings + count))
+        log_warn "Found $count instance(s): process.env should only be accessed in HAL"
+        echo "$env_results" | while read -r line; do
+            echo -e "  ${YELLOW}→${NC} $line"
+        done
+        echo ""
+    else
+        log_info "No issues found"
+    fi
+
+    # =========================================================================
     # Summary
     # =========================================================================
     echo ""

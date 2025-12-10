@@ -416,9 +416,14 @@ export function chdir(path: string): Promise<void> {
 }
 
 /**
- * Get environment variable.
+ * Get environment variable, or all variables if no name provided.
  */
-export function getenv(name: string): Promise<string | undefined> {
+export function getenv(name: string): Promise<string | undefined>;
+export function getenv(): Promise<Record<string, string>>;
+export function getenv(name?: string): Promise<string | undefined | Record<string, string>> {
+    if (name === undefined) {
+        return call<Record<string, string>>('proc:getenv');
+    }
     return call<string | undefined>('proc:getenv', name);
 }
 
