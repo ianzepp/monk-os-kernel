@@ -8,17 +8,17 @@ Inventory of missing coreutil commands, prioritized for AI agent use cases.
 
 ---
 
-## Current Inventory (57 commands)
+## Current Inventory (63 commands)
 
 ```
-awk       basename  bc        cat       cd        chmod     cp        create
-cut       date      delete    describe  df        dirname   du        echo
-env       expire    false     file      find      grant     grep      head
-kill      ln        ls        mkdir     mv        nl        printf    ps
-pwd       realpath  revert    rm        rmdir     sed       select    seq
-shell     sleep     sort      stat      tail      tee       test      timeout
-touch     tr        true      uname     uniq      update    wc        whoami
-yes
+awk       base64    basename  bc        cat       cd        chmod     cp
+create    cut       date      delete    describe  df        diff      dirname
+du        echo      env       expire    false     file      find      grant
+grep      head      kill      ln        ls        md5sum    mkdir     mktemp
+mv        nl        printf    ps        pwd       realpath  revert    rm
+rmdir     sed       select    seq       sha256sum shell     sleep     sort
+stat      tail      tee       test      timeout   touch     tr        true
+uname     uniq      update    wc        whoami    xargs     yes
 ```
 
 ### Shell Built-ins (in shell.ts)
@@ -48,34 +48,18 @@ These essential commands have been implemented:
 | `timeout` | Done | Run with time limit, -s, -k options |
 | `kill` | Done | Signal processes, -s, -l options |
 | `ps` | Done | List processes with PID, PPID, STATE, USER, CMD |
+| `xargs` | Done | Build commands from stdin, -I, -n, -0, -t options |
+| `base64` | Done | Encode/decode base64, -d, -w options |
+| `md5sum` | Done | MD5 checksums, GNU-compatible output |
+| `sha256sum` | Done | SHA-256 checksums, GNU-compatible output |
+| `diff` | Done | Compare files, unified format (-u), LCS algorithm |
+| `mktemp` | Done | Create temp file/dir, -d, -p, template support |
 
 ---
 
 ## Still Missing (Priority 1)
 
-| Command | Purpose | AI Use Case |
-|---------|---------|-------------|
-| `xargs` | Build commands from stdin | Pipeline composition |
-| `diff` | Compare files | Verify changes, review edits |
-| `mktemp` | Create temp file/dir safely | Safe scratch space |
-| `base64` | Encode/decode base64 | Binary data handling |
-| `md5sum` | MD5 checksum | Verify file integrity |
-| `sha256sum` | SHA-256 checksum | Cryptographic verification |
-
-### Implementation Notes
-
-**`xargs`**: Essential for pipelines. Minimum viable:
-- `-I {}` for placeholder substitution
-- `-n N` for batching
-- `-0` for null-delimited input
-
-**`diff`**: AI needs to verify its own changes. Options:
-- Unified format (`-u`) is most useful
-- Could start simple: line-by-line comparison
-
-**`mktemp`**: Safe temp file creation:
-- `-d` for directories
-- Template support (e.g., `tmp.XXXXXX`)
+All Priority 1 commands have been implemented.
 
 ---
 
