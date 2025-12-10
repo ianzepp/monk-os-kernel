@@ -70,9 +70,9 @@ import {
     handleConnection,
     executeTask,
     consolidateMemory,
-} from '@rom/lib/prior/index.js';
+} from '@rom/lib/ai/index.js';
 
-import type { ModelSchema } from '@rom/lib/prior/index.js';
+import type { ModelSchema } from '@rom/lib/ai/index.js';
 
 // =============================================================================
 // MAIN
