@@ -20,6 +20,8 @@ export default async function main(): Promise<void> {
 }
 ```
 
+> **Import Convention**: Use `@rom/lib/process/index.js` (with `.js` suffix) for the process module. Use bare module paths like `@rom/lib/args` (no extension) for single-file modules.
+
 ---
 
 ## Pattern 1: Output Only (echo, pwd, whoami, uname)
@@ -28,7 +30,7 @@ Commands that produce output without reading input.
 
 ```typescript
 import { getargs, println, eprintln, exit } from '@rom/lib/process/index.js';
-import { parseArgs } from '@rom/lib/args';
+import { parseArgs, formatError } from '@rom/lib/args';
 
 const EXIT_SUCCESS = 0;
 const EXIT_FAILURE = 1;
@@ -67,12 +69,28 @@ export default async function main(): Promise<void> {
 
 Commands that read files and output their contents.
 
+**Simple version** (for small files, loads entire file into memory):
+
+```typescript
+import { readText, println } from '@rom/lib/process/index.js';
+
+async function processFile(path: string): Promise<void> {
+    const content = await readText(path);
+    for (const line of content.split('\n')) {
+        await println(line);
+    }
+}
+```
+
+**Streaming version** (for large files, processes chunks):
+
 ```typescript
 import {
     getargs, getcwd, open, read, close,
     println, eprintln, exit, send, respond,
 } from '@rom/lib/process/index.js';
-import { parseArgs, resolvePath } from '@rom/lib/shell';
+import { parseArgs, formatError } from '@rom/lib/args';
+import { resolvePath } from '@rom/lib/shell';
 
 const EXIT_SUCCESS = 0;
 const EXIT_FAILURE = 1;
@@ -120,8 +138,7 @@ export default async function main(): Promise<void> {
             await processFile(path);
         }
         catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            await eprintln(`command: ${file}: ${msg}`);
+            await eprintln(`command: ${file}: ${formatError(err)}`);
             hadError = true;
         }
     }
@@ -141,7 +158,7 @@ Commands that read stdin, transform, and output.
 import {
     getargs, recv, println, eprintln, exit, send, respond,
 } from '@rom/lib/process/index.js';
-import { parseArgs } from '@rom/lib/args';
+import { parseArgs, formatError } from '@rom/lib/args';
 
 const EXIT_SUCCESS = 0;
 const EXIT_FAILURE = 1;
@@ -225,9 +242,10 @@ Commands that list filesystem contents.
 ```typescript
 import {
     getargs, getcwd, readdirAll, stat,
-    println, eprintln, exit,
+    println, eprintln, exit, send, respond,
 } from '@rom/lib/process/index.js';
-import { parseArgs, resolvePath } from '@rom/lib/shell';
+import { parseArgs, formatError } from '@rom/lib/args';
+import { resolvePath } from '@rom/lib/shell';
 
 export default async function main(): Promise<void> {
     const args = await getargs();
@@ -258,11 +276,11 @@ export default async function main(): Promise<void> {
             }
         }
 
+        await send(1, respond.done());
         await exit(0);
     }
     catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        await eprintln(`ls: ${path}: ${msg}`);
+        await eprintln(`ls: ${path}: ${formatError(err)}`);
         await exit(1);
     }
 }
@@ -296,8 +314,7 @@ export default async function main(): Promise<void> {
             fds.push(fd);
         }
         catch (err) {
-            const msg = err instanceof Error ? err.message : String(err);
-            await eprintln(`tee: ${file}: ${msg}`);
+            await eprintln(`tee: ${file}: ${formatError(err)}`);
         }
     }
 
@@ -348,12 +365,14 @@ import {
 // File operations
 import {
     open,           // Open file -> fd
-    read,           // Read from fd (async iterator)
+    read,           // Read from fd (async iterator of Uint8Array)
     write,          // Write bytes to fd
     close,          // Close fd
     stat,           // File info
-    readFile,       // Read entire file as string
+    readText,       // Read entire file as string (simple)
+    readFileBytes,  // Read entire file as Uint8Array
     writeFile,      // Write string to file
+    appendFile,     // Append string to file
     mkdir,          // Create directory
     readdirAll,     // List directory contents
 } from '@rom/lib/process/index.js';
@@ -363,9 +382,14 @@ import {
     recv,           // Receive messages from fd (async iterator)
 } from '@rom/lib/process/index.js';
 
-// Shell utilities
-import { parseArgs, resolvePath } from '@rom/lib/shell';
+// Argument parsing (canonical location)
+import { parseArgs, formatError } from '@rom/lib/args';
+
+// Shell utilities (resolvePath, dirname, glob helpers)
+import { resolvePath } from '@rom/lib/shell';
 ```
+
+> **Note**: `parseArgs` is also re-exported from `@rom/lib/shell` for convenience, but the canonical source is `@rom/lib/args`.
 
 ---
 
@@ -382,6 +406,8 @@ const EXIT_USAGE = 2;     // Bad arguments
 ## Error Message Format
 
 ```typescript
+import { formatError } from '@rom/lib/args';
+
 // GNU standard: "command: context: message"
 await eprintln(`cat: ${filename}: No such file or directory`);
 await eprintln(`grep: invalid option -- 'x'`);
@@ -393,11 +419,19 @@ for (const file of files) {
         await processFile(file);
     }
     catch (err) {
-        await eprintln(`command: ${file}: ${err.message}`);
+        await eprintln(`command: ${file}: ${formatError(err)}`);
         hadError = true;
     }
 }
+await send(1, respond.done());
 await exit(hadError ? 1 : 0);
+```
+
+The `formatError()` helper extracts the message from any error type:
+```typescript
+formatError(new Error('failed'))  // 'failed'
+formatError('string error')       // 'string error'
+formatError({ code: 'ENOENT' })   // '[object Object]'
 ```
 
 ---
@@ -452,11 +486,44 @@ for (const file of files) {
 
 ---
 
+## Numeric Flag Shorthand
+
+GNU coreutils support `-N` as shorthand for `-n N` on commands like `head` and `tail`:
+
+```typescript
+// These are equivalent:
+head -5 file.txt
+head -n 5 file.txt
+head -n5 file.txt
+```
+
+Use `parseArgs()` with `numericShorthand` to enable this:
+
+```typescript
+const ARG_SPECS = {
+    lines: { short: 'n', value: true, desc: 'Number of lines' },
+};
+
+const parsed = parseArgs(args.slice(1), ARG_SPECS, {
+    numericShorthand: 'lines',  // -5 becomes lines: '5'
+});
+
+const count = parseInt(parsed.flags.lines as string, 10) || 10;
+```
+
+This handles:
+- `-5` → `{ lines: '5' }`
+- `-n5` → `{ lines: '5' }`
+- `-n 5` → `{ lines: '5' }`
+- `--lines=5` → `{ lines: '5' }`
+
+---
+
 ## Checklist
 
 - [ ] Uses `export default async function main()`
 - [ ] Calls `getargs()` for arguments
-- [ ] Uses `parseArgs()` from `@rom/lib/args` or `@rom/lib/shell`
+- [ ] Uses `parseArgs()` from `@rom/lib/args`
 - [ ] Handles `--help` flag
 - [ ] Writes errors to stderr with `eprintln()`
 - [ ] Errors format: `command: context: message`

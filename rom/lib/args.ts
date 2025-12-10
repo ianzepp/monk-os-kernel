@@ -136,6 +136,23 @@ export interface ParseOptions {
      * @default false
      */
     stopAtFirstPositional?: boolean;
+
+    /**
+     * Enable numeric shorthand for a specific flag.
+     *
+     * GNU HEAD/TAIL BEHAVIOR: Commands like head and tail support `-N` as
+     * shorthand for `-n N`. For example, `head -5` equals `head -n 5`.
+     *
+     * When set to a spec key name, arguments like `-5` or `-20` will be
+     * treated as if they were `-n 5` or `-n 20` for that flag.
+     *
+     * Example with numericShorthand='lines':
+     *   args: ['-5', 'file.txt']
+     *   result: flags={lines:'5'}, positional=['file.txt']
+     *
+     * @default undefined (disabled)
+     */
+    numericShorthand?: string;
 }
 
 // =============================================================================
@@ -151,6 +168,7 @@ export interface ParseOptions {
  * - Short flags with values: -n10 or -n 10
  * - Long flags: --long, --verbose
  * - Long flags with values: --count=10 or --count 10
+ * - Numeric shorthand: -5 equals -n 5 (when numericShorthand option set)
  * - "--" ends flag parsing (remaining args are positional)
  * - "-" is treated as positional (stdin by convention)
  * - Unknown flags are collected, not errors
@@ -176,6 +194,14 @@ export interface ParseOptions {
  *     { stopAtFirstPositional: true });
  * // result.flags = {}
  * // result.positional = ['hello', '-n']
+ *
+ * @example
+ * // Numeric shorthand for head/tail style commands
+ * const result = parseArgs(['-5', 'file.txt'], {
+ *     lines: { short: 'n', value: true },
+ * }, { numericShorthand: 'lines' });
+ * // result.flags = { lines: '5' }
+ * // result.positional = ['file.txt']
  *
  * @example
  * // Handle unknown flags
@@ -329,6 +355,24 @@ export function parseArgs(
         }
 
         // =====================================================================
+        // Numeric Shorthand: -5 means -n 5 (for head, tail, etc.)
+        // =====================================================================
+        if (options.numericShorthand !== undefined) {
+            // Check if this looks like -N or -NN... (dash followed by digits only)
+            const numericMatch = arg.match(/^-(\d+)$/);
+
+            if (numericMatch !== null) {
+                const numValue = numericMatch[1];
+
+                if (numValue !== undefined) {
+                    result.flags[options.numericShorthand] = numValue;
+                    i++;
+                    continue;
+                }
+            }
+        }
+
+        // =====================================================================
         // Short Flags: -l, -la, -n10, -n 10
         // =====================================================================
         const shortFlags = arg.slice(1);
@@ -406,6 +450,35 @@ export function parseArgs(
     }
 
     return result;
+}
+
+/**
+ * Format an error value into a human-readable message string.
+ *
+ * Extracts the message from Error objects or converts other values to strings.
+ * Useful for consistent error message formatting in catch blocks.
+ *
+ * @param err - The error value to format (Error, string, or unknown)
+ * @returns Human-readable error message string
+ *
+ * @example
+ * try {
+ *     await riskyOperation();
+ * } catch (err) {
+ *     await eprintln(`command: ${formatError(err)}`);
+ * }
+ *
+ * @example
+ * formatError(new Error('file not found'))  // 'file not found'
+ * formatError('connection refused')         // 'connection refused'
+ * formatError({ code: 'ENOENT' })           // '[object Object]'
+ */
+export function formatError(err: unknown): string {
+    if (err instanceof Error) {
+        return err.message;
+    }
+
+    return String(err);
 }
 
 /**
