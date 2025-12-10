@@ -1,0 +1,90 @@
+{
+    "description": "Input event from browser",
+    "passthrough": true,
+    "fields": {
+        "display_id": {
+            "type": "uuid",
+            "required": true,
+            "index": true,
+            "description": "Source display"
+        },
+        "window_id": {
+            "type": "uuid",
+            "index": true,
+            "description": "Target window"
+        },
+        "element_id": {
+            "type": "uuid",
+            "index": true,
+            "description": "Target element"
+        },
+        "type": {
+            "type": "text",
+            "required": true,
+            "index": true,
+            "description": "Event type"
+        },
+        "data": {
+            "type": "jsonb",
+            "description": "Event-specific data"
+        },
+        "timestamp": {
+            "type": "integer",
+            "required": true,
+            "index": true,
+            "description": "Event timestamp (Unix ms)"
+        },
+        "target_tag": {
+            "type": "text",
+            "description": "Target element tag name"
+        },
+        "key": {
+            "type": "text",
+            "index": true,
+            "description": "Key pressed"
+        },
+        "button": {
+            "type": "integer",
+            "description": "Mouse button"
+        },
+        "x": {
+            "type": "integer",
+            "description": "X coordinate"
+        },
+        "y": {
+            "type": "integer",
+            "description": "Y coordinate"
+        },
+        "shift": {
+            "type": "boolean",
+            "default_value": "0",
+            "description": "Shift key held"
+        },
+        "ctrl": {
+            "type": "boolean",
+            "default_value": "0",
+            "description": "Control key held"
+        },
+        "alt": {
+            "type": "boolean",
+            "default_value": "0",
+            "description": "Alt key held"
+        },
+        "meta": {
+            "type": "boolean",
+            "default_value": "0",
+            "description": "Meta/Command key held"
+        },
+        "handled": {
+            "type": "boolean",
+            "default_value": "0",
+            "index": true,
+            "description": "Event has been processed"
+        },
+        "prevented": {
+            "type": "boolean",
+            "default_value": "0",
+            "description": "Default action prevented"
+        }
+    }
+}

@@ -1,0 +1,114 @@
+{
+    "description": "Application window",
+    "passthrough": false,
+    "fields": {
+        "display_id": {
+            "type": "uuid",
+            "required": true,
+            "index": true,
+            "relationship_type": "owned",
+            "related_model": "display",
+            "cascade_delete": true,
+            "description": "Parent display"
+        },
+        "title": {
+            "type": "text",
+            "default_value": "",
+            "description": "Window title bar text"
+        },
+        "x": {
+            "type": "integer",
+            "default_value": "0",
+            "description": "X position in pixels"
+        },
+        "y": {
+            "type": "integer",
+            "default_value": "0",
+            "description": "Y position in pixels"
+        },
+        "width": {
+            "type": "integer",
+            "required": true,
+            "description": "Window width in pixels"
+        },
+        "height": {
+            "type": "integer",
+            "required": true,
+            "description": "Window height in pixels"
+        },
+        "min_width": {
+            "type": "integer",
+            "description": "Minimum window width"
+        },
+        "min_height": {
+            "type": "integer",
+            "description": "Minimum window height"
+        },
+        "max_width": {
+            "type": "integer",
+            "description": "Maximum window width"
+        },
+        "max_height": {
+            "type": "integer",
+            "description": "Maximum window height"
+        },
+        "z_index": {
+            "type": "integer",
+            "default_value": "0",
+            "index": true,
+            "description": "Stacking order"
+        },
+        "focused": {
+            "type": "boolean",
+            "default_value": "0",
+            "index": true,
+            "description": "Has keyboard focus"
+        },
+        "visible": {
+            "type": "boolean",
+            "default_value": "1",
+            "index": true,
+            "description": "Is visible on screen"
+        },
+        "minimized": {
+            "type": "boolean",
+            "default_value": "0",
+            "description": "Window is minimized"
+        },
+        "maximized": {
+            "type": "boolean",
+            "default_value": "0",
+            "description": "Window is maximized"
+        },
+        "resizable": {
+            "type": "boolean",
+            "default_value": "1",
+            "description": "Window can be resized"
+        },
+        "movable": {
+            "type": "boolean",
+            "default_value": "1",
+            "description": "Window can be moved"
+        },
+        "closable": {
+            "type": "boolean",
+            "default_value": "1",
+            "description": "Window can be closed"
+        },
+        "owner_pid": {
+            "type": "text",
+            "required": true,
+            "index": true,
+            "description": "Owning process UUID"
+        },
+        "background": {
+            "type": "text",
+            "description": "Background color or CSS value"
+        },
+        "opacity": {
+            "type": "numeric",
+            "default_value": "1.0",
+            "description": "Window opacity (0-1)"
+        }
+    }
+}

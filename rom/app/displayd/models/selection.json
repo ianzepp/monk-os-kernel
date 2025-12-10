@@ -1,0 +1,50 @@
+{
+    "description": "Text selection state",
+    "passthrough": false,
+    "fields": {
+        "window_id": {
+            "type": "uuid",
+            "required": true,
+            "index": true,
+            "relationship_type": "owned",
+            "related_model": "window",
+            "cascade_delete": true,
+            "description": "Window containing selection"
+        },
+        "element_id": {
+            "type": "uuid",
+            "index": true,
+            "description": "Element containing selection"
+        },
+        "text": {
+            "type": "text",
+            "description": "Selected text content"
+        },
+        "start_offset": {
+            "type": "integer",
+            "description": "Selection start offset"
+        },
+        "end_offset": {
+            "type": "integer",
+            "description": "Selection end offset"
+        },
+        "collapsed": {
+            "type": "boolean",
+            "default_value": "1",
+            "description": "Selection is collapsed"
+        },
+        "direction": {
+            "type": "text",
+            "default_value": "forward",
+            "description": "Selection direction"
+        },
+        "start_element_id": {
+            "type": "uuid",
+            "description": "Element where selection starts"
+        },
+        "end_element_id": {
+            "type": "uuid",
+            "description": "Element where selection ends"
+        }
+    }
+}
