@@ -347,9 +347,10 @@ describe('WebSocket Channel', () => {
             await Bun.sleep(50);
 
             // Push multiple messages
-            await channel.push({ op: 'item', data: { n: 1 } });
-            await channel.push({ op: 'item', data: { n: 2 } });
-            await channel.push({ op: 'item', data: { n: 3 } });
+            // WHY: Use 'msg' op, not 'item' (which is classified as a response)
+            await channel.push({ op: 'msg', data: { n: 1 } });
+            await channel.push({ op: 'msg', data: { n: 2 } });
+            await channel.push({ op: 'msg', data: { n: 3 } });
 
             // Give time for echo
             await Bun.sleep(50);
@@ -359,9 +360,9 @@ describe('WebSocket Channel', () => {
             const msg2 = await channel.recv();
             const msg3 = await channel.recv();
 
-            expect(msg1).toEqual({ op: 'item', data: { n: 1 } });
-            expect(msg2).toEqual({ op: 'item', data: { n: 2 } });
-            expect(msg3).toEqual({ op: 'item', data: { n: 3 } });
+            expect(msg1).toEqual({ op: 'msg', data: { n: 1 } });
+            expect(msg2).toEqual({ op: 'msg', data: { n: 2 } });
+            expect(msg3).toEqual({ op: 'msg', data: { n: 3 } });
 
             await channel.close();
         });
@@ -387,10 +388,11 @@ describe('WebSocket Channel', () => {
             // This is harder to test without a custom server that sends raw data
 
             // For now, test that JSON parsing works correctly
-            await channel.push({ op: 'ok' });
+            // WHY: Use 'msg' op, not 'ok' (which is classified as a response)
+            await channel.push({ op: 'msg' });
             const msg = await channel.recv();
 
-            expect(msg.op).toBe('ok');
+            expect(msg.op).toBe('msg');
 
             await channel.close();
         });
