@@ -3,17 +3,73 @@
  *
  * Interactive command interpreter for Monk OS.
  *
- * Features:
+ * SYNOPSIS
+ * ========
+ * shell                   Interactive mode
+ * shell -c "command"      Execute single command and exit
+ * shell script.sh         Execute script file
+ *
+ * FEATURES
+ * ========
  * - Command parsing with pipes (|), chaining (&&, ||), and redirects (<, >, >>)
  * - Variable expansion ($VAR, ${VAR}, ${VAR:-default})
  * - Glob expansion (*, ?, [...])
  * - Command history
- * - Built-in commands (cd, export, exit)
  *
- * Usage:
- *   shell              Interactive mode
- *   shell -c "cmd"     Execute single command
- *   shell script.sh    Execute script file
+ * BUILT-IN COMMANDS
+ * =================
+ * cd [DIR]           Change directory (default: $HOME, "-" for $OLDPWD)
+ * export [NAME=VAL]  Set environment variable (no args: print all exports)
+ * exit [CODE]        Exit shell with code (default: last command's exit code)
+ * source FILE        Execute script in current shell context (alias: .)
+ * true               Return success (exit code 0)
+ * false              Return failure (exit code 1)
+ *
+ * test EXPR          Evaluate conditional expression (alias: [ EXPR ])
+ * [ EXPR ]
+ *   File tests:
+ *     -e FILE        True if file exists
+ *     -f FILE        True if file is a regular file
+ *     -d FILE        True if file is a directory
+ *     -s FILE        True if file has size > 0
+ *     -L/-h FILE     True if file is a symlink
+ *   String tests:
+ *     -z STRING      True if string is empty
+ *     -n STRING      True if string is non-empty
+ *     S1 = S2        True if strings are equal (also ==)
+ *     S1 != S2       True if strings differ
+ *   Numeric tests:
+ *     N1 -eq N2      Equal
+ *     N1 -ne N2      Not equal
+ *     N1 -lt N2      Less than
+ *     N1 -le N2      Less than or equal
+ *     N1 -gt N2      Greater than
+ *     N1 -ge N2      Greater than or equal
+ *   Logical:
+ *     ! EXPR         Negate expression
+ *   Exit codes: 0=true, 1=false, 2=error
+ *
+ * read [OPTIONS] [VAR...]
+ *   Read line from stdin into variable(s). Default variable: REPLY.
+ *   Options:
+ *     -r             Raw mode (don't interpret backslashes)
+ *     -p PROMPT      Display prompt before reading
+ *   Exit codes: 0=success, 1=EOF
+ *
+ * EXAMPLES
+ * ========
+ * # Conditional execution
+ * test -f /etc/config && echo "exists"
+ * [ "$answer" = "yes" ] && proceed
+ *
+ * # Read user input
+ * read -p "Name: " name
+ * echo "Hello, $name"
+ *
+ * # Source a config file
+ * source ~/.profile
+ *
+ * @module rom/bin/shell
  */
 
 import {
@@ -61,7 +117,7 @@ const HISTSIZE_DEFAULT = 1000;
 
 // Built-in commands that MUST run in shell process (they modify shell state)
 // Keep this list minimal to avoid pipeline bugs with redirect/restore timing
-const BUILTIN_COMMANDS = ['cd', 'export', 'exit', 'true', 'false'];
+const BUILTIN_COMMANDS = ['cd', 'export', 'exit', 'true', 'false', 'test', '[', 'read'];
 
 // VFS bin directory for command resolution
 const VFS_BIN_PATH = '/bin';
@@ -281,6 +337,407 @@ async function builtinExit(state: ShellState, args: string[]): Promise<number> {
     return state.exitCode;
 }
 
+/**
+ * Source a script file in the current shell context.
+ *
+ * Unlike executing a script as a command (which runs in a subshell),
+ * source executes each line in the current shell, so env vars and
+ * other state changes persist.
+ */
+async function builtinSource(state: ShellState, args: string[]): Promise<number> {
+    if (args.length === 0) {
+        await eprintln('source: missing file argument');
+        return 1;
+    }
+
+    const scriptPath = args[0]!;
+    const path = resolvePath(state.cwd, scriptPath);
+
+    let script: string;
+
+    try {
+        script = await readText(path);
+    }
+    catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        await eprintln(`source: ${scriptPath}: ${msg}`);
+        return 1;
+    }
+
+    const lines = script.split('\n');
+    let lastExitCode = 0;
+
+    // Save shouldExit state - source shouldn't exit the shell
+    const savedShouldExit = state.shouldExit;
+
+    for (const line of lines) {
+        // WHY: We check shouldExit but don't let it propagate from sourced script.
+        // An 'exit' in a sourced file should stop sourcing, not exit the shell.
+        if (state.shouldExit) {
+            break;
+        }
+
+        lastExitCode = await executeLineNoHistory(state, line);
+    }
+
+    // Restore - source file's exit shouldn't exit the shell
+    state.shouldExit = savedShouldExit;
+
+    return lastExitCode;
+}
+
+/**
+ * test / [ - Evaluate conditional expressions.
+ *
+ * POSIX-compatible conditional expression evaluation for shell scripting.
+ *
+ * Supported tests:
+ *   File tests:
+ *     -e FILE    True if file exists
+ *     -f FILE    True if file exists and is a regular file
+ *     -d FILE    True if file exists and is a directory
+ *     -s FILE    True if file exists and has size > 0
+ *
+ *   String tests:
+ *     -z STRING  True if string is empty
+ *     -n STRING  True if string is non-empty
+ *     S1 = S2    True if strings are equal
+ *     S1 != S2   True if strings are not equal
+ *
+ *   Numeric tests:
+ *     N1 -eq N2  True if N1 equals N2
+ *     N1 -ne N2  True if N1 does not equal N2
+ *     N1 -lt N2  True if N1 < N2
+ *     N1 -le N2  True if N1 <= N2
+ *     N1 -gt N2  True if N1 > N2
+ *     N1 -ge N2  True if N1 >= N2
+ *
+ *   Logical operators:
+ *     ! EXPR     True if EXPR is false
+ *     ( EXPR )   Group expressions (requires quoting in shell)
+ *
+ * Exit codes:
+ *   0 - Expression is true
+ *   1 - Expression is false
+ *   2 - Invalid expression
+ */
+async function builtinTest(state: ShellState, args: string[], command: string): Promise<number> {
+    // Handle '[' command - requires closing ']'
+    if (command === '[') {
+        if (args.length === 0 || args[args.length - 1] !== ']') {
+            await eprintln('[: missing ]');
+            return 2;
+        }
+        // Remove the closing ']' from args
+        args = args.slice(0, -1);
+    }
+
+    // No arguments = false
+    if (args.length === 0) {
+        return 1;
+    }
+
+    try {
+        return await evaluateTestExpr(state, args) ? 0 : 1;
+    }
+    catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        await eprintln(`test: ${msg}`);
+        return 2;
+    }
+}
+
+/**
+ * Evaluate a test expression.
+ * Throws on syntax errors.
+ */
+async function evaluateTestExpr(state: ShellState, args: string[]): Promise<boolean> {
+    if (args.length === 0) {
+        return false;
+    }
+
+    // Handle negation: ! EXPR
+    if (args[0] === '!') {
+        return !(await evaluateTestExpr(state, args.slice(1)));
+    }
+
+    // Handle parentheses: ( EXPR )
+    if (args[0] === '(' && args[args.length - 1] === ')') {
+        return evaluateTestExpr(state, args.slice(1, -1));
+    }
+
+    // Single argument: true if non-empty string
+    if (args.length === 1) {
+        return args[0] !== '';
+    }
+
+    // Two arguments: unary operators
+    if (args.length === 2) {
+        const [op, operand] = args;
+        return evaluateUnaryTest(state, op!, operand!);
+    }
+
+    // Three arguments: binary operators
+    if (args.length === 3) {
+        const [left, op, right] = args;
+        return evaluateBinaryTest(left!, op!, right!);
+    }
+
+    // More complex expressions not yet supported
+    throw new Error(`unsupported expression: ${args.join(' ')}`);
+}
+
+/**
+ * Evaluate unary test expressions.
+ */
+async function evaluateUnaryTest(state: ShellState, op: string, operand: string): Promise<boolean> {
+    switch (op) {
+        // String tests
+        case '-z':
+            return operand === '';
+        case '-n':
+            return operand !== '';
+
+        // File tests
+        case '-e':
+        case '-a': { // -a is deprecated but still used
+            const path = resolvePath(state.cwd, operand);
+            try {
+                await stat(path);
+                return true;
+            }
+            catch {
+                return false;
+            }
+        }
+
+        case '-f': {
+            const path = resolvePath(state.cwd, operand);
+            try {
+                const info = await stat(path);
+                return info.model === 'file';
+            }
+            catch {
+                return false;
+            }
+        }
+
+        case '-d': {
+            const path = resolvePath(state.cwd, operand);
+            try {
+                const info = await stat(path);
+                return info.model === 'folder';
+            }
+            catch {
+                return false;
+            }
+        }
+
+        case '-s': {
+            const path = resolvePath(state.cwd, operand);
+            try {
+                const info = await stat(path);
+                return info.size > 0;
+            }
+            catch {
+                return false;
+            }
+        }
+
+        case '-L':
+        case '-h': {
+            // Symlink test
+            const path = resolvePath(state.cwd, operand);
+            try {
+                const info = await stat(path);
+                return info.model === 'link';
+            }
+            catch {
+                return false;
+            }
+        }
+
+        default:
+            throw new Error(`unknown unary operator: ${op}`);
+    }
+}
+
+/**
+ * Evaluate binary test expressions.
+ */
+function evaluateBinaryTest(left: string, op: string, right: string): boolean {
+    switch (op) {
+        // String comparisons
+        case '=':
+        case '==':
+            return left === right;
+        case '!=':
+            return left !== right;
+
+        // Numeric comparisons
+        case '-eq': {
+            const l = parseInt(left, 10);
+            const r = parseInt(right, 10);
+            if (isNaN(l) || isNaN(r)) {
+                throw new Error(`integer expression expected: ${left} or ${right}`);
+            }
+            return l === r;
+        }
+        case '-ne': {
+            const l = parseInt(left, 10);
+            const r = parseInt(right, 10);
+            if (isNaN(l) || isNaN(r)) {
+                throw new Error(`integer expression expected: ${left} or ${right}`);
+            }
+            return l !== r;
+        }
+        case '-lt': {
+            const l = parseInt(left, 10);
+            const r = parseInt(right, 10);
+            if (isNaN(l) || isNaN(r)) {
+                throw new Error(`integer expression expected: ${left} or ${right}`);
+            }
+            return l < r;
+        }
+        case '-le': {
+            const l = parseInt(left, 10);
+            const r = parseInt(right, 10);
+            if (isNaN(l) || isNaN(r)) {
+                throw new Error(`integer expression expected: ${left} or ${right}`);
+            }
+            return l <= r;
+        }
+        case '-gt': {
+            const l = parseInt(left, 10);
+            const r = parseInt(right, 10);
+            if (isNaN(l) || isNaN(r)) {
+                throw new Error(`integer expression expected: ${left} or ${right}`);
+            }
+            return l > r;
+        }
+        case '-ge': {
+            const l = parseInt(left, 10);
+            const r = parseInt(right, 10);
+            if (isNaN(l) || isNaN(r)) {
+                throw new Error(`integer expression expected: ${left} or ${right}`);
+            }
+            return l >= r;
+        }
+
+        default:
+            throw new Error(`unknown binary operator: ${op}`);
+    }
+}
+
+/**
+ * read - Read a line from stdin into shell variables.
+ *
+ * POSIX-compatible line reading for shell scripting.
+ *
+ * Usage:
+ *   read VAR           Read line into VAR
+ *   read VAR1 VAR2     Split line by IFS into multiple variables
+ *   read -r VAR        Raw mode (don't interpret backslashes)
+ *   read -p PROMPT VAR Prompt before reading (bash extension)
+ *
+ * Exit codes:
+ *   0 - Successfully read a line
+ *   1 - EOF or error
+ */
+async function builtinRead(state: ShellState, args: string[]): Promise<number> {
+    let rawMode = false;
+    let prompt = '';
+    const varNames: string[] = [];
+
+    // Parse arguments
+    let i = 0;
+    while (i < args.length) {
+        const arg = args[i];
+        if (arg === '-r') {
+            rawMode = true;
+        }
+        else if (arg === '-p' && i + 1 < args.length) {
+            prompt = args[++i] ?? '';
+        }
+        else if (arg && !arg.startsWith('-')) {
+            varNames.push(arg);
+        }
+        i++;
+    }
+
+    // Default variable is REPLY
+    if (varNames.length === 0) {
+        varNames.push('REPLY');
+    }
+
+    // Print prompt if specified
+    if (prompt) {
+        await print(prompt);
+    }
+
+    // Read line from stdin using the shell's readline
+    const line = await readline();
+
+    if (line === null) {
+        // EOF
+        return 1;
+    }
+
+    // Process line (handle backslashes unless -r)
+    let processedLine = line;
+    if (!rawMode) {
+        // Remove trailing backslash-newline continuation
+        processedLine = processedLine.replace(/\\$/g, '');
+    }
+
+    // Split by IFS (default: space, tab, newline)
+    const ifs = state.env['IFS'] ?? ' \t\n';
+    const parts = splitByIFS(processedLine, ifs);
+
+    // Assign to variables
+    // If more parts than variables, last var gets the rest
+    // If fewer parts than variables, remaining vars are empty
+    for (let j = 0; j < varNames.length; j++) {
+        const varName = varNames[j]!;
+        if (j < parts.length - 1) {
+            state.env[varName] = parts[j] ?? '';
+        }
+        else if (j === varNames.length - 1) {
+            // Last variable gets remaining parts joined
+            state.env[varName] = parts.slice(j).join(' ');
+        }
+        else {
+            state.env[varName] = '';
+        }
+    }
+
+    return 0;
+}
+
+/**
+ * Split string by IFS characters.
+ */
+function splitByIFS(str: string, ifs: string): string[] {
+    if (ifs === '') {
+        // Empty IFS - no splitting
+        return [str];
+    }
+
+    // Build regex from IFS chars
+    const ifsChars = ifs.split('').map(c => {
+        // Escape regex special chars
+        if ('/.*+?^${}()|[]\\'.includes(c)) {
+            return '\\' + c;
+        }
+        if (c === '\t') return '\\t';
+        if (c === '\n') return '\\n';
+        return c;
+    }).join('');
+
+    const regex = new RegExp(`[${ifsChars}]+`);
+    return str.trim().split(regex).filter(s => s !== '');
+}
+
 async function executeBuiltin(
     state: ShellState,
     command: string,
@@ -296,6 +753,14 @@ async function executeBuiltin(
             return builtinExport(state, args);
         case 'exit':
             return builtinExit(state, args);
+        case 'source':
+        case '.':
+            return builtinSource(state, args);
+        case 'test':
+        case '[':
+            return builtinTest(state, args, command);
+        case 'read':
+            return builtinRead(state, args);
         case 'true':
             return 0;
         case 'false':
@@ -817,7 +1282,36 @@ async function executeChain(
 }
 
 /**
- * Execute a command line
+ * Execute a command line without adding to history.
+ * Used by source/. builtin for sourced scripts.
+ */
+async function executeLineNoHistory(state: ShellState, line: string): Promise<number> {
+    const trimmed = line.trim();
+
+    // Empty line or comment
+    if (!trimmed || trimmed.startsWith('#')) {
+        return 0;
+    }
+
+    // Parse command
+    const parsed = parseCommand(trimmed);
+
+    if (!parsed) {
+        return 0;
+    }
+
+    // Handle background execution
+    if (parsed.background) {
+        await eprintln('shell: background execution not yet implemented');
+        return 1;
+    }
+
+    // Execute
+    return executeChain(state, parsed);
+}
+
+/**
+ * Execute a command line (adds to history)
  */
 async function executeLine(state: ShellState, line: string): Promise<number> {
     const trimmed = line.trim();
@@ -837,22 +1331,7 @@ async function executeLine(state: ShellState, line: string): Promise<number> {
         }
     }
 
-    // Parse command
-    const parsed = parseCommand(trimmed);
-
-    if (!parsed) {
-        return 0;
-    }
-
-    // Handle background execution
-    if (parsed.background) {
-        await eprintln('shell: background execution not yet implemented');
-
-        return 1;
-    }
-
-    // Execute
-    return executeChain(state, parsed);
+    return executeLineNoHistory(state, trimmed);
 }
 
 // ============================================================================
