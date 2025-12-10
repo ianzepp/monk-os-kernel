@@ -364,6 +364,55 @@ isResourceHeld(id: string): boolean {
 
 ## Error Handling Patterns
 
+### Use Typed Errors, Not Generic Error
+
+**CRITICAL**: Never use `new Error()` in kernel code. Always use typed errors from `@src/hal/errors.js`.
+
+```typescript
+// BAD - Generic error loses type information
+throw new Error('File not found: /tmp/foo');
+throw new Error(`Invalid argument: ${value}`);
+throw new Error('Permission denied');
+
+// GOOD - Typed errors enable precise handling
+import { ENOENT, EINVAL, EACCES, EBADF, EIO } from '@src/hal/errors.js';
+
+throw new ENOENT('/tmp/foo');
+throw new EINVAL(`Invalid argument: ${value}`);
+throw new EACCES('Permission denied');
+```
+
+**Available error types** (see `src/hal/errors.ts` for full list):
+
+| Error | Code | Use When |
+|-------|------|----------|
+| `ENOENT` | 2 | File/path not found |
+| `EACCES` | 13 | Permission denied |
+| `EBADF` | 9 | Bad file descriptor |
+| `EINVAL` | 22 | Invalid argument |
+| `EEXIST` | 17 | File already exists |
+| `ENOTDIR` | 20 | Not a directory |
+| `EISDIR` | 21 | Is a directory |
+| `ENOSPC` | 28 | No space left |
+| `ETIMEDOUT` | 110 | Operation timed out |
+| `EIO` | 5 | Generic I/O error (last resort) |
+
+**WHY**: Typed errors enable callers to handle specific cases:
+```typescript
+try {
+    await vfs.open(path, flags, caller);
+}
+catch (err) {
+    if (err instanceof ENOENT) {
+        // Handle missing file specifically
+    }
+    else if (err instanceof EACCES) {
+        // Handle permission error specifically
+    }
+    throw err; // Re-throw unknown errors
+}
+```
+
 ### Catch and Log, Don't Swallow
 
 ```typescript
@@ -406,5 +455,6 @@ private sendResponse(proc: Process, id: string, response: Response): void {
 - [ ] Every field has a comment explaining WHY it exists
 - [ ] Every non-trivial method has algorithm/race condition documentation
 - [ ] Error handling logs failures, doesn't swallow silently
+- [ ] **No `new Error()` - use typed errors (ENOENT, EINVAL, etc.)**
 - [ ] Constants have WHY comments explaining chosen values
 - [ ] Section markers create clear visual structure

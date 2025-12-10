@@ -907,10 +907,12 @@ await client.close(fd);
 8. **UUID identity for everything** - Files, processes, handles, ports
 
 ### Error Handling
-- Syscalls throw typed errors (ENOENT, EBADF, EPERM, etc.) from `src/hal/errors.ts`
-- Kernel catches, converts to `{ op: 'error', code, message }` response
+- **NEVER use `new Error()`** — Always use typed errors from `src/hal/errors.ts`
+- Available types: `ENOENT`, `EACCES`, `EBADF`, `EINVAL`, `EEXIST`, `ENOTDIR`, `EISDIR`, `ENOSPC`, `ETIMEDOUT`, `EIO`
+- Kernel catches typed errors, converts to `{ op: 'error', code, message }` response
 - Process library unwraps via SyscallError class
 - Tests should verify error codes, not just catch/ignore
+- See `prompts/kernel-dev.md` for full error handling patterns
 
 ### Testing Strategy
 - **Unit tests**: Mock HAL, test kernel in isolation
