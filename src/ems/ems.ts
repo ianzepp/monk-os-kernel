@@ -307,4 +307,136 @@ export class EMS {
             }
         }
     }
+
+    // =========================================================================
+    // MODEL IMPORT
+    // =========================================================================
+
+    /**
+     * Known model-level properties for import.
+     */
+    private static readonly MODEL_PROPS = new Set([
+        'status',
+        'description',
+        'sudo',
+        'frozen',
+        'immutable',
+        'external',
+        'passthrough',
+        'pathname',
+    ]);
+
+    /**
+     * Import a model definition with embedded field definitions.
+     *
+     * Direct API equivalent of the ems:import syscall. Use this for kernel-level
+     * initialization (VFS, auth, etc.) where syscalls aren't available.
+     *
+     * The operation is strictly additive:
+     * - Model is upserted (created or updated)
+     * - Fields are upserted (created or updated)
+     * - Existing fields not in the definition are NOT removed
+     *
+     * Ring 6 DDL observers handle the actual table/column creation.
+     *
+     * @param modelName - Model name to import
+     * @param definition - Model definition with optional flags and fields object
+     *
+     * @example
+     * ```typescript
+     * await ems.importModel('window', {
+     *     description: 'Application window',
+     *     passthrough: false,
+     *     fields: {
+     *         title: { type: 'text', required: true },
+     *         x: { type: 'integer', default_value: '0' },
+     *         y: { type: 'integer', default_value: '0' }
+     *     }
+     * });
+     * ```
+     */
+    async importModel(
+        modelName: string,
+        definition: Record<string, unknown>,
+    ): Promise<void> {
+        if (!this._ops) {
+            throw new EINVAL('EMS not initialized');
+        }
+
+        const fields = definition.fields;
+
+        if (typeof fields !== 'object' || fields === null) {
+            throw new EINVAL('definition.fields must be an object');
+        }
+
+        const fieldsObj = fields as Record<string, unknown>;
+
+        // Build model record from known properties
+        const modelRecord: Record<string, unknown> = {
+            model_name: modelName,
+        };
+
+        for (const prop of EMS.MODEL_PROPS) {
+            if (prop in definition) {
+                modelRecord[prop] = definition[prop];
+            }
+        }
+
+        // Upsert model
+        let existingModelId: string | undefined;
+
+        for await (const existing of this._ops.selectAny('models', {
+            where: { model_name: modelName },
+        })) {
+            existingModelId = (existing as Record<string, unknown>).id as string;
+            break;
+        }
+
+        if (existingModelId) {
+            const { model_name: _, ...changes } = modelRecord;
+
+            if (Object.keys(changes).length > 0) {
+                await this._ops.updateOne('models', existingModelId, changes);
+            }
+        }
+        else {
+            await this._ops.createOne('models', modelRecord);
+        }
+
+        // Upsert fields
+        for (const [fieldName, fieldDef] of Object.entries(fieldsObj)) {
+            if (typeof fieldDef !== 'object' || fieldDef === null) {
+                throw new EINVAL(`Field '${fieldName}' definition must be an object`);
+            }
+
+            const fieldRecord: Record<string, unknown> = {
+                model_name: modelName,
+                field_name: fieldName,
+                ...(fieldDef as Record<string, unknown>),
+            };
+
+            let existingFieldId: string | undefined;
+
+            for await (const existing of this._ops.selectAny('fields', {
+                where: { model_name: modelName, field_name: fieldName },
+            })) {
+                existingFieldId = (existing as Record<string, unknown>).id as string;
+                break;
+            }
+
+            if (existingFieldId) {
+                const { model_name: _m, field_name: _f, ...changes } = fieldRecord;
+
+                if (Object.keys(changes).length > 0) {
+                    await this._ops.updateOne('fields', existingFieldId, changes);
+                }
+            }
+            else {
+                await this._ops.createOne('fields', fieldRecord);
+            }
+        }
+
+        // Invalidate model cache for the imported model
+        this._models?.invalidate(modelName);
+    }
 }

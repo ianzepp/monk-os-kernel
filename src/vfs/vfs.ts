@@ -342,14 +342,17 @@ export class VFS {
 
         this.initialized = true;
 
-        // Load and apply VFS schema (creates tables and seeds)
+        // Load and apply VFS models via JSON definitions
         if (this.ems) {
-            const schemaPath = new URL('./schema.sql', import.meta.url).pathname;
-            const schema = await this.hal.file.readText(schemaPath);
+            await this.initModels();
 
-            await this.ems.exec(schema, { clearModels: true });
+            // Load seed data (root entity, root folder detail)
+            const seedPath = new URL('./seed.sql', import.meta.url).pathname;
+            const seed = await this.hal.file.readText(seedPath);
 
-            // Reload EntityCache to pick up root entity from VFS schema
+            await this.ems.exec(seed);
+
+            // Reload EntityCache to pick up root entity from seed data
             await this.ems.pathCache.loadFromDatabase(this.ems.db);
         }
 
@@ -405,6 +408,29 @@ export class VFS {
             }
         }
         // No HAL storage needed - EMS is source of truth for File/Folder entities
+    }
+
+    /**
+     * Initialize VFS models from JSON definitions.
+     *
+     * Loads model definitions from src/vfs/models/*.json and imports them
+     * via ems.importModel(). This replaces the old schema.sql approach for
+     * model/field definitions.
+     */
+    private async initModels(): Promise<void> {
+        if (!this.ems) {
+            return;
+        }
+
+        const modelNames = ['file', 'folder', 'device', 'proc', 'link', 'temp'];
+
+        for (const name of modelNames) {
+            const jsonPath = new URL(`./models/${name}.json`, import.meta.url).pathname;
+            const jsonText = await this.hal.file.readText(jsonPath);
+            const definition = JSON.parse(jsonText) as Record<string, unknown>;
+
+            await this.ems.importModel(name, definition);
+        }
     }
 
     /**
