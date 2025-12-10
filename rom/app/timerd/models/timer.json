@@ -1,0 +1,51 @@
+{
+    "description": "One-shot delayed syscall execution",
+    "passthrough": false,
+    "fields": {
+        "name": {
+            "type": "text",
+            "description": "Optional timer name/identifier"
+        },
+        "fire_at": {
+            "type": "timestamp",
+            "required": true,
+            "index": true,
+            "description": "When to fire the syscall"
+        },
+        "syscall": {
+            "type": "text",
+            "required": true,
+            "description": "Syscall to execute (e.g., 'ems:update')"
+        },
+        "args": {
+            "type": "jsonb",
+            "description": "Arguments to pass to syscall"
+        },
+        "fired": {
+            "type": "boolean",
+            "default_value": "0",
+            "index": true,
+            "description": "Timer has fired"
+        },
+        "fired_at": {
+            "type": "timestamp",
+            "description": "When the timer actually fired"
+        },
+        "result": {
+            "type": "jsonb",
+            "description": "Syscall result (if successful)"
+        },
+        "error": {
+            "type": "text",
+            "description": "Error message (if failed)"
+        },
+        "owner_pid": {
+            "type": "text",
+            "description": "Process that created this timer"
+        },
+        "context": {
+            "type": "jsonb",
+            "description": "Optional context data for tracking"
+        }
+    }
+}
