@@ -181,22 +181,22 @@ CREATE INDEX IF NOT EXISTS idx_llm_model_capabilities
 
 INSERT OR IGNORE INTO fields (
     model_name, field_name, type, required, default_value, enum_values,
-    unique_, index_, description
+    indexed, description
 ) VALUES
     ('llm.provider', 'provider_name', 'text', 1, NULL, NULL,
-     1, 0, 'Unique provider identifier'),
+     'unique', 'Unique provider identifier'),
     ('llm.provider', 'api_format', 'text', 1, NULL, '["openai","anthropic"]',
-     0, 0, 'Wire protocol format: openai or anthropic'),
+     NULL, 'Wire protocol format: openai or anthropic'),
     ('llm.provider', 'auth_type', 'text', 1, 'none', '["none","bearer","x-api-key"]',
-     0, 0, 'Authentication method: none, bearer, x-api-key'),
+     NULL, 'Authentication method: none, bearer, x-api-key'),
     ('llm.provider', 'auth_value', 'text', 0, NULL, NULL,
-     0, 0, 'API key or token (null if auth_type=none)'),
+     NULL, 'API key or token (null if auth_type=none)'),
     ('llm.provider', 'endpoint', 'text', 1, NULL, NULL,
-     0, 0, 'Base URL for API calls'),
+     NULL, 'Base URL for API calls'),
     ('llm.provider', 'streaming_format', 'text', 1, 'sse', '["ndjson","sse"]',
-     0, 0, 'Streaming protocol: ndjson or sse'),
+     NULL, 'Streaming protocol: ndjson or sse'),
     ('llm.provider', 'status', 'text', 1, 'active', '["active","disabled"]',
-     0, 1, 'Provider status: active or disabled');
+     'simple', 'Provider status: active or disabled');
 
 -- =============================================================================
 -- SEED DATA: LLM_MODEL FIELDS
@@ -206,50 +206,50 @@ INSERT OR IGNORE INTO fields (
 INSERT OR IGNORE INTO fields (
     model_name, field_name, type, required, default_value, enum_values,
     relationship_type, related_model, related_field, required_relationship,
-    unique_, index_, description
+    indexed, description
 ) VALUES
     ('llm.model', 'model_name', 'text', 1, NULL, NULL,
      NULL, NULL, NULL, 0,
-     1, 0, 'Unique model identifier for syscalls'),
+     'unique', 'Unique model identifier for syscalls'),
     ('llm.model', 'provider', 'text', 1, NULL, NULL,
      'referenced', 'llm.provider', 'provider_name', 1,
-     0, 1, 'Provider hosting this model'),
+     'simple', 'Provider hosting this model'),
     ('llm.model', 'model_id', 'text', 1, NULL, NULL,
      NULL, NULL, NULL, 0,
-     0, 0, 'Provider-specific model identifier'),
+     NULL, 'Provider-specific model identifier'),
     ('llm.model', 'supports_chat', 'boolean', 0, '1', NULL,
      NULL, NULL, NULL, 0,
-     0, 0, 'Supports multi-turn chat'),
+     NULL, 'Supports multi-turn chat'),
     ('llm.model', 'supports_completion', 'boolean', 0, '1', NULL,
      NULL, NULL, NULL, 0,
-     0, 0, 'Supports single-shot completion'),
+     NULL, 'Supports single-shot completion'),
     ('llm.model', 'supports_streaming', 'boolean', 0, '1', NULL,
      NULL, NULL, NULL, 0,
-     0, 0, 'Supports streaming responses'),
+     NULL, 'Supports streaming responses'),
     ('llm.model', 'supports_embeddings', 'boolean', 0, '0', NULL,
      NULL, NULL, NULL, 0,
-     0, 0, 'Supports text embeddings'),
+     NULL, 'Supports text embeddings'),
     ('llm.model', 'supports_vision', 'boolean', 0, '0', NULL,
      NULL, NULL, NULL, 0,
-     0, 0, 'Supports image input'),
+     NULL, 'Supports image input'),
     ('llm.model', 'supports_tools', 'boolean', 0, '0', NULL,
      NULL, NULL, NULL, 0,
-     0, 0, 'Supports tool/function calling'),
+     NULL, 'Supports tool/function calling'),
     ('llm.model', 'context_window', 'integer', 1, '4096', NULL,
      NULL, NULL, NULL, 0,
-     0, 0, 'Maximum input tokens'),
+     NULL, 'Maximum input tokens'),
     ('llm.model', 'max_output', 'integer', 1, '4096', NULL,
      NULL, NULL, NULL, 0,
-     0, 0, 'Maximum output tokens'),
+     NULL, 'Maximum output tokens'),
     ('llm.model', 'strip_markdown', 'boolean', 0, '0', NULL,
      NULL, NULL, NULL, 0,
-     0, 0, 'Strip markdown fences from output'),
+     NULL, 'Strip markdown fences from output'),
     ('llm.model', 'system_prompt_style', 'text', 0, 'message', '["message","prefix"]',
      NULL, NULL, NULL, 0,
-     0, 0, 'How to send system prompts: message or prefix'),
+     NULL, 'How to send system prompts: message or prefix'),
     ('llm.model', 'status', 'text', 1, 'active', '["active","disabled"]',
      NULL, NULL, NULL, 0,
-     0, 1, 'Model status: active or disabled');
+     'simple', 'Model status: active or disabled');
 
 -- =============================================================================
 -- SEED DATA: DEFAULT PROVIDERS
@@ -293,410 +293,3 @@ INSERT OR IGNORE INTO llm_model (
      1, 1, 1, 0, 1, 1, 200000, 8192, 0, 'message', 'active'),
     ('claude-haiku-3.5', 'anthropic', 'claude-3-5-haiku-20241022',
      1, 1, 1, 0, 1, 1, 200000, 8192, 0, 'message', 'active');
-
--- =============================================================================
--- AI_TASK TABLE
--- =============================================================================
--- Task queue for AI agents. Inspired by Oxygen Not Included's priority system.
---
--- WHY stage-based: Tasks flow through a pipeline from intake to completion.
--- WHY priority numbers: Lower = more urgent. Allows fine-grained ordering.
--- WHY owner tracking: Enables delegation to spawned monks.
-
-INSERT OR IGNORE INTO models (model_name, status, description) VALUES
-    ('ai.task', 'system', 'AI task queue with priority-based scheduling');
-
-CREATE TABLE IF NOT EXISTS ai_task (
-    -- Identity
-    id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
-    created_at      TEXT DEFAULT (datetime('now')),
-    updated_at      TEXT DEFAULT (datetime('now')),
-    trashed_at      TEXT,
-    expired_at      TEXT,
-
-    -- Task content
-    title           TEXT NOT NULL,
-    description     TEXT,
-
-    -- Priority (1=critical, 5=normal, 9=idle)
-    -- WHY 1-9 scale: Matches ONI's 9-level priority system.
-    priority        INTEGER NOT NULL DEFAULT 5 CHECK (priority BETWEEN 1 AND 9),
-
-    -- Pipeline stage
-    -- backlog: needs to be done
-    -- selected: agent wants to work on this
-    -- active: in flight, agent working directly
-    -- delegated: spawned monk is handling it
-    -- review: done but not reviewed
-    -- release: ready for user/output
-    -- done: complete
-    -- failed: terminal failure
-    stage           TEXT NOT NULL DEFAULT 'backlog' CHECK (stage IN (
-                        'backlog', 'selected', 'active', 'delegated',
-                        'review', 'release', 'done', 'failed'
-                    )),
-
-    -- Ownership
-    -- WHY nullable: backlog tasks have no owner yet.
-    -- Values: null, 'prior', or spawned monk pid
-    owner           TEXT,
-
-    -- Hierarchy
-    -- WHY parent_id: Enables task decomposition into subtasks.
-    parent_id       TEXT REFERENCES ai_task(id) ON DELETE SET NULL,
-
-    -- Result
-    result          TEXT,
-    error           TEXT,
-
-    -- Timing
-    started_at      TEXT,
-    completed_at    TEXT
-);
-
--- Primary queue index: find next task to work on
-CREATE INDEX IF NOT EXISTS idx_ai_task_queue
-    ON ai_task(stage, priority, created_at)
-    WHERE trashed_at IS NULL;
-
--- Owner index: find tasks by who's working on them
-CREATE INDEX IF NOT EXISTS idx_ai_task_owner
-    ON ai_task(owner, stage)
-    WHERE trashed_at IS NULL AND owner IS NOT NULL;
-
--- Parent index: find subtasks
-CREATE INDEX IF NOT EXISTS idx_ai_task_parent
-    ON ai_task(parent_id)
-    WHERE trashed_at IS NULL AND parent_id IS NOT NULL;
-
--- =============================================================================
--- SEED DATA: AI_TASK FIELDS
--- =============================================================================
-
-INSERT OR IGNORE INTO fields (
-    model_name, field_name, type, required, default_value, enum_values,
-    relationship_type, related_model, related_field, required_relationship,
-    unique_, index_, description
-) VALUES
-    ('ai.task', 'title', 'text', 1, NULL, NULL,
-     NULL, NULL, NULL, 0,
-     0, 0, 'Brief task description'),
-    ('ai.task', 'description', 'text', 0, NULL, NULL,
-     NULL, NULL, NULL, 0,
-     0, 0, 'Detailed task requirements'),
-    ('ai.task', 'priority', 'integer', 1, '5', NULL,
-     NULL, NULL, NULL, 0,
-     0, 1, 'Priority 1-9 (1=critical, 5=normal, 9=idle)'),
-    ('ai.task', 'stage', 'text', 1, 'backlog', '["backlog","selected","active","delegated","review","release","done","failed"]',
-     NULL, NULL, NULL, 0,
-     0, 1, 'Pipeline stage'),
-    ('ai.task', 'owner', 'text', 0, NULL, NULL,
-     NULL, NULL, NULL, 0,
-     0, 1, 'Who is working on this (null, prior, or monk pid)'),
-    ('ai.task', 'parent_id', 'text', 0, NULL, NULL,
-     'referenced', 'ai.task', 'id', 0,
-     0, 1, 'Parent task for subtask hierarchy'),
-    ('ai.task', 'result', 'text', 0, NULL, NULL,
-     NULL, NULL, NULL, 0,
-     0, 0, 'Task output/result'),
-    ('ai.task', 'error', 'text', 0, NULL, NULL,
-     NULL, NULL, NULL, 0,
-     0, 0, 'Error message if failed'),
-    ('ai.task', 'started_at', 'text', 0, NULL, NULL,
-     NULL, NULL, NULL, 0,
-     0, 0, 'When work began'),
-    ('ai.task', 'completed_at', 'text', 0, NULL, NULL,
-     NULL, NULL, NULL, 0,
-     0, 0, 'When work finished');
-
--- =============================================================================
--- AI_STM TABLE (Short-Term Memory)
--- =============================================================================
--- Raw experiences and observations. The day's events before sleep.
---
--- WHY separate from LTM: Different lifecycle. STM is append-heavy, bulk-deleted.
--- WHY salience: Guides consolidation priority - not everything is worth keeping.
-
-INSERT OR IGNORE INTO models (model_name, status, description) VALUES
-    ('ai.stm', 'system', 'Short-term memory - raw experiences awaiting consolidation');
-
-CREATE TABLE IF NOT EXISTS ai_stm (
-    -- Identity
-    id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
-    created_at      TEXT DEFAULT (datetime('now')),
-    trashed_at      TEXT,
-
-    -- Content
-    content         TEXT NOT NULL,
-
-    -- Context: where did this come from?
-    -- WHY JSON: Flexible structure - task_id, conversation_id, source, etc.
-    context         TEXT,
-
-    -- Salience: how notable is this? (1=trivial, 5=normal, 9=critical)
-    -- WHY salience: Consolidation prioritizes high-salience memories.
-    salience        INTEGER NOT NULL DEFAULT 5 CHECK (salience BETWEEN 1 AND 9),
-
-    -- Consolidation tracking
-    -- WHY consolidated flag: Marks entries processed during "sleep".
-    consolidated    INTEGER NOT NULL DEFAULT 0,
-    consolidated_at TEXT
-);
-
--- Consolidation queue: find unprocessed memories by salience
-CREATE INDEX IF NOT EXISTS idx_ai_stm_consolidation
-    ON ai_stm(consolidated, salience DESC, created_at)
-    WHERE trashed_at IS NULL;
-
--- =============================================================================
--- SEED DATA: AI_STM FIELDS
--- =============================================================================
-
-INSERT OR IGNORE INTO fields (
-    model_name, field_name, type, required, default_value, enum_values,
-    unique_, index_, description
-) VALUES
-    ('ai.stm', 'content', 'text', 1, NULL, NULL,
-     0, 0, 'Raw memory content'),
-    ('ai.stm', 'context', 'text', 0, NULL, NULL,
-     0, 0, 'JSON context (task_id, source, etc.)'),
-    ('ai.stm', 'salience', 'integer', 1, '5', NULL,
-     0, 1, 'Salience 1-9 (1=trivial, 9=critical)'),
-    ('ai.stm', 'consolidated', 'boolean', 1, '0', NULL,
-     0, 1, 'Has been processed during consolidation'),
-    ('ai.stm', 'consolidated_at', 'text', 0, NULL, NULL,
-     0, 0, 'When consolidation occurred');
-
--- =============================================================================
--- AI_LTM TABLE (Long-Term Memory)
--- =============================================================================
--- Distilled knowledge that survives consolidation. What matters.
---
--- WHY reinforced count: Memories encountered multiple times are stronger.
--- WHY last_accessed: Enables decay - unused memories fade.
--- WHY source_ids: Provenance tracking back to original STM entries.
-
-INSERT OR IGNORE INTO models (model_name, status, description) VALUES
-    ('ai.ltm', 'system', 'Long-term memory - consolidated knowledge and insights');
-
-CREATE TABLE IF NOT EXISTS ai_ltm (
-    -- Identity
-    id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
-    created_at      TEXT DEFAULT (datetime('now')),
-    updated_at      TEXT DEFAULT (datetime('now')),
-    trashed_at      TEXT,
-    expired_at      TEXT,
-
-    -- Content
-    content         TEXT NOT NULL,
-
-    -- Classification
-    -- WHY category: Enables scoped retrieval (just user prefs, just project facts).
-    category        TEXT,
-
-    -- Provenance
-    -- WHY JSON array: A single LTM entry may distill multiple STM entries.
-    source_ids      TEXT,
-
-    -- Strength
-    -- WHY reinforced: Memories re-encountered during consolidation get stronger.
-    reinforced      INTEGER NOT NULL DEFAULT 1,
-
-    -- Access tracking
-    -- WHY last_accessed: Memories that aren't retrieved may decay/archive.
-    last_accessed   TEXT
-);
-
--- Category index: find memories by type
-CREATE INDEX IF NOT EXISTS idx_ai_ltm_category
-    ON ai_ltm(category)
-    WHERE trashed_at IS NULL AND category IS NOT NULL;
-
--- Reinforcement index: find strongest memories
-CREATE INDEX IF NOT EXISTS idx_ai_ltm_strength
-    ON ai_ltm(reinforced DESC)
-    WHERE trashed_at IS NULL;
-
--- Decay index: find stale memories for potential archival
-CREATE INDEX IF NOT EXISTS idx_ai_ltm_access
-    ON ai_ltm(last_accessed)
-    WHERE trashed_at IS NULL;
-
--- =============================================================================
--- SEED DATA: AI_LTM FIELDS
--- =============================================================================
-
-INSERT OR IGNORE INTO fields (
-    model_name, field_name, type, required, default_value, enum_values,
-    unique_, index_, description
-) VALUES
-    ('ai.ltm', 'content', 'text', 1, NULL, NULL,
-     0, 0, 'Consolidated memory content'),
-    ('ai.ltm', 'category', 'text', 0, NULL, NULL,
-     0, 1, 'Memory category (user_prefs, project_facts, lessons, etc.)'),
-    ('ai.ltm', 'source_ids', 'text', 0, NULL, NULL,
-     0, 0, 'JSON array of source STM ids'),
-    ('ai.ltm', 'reinforced', 'integer', 1, '1', NULL,
-     0, 1, 'Reinforcement count (higher = stronger)'),
-    ('ai.ltm', 'last_accessed', 'text', 0, NULL, NULL,
-     0, 1, 'Last retrieval timestamp (for decay)');
-
--- =============================================================================
--- AI_REQUEST TABLE
--- =============================================================================
--- Top-level request tracking. Created when a task arrives, updated on completion.
---
--- WHY separate from ai.task: Tasks are work items in a queue. Requests are
--- execution traces - what happened when Prior processed something.
--- WHY 4-char ID: Short enough for log prefixes, unique enough for correlation.
-
-INSERT OR IGNORE INTO models (model_name, status, description) VALUES
-    ('ai.request', 'system', 'AI request execution tracking - traces from start to finish');
-
-CREATE TABLE IF NOT EXISTS ai_request (
-    -- Identity (4-char correlation ID, not UUID)
-    id              TEXT PRIMARY KEY,
-    created_at      TEXT DEFAULT (datetime('now')),
-    updated_at      TEXT DEFAULT (datetime('now')),
-    trashed_at      TEXT,
-
-    -- Request metadata
-    task            TEXT NOT NULL,
-    client_addr     TEXT,
-    model           TEXT NOT NULL,
-
-    -- Execution state
-    status          TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'ok', 'error')),
-    result          TEXT,
-    iterations      INTEGER NOT NULL DEFAULT 0,
-
-    -- Timing
-    started_at      TEXT NOT NULL DEFAULT (datetime('now')),
-    completed_at    TEXT,
-    duration_ms     INTEGER,
-
-    -- Token usage (if available from LLM response)
-    prompt_tokens   INTEGER,
-    completion_tokens INTEGER,
-    total_tokens    INTEGER
-);
-
--- Status index: find running/failed requests
-CREATE INDEX IF NOT EXISTS idx_ai_request_status
-    ON ai_request(status, started_at DESC)
-    WHERE trashed_at IS NULL;
-
--- Recent requests: debugging and analysis
-CREATE INDEX IF NOT EXISTS idx_ai_request_recent
-    ON ai_request(started_at DESC)
-    WHERE trashed_at IS NULL;
-
--- Performance analysis: find slow requests
-CREATE INDEX IF NOT EXISTS idx_ai_request_duration
-    ON ai_request(duration_ms DESC)
-    WHERE trashed_at IS NULL AND duration_ms IS NOT NULL;
-
--- =============================================================================
--- SEED DATA: AI_REQUEST FIELDS
--- =============================================================================
-
-INSERT OR IGNORE INTO fields (
-    model_name, field_name, type, required, default_value, enum_values,
-    unique_, index_, description
-) VALUES
-    ('ai.request', 'task', 'text', 1, NULL, NULL,
-     0, 0, 'Original instruction text'),
-    ('ai.request', 'client_addr', 'text', 0, NULL, NULL,
-     0, 0, 'Client address (e.g., 127.0.0.1:58198)'),
-    ('ai.request', 'model', 'text', 1, NULL, NULL,
-     0, 1, 'LLM model used'),
-    ('ai.request', 'status', 'text', 1, 'running', '["running","ok","error"]',
-     0, 1, 'Execution status'),
-    ('ai.request', 'result', 'text', 0, NULL, NULL,
-     0, 0, 'Final response or error message'),
-    ('ai.request', 'iterations', 'integer', 1, '0', NULL,
-     0, 0, 'Agentic loop iteration count'),
-    ('ai.request', 'started_at', 'text', 1, NULL, NULL,
-     0, 1, 'ISO timestamp when request started'),
-    ('ai.request', 'completed_at', 'text', 0, NULL, NULL,
-     0, 0, 'ISO timestamp when request completed'),
-    ('ai.request', 'duration_ms', 'integer', 0, NULL, NULL,
-     0, 1, 'Total request duration in milliseconds'),
-    ('ai.request', 'prompt_tokens', 'integer', 0, NULL, NULL,
-     0, 0, 'Input token count'),
-    ('ai.request', 'completion_tokens', 'integer', 0, NULL, NULL,
-     0, 0, 'Output token count'),
-    ('ai.request', 'total_tokens', 'integer', 0, NULL, NULL,
-     0, 0, 'Total token count');
-
--- =============================================================================
--- AI_REQUEST_EVENT TABLE
--- =============================================================================
--- Individual events within a request. One per command execution.
---
--- WHY per-command: Enables detailed tracing of what Prior did and why.
--- WHY sequence within iteration: Parallel commands have same iteration, different sequence.
-
-INSERT OR IGNORE INTO models (model_name, status, description) VALUES
-    ('ai.request_event', 'system', 'AI request events - per-command execution trace');
-
-CREATE TABLE IF NOT EXISTS ai_request_event (
-    -- Identity
-    id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
-    created_at      TEXT DEFAULT (datetime('now')),
-    trashed_at      TEXT,
-
-    -- Parent request
-    request_id      TEXT NOT NULL REFERENCES ai_request(id) ON DELETE CASCADE,
-
-    -- Position in execution
-    iteration       INTEGER NOT NULL,
-    sequence        INTEGER NOT NULL,
-
-    -- Event details
-    event_type      TEXT NOT NULL CHECK (event_type IN ('exec', 'call', 'spawn', 'wait', 'ref', 'coalesce', 'help')),
-    command         TEXT NOT NULL,
-    result          TEXT,
-    duration_ms     INTEGER
-);
-
--- Request trace: get all events for a request in order
-CREATE INDEX IF NOT EXISTS idx_ai_request_event_trace
-    ON ai_request_event(request_id, iteration, sequence)
-    WHERE trashed_at IS NULL;
-
--- Command analysis: find patterns in command usage
-CREATE INDEX IF NOT EXISTS idx_ai_request_event_type
-    ON ai_request_event(event_type)
-    WHERE trashed_at IS NULL;
-
--- =============================================================================
--- SEED DATA: AI_REQUEST_EVENT FIELDS
--- =============================================================================
-
-INSERT OR IGNORE INTO fields (
-    model_name, field_name, type, required, default_value, enum_values,
-    relationship_type, related_model, related_field, required_relationship,
-    unique_, index_, description
-) VALUES
-    ('ai.request_event', 'request_id', 'text', 1, NULL, NULL,
-     'referenced', 'ai.request', 'id', 1,
-     0, 1, 'Parent request ID'),
-    ('ai.request_event', 'iteration', 'integer', 1, NULL, NULL,
-     NULL, NULL, NULL, 0,
-     0, 1, 'Agentic loop iteration (1, 2, 3...)'),
-    ('ai.request_event', 'sequence', 'integer', 1, NULL, NULL,
-     NULL, NULL, NULL, 0,
-     0, 0, 'Order within iteration (for parallel commands)'),
-    ('ai.request_event', 'event_type', 'text', 1, NULL, '["exec","call","spawn","wait","ref","coalesce","help"]',
-     NULL, NULL, NULL, 0,
-     0, 1, 'Command type'),
-    ('ai.request_event', 'command', 'text', 1, NULL, NULL,
-     NULL, NULL, NULL, 0,
-     0, 0, 'What was executed'),
-    ('ai.request_event', 'result', 'text', 0, NULL, NULL,
-     NULL, NULL, NULL, 0,
-     0, 0, 'Output or error'),
-    ('ai.request_event', 'duration_ms', 'integer', 0, NULL, NULL,
-     NULL, NULL, NULL, 0,
-     0, 0, 'Command execution time in milliseconds')
