@@ -70,9 +70,9 @@ import {
     handleConnection,
     executeTask,
     consolidateMemory,
-} from '@rom/lib/ai/index.js';
+} from './lib/index.js';
 
-import type { ModelSchema } from '@rom/lib/ai/index.js';
+import type { ModelSchema } from './lib/index.js';
 
 // =============================================================================
 // MAIN
