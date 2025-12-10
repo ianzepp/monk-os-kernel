@@ -1,0 +1,49 @@
+{
+    "status": "system",
+    "description": "LLM provider configuration - API endpoints and auth",
+    "fields": {
+        "provider_name": {
+            "type": "text",
+            "required": true,
+            "indexed": "unique",
+            "description": "Unique provider identifier"
+        },
+        "api_format": {
+            "type": "text",
+            "required": true,
+            "enum_values": ["openai", "anthropic"],
+            "description": "Wire protocol format: openai or anthropic"
+        },
+        "auth_type": {
+            "type": "text",
+            "required": true,
+            "default_value": "none",
+            "enum_values": ["none", "bearer", "x-api-key"],
+            "description": "Authentication method: none, bearer, x-api-key"
+        },
+        "auth_value": {
+            "type": "text",
+            "description": "API key or token (null if auth_type=none)"
+        },
+        "endpoint": {
+            "type": "text",
+            "required": true,
+            "description": "Base URL for API calls"
+        },
+        "streaming_format": {
+            "type": "text",
+            "required": true,
+            "default_value": "sse",
+            "enum_values": ["ndjson", "sse"],
+            "description": "Streaming protocol: ndjson or sse"
+        },
+        "status": {
+            "type": "text",
+            "required": true,
+            "default_value": "active",
+            "enum_values": ["active", "disabled"],
+            "indexed": "simple",
+            "description": "Provider status: active or disabled"
+        }
+    }
+}

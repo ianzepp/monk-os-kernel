@@ -1,0 +1,88 @@
+{
+    "status": "system",
+    "description": "LLM model configuration - capabilities and limits",
+    "fields": {
+        "model_name": {
+            "type": "text",
+            "required": true,
+            "indexed": "unique",
+            "description": "Unique model identifier for syscalls"
+        },
+        "provider": {
+            "type": "text",
+            "required": true,
+            "indexed": "simple",
+            "relationship_type": "referenced",
+            "related_model": "llm.provider",
+            "related_field": "provider_name",
+            "required_relationship": true,
+            "description": "Provider hosting this model"
+        },
+        "model_id": {
+            "type": "text",
+            "required": true,
+            "description": "Provider-specific model identifier"
+        },
+        "supports_chat": {
+            "type": "boolean",
+            "default_value": "1",
+            "description": "Supports multi-turn chat"
+        },
+        "supports_completion": {
+            "type": "boolean",
+            "default_value": "1",
+            "description": "Supports single-shot completion"
+        },
+        "supports_streaming": {
+            "type": "boolean",
+            "default_value": "1",
+            "description": "Supports streaming responses"
+        },
+        "supports_embeddings": {
+            "type": "boolean",
+            "default_value": "0",
+            "description": "Supports text embeddings"
+        },
+        "supports_vision": {
+            "type": "boolean",
+            "default_value": "0",
+            "description": "Supports image input"
+        },
+        "supports_tools": {
+            "type": "boolean",
+            "default_value": "0",
+            "description": "Supports tool/function calling"
+        },
+        "context_window": {
+            "type": "integer",
+            "required": true,
+            "default_value": "4096",
+            "description": "Maximum input tokens"
+        },
+        "max_output": {
+            "type": "integer",
+            "required": true,
+            "default_value": "4096",
+            "description": "Maximum output tokens"
+        },
+        "strip_markdown": {
+            "type": "boolean",
+            "default_value": "0",
+            "description": "Strip markdown fences from output"
+        },
+        "system_prompt_style": {
+            "type": "text",
+            "default_value": "message",
+            "enum_values": ["message", "prefix"],
+            "description": "How to send system prompts: message or prefix"
+        },
+        "status": {
+            "type": "text",
+            "required": true,
+            "default_value": "active",
+            "enum_values": ["active", "disabled"],
+            "indexed": "simple",
+            "description": "Model status: active or disabled"
+        }
+    }
+}

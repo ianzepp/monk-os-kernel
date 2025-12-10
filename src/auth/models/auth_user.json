@@ -1,0 +1,23 @@
+{
+    "status": "system",
+    "description": "User account entity",
+    "pathname": "username",
+    "fields": {
+        "username": {
+            "type": "text",
+            "required": true,
+            "indexed": "unique",
+            "description": "Unique username for login"
+        },
+        "password_hash": {
+            "type": "text",
+            "required": true,
+            "description": "Argon2id password hash"
+        },
+        "disabled": {
+            "type": "boolean",
+            "default_value": "0",
+            "description": "Account disabled flag"
+        }
+    }
+}

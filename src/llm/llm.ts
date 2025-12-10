@@ -108,10 +108,10 @@ export class LLM {
     /**
      * Initialize LLM subsystem.
      *
-     * Loads schema from schema.sql, creating tables and seeding default
-     * providers/models. Idempotent - safe to call multiple times.
+     * Imports model definitions from JSON and seeds default providers/models.
+     * Idempotent - safe to call multiple times.
      *
-     * @throws Error if schema cannot be loaded
+     * @throws Error if initialization fails
      */
     async init(): Promise<void> {
         if (this.initialized) {
@@ -120,11 +120,75 @@ export class LLM {
 
         this.initialized = true;
 
-        // Load and apply LLM schema
-        const schemaPath = new URL('./schema.sql', import.meta.url).pathname;
-        const schema = await this.hal.file.readText(schemaPath);
+        // Import model definitions from JSON
+        await this.initModels();
 
-        await this.ems.exec(schema, { clearModels: true });
+        // Seed default providers and models
+        await this.seedProviders();
+        await this.seedModels();
+    }
+
+    /**
+     * Import LLM model definitions from JSON.
+     */
+    private async initModels(): Promise<void> {
+        const modelNames = ['llm.provider', 'llm.model'];
+
+        for (const name of modelNames) {
+            const jsonPath = new URL(`./models/${name}.json`, import.meta.url).pathname;
+            const jsonText = await this.hal.file.readText(jsonPath);
+            const definition = JSON.parse(jsonText) as Record<string, unknown>;
+
+            await this.ems.importModel(name, definition);
+        }
+    }
+
+    /**
+     * Seed default LLM providers from JSON.
+     */
+    private async seedProviders(): Promise<void> {
+        const jsonPath = new URL('./seeds/providers.json', import.meta.url).pathname;
+        const jsonText = await this.hal.file.readText(jsonPath);
+        const providers = JSON.parse(jsonText) as Array<Record<string, unknown>>;
+
+        for (const provider of providers) {
+            let exists = false;
+
+            for await (const _ of this.ems.ops.selectAny('llm.provider', {
+                where: { provider_name: provider.provider_name as string },
+            })) {
+                exists = true;
+                break;
+            }
+
+            if (!exists) {
+                await this.ems.ops.createOne('llm.provider', provider);
+            }
+        }
+    }
+
+    /**
+     * Seed default LLM models from JSON.
+     */
+    private async seedModels(): Promise<void> {
+        const jsonPath = new URL('./seeds/models.json', import.meta.url).pathname;
+        const jsonText = await this.hal.file.readText(jsonPath);
+        const models = JSON.parse(jsonText) as Array<Record<string, unknown>>;
+
+        for (const model of models) {
+            let exists = false;
+
+            for await (const _ of this.ems.ops.selectAny('llm.model', {
+                where: { model_name: model.model_name as string },
+            })) {
+                exists = true;
+                break;
+            }
+
+            if (!exists) {
+                await this.ems.ops.createOne('llm.model', model);
+            }
+        }
     }
 
     /**
@@ -145,21 +209,20 @@ export class LLM {
      * Resolve a model name to full configuration.
      *
      * Joins llm_model with llm_provider to get complete config needed
-     * for API calls.
+     * for API calls. Supports prefix matching: "claude-haiku" resolves
+     * to "claude-haiku-3.5", "claude-sonnet" to "claude-sonnet-4", etc.
      *
-     * @param modelName - Model name (e.g., 'qwen2.5-coder:1.5b')
+     * @param modelName - Model name or prefix (e.g., 'claude-sonnet' or 'claude-sonnet-4')
      * @returns Resolved model with provider details
      * @throws Error if model not found or disabled
      */
     async resolveModel(modelName: string): Promise<ResolvedModel> {
-        // Query model
-        let model: LLMModel | null = null;
+        // Try exact match first
+        let model = await this.findModel({ model_name: modelName });
 
-        for await (const row of this.ems.ops.selectAny('llm.model', {
-            where: { model_name: modelName },
-            limit: 1,
-        })) {
-            model = this.rowToModel(row as Record<string, unknown>);
+        // If not found, try prefix match (e.g., "claude-haiku" -> "claude-haiku-3.5")
+        if (!model) {
+            model = await this.findModel({ model_name: { $like: `${modelName}%` } });
         }
 
         if (!model) {
@@ -189,6 +252,23 @@ export class LLM {
         }
 
         return { model, provider };
+    }
+
+    /**
+     * Find a single model by filter.
+     *
+     * @param where - Filter conditions
+     * @returns Model or null if not found
+     */
+    private async findModel(where: WhereConditions): Promise<LLMModel | null> {
+        for await (const row of this.ems.ops.selectAny('llm.model', {
+            where,
+            limit: 1,
+        })) {
+            return this.rowToModel(row as Record<string, unknown>);
+        }
+
+        return null;
     }
 
     /**

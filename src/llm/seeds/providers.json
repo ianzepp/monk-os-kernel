@@ -1,0 +1,28 @@
+[
+    {
+        "provider_name": "ollama",
+        "api_format": "openai",
+        "auth_type": "none",
+        "endpoint": "http://localhost:11434",
+        "streaming_format": "ndjson",
+        "status": "active"
+    },
+    {
+        "provider_name": "openai",
+        "api_format": "openai",
+        "auth_type": "bearer",
+        "auth_value": "env:OPENAI_API_KEY",
+        "endpoint": "https://api.openai.com",
+        "streaming_format": "sse",
+        "status": "disabled"
+    },
+    {
+        "provider_name": "anthropic",
+        "api_format": "anthropic",
+        "auth_type": "x-api-key",
+        "auth_value": "env:ANTHROPIC_API_KEY",
+        "endpoint": "https://api.anthropic.com",
+        "streaming_format": "sse",
+        "status": "active"
+    }
+]

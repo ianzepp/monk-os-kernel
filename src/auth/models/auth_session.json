@@ -1,0 +1,26 @@
+{
+    "status": "system",
+    "description": "User session entity",
+    "fields": {
+        "user_id": {
+            "type": "uuid",
+            "required": true,
+            "indexed": "simple",
+            "description": "Reference to auth_user.id or service principal"
+        },
+        "expires": {
+            "type": "integer",
+            "required": true,
+            "indexed": "simple",
+            "description": "Session expiry timestamp (ms since epoch)"
+        },
+        "ip": {
+            "type": "text",
+            "description": "Client IP address"
+        },
+        "user_agent": {
+            "type": "text",
+            "description": "Client user agent"
+        }
+    }
+}

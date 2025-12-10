@@ -345,14 +345,9 @@ export class VFS {
         // Load and apply VFS models via JSON definitions
         if (this.ems) {
             await this.initModels();
+            await this.seedRoot();
 
-            // Load seed data (root entity, root folder detail)
-            const seedPath = new URL('./seed.sql', import.meta.url).pathname;
-            const seed = await this.hal.file.readText(seedPath);
-
-            await this.ems.exec(seed);
-
-            // Reload EntityCache to pick up root entity from seed data
+            // Reload EntityCache to pick up root entity
             await this.ems.pathCache.loadFromDatabase(this.ems.db);
         }
 
@@ -430,6 +425,51 @@ export class VFS {
             const definition = JSON.parse(jsonText) as Record<string, unknown>;
 
             await this.ems.importModel(name, definition);
+        }
+    }
+
+    /**
+     * Seed root entity and folder from JSON.
+     */
+    private async seedRoot(): Promise<void> {
+        if (!this.ems) {
+            return;
+        }
+
+        const jsonPath = new URL('./seeds/root.json', import.meta.url).pathname;
+        const jsonText = await this.hal.file.readText(jsonPath);
+        const seeds = JSON.parse(jsonText) as Record<string, Array<Record<string, unknown>>>;
+
+        // Seed entities table
+        for (const entity of seeds.entities ?? []) {
+            let exists = false;
+
+            for await (const _ of this.ems.ops.selectAny('entities', {
+                where: { id: entity.id as string },
+            })) {
+                exists = true;
+                break;
+            }
+
+            if (!exists) {
+                await this.ems.ops.createOne('entities', entity);
+            }
+        }
+
+        // Seed folder table
+        for (const folder of seeds.folder ?? []) {
+            let exists = false;
+
+            for await (const _ of this.ems.ops.selectAny('folder', {
+                where: { id: folder.id as string },
+            })) {
+                exists = true;
+                break;
+            }
+
+            if (!exists) {
+                await this.ems.ops.createOne('folder', folder);
+            }
         }
     }
 

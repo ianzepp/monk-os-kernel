@@ -152,20 +152,25 @@ export class Auth {
     }
 
     /**
-     * Load auth schema into EMS.
+     * Load auth models into EMS.
      *
      * WHY: Creates auth_user and auth_session tables on first boot.
-     * Uses clearModels: true to refresh model cache.
+     * Uses JSON model definitions imported via ems.importModel().
      */
     private async loadSchema(): Promise<void> {
         if (!this.ems) {
             return;
         }
 
-        const schemaPath = new URL('./schema.sql', import.meta.url).pathname;
-        const schema = await this.hal.file.readText(schemaPath);
+        const modelNames = ['auth_user', 'auth_session'];
 
-        await this.ems.exec(schema, { clearModels: true });
+        for (const name of modelNames) {
+            const jsonPath = new URL(`./models/${name}.json`, import.meta.url).pathname;
+            const jsonText = await this.hal.file.readText(jsonPath);
+            const definition = JSON.parse(jsonText) as Record<string, unknown>;
+
+            await this.ems.importModel(name, definition);
+        }
     }
 
     /**
