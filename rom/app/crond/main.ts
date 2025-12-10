@@ -3,11 +3,11 @@
  *
  * Scheduled job execution using EMS-backed job entities.
  *
- * Jobs are stored as 'cron.job' entities and can be managed via:
- *   ems:create cron.job { name, spec, command, enabled }
- *   ems:update cron.job <id> { enabled: false }
- *   ems:select cron.job { enabled: true }
- *   ems:delete cron.job <id>
+ * Jobs are stored as 'crond.job' entities and can be managed via:
+ *   ems:create crond.job { name, spec, command, enabled }
+ *   ems:update crond.job <id> { enabled: false }
+ *   ems:select crond.job { enabled: true }
+ *   ems:delete crond.job <id>
  *
  * Cron spec format: standard 5-field cron expression
  *   minute (0-59)
@@ -189,7 +189,7 @@ async function executeJob(job: CronJob): Promise<void> {
     const nextRun = getNextRun(job.spec);
 
     try {
-        await call('ems:update', 'cron.job', job.id, {
+        await call('ems:update', 'crond.job', job.id, {
             last_run: startTime,
             last_status: exitCode,
             last_error: errorMsg,
@@ -259,7 +259,7 @@ export default async function main(): Promise<void> {
         let jobs: CronJob[];
 
         try {
-            jobs = await collect<CronJob>('ems:select', 'cron.job', {
+            jobs = await collect<CronJob>('ems:select', 'crond.job', {
                 where: { enabled: true },
             });
         }

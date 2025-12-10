@@ -3,30 +3,30 @@
  *
  * One-shot delayed syscall execution using EMS-backed timer entities.
  *
- * Timers are stored as 'timer' entities and can be managed via:
- *   ems:create timer { fire_at, syscall, args }
- *   ems:update timer <id> { fire_at: newTime }  // Reschedule
- *   ems:delete timer <id>                        // Cancel
- *   ems:select timer { fired: false }            // List pending
+ * Timers are stored as 'timerd.timer' entities and can be managed via:
+ *   ems:create timerd.timer { fire_at, syscall, args }
+ *   ems:update timerd.timer <id> { fire_at: newTime }  // Reschedule
+ *   ems:delete timerd.timer <id>                        // Cancel
+ *   ems:select timerd.timer { fired: false }            // List pending
  *
  * Examples:
  *
  *   // Expire an order in 30 minutes
- *   ems:create timer {
+ *   ems:create timerd.timer {
  *       fire_at: "2024-12-09T22:00:00Z",
  *       syscall: "ems:update",
  *       args: ["order", "abc123", { "status": "expired" }]
  *   }
  *
  *   // Delete a session in 24 hours
- *   ems:create timer {
+ *   ems:create timerd.timer {
  *       fire_at: "2024-12-10T21:00:00Z",
  *       syscall: "ems:delete",
  *       args: ["auth.session", "xyz789"]
  *   }
  *
  *   // Send a notification at a specific time
- *   ems:create timer {
+ *   ems:create timerd.timer {
  *       fire_at: "2024-12-09T15:00:00Z",
  *       syscall: "ems:create",
  *       args: ["notification", { "user_id": "u1", "message": "Reminder!" }]
@@ -90,7 +90,7 @@ async function executeTimer(timer: Timer): Promise<void> {
 
     // Update timer status
     try {
-        await call('ems:update', 'timer', timer.id, {
+        await call('ems:update', 'timerd.timer', timer.id, {
             fired: true,
             fired_at: firedAt,
             result: result,
@@ -144,7 +144,7 @@ export default async function main(): Promise<void> {
         let timers: Timer[];
 
         try {
-            timers = await collect<Timer>('ems:select', 'timer', {
+            timers = await collect<Timer>('ems:select', 'timerd.timer', {
                 where: {
                     fired: false,
                 },
