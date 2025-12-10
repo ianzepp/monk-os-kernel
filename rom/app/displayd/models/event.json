@@ -5,23 +5,23 @@
         "display_id": {
             "type": "uuid",
             "required": true,
-            "index": true,
+            "indexed": "simple",
             "description": "Source display"
         },
         "window_id": {
             "type": "uuid",
-            "index": true,
+            "indexed": "simple",
             "description": "Target window"
         },
         "element_id": {
             "type": "uuid",
-            "index": true,
+            "indexed": "simple",
             "description": "Target element"
         },
         "type": {
             "type": "text",
             "required": true,
-            "index": true,
+            "indexed": "simple",
             "description": "Event type"
         },
         "data": {
@@ -31,7 +31,7 @@
         "timestamp": {
             "type": "integer",
             "required": true,
-            "index": true,
+            "indexed": "simple",
             "description": "Event timestamp (Unix ms)"
         },
         "target_tag": {
@@ -40,7 +40,7 @@
         },
         "key": {
             "type": "text",
-            "index": true,
+            "indexed": "simple",
             "description": "Key pressed"
         },
         "button": {
@@ -78,7 +78,7 @@
         "handled": {
             "type": "boolean",
             "default_value": "0",
-            "index": true,
+            "indexed": "simple",
             "description": "Event has been processed"
         },
         "prevented": {

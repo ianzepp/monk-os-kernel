@@ -131,7 +131,9 @@ export default async function main(): Promise<void> {
 
     // Tick handler - check timers every second
     onTick(async (_dt, _now, seq) => {
-        if (!running) return;
+        if (!running) {
+            return;
+        }
 
         // Heartbeat every 60 ticks
         if (seq % 60 === 0) {

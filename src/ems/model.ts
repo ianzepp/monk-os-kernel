@@ -147,11 +147,8 @@ export interface FieldRow {
     /** Requires sudo to modify */
     sudo: number;
 
-    /** Unique constraint on values */
-    unique_: number;
-
-    /** Create database index */
-    index_: number;
+    /** Index type: null (none), 'simple', or 'unique' */
+    indexed: string | null;
 
     /** Track changes in audit log */
     tracked: number;
@@ -257,6 +254,16 @@ export class Model {
      */
     get modelName(): string {
         return this.row.model_name;
+    }
+
+    /**
+     * Get the SQLite table name.
+     *
+     * WHY: SQLite interprets 'ai.request' as database.table schema reference.
+     * Converting dots to underscores avoids this ambiguity.
+     */
+    get tableName(): string {
+        return this.row.model_name.replace(/\./g, '_');
     }
 
     /**

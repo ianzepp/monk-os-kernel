@@ -72,14 +72,14 @@ async function createTestModel(
 
     for (const field of [...standardFields, ...fields]) {
         await ems.db.execute(
-            `INSERT INTO fields (id, model_name, field_name, type, unique_, relationship_type, related_model)
+            `INSERT INTO fields (id, model_name, field_name, type, indexed, relationship_type, related_model)
              VALUES (?, ?, ?, ?, ?, ?, ?)`,
             [
                 `field-${modelName}-${field.name}`,
                 modelName,
                 field.name,
                 field.type || 'text',
-                field.unique ? 1 : 0,
+                field.unique ? 'unique' : null,
                 field.relationshipType || null,
                 field.relatedModel || null,
             ],

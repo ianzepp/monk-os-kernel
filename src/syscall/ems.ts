@@ -147,7 +147,7 @@ export async function* emsDescribe(
                     field_name: f.field_name as string,
                     type: f.type as string,
                     required: Boolean(f.required),
-                    unique: Boolean(f.unique_),
+                    unique: f.indexed === 'unique',
                     description: f.description as string | null,
                     related_model: f.related_model as string | null,
                     enum_values: enumValues,

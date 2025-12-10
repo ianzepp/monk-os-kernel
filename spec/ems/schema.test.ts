@@ -156,8 +156,7 @@ describe('Model Schema', () => {
             // Behavioral flags
             expect(names).toContain('immutable');
             expect(names).toContain('sudo');
-            expect(names).toContain('unique_');
-            expect(names).toContain('index_');
+            expect(names).toContain('indexed');
             expect(names).toContain('tracked');
             expect(names).toContain('searchable');
             expect(names).toContain('transform');

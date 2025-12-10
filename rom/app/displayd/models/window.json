@@ -5,7 +5,7 @@
         "display_id": {
             "type": "uuid",
             "required": true,
-            "index": true,
+            "indexed": "simple",
             "relationship_type": "owned",
             "related_model": "display",
             "cascade_delete": true,
@@ -55,19 +55,19 @@
         "z_index": {
             "type": "integer",
             "default_value": "0",
-            "index": true,
+            "indexed": "simple",
             "description": "Stacking order"
         },
         "focused": {
             "type": "boolean",
             "default_value": "0",
-            "index": true,
+            "indexed": "simple",
             "description": "Has keyboard focus"
         },
         "visible": {
             "type": "boolean",
             "default_value": "1",
-            "index": true,
+            "indexed": "simple",
             "description": "Is visible on screen"
         },
         "minimized": {
@@ -98,7 +98,7 @@
         "owner_pid": {
             "type": "text",
             "required": true,
-            "index": true,
+            "indexed": "simple",
             "description": "Owning process UUID"
         },
         "background": {

@@ -5,7 +5,7 @@
         "window_id": {
             "type": "uuid",
             "required": true,
-            "index": true,
+            "indexed": "simple",
             "relationship_type": "owned",
             "related_model": "window",
             "cascade_delete": true,
@@ -13,7 +13,7 @@
         },
         "parent_id": {
             "type": "uuid",
-            "index": true,
+            "indexed": "simple",
             "description": "Parent element (null = window root)"
         },
         "tag": {
@@ -30,7 +30,7 @@
             "type": "text",
             "description": "Text content"
         },
-        "order": {
+        "order_": {
             "type": "integer",
             "default_value": "0",
             "description": "Sibling order"
@@ -55,7 +55,7 @@
         "hidden": {
             "type": "boolean",
             "default_value": "0",
-            "index": true,
+            "indexed": "simple",
             "description": "Element is hidden"
         },
         "value": {

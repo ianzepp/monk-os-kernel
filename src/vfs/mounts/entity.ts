@@ -33,7 +33,7 @@
  * =============
  * - model: Filter to a single model type (e.g., "users")
  * - field: Use this field's value as directory name (default: "id")
- *          Must have unique_=1 in the fields table
+ *          Must have indexed='unique' in the fields table
  * - maxDepth: Maximum relationship traversal depth (default: 3)
  *
  * READ-ONLY
@@ -186,7 +186,7 @@ export async function createEntityMount(
             throw new EINVAL(`Field '${field}' not found on model '${options.model}'`);
         }
 
-        if (!fieldDef.unique_) {
+        if (fieldDef.indexed !== 'unique') {
             throw new EINVAL(`Field '${field}' must be unique to use as entity key`);
         }
     }
