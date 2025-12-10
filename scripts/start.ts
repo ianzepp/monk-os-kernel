@@ -95,9 +95,6 @@ const socketPath = values.socket ?? deriveSocketPath(storage);
 // Build OS configuration
 const os = new OS({
     storage,
-    display: values['no-display']
-        ? undefined
-        : { enabled: true, port: parseInt(values.port, 10) },
     debug: values.debug,
     env: {
         HOME: '/',
