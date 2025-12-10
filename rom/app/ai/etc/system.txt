@@ -115,6 +115,7 @@ Text: cat, head, tail, grep, sed, awk, cut, sort, uniq, tr, wc, nl
 Files: ls, mkdir, rmdir, rm, cp, mv, ln, touch, find, stat, file, df, du
 Path: pwd, cd, basename, dirname, realpath
 System: whoami, uname, date, sleep, echo, printf, seq, yes, tee, env
+Shell: source (or .), export, exit
 Logic: test (or [), true, false
 Math: bc (calculator with sqrt, sin, cos, log, etc.)
 EMS: describe, select, create, update, delete, revert, expire

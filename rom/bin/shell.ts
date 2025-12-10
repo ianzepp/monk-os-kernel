@@ -281,6 +281,55 @@ async function builtinExit(state: ShellState, args: string[]): Promise<number> {
     return state.exitCode;
 }
 
+/**
+ * Source a script file in the current shell context.
+ *
+ * Unlike executing a script as a command (which runs in a subshell),
+ * source executes each line in the current shell, so env vars and
+ * other state changes persist.
+ */
+async function builtinSource(state: ShellState, args: string[]): Promise<number> {
+    if (args.length === 0) {
+        await eprintln('source: missing file argument');
+        return 1;
+    }
+
+    const scriptPath = args[0]!;
+    const path = resolvePath(state.cwd, scriptPath);
+
+    let script: string;
+
+    try {
+        script = await readText(path);
+    }
+    catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        await eprintln(`source: ${scriptPath}: ${msg}`);
+        return 1;
+    }
+
+    const lines = script.split('\n');
+    let lastExitCode = 0;
+
+    // Save shouldExit state - source shouldn't exit the shell
+    const savedShouldExit = state.shouldExit;
+
+    for (const line of lines) {
+        // WHY: We check shouldExit but don't let it propagate from sourced script.
+        // An 'exit' in a sourced file should stop sourcing, not exit the shell.
+        if (state.shouldExit) {
+            break;
+        }
+
+        lastExitCode = await executeLineNoHistory(state, line);
+    }
+
+    // Restore - source file's exit shouldn't exit the shell
+    state.shouldExit = savedShouldExit;
+
+    return lastExitCode;
+}
+
 async function executeBuiltin(
     state: ShellState,
     command: string,
@@ -296,6 +345,9 @@ async function executeBuiltin(
             return builtinExport(state, args);
         case 'exit':
             return builtinExit(state, args);
+        case 'source':
+        case '.':
+            return builtinSource(state, args);
         case 'true':
             return 0;
         case 'false':
@@ -817,7 +869,36 @@ async function executeChain(
 }
 
 /**
- * Execute a command line
+ * Execute a command line without adding to history.
+ * Used by source/. builtin for sourced scripts.
+ */
+async function executeLineNoHistory(state: ShellState, line: string): Promise<number> {
+    const trimmed = line.trim();
+
+    // Empty line or comment
+    if (!trimmed || trimmed.startsWith('#')) {
+        return 0;
+    }
+
+    // Parse command
+    const parsed = parseCommand(trimmed);
+
+    if (!parsed) {
+        return 0;
+    }
+
+    // Handle background execution
+    if (parsed.background) {
+        await eprintln('shell: background execution not yet implemented');
+        return 1;
+    }
+
+    // Execute
+    return executeChain(state, parsed);
+}
+
+/**
+ * Execute a command line (adds to history)
  */
 async function executeLine(state: ShellState, line: string): Promise<number> {
     const trimmed = line.trim();
@@ -837,22 +918,7 @@ async function executeLine(state: ShellState, line: string): Promise<number> {
         }
     }
 
-    // Parse command
-    const parsed = parseCommand(trimmed);
-
-    if (!parsed) {
-        return 0;
-    }
-
-    // Handle background execution
-    if (parsed.background) {
-        await eprintln('shell: background execution not yet implemented');
-
-        return 1;
-    }
-
-    // Execute
-    return executeChain(state, parsed);
+    return executeLineNoHistory(state, trimmed);
 }
 
 // ============================================================================
