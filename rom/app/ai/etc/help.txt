@@ -1,15 +1,14 @@
-## Prior ! Commands
+## AI Bang Commands
 
-### !exec - Run shell pipeline
-!exec ["command"]
-!exec ["cmd1", "cmd2", "cmd3"]
+### !exec - Run shell command
+!exec <shell command>
 
-Execute shell commands as a pipeline. Each command's stdout feeds the next.
+Execute a shell command. Full shell support: pipes, redirects, globs, chaining.
 
 Examples:
-  !exec ["ls -la /bin"]
-  !exec ["find /etc -name '*.txt'", "head -5"]
-  !exec ["cat /var/log/messages", "grep error", "wc -l"]
+  !exec ls -la /bin
+  !exec find /etc -name '*.txt' | head -5
+  !exec cat /var/log/messages | grep error | wc -l
 
 ### !call - Direct syscall
 !call <syscall> [args...]
@@ -31,36 +30,61 @@ Examples:
   !call proc:getpid
   !call proc:getcwd
 
+### !ems - EMS database operations
+!ems <subcommand> [args...]
+
+Interact with EMS (Entity Management System) database tables.
+
+Subcommands:
+  describe [model]     - List all models or show schema for one
+  select <model> ...   - Query records
+  create <model> ...   - Create a record
+  update <model> ...   - Update a record
+  delete <model> ...   - Soft delete a record
+  revert <model> ...   - Restore soft-deleted record
+  expire <model> ...   - Permanently delete
+
+Examples:
+  !ems describe
+  !ems describe ai.request
+  !ems select ai.request limit 5
+  !ems create ai.stm content="hello" salience=5
+
+### !ref - Search memories
+!ref <keywords...>
+
+Search short-term and long-term memory by keywords.
+
+Examples:
+  !ref typescript error handling
+  !ref user preferences
+
+### !coalesce - Force memory consolidation
+!coalesce
+
+Immediately consolidate short-term memories into long-term storage.
+
 ### !spawn - Start async subagent
 !spawn "task description"
 !spawn {"task": "...", "model": "claude-haiku-3"}
 
 Start a subagent to handle a task asynchronously. Returns a spawn ID.
-The subagent runs in parallel - use !wait to get its result.
 
 Examples:
   !spawn "summarize the contents of /var/log"
   !spawn {"task": "count files", "model": "claude-haiku-3"}
 
 ### !wait - Wait for subagent result
+!wait
 !wait spawn:<id>
 
-Block until the specified subagent completes, then return its result.
+Wait for all subagents or a specific one to complete, then return results.
 
 Examples:
+  !wait
   !wait spawn:a1b2c3d4
-
-### !stm - Short-term memory (reserved)
-!stm <operation> [args...]
-
-Short-term memory operations. Not yet implemented.
-
-### !ltm - Long-term memory (reserved)
-!ltm <operation> [args...]
-
-Long-term memory operations. Not yet implemented.
 
 ### !help - Show this help
 !help
 
-Display available ! commands and usage.
+Display available bang commands and usage.

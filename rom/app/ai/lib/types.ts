@@ -1,18 +1,18 @@
 /**
- * Prior Types - Type definitions for the Prior AI process
+ * AI App Types - Type definitions for the AI process
  *
  * PURPOSE
  * =======
- * Centralizes all type definitions used by the Prior AI process and its
+ * Centralizes all type definitions used by the AI process and its
  * supporting libraries. This includes instruction formats, task results,
  * LLM responses, and internal state structures.
  *
  * API DESIGN
  * ==========
- * All types are exported for use by both the Prior binary and any external
- * code that needs to interact with Prior (e.g., test harnesses, clients).
+ * All types are exported for use by both the AI app and any external
+ * code that needs to interact with it (e.g., test harnesses, clients).
  *
- * @module rom/lib/prior/types
+ * @module rom/app/ai/lib/types
  */
 
 // =============================================================================
@@ -164,21 +164,6 @@ export interface SpawnedAgent {
 }
 
 // =============================================================================
-// HTTP TYPES
-// =============================================================================
-
-/**
- * HTTP request received from the channel layer.
- */
-export interface HttpRequest {
-    method: string;
-    path: string;
-    query: Record<string, string>;
-    headers: Record<string, string>;
-    body: unknown;
-}
-
-// =============================================================================
 // EXECUTION OPTIONS
 // =============================================================================
 
@@ -204,7 +189,9 @@ export interface StmEntry {
     content: string;
     context: string;
     salience: number;
+    /** Whether this entry has been consolidated into LTM (0 or 1 in SQLite) */
     consolidated?: number;
+    consolidated_at?: string;
 }
 
 /**

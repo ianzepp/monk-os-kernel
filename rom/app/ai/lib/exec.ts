@@ -1,18 +1,18 @@
 /**
- * Prior Exec - Shell command execution for the Prior AI process
+ * AI App Exec - Shell command execution for the AI process
  *
  * PURPOSE
  * =======
- * Provides shell command execution capabilities for Prior. Commands are
- * routed through /bin/shell.ts for full shell support including pipes,
- * redirects, chaining, globs, and variable expansion.
+ * Provides shell command execution capabilities for the AI process.
+ * Commands are routed through /bin/shell.ts for full shell support
+ * including pipes, redirects, chaining, globs, and variable expansion.
  *
  * DESIGN
  * ======
  * All commands go through the shell rather than direct process spawning.
  * This ensures consistent behavior and supports complex command syntax.
  *
- * @module rom/lib/prior/exec
+ * @module rom/app/ai/lib/exec
  */
 
 // =============================================================================
@@ -20,6 +20,7 @@
 // =============================================================================
 
 import {
+    call,
     stat,
     spawn,
     wait,
@@ -154,13 +155,9 @@ export async function exec(shellCmd: string): Promise<ExecResult> {
  * @returns Formatted result string
  */
 export async function executeCall(name: string, args: unknown[]): Promise<string> {
-    // Import call dynamically to avoid circular deps
-    const { call } = await import('@rom/lib/process/index.js');
-
     try {
         const result = await call<unknown>(name, ...args);
 
-        // Format result for LLM consumption
         if (result === undefined || result === null) {
             return '(no result)';
         }

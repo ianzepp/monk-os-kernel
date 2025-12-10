@@ -1,9 +1,9 @@
 /**
- * Prior Task Execution - Agentic loop for task processing
+ * AI App Task Execution - Agentic loop for task processing
  *
  * PURPOSE
  * =======
- * Implements the core agentic loop for Prior. Tasks are executed by:
+ * Implements the core agentic loop for the AI process. Tasks are executed by:
  * 1. Building a prompt from the instruction and context
  * 2. Sending to the LLM for completion
  * 3. Parsing any bang commands from the response
@@ -16,7 +16,7 @@
  * multi-turn interactions. Each LLM response is checked for bang
  * commands; if found, they're executed and results added to history.
  *
- * @module rom/lib/prior/task
+ * @module rom/app/ai/lib/task
  */
 
 // =============================================================================
@@ -101,7 +101,7 @@ export async function executeTask(
         // Non-critical - log and continue
         const msg = err instanceof Error ? err.message : String(err);
 
-        await log(`prior: failed to create ai.request: ${msg}`, requestId);
+        await log(`ai: failed to create ai.request: ${msg}`, requestId);
     }
 
     // Conversation history for agentic loop
@@ -169,13 +169,13 @@ export async function executeTask(
                 }
             }).join('\n\n');
 
-            await log(`prior: iteration ${iterations}, calling llm:complete with model=${model}`);
+            await log(`ai: iteration ${iterations}, calling llm:complete with model=${model}`);
 
             const response = await call<CompletionResponse>('llm:complete', model, prompt, {
                 system: getSystemPrompt(),
             });
 
-            await log(`prior: llm responded, ${response.text.length} chars`);
+            await log(`ai: llm responded, ${response.text.length} chars`);
 
             // Check for bang commands
             const bangCommands = parseBangCommands(response.text);
@@ -207,7 +207,7 @@ export async function executeTask(
                 const resultText = otherResults[i]!;
                 const cmd = getBangCommandDescription(otherCommands[i]!);
 
-                await log(`prior: ${cmd} -> ${resultText.slice(0, 80)}${resultText.length > 80 ? '...' : ''}`);
+                await log(`ai: ${cmd} -> ${resultText.slice(0, 80)}${resultText.length > 80 ? '...' : ''}`);
                 conversation.push({ role: 'exec', content: resultText });
             }
 
@@ -220,7 +220,7 @@ export async function executeTask(
                 const resultText = waitResults[i]!;
                 const cmd = getBangCommandDescription(waitCommands[i]!);
 
-                await log(`prior: ${cmd} -> ${resultText.slice(0, 80)}${resultText.length > 80 ? '...' : ''}`);
+                await log(`ai: ${cmd} -> ${resultText.slice(0, 80)}${resultText.length > 80 ? '...' : ''}`);
                 conversation.push({ role: 'exec', content: resultText });
             }
         }
@@ -263,7 +263,7 @@ export async function executeTask(
         const message = err instanceof Error ? err.message : String(err);
         const durationMs = Date.now() - startTime;
 
-        await log(`prior: error: ${message}`, requestId);
+        await log(`ai: error: ${message}`, requestId);
 
         // Update ai.request record on error
         try {

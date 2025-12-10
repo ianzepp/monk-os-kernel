@@ -1,9 +1,9 @@
 /**
- * Prior Logging - Logging utilities for the Prior AI process
+ * AI App Logging - Logging utilities for the AI process
  *
  * PURPOSE
  * =======
- * Provides structured logging for Prior with request ID correlation.
+ * Provides structured logging for the AI process with request ID correlation.
  * All log messages include the OS instance ID and optional request ID
  * for tracing across distributed systems.
  *
@@ -14,7 +14,7 @@
  *
  * Messages are written to both stderr and the UDP debug monitor.
  *
- * @module rom/lib/prior/logging
+ * @module rom/app/ai/lib/logging
  */
 
 // =============================================================================

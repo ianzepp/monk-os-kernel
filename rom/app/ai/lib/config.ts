@@ -1,30 +1,22 @@
 /**
- * Prior Configuration - Constants and defaults for the Prior AI process
+ * AI App Configuration - Constants and defaults for the AI process
  *
  * PURPOSE
  * =======
- * Centralizes all configuration constants used by Prior. This includes
- * network settings, file paths, and operational limits.
+ * Centralizes all configuration constants used by the AI process. This
+ * includes AI settings, file paths, and operational limits.
  *
  * DESIGN RATIONALE
  * ================
  * Constants are grouped by concern:
- * - Network: TCP port, timeouts
  * - AI: Model defaults, iteration limits
- * - Paths: File system locations for prompts, memory, logs
+ * - Paths: VFS locations for prompts, memory, logs
  *
- * @module rom/lib/prior/config
+ * NOTE: File paths like /etc/ai/ refer to VFS mount points, not the
+ * source location (rom/app/ai/etc/).
+ *
+ * @module rom/app/ai/lib/config
  */
-
-// =============================================================================
-// NETWORK CONFIGURATION
-// =============================================================================
-
-/**
- * Default TCP port for the Prior HTTP server.
- * WHY 7777: Memorable, unlikely to conflict with common services.
- */
-export const DEFAULT_PORT = 7777;
 
 // =============================================================================
 // AI CONFIGURATION

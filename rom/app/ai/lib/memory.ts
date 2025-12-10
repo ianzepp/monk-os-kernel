@@ -1,5 +1,5 @@
 /**
- * Prior Memory - Memory consolidation for the Prior AI process
+ * AI App Memory - Memory consolidation for the AI process
  *
  * PURPOSE
  * =======
@@ -22,7 +22,7 @@
  * - patterns: Recurring patterns
  * - corrections: Things to remember not to do
  *
- * @module rom/lib/prior/memory
+ * @module rom/app/ai/lib/memory
  */
 
 // =============================================================================
@@ -46,7 +46,7 @@ import { executeTask } from './task.js';
  * Reviews STM entries by salience and extracts insights.
  */
 export async function consolidateMemory(): Promise<void> {
-    await log('prior: starting memory consolidation');
+    await log('ai: starting memory consolidation');
 
     try {
         // Find unconsolidated STM entries, ordered by salience
@@ -61,12 +61,12 @@ export async function consolidateMemory(): Promise<void> {
         );
 
         if (stmEntries.length === 0) {
-            await log('prior: no memories to consolidate');
+            await log('ai: no memories to consolidate');
 
             return;
         }
 
-        await log(`prior: consolidating ${stmEntries.length} memories`);
+        await log(`ai: consolidating ${stmEntries.length} memories`);
 
         // Build context for LLM
         const memoryList = stmEntries
@@ -105,7 +105,7 @@ Output only JSON lines, no commentary. If nothing is worth keeping, output nothi
                         last_accessed: new Date().toISOString(),
                     });
 
-                    await log(`prior: stored insight [${insight.category}]: ${insight.content.slice(0, 50)}...`);
+                    await log(`ai: stored insight [${insight.category}]: ${insight.content.slice(0, 50)}...`);
                 }
                 catch {
                     // Skip malformed lines
@@ -123,11 +123,11 @@ Output only JSON lines, no commentary. If nothing is worth keeping, output nothi
             });
         }
 
-        await log('prior: memory consolidation complete');
+        await log('ai: memory consolidation complete');
     }
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);
 
-        await log(`prior: consolidation error: ${message}`);
+        await log(`ai: consolidation error: ${message}`);
     }
 }

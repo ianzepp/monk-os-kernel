@@ -1,12 +1,12 @@
 /**
- * Prior Library - Re-exports for the Prior AI process
+ * AI App Library - Re-exports for the AI process
  *
  * PURPOSE
  * =======
- * Central export point for all Prior library modules. Import from
- * '@rom/lib/prior' to access types, configuration, and functions.
+ * Central export point for all AI app library modules. Import from
+ * './lib/index.js' to access types, configuration, and functions.
  *
- * @module rom/lib/prior
+ * @module rom/app/ai/lib
  */
 
 // =============================================================================
@@ -24,7 +24,6 @@ export type {
     EmsArgs,
     CallArgs,
     SpawnedAgent,
-    HttpRequest,
     ExecuteTaskOptions,
     StmEntry,
     LtmEntry,
@@ -36,7 +35,6 @@ export type {
 // =============================================================================
 
 export {
-    DEFAULT_PORT,
     DEFAULT_MODEL,
     MAX_EXEC_ITERATIONS,
     SYSTEM_PROMPT_PATH,
@@ -85,15 +83,6 @@ export {
 } from './state.js';
 
 // =============================================================================
-// SOCKET EXPORTS
-// =============================================================================
-
-export {
-    readSocket,
-    writeSocket,
-} from './socket.js';
-
-// =============================================================================
 // SESSION EXPORTS
 // =============================================================================
 
@@ -139,11 +128,3 @@ export {
 export {
     consolidateMemory,
 } from './memory.js';
-
-// =============================================================================
-// HTTP EXPORTS
-// =============================================================================
-
-export {
-    handleConnection,
-} from './http.js';
