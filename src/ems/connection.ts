@@ -83,12 +83,13 @@ import { EIO } from '@src/hal/errors.js';
 const DEFAULT_PATH = ':memory:';
 
 /**
- * Path to the schema.sql file.
+ * Paths to schema SQL files.
  *
  * WHY: Using import.meta.url ensures the path is relative to this module,
  * regardless of the current working directory.
  */
-const SCHEMA_PATH = new URL('./schema.sql', import.meta.url).pathname;
+const SCHEMA_SQLITE_PATH = new URL('./schema.sqlite.sql', import.meta.url).pathname;
+const SCHEMA_POSTGRES_PATH = new URL('./schema.postgres.sql', import.meta.url).pathname;
 
 /**
  * Cached schema SQL content (Promise-based for race condition safety).
@@ -99,7 +100,8 @@ const SCHEMA_PATH = new URL('./schema.sql', import.meta.url).pathname;
  *
  * INVARIANT: Once set, never changes (schema is static).
  */
-let cachedSchemaPromise: Promise<string> | null = null;
+let cachedSqliteSchemaPromise: Promise<string> | null = null;
+let cachedPostgresSchemaPromise: Promise<string> | null = null;
 
 // =============================================================================
 // SCHEMA LOADING
@@ -109,7 +111,7 @@ let cachedSchemaPromise: Promise<string> | null = null;
  * Load the schema SQL content via HAL FileDevice.
  *
  * ALGORITHM:
- * 1. Check if Promise is cached
+ * 1. Check if Promise is cached for this dialect
  * 2. If not, start read and cache the Promise immediately
  * 3. Return cached Promise (all callers share same read)
  *
@@ -122,16 +124,27 @@ let cachedSchemaPromise: Promise<string> | null = null;
  * access outside HAL. The FileDevice is provided by the kernel.
  *
  * @param fileDevice - HAL FileDevice for reading schema file
+ * @param dialect - Database dialect (sqlite or postgres)
  * @returns Promise resolving to schema SQL content
  * @throws Error if schema.sql cannot be read
  */
-async function loadSchemaAsync(fileDevice: FileDevice): Promise<string> {
-    if (cachedSchemaPromise === null) {
-        // Cache the Promise immediately - all concurrent callers share this read
-        cachedSchemaPromise = fileDevice.readText(SCHEMA_PATH);
+async function loadSchemaAsync(
+    fileDevice: FileDevice,
+    dialect: 'sqlite' | 'postgres' = 'sqlite',
+): Promise<string> {
+    if (dialect === 'postgres') {
+        if (cachedPostgresSchemaPromise === null) {
+            cachedPostgresSchemaPromise = fileDevice.readText(SCHEMA_POSTGRES_PATH);
+        }
+
+        return cachedPostgresSchemaPromise;
     }
 
-    return cachedSchemaPromise;
+    if (cachedSqliteSchemaPromise === null) {
+        cachedSqliteSchemaPromise = fileDevice.readText(SCHEMA_SQLITE_PATH);
+    }
+
+    return cachedSqliteSchemaPromise;
 }
 
 // =============================================================================
@@ -170,6 +183,14 @@ export class DatabaseConnection {
      */
     readonly path: string;
 
+    /**
+     * Database dialect (sqlite or postgres).
+     *
+     * WHY: DDL observers need to generate dialect-specific SQL.
+     * Derived from the channel's protocol type.
+     */
+    readonly dialect: 'sqlite' | 'postgres';
+
     // =========================================================================
     // CONSTRUCTOR
     // =========================================================================
@@ -180,12 +201,13 @@ export class DatabaseConnection {
      * WHY private: Use factory functions (createDatabase, etc.) instead.
      * This ensures proper initialization with schema.
      *
-     * @param channel - HAL SQLite channel
+     * @param channel - HAL SQLite/PostgreSQL channel
      * @param path - Database path (for debugging)
      */
     constructor(channel: Channel, path: string) {
         this.channel = channel;
         this.path = path;
+        this.dialect = channel.proto === 'postgres' ? 'postgres' : 'sqlite';
     }
 
     // =========================================================================
@@ -408,22 +430,28 @@ export class DatabaseConnection {
  * Create a database connection via HAL channel.
  *
  * ALGORITHM:
- * 1. Open SQLite channel via HAL
- * 2. Wrap in DatabaseConnection
- * 3. Return connection (no schema initialization)
+ * 1. Detect protocol from path (postgres:// or sqlite file)
+ * 2. Open appropriate channel via HAL
+ * 3. Wrap in DatabaseConnection
+ * 4. Return connection (no schema initialization)
  *
  * WHY separate from createDatabase: Allows creating connection without
  * schema for cases like connecting to existing databases.
  *
- * @param channelDevice - HAL channel device for opening SQLite channel
- * @param path - SQLite database path, or ':memory:' for in-memory
+ * @param channelDevice - HAL channel device for opening database channel
+ * @param path - Database path: SQLite file, ':memory:', or postgres:// URL
  * @returns Promise resolving to DatabaseConnection
  */
 export async function createDatabaseConnection(
     channelDevice: ChannelDevice,
     path: string = DEFAULT_PATH,
 ): Promise<DatabaseConnection> {
-    const channel = await channelDevice.open('sqlite', path);
+    // Detect protocol from path
+    const proto = path.startsWith('postgres://') || path.startsWith('postgresql://')
+        ? 'postgres'
+        : 'sqlite';
+
+    const channel = await channelDevice.open(proto, path);
 
     return new DatabaseConnection(channel, path);
 }
@@ -460,8 +488,8 @@ export async function createDatabase(
 ): Promise<DatabaseConnection> {
     const conn = await createDatabaseConnection(channelDevice, path);
 
-    // Load and execute schema via HAL
-    const schema = await loadSchemaAsync(fileDevice);
+    // Load and execute schema via HAL (dialect-specific)
+    const schema = await loadSchemaAsync(fileDevice, conn.dialect);
 
     await conn.exec(schema);
 
@@ -515,10 +543,14 @@ export interface DatabaseConfig {
  * TESTABILITY: Allows tests to verify schema content or use it directly.
  *
  * @param fileDevice - HAL file device for reading schema.sql
+ * @param dialect - Database dialect (sqlite or postgres)
  * @returns Promise resolving to schema SQL content
  */
-export async function getSchema(fileDevice: FileDevice): Promise<string> {
-    return loadSchemaAsync(fileDevice);
+export async function getSchema(
+    fileDevice: FileDevice,
+    dialect: 'sqlite' | 'postgres' = 'sqlite',
+): Promise<string> {
+    return loadSchemaAsync(fileDevice, dialect);
 }
 
 /**
@@ -540,5 +572,6 @@ export function getDefaultPath(): string {
  * WHY: Tests may modify schema.sql and need to reload it.
  */
 export function clearSchemaCache(): void {
-    cachedSchemaPromise = null;
+    cachedSqliteSchemaPromise = null;
+    cachedPostgresSchemaPromise = null;
 }
