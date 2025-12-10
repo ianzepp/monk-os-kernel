@@ -1,6 +1,6 @@
 # ROM Coreutils - Missing Commands
 
-> **Status**: Planning
+> **Status**: Partial (in progress)
 > **Complexity**: Variable per command
 > **Dependencies**: Process library, VFS syscalls
 
@@ -8,46 +8,61 @@ Inventory of missing coreutil commands, prioritized for AI agent use cases.
 
 ---
 
-## Current Inventory (42 commands)
+## Current Inventory (57 commands)
 
 ```
-awk      basename  cat     cd      chmod   cp      cut     date
-df       dirname   du      echo    false   file    grant   grep
-head     ln        ls      mkdir   mv      nl      printf  pwd
-realpath rm        rmdir   sed     seq     shell   sleep   sort
-stat     tail      tee     touch   tr      true    uname   uniq
-wc       whoami    yes
+awk       basename  bc        cat       cd        chmod     cp        create
+cut       date      delete    describe  df        dirname   du        echo
+env       expire    false     file      find      grant     grep      head
+kill      ln        ls        mkdir     mv        nl        printf    ps
+pwd       realpath  revert    rm        rmdir     sed       select    seq
+shell     sleep     sort      stat      tail      tee       test      timeout
+touch     tr        true      uname     uniq      update    wc        whoami
+yes
 ```
+
+### Shell Built-ins (in shell.ts)
+
+These are implemented as shell built-ins, not separate commands:
+
+- `cd` - Change directory
+- `export` - Set environment variable
+- `exit` - Exit shell
+- `source` / `.` - Source script in current context
+- `true` / `false` - Return success/failure
+- `test` / `[` - Conditional expressions
+- `read` - Read line from stdin into variable
 
 ---
 
-## Priority 1: Essential for AI Agents
+## Implemented (Priority 1)
 
-Commands an AI absolutely needs for effective autonomous operation.
+These essential commands have been implemented:
+
+| Command | Status | Notes |
+|---------|--------|-------|
+| `env` | Done | Print environment variables |
+| `export` | Done | Shell built-in |
+| `test` / `[` | Done | Shell built-in with file/string/numeric tests |
+| `read` | Done | Shell built-in with -r, -p options |
+| `timeout` | Done | Run with time limit, -s, -k options |
+| `kill` | Done | Signal processes, -s, -l options |
+| `ps` | Done | List processes with PID, PPID, STATE, USER, CMD |
+
+---
+
+## Still Missing (Priority 1)
 
 | Command | Purpose | AI Use Case |
 |---------|---------|-------------|
-| `env` | Print/set environment | Check context, runtime config |
-| `export` | Set environment variable | Configure child processes |
-| `test` / `[` | Conditional expressions | Script flow control |
 | `xargs` | Build commands from stdin | Pipeline composition |
 | `diff` | Compare files | Verify changes, review edits |
-| `read` | Read line from stdin | Interactive input, prompts |
-| `timeout` | Run with time limit | Prevent runaway processes |
 | `mktemp` | Create temp file/dir safely | Safe scratch space |
 | `base64` | Encode/decode base64 | Binary data handling |
 | `md5sum` | MD5 checksum | Verify file integrity |
 | `sha256sum` | SHA-256 checksum | Cryptographic verification |
-| `kill` | Signal processes | Process management |
-| `ps` | List processes | Monitor running tasks |
 
 ### Implementation Notes
-
-**`test` / `[`**: Critical for shell scripting. Needs:
-- File tests: `-e`, `-f`, `-d`, `-r`, `-w`, `-x`, `-s`
-- String tests: `-z`, `-n`, `=`, `!=`
-- Numeric tests: `-eq`, `-ne`, `-lt`, `-le`, `-gt`, `-ge`
-- Logic: `!`, `-a`, `-o`
 
 **`xargs`**: Essential for pipelines. Minimum viable:
 - `-I {}` for placeholder substitution
@@ -58,6 +73,10 @@ Commands an AI absolutely needs for effective autonomous operation.
 - Unified format (`-u`) is most useful
 - Could start simple: line-by-line comparison
 
+**`mktemp`**: Safe temp file creation:
+- `-d` for directories
+- Template support (e.g., `tmp.XXXXXX`)
+
 ---
 
 ## Priority 2: Useful Shell Operations
@@ -67,7 +86,6 @@ Commands that significantly improve shell scripting capability.
 | Command | Purpose | AI Use Case |
 |---------|---------|-------------|
 | `expr` | Evaluate expressions | Arithmetic in scripts |
-| `bc` | Arbitrary precision calc | Complex math |
 | `shuf` | Shuffle/random selection | Sampling, randomization |
 | `paste` | Merge lines horizontally | Data manipulation |
 | `join` | Join files on common field | Data correlation |
@@ -142,33 +160,6 @@ Rarely needed or better handled elsewhere.
 
 ---
 
-## Implementation Recommendations
-
-### Phase 1: AI Essentials
-Focus on commands that enable autonomous operation:
-1. `test` - Enables conditional scripts
-2. `env` / `export` - Environment management
-3. `diff` - Change verification
-4. `xargs` - Pipeline power
-5. `timeout` - Safety guardrails
-6. `mktemp` - Safe temp files
-
-### Phase 2: Data Handling
-Enable working with various data:
-1. `base64` - Binary encoding
-2. `md5sum` / `sha256sum` - Integrity
-3. `read` - Interactive input
-4. `ps` / `kill` - Process control
-
-### Phase 3: Shell Polish
-Complete the shell experience:
-1. `expr` / `bc` - Math
-2. `shuf` - Randomization
-3. `paste` / `join` / `comm` - Set operations
-4. `diff` improvements (context, unified)
-
----
-
 ## Commands Likely NOT Needed
 
 These standard coreutils probably don't apply to the virtual OS:
@@ -181,15 +172,15 @@ These standard coreutils probably don't apply to the virtual OS:
 
 ---
 
-## Open Questions
+## Resolved Questions
 
-1. **Shell built-ins vs external commands?** - Some commands (test, read, export) are traditionally shell built-ins. Should they be separate binaries or integrated into shell.ts?
+1. **Shell built-ins vs external commands?** - Resolved: `test`, `read`, `export` are shell built-ins in `shell.ts`. This matches traditional Unix behavior and allows them to modify shell state.
 
-2. **Streaming checksums?** - md5sum/sha256sum on large files should stream, not load entire file.
+2. **Streaming checksums?** - Open: md5sum/sha256sum on large files should stream, not load entire file.
 
-3. **diff algorithm?** - Full Myers diff or simpler line-based?
+3. **diff algorithm?** - Open: Full Myers diff or simpler line-based?
 
-4. **xargs parallelism?** - Support `-P` for parallel execution?
+4. **xargs parallelism?** - Open: Support `-P` for parallel execution?
 
 ---
 
@@ -215,19 +206,7 @@ tail -n 20 file.txt       # POSIX
 
 **Decision**: Support both. We control `/bin` and can implement whatever we want. Fighting the model's training is futile. Help text documents the POSIX form as canonical.
 
-```typescript
-// Pattern for numeric options
-for (const arg of args) {
-    if (arg.match(/^-\d+$/)) {
-        // GNU shorthand: -5 means -n 5
-        lines = parseInt(arg.slice(1), 10);
-    }
-    else if (arg === '-n' && i + 1 < args.length) {
-        // POSIX: -n 5
-        lines = parseInt(args[++i], 10);
-    }
-}
-```
+Use `parseArgs()` with `numericShorthand` option to handle this pattern automatically.
 
 ---
 
@@ -236,4 +215,4 @@ for (const arg of args) {
 - GNU Coreutils: https://www.gnu.org/software/coreutils/
 - POSIX Utilities: https://pubs.opengroup.org/onlinepubs/9699919799/utilities/
 - `prompts/userspace-dev.md` - Implementation patterns and code review prompt
-- `docs/complete/COREUTILS_REPATRIATION.md` - Previous coreutils work
+- `prompts/coreutils.md` - Quick reference patterns

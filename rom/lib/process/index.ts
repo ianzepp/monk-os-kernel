@@ -391,6 +391,46 @@ export function getpid(): Promise<number> {
 }
 
 /**
+ * Get the parent process ID.
+ */
+export function getppid(): Promise<number> {
+    return call<number>('proc:getppid');
+}
+
+/**
+ * Send a signal to a process.
+ *
+ * @param pid - Target process PID
+ * @param signal - Signal number (default: SIGTERM/15)
+ */
+export function kill(pid: number, signal?: number): Promise<void> {
+    return call<void>('proc:kill', pid, signal);
+}
+
+/**
+ * Process info returned by proc:list.
+ */
+export interface ProcessInfo {
+    /** Process ID (local to parent) */
+    pid: number;
+    /** Parent process ID */
+    ppid: number;
+    /** Process state */
+    state: string;
+    /** Command/entry point */
+    cmd: string;
+    /** User identity */
+    user: string;
+}
+
+/**
+ * List all processes.
+ */
+export function listProcesses(): Promise<ProcessInfo[]> {
+    return call<ProcessInfo[]>('proc:list');
+}
+
+/**
  * Get command-line arguments.
  */
 export function getargs(): Promise<string[]> {
