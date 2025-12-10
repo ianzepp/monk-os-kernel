@@ -96,9 +96,12 @@ export async function exec(shellCmd: string): Promise<ExecResult> {
 
     try {
         // Spawn shell with -c to execute command
+        // WHY stdin: -1: Commands that read stdin (head, cat) would hang forever
+        // waiting for input that will never come. Better to fail fast.
         const pid = await spawn('/bin/shell.ts', {
             args: ['shell', '-c', shellCmd],
             cwd,
+            stdin: -1,
             stdout: outputWriteFd,
         });
 

@@ -70,7 +70,8 @@ async function loadAppModels(appName: string): Promise<void> {
         }
 
         const ext = entry.name.endsWith('.yaml') ? '.yaml' : '.json';
-        const modelName = entry.name.slice(0, -ext.length);
+        const baseName = entry.name.slice(0, -ext.length);
+        const modelName = `${appName}.${baseName}`;
         const modelPath = `${modelsDir}/${entry.name}`;
 
         try {
@@ -78,7 +79,7 @@ async function loadAppModels(appName: string): Promise<void> {
             const def = parseYaml(content);
 
             await call('ems:import', modelName, def);
-            await println(`init: loaded model ${modelName} from ${appName}`);
+            await println(`init: loaded model ${modelName}`);
         }
         catch (err) {
             const message = err instanceof Error ? err.message : String(err);
