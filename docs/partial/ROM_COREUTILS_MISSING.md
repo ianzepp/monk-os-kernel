@@ -8,17 +8,17 @@ Inventory of missing coreutil commands, prioritized for AI agent use cases.
 
 ---
 
-## Current Inventory (57 commands)
+## Current Inventory (61 commands)
 
 ```
-awk       basename  bc        cat       cd        chmod     cp        create
-cut       date      delete    describe  df        dirname   du        echo
-env       expire    false     file      find      grant     grep      head
-kill      ln        ls        mkdir     mv        nl        printf    ps
-pwd       realpath  revert    rm        rmdir     sed       select    seq
-shell     sleep     sort      stat      tail      tee       test      timeout
-touch     tr        true      uname     uniq      update    wc        whoami
-yes
+awk       base64    basename  bc        cat       cd        chmod     cp
+create    cut       date      delete    describe  df        dirname   du
+echo      env       expire    false     file      find      grant     grep
+head      kill      ln        ls        md5sum    mkdir     mv        nl
+printf    ps        pwd       realpath  revert    rm        rmdir     sed
+select    seq       sha256sum shell     sleep     sort      stat      tail
+tee       test      timeout   touch     tr        true      uname     uniq
+update    wc        whoami    xargs     yes
 ```
 
 ### Shell Built-ins (in shell.ts)
@@ -48,6 +48,10 @@ These essential commands have been implemented:
 | `timeout` | Done | Run with time limit, -s, -k options |
 | `kill` | Done | Signal processes, -s, -l options |
 | `ps` | Done | List processes with PID, PPID, STATE, USER, CMD |
+| `xargs` | Done | Build commands from stdin, -I, -n, -0, -t options |
+| `base64` | Done | Encode/decode base64, -d, -w options |
+| `md5sum` | Done | MD5 checksums, GNU-compatible output |
+| `sha256sum` | Done | SHA-256 checksums, GNU-compatible output |
 
 ---
 
@@ -55,19 +59,10 @@ These essential commands have been implemented:
 
 | Command | Purpose | AI Use Case |
 |---------|---------|-------------|
-| `xargs` | Build commands from stdin | Pipeline composition |
 | `diff` | Compare files | Verify changes, review edits |
 | `mktemp` | Create temp file/dir safely | Safe scratch space |
-| `base64` | Encode/decode base64 | Binary data handling |
-| `md5sum` | MD5 checksum | Verify file integrity |
-| `sha256sum` | SHA-256 checksum | Cryptographic verification |
 
 ### Implementation Notes
-
-**`xargs`**: Essential for pipelines. Minimum viable:
-- `-I {}` for placeholder substitution
-- `-n N` for batching
-- `-0` for null-delimited input
 
 **`diff`**: AI needs to verify its own changes. Options:
 - Unified format (`-u`) is most useful
