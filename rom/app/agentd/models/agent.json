@@ -1,0 +1,75 @@
+{
+    "description": "Scheduled AI agent task",
+    "passthrough": false,
+    "fields": {
+        "name": {
+            "type": "text",
+            "required": true,
+            "description": "Agent name/identifier"
+        },
+        "prompt": {
+            "type": "text",
+            "required": true,
+            "description": "Prompt to send to AI"
+        },
+        "schedule": {
+            "type": "text",
+            "required": true,
+            "description": "Cron expression for when to run"
+        },
+        "model": {
+            "type": "text",
+            "default_value": "sonnet",
+            "description": "LLM model to use (haiku, sonnet, opus)"
+        },
+        "context": {
+            "type": "jsonb",
+            "description": "Additional context for the prompt"
+        },
+        "system_prompt": {
+            "type": "text",
+            "description": "Optional system prompt override"
+        },
+        "enabled": {
+            "type": "boolean",
+            "default_value": "1",
+            "indexed": "simple",
+            "description": "Agent is active"
+        },
+        "next_run": {
+            "type": "timestamp",
+            "indexed": "simple",
+            "description": "Next scheduled execution time"
+        },
+        "last_run": {
+            "type": "timestamp",
+            "description": "Last execution time"
+        },
+        "last_result": {
+            "type": "text",
+            "description": "AI response from last run"
+        },
+        "last_error": {
+            "type": "text",
+            "description": "Error message from last run (if failed)"
+        },
+        "run_count": {
+            "type": "integer",
+            "default_value": "0",
+            "description": "Total number of executions"
+        },
+        "fail_count": {
+            "type": "integer",
+            "default_value": "0",
+            "description": "Number of failed executions"
+        },
+        "timeout": {
+            "type": "integer",
+            "description": "Max execution time in seconds"
+        },
+        "max_tokens": {
+            "type": "integer",
+            "description": "Max tokens for AI response"
+        }
+    }
+}
