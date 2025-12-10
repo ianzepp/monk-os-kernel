@@ -440,6 +440,80 @@ export async function* procTickUnsubscribe(
 }
 
 // =============================================================================
+// PROCESS LISTING
+// =============================================================================
+
+/**
+ * List all processes.
+ *
+ * Returns an array of process info objects with pid, ppid, state, cmd, user.
+ *
+ * @param proc - Calling process
+ * @param kernel - Kernel instance
+ */
+export async function* procList(
+    _proc: Process,
+    kernel: Kernel,
+): AsyncIterable<Response> {
+    const processes: Array<{
+        pid: number;
+        ppid: number;
+        state: string;
+        cmd: string;
+        user: string;
+    }> = [];
+
+    const processTable = kernel.getProcessTable();
+
+    // Get init process to resolve PIDs
+    const init = processTable.getInit();
+
+    for (const p of processTable.all()) {
+        // Find PID - look in parent's children map, or use 1 for init
+        let pid = 1;
+        let ppid = 0;
+
+        if (p.parent) {
+            const parent = processTable.get(p.parent);
+            if (parent) {
+                // Find this process's PID in parent's children map
+                for (const [childPid, childId] of parent.children) {
+                    if (childId === p.id) {
+                        pid = childPid;
+                        break;
+                    }
+                }
+                // Find parent's PID
+                if (parent === init) {
+                    ppid = 1;
+                }
+                else if (parent.parent) {
+                    const grandparent = processTable.get(parent.parent);
+                    if (grandparent) {
+                        for (const [parentPid, parentId] of grandparent.children) {
+                            if (parentId === parent.id) {
+                                ppid = parentPid;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        processes.push({
+            pid,
+            ppid,
+            state: p.state,
+            cmd: p.cmd,
+            user: p.user,
+        });
+    }
+
+    yield respond.ok(processes);
+}
+
+// =============================================================================
 // WORKER POOL (pool:stats doesn't need proc)
 // =============================================================================
 

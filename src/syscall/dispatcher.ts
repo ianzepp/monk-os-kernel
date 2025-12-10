@@ -68,7 +68,7 @@ import { fsMount, fsUmount } from './vfs.js';
 import { procSpawn, procExit, procKill, procWait } from './process.js';
 import { procGetpid, procGetppid, procCreate } from './process.js';
 import { procGetargs, procGetcwd, procChdir, procGetenv, procSetenv } from './process.js';
-import { activationGet, poolStats, procTickSubscribe, procTickUnsubscribe } from './process.js';
+import { activationGet, poolStats, procTickSubscribe, procTickUnsubscribe, procList } from './process.js';
 
 // EMS syscalls
 import { emsDescribe, emsSelect, emsCreate, emsUpdate, emsDelete, emsRevert, emsExpire, emsImport } from './ems.js';
@@ -354,6 +354,10 @@ export class SyscallDispatcher {
 
             case 'proc:tick:unsubscribe':
                 yield* procTickUnsubscribe(proc, this.kernel);
+                break;
+
+            case 'proc:list':
+                yield* procList(proc, this.kernel);
                 break;
 
                 // =================================================================
