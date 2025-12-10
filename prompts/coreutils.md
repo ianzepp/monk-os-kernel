@@ -240,7 +240,7 @@ Commands that list filesystem contents.
 ```typescript
 import {
     getargs, getcwd, readdirAll, stat,
-    println, eprintln, exit,
+    println, eprintln, exit, send, respond,
 } from '@rom/lib/process/index.js';
 import { parseArgs, resolvePath } from '@rom/lib/shell';
 
@@ -273,6 +273,7 @@ export default async function main(): Promise<void> {
             }
         }
 
+        await send(1, respond.done());
         await exit(0);
     }
     catch (err) {
@@ -412,10 +413,12 @@ for (const file of files) {
         await processFile(file);
     }
     catch (err) {
-        await eprintln(`command: ${file}: ${err.message}`);
+        const msg = err instanceof Error ? err.message : String(err);
+        await eprintln(`command: ${file}: ${msg}`);
         hadError = true;
     }
 }
+await send(1, respond.done());
 await exit(hadError ? 1 : 0);
 ```
 
