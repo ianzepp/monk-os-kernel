@@ -276,8 +276,8 @@ export class TestOS extends BaseOS {
                 }
 
                 await this.__kernel.boot({
-                    initPath: '/svc/init.ts',
-                    initArgs: ['/svc/init.ts'],
+                    initPath: '/app/init.ts',
+                    initArgs: ['/app/init.ts'],
                     env: { HOME: '/', USER: 'root' },
                 });
             }

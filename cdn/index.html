@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Monk OS</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0a0a0a;
+            color: #e5e5e5;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+        }
+
+        .container {
+            max-width: 600px;
+            text-align: center;
+        }
+
+        .logo {
+            font-size: 4rem;
+            font-weight: 700;
+            letter-spacing: -0.05em;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(135deg, #fff 0%, #888 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .tagline {
+            font-size: 1.25rem;
+            color: #666;
+            margin-bottom: 3rem;
+            font-weight: 400;
+        }
+
+        .description {
+            font-size: 1rem;
+            line-height: 1.7;
+            color: #999;
+            margin-bottom: 2rem;
+        }
+
+        .status {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: rgba(34, 197, 94, 0.1);
+            border: 1px solid rgba(34, 197, 94, 0.2);
+            border-radius: 9999px;
+            font-size: 0.875rem;
+            color: #22c55e;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background: #22c55e;
+            border-radius: 50%;
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .links {
+            margin-top: 3rem;
+            display: flex;
+            gap: 1.5rem;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .links a {
+            color: #666;
+            text-decoration: none;
+            font-size: 0.875rem;
+            transition: color 0.2s;
+        }
+
+        .links a:hover {
+            color: #fff;
+        }
+
+        .footer {
+            margin-top: 4rem;
+            font-size: 0.75rem;
+            color: #444;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="logo">Monk OS</h1>
+        <p class="tagline">API architecture as an operating system</p>
+
+        <p class="description">
+            A unified runtime where Bun is the hardware, processes are Workers,
+            and everything is a file. Single-executable deployment that burns like firmware.
+        </p>
+
+        <div class="status">
+            <span class="status-dot"></span>
+            <span>System Online</span>
+        </div>
+
+        <div class="links">
+            <a href="https://github.com/monk-api/os">GitHub</a>
+        </div>
+
+        <p class="footer">Served by httpd</p>
+    </div>
+</body>
+</html>
