@@ -121,10 +121,12 @@ import {
     open,         // Open file descriptor
     read,         // Read from file descriptor
     close,        // Close file descriptor
-} from '@rom/lib/process';
+} from '@rom/lib/process/index.js';
 
-// Local utilities
+// Argument parsing (canonical location)
 import { parseArgs, formatError } from '@rom/lib/args';
+
+// Shell utilities
 import { resolvePath } from '@rom/lib/shell';
 ```
 
@@ -140,12 +142,14 @@ import { resolvePath } from '@rom/lib/shell';
 
 | Library | Purpose | Key Exports |
 |---------|---------|-------------|
-| `@rom/lib/args` | Argument parsing | `parseArgs()`, `parseDuration()` |
-| `@rom/lib/process` | Syscalls, I/O | `recv`, `send`, `open`, `read`, `write`, `exit`, `println`, `eprintln`, `ByteReader` |
-| `@rom/lib/shell` | Shell utilities | `parseArgs()`, `resolvePath()`, `expandGlobs()` |
+| `@rom/lib/args` | Argument parsing | `parseArgs()`, `parseDuration()`, `formatError()` |
+| `@rom/lib/process/index.js` | Syscalls, I/O | `recv`, `send`, `open`, `read`, `write`, `exit`, `println`, `eprintln`, `ByteReader` |
+| `@rom/lib/shell` | Shell utilities | `resolvePath()`, `expandGlobs()`, `dirname()` |
 | `@rom/lib/path` | Path manipulation | `resolvePath()`, `dirname()` |
 | `@rom/lib/format` | Output formatting | `formatMode()`, `formatSize()`, `formatDate()` |
 | `@rom/lib/glob` | Pattern matching | `isGlob()`, `globToRegex()` |
+
+> **Import Convention**: Use `@rom/lib/process/index.js` (with `.js` suffix) for the process module. Use bare module paths like `@rom/lib/args` (no extension) for single-file modules. The `parseArgs` function is also re-exported from `@rom/lib/shell` for convenience.
 
 ### Argument Parsing
 
@@ -599,7 +603,7 @@ const respond = {
 ### Reading from stdin (fd 0)
 
 ```typescript
-import { recv } from '@rom/lib/process';
+import { recv } from '@rom/lib/process/index.js';
 
 /**
  * Process messages from stdin.
@@ -625,7 +629,7 @@ async function processInput(): Promise<void> {
 ### Writing to stdout/stderr (fd 1/2)
 
 ```typescript
-import { send, respond } from '@rom/lib/process';
+import { send, respond } from '@rom/lib/process/index.js';
 
 /**
  * Send output to stdout.
@@ -651,7 +655,7 @@ await eprintln('error');   // send(2, respond.item({ text: 'error\n' }))
 // =============================================================================
 // MESSAGE I/O (for process communication - fd 0, 1, 2)
 // =============================================================================
-import { recv, send, respond } from '@rom/lib/process';
+import { recv, send, respond } from '@rom/lib/process/index.js';
 
 // Receive messages from stdin
 for await (const msg of recv(0)) { ... }
@@ -663,7 +667,7 @@ await send(2, respond.item({ text: 'error' }));
 // =============================================================================
 // BYTE I/O (for file operations - regular file descriptors)
 // =============================================================================
-import { open, read, write, close } from '@rom/lib/process';
+import { open, read, write, close } from '@rom/lib/process/index.js';
 
 // Read bytes from file
 const fd = await open('/path/to/file', { read: true });
@@ -994,10 +998,11 @@ const content = await os.text('/tmp/out');
 - [ ] **`getargs()` called inside main()** to get command-line arguments
 - [ ] **No explicit `main()` call at end** - runtime auto-invokes export default
 - [ ] Exit codes match GNU conventions (0=success, 1=error, 2=usage)
-- [ ] Errors written to stderr with "command: message" format
+- [ ] Errors written to stderr with `formatError()`: `command: context: message`
 - [ ] "-" handled as stdin where appropriate
 - [ ] Multiple files processed with continue-on-error behavior
 - [ ] **Use `parseArgs()` from `@rom/lib/args`** for flag parsing (not custom loops)
+- [ ] **Use `numericShorthand` option** for commands like head/tail that support `-N` syntax
 
 ### Libraries (`rom/lib/*`)
 - [ ] Header with PURPOSE, API DESIGN, ERROR HANDLING, USAGE EXAMPLES
