@@ -104,10 +104,14 @@ export class DdlCreateModel extends BaseObserver {
             throw new EOBSSYS('Cannot create table: model_name is missing');
         }
 
+        // Convert model name to valid SQLite table name
+        // WHY: SQLite interprets 'ai.request' as database.table schema reference
+        const tableName = modelName.replace(/\./g, '_');
+
         // Build CREATE TABLE with system columns
         // All user-defined columns are added later via DdlCreateField
         const sql = `
-            CREATE TABLE IF NOT EXISTS ${modelName} (
+            CREATE TABLE IF NOT EXISTS ${tableName} (
                 id          TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
                 created_at  TEXT DEFAULT (datetime('now')),
                 updated_at  TEXT DEFAULT (datetime('now')),

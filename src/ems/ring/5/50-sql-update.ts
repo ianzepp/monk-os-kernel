@@ -119,7 +119,7 @@ export class SqlUpdate extends BaseObserver {
 
         // Meta-models don't use entities table
         if (META_MODELS.has(model.modelName)) {
-            await this.updateDirect(system.db, model.modelName, id, changes);
+            await this.updateDirect(system.db, model.tableName, id, changes);
 
             return;
         }
@@ -146,7 +146,7 @@ export class SqlUpdate extends BaseObserver {
                 await system.db.execute('BEGIN IMMEDIATE');
                 try {
                     await this.updateTable(system.db, 'entities', id, entityChanges);
-                    await this.updateTable(system.db, model.modelName, id, detailChanges);
+                    await this.updateTable(system.db, model.tableName, id, detailChanges);
                     await system.db.execute('COMMIT');
                 }
                 catch (err) {
@@ -164,7 +164,7 @@ export class SqlUpdate extends BaseObserver {
             await this.updateTable(system.db, 'entities', id, entityChanges);
         }
         else if (hasDetailChanges) {
-            await this.updateTable(system.db, model.modelName, id, detailChanges);
+            await this.updateTable(system.db, model.tableName, id, detailChanges);
         }
     }
 

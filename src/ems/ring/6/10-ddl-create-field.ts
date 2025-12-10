@@ -112,8 +112,10 @@ export class DdlCreateField extends BaseObserver {
             );
         }
 
+        // Convert model name to valid SQLite table name
+        const tableName = modelName.replace(/\./g, '_');
         const sqlType = this.mapType(fieldType);
-        const sql = `ALTER TABLE ${modelName} ADD COLUMN ${fieldName} ${sqlType}`;
+        const sql = `ALTER TABLE ${tableName} ADD COLUMN ${fieldName} ${sqlType}`;
 
         try {
             await system.db.exec(sql);

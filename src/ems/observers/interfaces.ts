@@ -47,6 +47,9 @@ export interface Model {
     /** Model name (e.g., 'invoice', 'customer') */
     readonly modelName: string;
 
+    /** SQLite table name (dots converted to underscores) */
+    readonly tableName: string;
+
     /** Is model frozen (no changes allowed)? */
     readonly isFrozen: boolean;
 

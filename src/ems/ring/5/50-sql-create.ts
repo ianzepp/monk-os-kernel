@@ -133,7 +133,7 @@ export class SqlCreate extends BaseObserver {
 
         // Meta-models don't use entities table - single INSERT, no transaction needed
         if (META_MODELS.has(model.modelName)) {
-            await this.insertDirect(system.db, model.modelName, data);
+            await this.insertDirect(system.db, model.tableName, data);
 
             return;
         }
@@ -143,7 +143,7 @@ export class SqlCreate extends BaseObserver {
         try {
             await system.db.transaction([
                 this.buildEntityInsert(model.modelName, data),
-                this.buildDetailInsert(model.modelName, data),
+                this.buildDetailInsert(model.tableName, data),
             ]);
         }
         catch (err) {
