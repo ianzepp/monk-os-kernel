@@ -1,5 +1,8 @@
 # JSON Daemon (jsond)
 
+> **Status**: Skipped
+> **Reason**: Gatewayd is better and the sole point of entry into the OS
+
 JSONL-over-TCP/WebSocket API server for Monk OS.
 
 ## Philosophy

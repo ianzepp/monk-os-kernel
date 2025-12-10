@@ -193,8 +193,47 @@ These standard coreutils probably don't apply to the virtual OS:
 
 ---
 
+## Implementation Guidelines
+
+See `prompts/userspace-dev.md` for the authoritative guide on implementing commands.
+
+### GNU Shorthand Syntax
+
+LLMs are trained primarily on GNU coreutils and naturally generate GNU-style syntax:
+
+```bash
+head -5 file.txt          # GNU shorthand
+tail -20 file.txt         # GNU shorthand
+```
+
+But POSIX requires explicit option syntax:
+
+```bash
+head -n 5 file.txt        # POSIX
+tail -n 20 file.txt       # POSIX
+```
+
+**Decision**: Support both. We control `/bin` and can implement whatever we want. Fighting the model's training is futile. Help text documents the POSIX form as canonical.
+
+```typescript
+// Pattern for numeric options
+for (const arg of args) {
+    if (arg.match(/^-\d+$/)) {
+        // GNU shorthand: -5 means -n 5
+        lines = parseInt(arg.slice(1), 10);
+    }
+    else if (arg === '-n' && i + 1 < args.length) {
+        // POSIX: -n 5
+        lines = parseInt(args[++i], 10);
+    }
+}
+```
+
+---
+
 ## References
 
 - GNU Coreutils: https://www.gnu.org/software/coreutils/
 - POSIX Utilities: https://pubs.opengroup.org/onlinepubs/9699919799/utilities/
-- `docs/implemented/COREUTILS_REPATRIATION.md` - Previous coreutils work
+- `prompts/userspace-dev.md` - Implementation patterns and code review prompt
+- `docs/complete/COREUTILS_REPATRIATION.md` - Previous coreutils work
