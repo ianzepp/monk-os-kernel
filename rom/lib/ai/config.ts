@@ -48,32 +48,32 @@ export const MAX_EXEC_ITERATIONS = 10;
 /**
  * Path to the system prompt file.
  */
-export const SYSTEM_PROMPT_PATH = '/etc/prior/system.txt';
+export const SYSTEM_PROMPT_PATH = '/etc/ai/system.txt';
 
 /**
  * Path to the help text file.
  */
-export const HELP_PATH = '/etc/prior/help.txt';
+export const HELP_PATH = '/etc/ai/help.txt';
 
 /**
  * Directory for Prior's persistent memory.
  */
-export const MEMORY_DIR = '/var/prior';
+export const MEMORY_DIR = '/var/ai';
 
 /**
  * Path to the identity file (Prior's self-description).
  */
-export const IDENTITY_PATH = '/var/prior/identity.txt';
+export const IDENTITY_PATH = '/var/ai/identity.txt';
 
 /**
  * Path to the session log file.
  */
-export const SESSION_LOG_PATH = '/var/prior/session.log';
+export const SESSION_LOG_PATH = '/var/ai/session.log';
 
 /**
  * Path to the memory context file.
  */
-export const CONTEXT_PATH = '/var/prior/context.txt';
+export const CONTEXT_PATH = '/var/ai/context.txt';
 
 // =============================================================================
 // RANDOM ID CONFIGURATION
