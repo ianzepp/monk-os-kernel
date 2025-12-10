@@ -60,8 +60,13 @@ import { TransformProcessor } from '../ring/4/index.js';
 // Ring 5: Database Operations
 import { SqlCreate, SqlUpdate, SqlDelete, PathnameSync } from '../ring/5/index.js';
 
-// Ring 6: Post-Database (DDL)
-import { DdlCreateModel, DdlCreateField } from '../ring/6/index.js';
+// Ring 6: Post-Database (DDL) - dialect-specific observers
+import {
+    DdlCreateModelSqlite,
+    DdlCreateModelPostgres,
+    DdlCreateFieldSqlite,
+    DdlCreateFieldPostgres,
+} from '../ring/6/index.js';
 
 // Ring 7: Audit
 import { Tracked } from '../ring/7/index.js';
@@ -85,7 +90,7 @@ import { Cache, PathCacheSync } from '../ring/8/index.js';
  * - Ring 1: Frozen, Immutable, Constraints (input validation)
  * - Ring 4: TransformProcessor (enrichment)
  * - Ring 5: SqlCreate, SqlUpdate, SqlDelete, PathnameSync (database operations)
- * - Ring 6: DdlCreateModel, DdlCreateField (schema management)
+ * - Ring 6: DdlCreateModel*, DdlCreateField* (dialect-specific schema management)
  * - Ring 7: Tracked (audit)
  * - Ring 8: Cache (model cache invalidation)
  * - Ring 8: PathCacheSync (entity cache sync)
@@ -133,8 +138,11 @@ export function createObserverRunner(): ObserverRunner {
     // =========================================================================
     // RING 6: POST-DATABASE (DDL)
     // =========================================================================
-    runner.register(new DdlCreateModel());
-    runner.register(new DdlCreateField());
+    // Both dialect implementations are registered; the runner filters by dialect.
+    runner.register(new DdlCreateModelSqlite());
+    runner.register(new DdlCreateModelPostgres());
+    runner.register(new DdlCreateFieldSqlite());
+    runner.register(new DdlCreateFieldPostgres());
 
     // =========================================================================
     // RING 7: AUDIT

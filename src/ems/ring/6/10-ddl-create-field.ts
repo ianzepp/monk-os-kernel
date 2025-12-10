@@ -1,11 +1,13 @@
 /**
- * DdlCreateField Observer - Ring 6 DDL
+ * DdlCreateField Observer - Base Class
  *
  * ARCHITECTURE OVERVIEW
  * =====================
- * DdlCreateField is a Ring 6 observer that adds a column to an existing
- * table when a record is inserted into the 'fields' table. This enables
- * dynamic schema evolution - adding a field adds its backing column.
+ * DdlCreateFieldBase is the abstract base for Ring 6 observers that add
+ * columns to existing tables when a record is inserted into the 'fields' table.
+ *
+ * Dialect-specific implementations (SQLite, PostgreSQL) extend this class
+ * and provide mapType() and isDuplicateColumnError() methods.
  *
  * Ring 6 runs AFTER Ring 5 (database), meaning the field record has already
  * been inserted into the 'fields' table before this observer runs.
@@ -14,32 +16,23 @@
  * ==============
  * ```
  * DatabaseOps.createAll('fields', { model_name: 'invoices', field_name: 'amount', type: 'numeric' })
- *     │
+ *     |
  * Ring 0-4: Validation, transformation
- *     │
- * Ring 5: INSERT INTO fields (...) ◄── field record now exists
- *     │
- * Ring 6 (this): ──► ALTER TABLE invoices ADD COLUMN amount REAL
- *     │
+ *     |
+ * Ring 5: INSERT INTO fields (...) <-- field record now exists
+ *     |
+ * Ring 6 (this): --> ALTER TABLE invoices ADD COLUMN amount REAL
+ *     |
  * Ring 7-9: Audit, cache invalidation
  * ```
- *
- * TYPE MAPPING
- * ============
- * - text, uuid, timestamp, date → TEXT
- * - integer → INTEGER
- * - numeric → REAL
- * - boolean → INTEGER (0/1)
- * - binary → BLOB
- * - jsonb → TEXT (JSON stored as text in SQLite)
  *
  * INVARIANTS
  * ==========
  * INV-1: Only runs for 'create' operation on 'fields' table
  * INV-2: Silently ignores "column already exists" errors (idempotent)
- * INV-3: Uses SQLite type affinity (TEXT, INTEGER, REAL, BLOB)
+ * INV-3: Type mapping is dialect-specific
  *
- * @module model/ring/6/ddl-create-field
+ * @module ems/ring/6/ddl-create-field
  */
 
 import { BaseObserver } from '../../observers/base-observer.js';
@@ -48,40 +41,53 @@ import { ObserverRing, type OperationType } from '../../observers/types.js';
 import { EOBSSYS } from '../../observers/errors.js';
 
 // =============================================================================
-// DDL CREATE FIELD OBSERVER
+// BASE CLASS
 // =============================================================================
 
 /**
- * Adds column for new field.
+ * Abstract base for column creation observers.
+ *
+ * WHY abstract: Type mapping and error detection differ between dialects.
+ * Subclasses implement mapType() and isDuplicateColumnError().
  *
  * WHY priority 10: Same as DdlCreateModel - DDL should run early in Ring 6.
  */
-export class DdlCreateField extends BaseObserver {
+export abstract class DdlCreateFieldBase extends BaseObserver {
     // =========================================================================
     // CONFIGURATION
     // =========================================================================
 
-    readonly name = 'DdlCreateField';
+    abstract override readonly name: string;
+    abstract override readonly dialect: 'sqlite' | 'postgres';
 
-    /**
-     * Ring 6 = Post-database operations.
-     */
     readonly ring = ObserverRing.PostDatabase;
-
-    /**
-     * Priority 10 = early in ring.
-     */
     readonly priority = 10;
-
-    /**
-     * Only handles create operations.
-     */
     readonly operations: readonly OperationType[] = ['create'];
 
     /**
      * Only runs for the 'fields' table.
      */
     override readonly models: readonly string[] = ['fields'];
+
+    // =========================================================================
+    // ABSTRACT METHODS
+    // =========================================================================
+
+    /**
+     * Map abstract field type to dialect-specific SQL type.
+     *
+     * @param type - Abstract type (text, integer, numeric, boolean, etc.)
+     * @returns SQL type string for this dialect
+     */
+    protected abstract mapType(type: string): string;
+
+    /**
+     * Check if error message indicates duplicate column.
+     *
+     * @param message - Error message from database
+     * @returns true if this is a "column already exists" error
+     */
+    protected abstract isDuplicateColumnError(message: string): boolean;
 
     // =========================================================================
     // EXECUTION
@@ -92,7 +98,7 @@ export class DdlCreateField extends BaseObserver {
      *
      * ALGORITHM:
      * 1. Get model_name, field_name, type from record
-     * 2. Map type to SQLite type affinity
+     * 2. Map type to dialect-specific SQL type
      * 3. Execute ALTER TABLE ADD COLUMN
      * 4. Ignore "duplicate column" errors (idempotent)
      *
@@ -112,7 +118,7 @@ export class DdlCreateField extends BaseObserver {
             );
         }
 
-        // Convert model name to valid SQLite table name
+        // Convert model name to valid table name
         const tableName = modelName.replace(/\./g, '_');
         const sqlType = this.mapType(fieldType);
         const sql = `ALTER TABLE ${tableName} ADD COLUMN ${fieldName} ${sqlType}`;
@@ -124,8 +130,7 @@ export class DdlCreateField extends BaseObserver {
             const message = err instanceof Error ? err.message : String(err);
 
             // Ignore "duplicate column" errors - column already exists
-            // SQLite error: "duplicate column name: X"
-            if (message.includes('duplicate column')) {
+            if (this.isDuplicateColumnError(message)) {
                 return;
             }
 
@@ -134,43 +139,11 @@ export class DdlCreateField extends BaseObserver {
             );
         }
     }
-
-    // =========================================================================
-    // TYPE MAPPING
-    // =========================================================================
-
-    /**
-     * Map field type to SQLite type affinity.
-     *
-     * SQLite has flexible typing (type affinity), so we use:
-     * - TEXT for strings, dates, UUIDs, JSON
-     * - INTEGER for integers and booleans
-     * - REAL for decimals
-     * - BLOB for binary data
-     */
-    private mapType(type: string): string {
-        switch (type) {
-            case 'integer':
-                return 'INTEGER';
-            case 'numeric':
-                return 'REAL';
-            case 'boolean':
-                return 'INTEGER'; // 0/1
-            case 'binary':
-                return 'BLOB';
-            case 'text':
-            case 'uuid':
-            case 'timestamp':
-            case 'date':
-            case 'jsonb':
-            default:
-                return 'TEXT';
-        }
-    }
 }
 
 // =============================================================================
-// DEFAULT EXPORT
+// RE-EXPORTS FOR BACKWARDS COMPATIBILITY
 // =============================================================================
 
-export default DdlCreateField;
+export { DdlCreateFieldSqlite } from './10-ddl-create-field.sqlite.js';
+export { DdlCreateFieldPostgres } from './10-ddl-create-field.postgres.js';

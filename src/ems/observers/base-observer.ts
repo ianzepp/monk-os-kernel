@@ -93,6 +93,14 @@ export abstract class BaseObserver implements Observer {
     readonly models?: readonly string[];
 
     /**
+     * Database dialect this observer handles.
+     *
+     * WHY optional: Most observers are dialect-agnostic. DDL observers that
+     * generate SQL need dialect-specific implementations.
+     */
+    readonly dialect?: 'sqlite' | 'postgres';
+
+    /**
      * Timeout for execute() in milliseconds.
      *
      * WHY protected: Subclasses can override for observers that legitimately

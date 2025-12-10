@@ -145,6 +145,13 @@ export interface ModelRecord {
  */
 export interface DatabaseAdapter {
     /**
+     * Database dialect (sqlite or postgres).
+     *
+     * WHY: DDL observers need to generate dialect-specific SQL.
+     */
+    readonly dialect: 'sqlite' | 'postgres';
+
+    /**
      * Execute an INSERT/UPDATE/DELETE statement.
      *
      * @param sql - SQL statement with ? placeholders
@@ -299,6 +306,14 @@ export interface Observer {
      * Model-specific observers (DDL for 'models' table) specify their targets.
      */
     readonly models?: readonly string[];
+
+    /**
+     * Database dialect this observer handles (empty = all dialects).
+     *
+     * WHY optional: Most observers are dialect-agnostic. DDL observers that
+     * generate SQL need dialect-specific implementations.
+     */
+    readonly dialect?: 'sqlite' | 'postgres';
 
     /**
      * Execute observer logic.

@@ -201,6 +201,14 @@ export class ObserverRunner {
                     continue;
                 }
 
+                // Skip if observer is dialect-specific and doesn't match
+                if (
+                    observer.dialect &&
+                    observer.dialect !== context.system.db.dialect
+                ) {
+                    continue;
+                }
+
                 // Execute and track timing
                 const start = Date.now();
 
