@@ -1,0 +1,17 @@
+{
+    "status": "system",
+    "description": "Process/virtual file entity - dynamic content",
+    "pathname": "name",
+    "fields": {
+        "owner": {
+            "type": "uuid",
+            "required": true,
+            "description": "Owner user or process ID"
+        },
+        "handler": {
+            "type": "text",
+            "required": true,
+            "description": "Handler function identifier"
+        }
+    }
+}

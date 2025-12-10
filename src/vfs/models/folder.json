@@ -1,0 +1,12 @@
+{
+    "status": "system",
+    "description": "Directory entity - contains child entries",
+    "pathname": "name",
+    "fields": {
+        "owner": {
+            "type": "uuid",
+            "required": true,
+            "description": "Owner user or process ID"
+        }
+    }
+}

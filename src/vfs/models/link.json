@@ -1,0 +1,17 @@
+{
+    "status": "system",
+    "description": "Symbolic link entity - path redirection",
+    "pathname": "name",
+    "fields": {
+        "owner": {
+            "type": "uuid",
+            "required": true,
+            "description": "Owner user or process ID"
+        },
+        "target": {
+            "type": "text",
+            "required": true,
+            "description": "Target path (absolute or relative)"
+        }
+    }
+}

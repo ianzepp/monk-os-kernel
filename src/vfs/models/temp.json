@@ -1,0 +1,21 @@
+{
+    "status": "system",
+    "description": "Temporary file entity - SQL metadata + HAL blob",
+    "pathname": "name",
+    "fields": {
+        "owner": {
+            "type": "text",
+            "required": true,
+            "description": "Owner process or user ID"
+        },
+        "size": {
+            "type": "integer",
+            "default_value": "0",
+            "description": "Blob size in bytes"
+        },
+        "mimetype": {
+            "type": "text",
+            "description": "MIME type (e.g., application/octet-stream)"
+        }
+    }
+}

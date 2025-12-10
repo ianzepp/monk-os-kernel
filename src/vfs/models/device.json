@@ -1,0 +1,17 @@
+{
+    "status": "system",
+    "description": "Device node entity - kernel device interface",
+    "pathname": "name",
+    "fields": {
+        "owner": {
+            "type": "uuid",
+            "required": true,
+            "description": "Owner user or process ID"
+        },
+        "driver": {
+            "type": "text",
+            "required": true,
+            "description": "Device driver identifier (e.g., hal:console)"
+        }
+    }
+}

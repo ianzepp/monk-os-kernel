@@ -1,0 +1,29 @@
+{
+    "status": "system",
+    "description": "Regular file entity - has associated blob data",
+    "pathname": "name",
+    "fields": {
+        "owner": {
+            "type": "uuid",
+            "required": true,
+            "description": "Owner user or process ID"
+        },
+        "data": {
+            "type": "text",
+            "description": "UUID reference to blob in HAL block storage"
+        },
+        "size": {
+            "type": "integer",
+            "default_value": "0",
+            "description": "Blob size in bytes"
+        },
+        "mimetype": {
+            "type": "text",
+            "description": "MIME type (e.g., application/pdf)"
+        },
+        "checksum": {
+            "type": "text",
+            "description": "Content hash for integrity verification"
+        }
+    }
+}
