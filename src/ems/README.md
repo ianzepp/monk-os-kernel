@@ -25,6 +25,7 @@ src/ems/
 ├── index.ts              # Public API exports
 ├── ems.ts                # Main EMS class (unified entry point)
 ├── connection.ts         # Database connection wrapper
+├── dialect.ts            # Database dialect abstraction (SQLite/PostgreSQL)
 ├── entity-ops.ts         # Entity-aware streaming operations
 ├── database-ops.ts       # Generic SQL streaming layer
 ├── filter.ts             # SQL query builder (26 operators)
@@ -142,6 +143,50 @@ Change tracking wrapper for mutations.
 - `old(field)` - Get original value
 - `set(field, value)` - Set pending change
 - `getDiff()` - Get changed fields for audit
+
+### DatabaseDialect
+
+Abstracts SQL syntax and type conversion differences between SQLite and PostgreSQL. Observers access the dialect via `context.system.dialect`.
+
+```typescript
+import { getDialect, SqliteDialect, PostgresDialect } from './dialect.js';
+
+// Get dialect by name
+const dialect = getDialect('sqlite'); // or 'postgres'
+
+// SQL syntax generation
+dialect.placeholder(1);        // '?' (sqlite) or '$1' (postgres)
+dialect.placeholders(3);       // '?, ?, ?' or '$1, $2, $3'
+dialect.beginTransaction();    // 'BEGIN IMMEDIATE' or 'BEGIN'
+dialect.createTable('users');  // Dialect-specific CREATE TABLE
+dialect.addColumn('users', 'email', 'text'); // ALTER TABLE ADD COLUMN
+
+// Type mapping
+dialect.sqlType('boolean');    // 'INTEGER' (sqlite) or 'BOOLEAN' (postgres)
+dialect.sqlType('timestamp');  // 'TEXT' (sqlite) or 'TIMESTAMPTZ' (postgres)
+dialect.sqlType('text[]');     // 'TEXT' (sqlite, JSON) or 'TEXT[]' (postgres)
+
+// Value conversion (JS <-> DB)
+dialect.toDatabase(true, 'boolean');   // 1 (sqlite) or true (postgres)
+dialect.fromDatabase(1, 'boolean');    // true
+dialect.toDatabase(['a','b'], 'text[]'); // '["a","b"]' (sqlite) or ['a','b'] (postgres)
+```
+
+**Type Mapping Reference:**
+
+| Field Type | SQLite | PostgreSQL |
+|------------|--------|------------|
+| text | TEXT | TEXT |
+| integer | INTEGER | INTEGER |
+| numeric | REAL | NUMERIC |
+| boolean | INTEGER (0/1) | BOOLEAN |
+| timestamp | TEXT (ISO 8601) | TIMESTAMPTZ |
+| date | TEXT | DATE |
+| uuid | TEXT | TEXT |
+| jsonb | TEXT (JSON) | JSONB |
+| binary | BLOB | BYTEA |
+| text[] | TEXT (JSON) | TEXT[] |
+| uuid[] | TEXT (JSON) | TEXT[] |
 
 ## Syscall Reference
 
