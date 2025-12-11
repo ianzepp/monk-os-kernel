@@ -21,7 +21,7 @@
  * POSIX/GNU COMPATIBILITY
  * =======================
  * Base: POSIX.1-2017 find with common GNU extensions
- * Supported primaries: -name, -type, -size, -mtime, -newer, -empty, -maxdepth, -mindepth
+ * Supported primaries: -name, -type, -size, -mtime, -mmin, -newer, -empty, -maxdepth, -mindepth
  * Supported actions: -print, -print0
  * Unsupported: -exec, -ok, -prune, -regex, -iregex, logical operators (-a, -o, !)
  *
@@ -90,6 +90,7 @@ Expression primaries:
   -type TYPE        Match file type: f (file), d (directory)
   -size N[cwbkMG]   Match size (+ for greater, - for less)
   -mtime N          Modified N*24 hours ago (+ older, - newer)
+  -mmin N           Modified N minutes ago (+ older, - newer)
   -newer FILE       Modified more recently than FILE
   -empty            Match empty files and directories
   -maxdepth N       Descend at most N levels (0 = starting points only)
@@ -113,6 +114,7 @@ Examples:
   find . -type d                Find directories
   find . -type f -size +1M      Find files larger than 1MB
   find . -mtime -7              Files modified in last 7 days
+  find . -mmin -60              Files modified in last hour
   find . -empty                 Find empty files/directories
   find . -maxdepth 1            Non-recursive listing
 `.trim();
@@ -134,6 +136,8 @@ interface FindOptions {
     size?: string;
     /** Modification time in days [+|-]N */
     mtime?: string;
+    /** Modification time in minutes [+|-]N */
+    mmin?: string;
     /** Newer than this file's mtime */
     newer?: string;
     /** Match empty files/directories */
@@ -260,6 +264,19 @@ function parseArguments(args: string[]): { options: FindOptions; errors: string[
                 }
                 else {
                     options.mtime = value;
+                }
+
+                break;
+            }
+
+            case '-mmin': {
+                const value = args[++i];
+
+                if (value === undefined) {
+                    errors.push('-mmin requires a numeric argument');
+                }
+                else {
+                    options.mmin = value;
                 }
 
                 break;
@@ -474,7 +491,7 @@ function matchesFile(file: FileInfo, opts: FindOptions, newerMtime: number | nul
         }
     }
 
-    // -mtime: match modification time
+    // -mtime: match modification time (days)
     if (opts.mtime !== undefined) {
         const mtimeSpec = parseMtime(opts.mtime);
 
@@ -492,6 +509,29 @@ function matchesFile(file: FileInfo, opts: FindOptions, newerMtime: number | nul
             }
 
             if (compare === 'eq' && fileAgeDays !== days) {
+                return false;
+            }
+        }
+    }
+
+    // -mmin: match modification time (minutes)
+    if (opts.mmin !== undefined) {
+        const mminSpec = parseMtime(opts.mmin);
+
+        if (mminSpec) {
+            const { days: minutes, compare } = mminSpec;
+            const now = Date.now();
+            const fileAgeMinutes = Math.floor((now - file.mtime) / (60 * 1000));
+
+            if (compare === 'gt' && fileAgeMinutes <= minutes) {
+                return false;
+            }
+
+            if (compare === 'lt' && fileAgeMinutes >= minutes) {
+                return false;
+            }
+
+            if (compare === 'eq' && fileAgeMinutes !== minutes) {
                 return false;
             }
         }
