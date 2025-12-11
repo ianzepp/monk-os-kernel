@@ -32,7 +32,7 @@
         },
         "enabled": {
             "type": "boolean",
-            "default_value": "1",
+            "default_value": "true",
             "indexed": "simple",
             "description": "Agent is active"
         },

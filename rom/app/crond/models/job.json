@@ -23,7 +23,7 @@
         },
         "enabled": {
             "type": "boolean",
-            "default_value": "1",
+            "default_value": "true",
             "indexed": "simple",
             "description": "Job is active"
         },
@@ -60,7 +60,6 @@
         },
         "retry_on_fail": {
             "type": "boolean",
-            "default_value": "0",
             "description": "Retry immediately on failure"
         },
         "max_retries": {

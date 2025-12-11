@@ -19,7 +19,6 @@
         },
         "connected": {
             "type": "boolean",
-            "default_value": "0",
             "description": "Browser currently connected"
         },
         "session_id": {

@@ -60,39 +60,36 @@
         },
         "focused": {
             "type": "boolean",
-            "default_value": "0",
             "indexed": "simple",
             "description": "Has keyboard focus"
         },
         "visible": {
             "type": "boolean",
-            "default_value": "1",
+            "default_value": "true",
             "indexed": "simple",
             "description": "Is visible on screen"
         },
         "minimized": {
             "type": "boolean",
-            "default_value": "0",
             "description": "Window is minimized"
         },
         "maximized": {
             "type": "boolean",
-            "default_value": "0",
             "description": "Window is maximized"
         },
         "resizable": {
             "type": "boolean",
-            "default_value": "1",
+            "default_value": "true",
             "description": "Window can be resized"
         },
         "movable": {
             "type": "boolean",
-            "default_value": "1",
+            "default_value": "true",
             "description": "Window can be moved"
         },
         "closable": {
             "type": "boolean",
-            "default_value": "1",
+            "default_value": "true",
             "description": "Window can be closed"
         },
         "owner_pid": {

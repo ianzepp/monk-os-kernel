@@ -26,7 +26,6 @@
         "consolidated": {
             "type": "boolean",
             "required": true,
-            "default_value": "0",
             "indexed": "simple",
             "description": "Has been processed during consolidation"
         },

@@ -30,7 +30,7 @@
         },
         "visible": {
             "type": "boolean",
-            "default_value": "1",
+            "default_value": "true",
             "description": "Cursor is visible"
         },
         "window_id": {

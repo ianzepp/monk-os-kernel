@@ -30,7 +30,7 @@
         },
         "collapsed": {
             "type": "boolean",
-            "default_value": "1",
+            "default_value": "true",
             "description": "Selection is collapsed"
         },
         "direction": {

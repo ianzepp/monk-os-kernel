@@ -23,7 +23,6 @@
         },
         "fired": {
             "type": "boolean",
-            "default_value": "0",
             "indexed": "simple",
             "description": "Timer has fired"
         },

@@ -49,12 +49,10 @@
         },
         "disabled": {
             "type": "boolean",
-            "default_value": "0",
             "description": "Element is disabled"
         },
         "hidden": {
             "type": "boolean",
-            "default_value": "0",
             "indexed": "simple",
             "description": "Element is hidden"
         },
@@ -72,7 +70,6 @@
         },
         "autofocus": {
             "type": "boolean",
-            "default_value": "0",
             "description": "Auto-focus on mount"
         }
     }

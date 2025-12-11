@@ -57,33 +57,27 @@
         },
         "shift": {
             "type": "boolean",
-            "default_value": "0",
             "description": "Shift key held"
         },
         "ctrl": {
             "type": "boolean",
-            "default_value": "0",
             "description": "Control key held"
         },
         "alt": {
             "type": "boolean",
-            "default_value": "0",
             "description": "Alt key held"
         },
         "meta": {
             "type": "boolean",
-            "default_value": "0",
             "description": "Meta/Command key held"
         },
         "handled": {
             "type": "boolean",
-            "default_value": "0",
             "indexed": "simple",
             "description": "Event has been processed"
         },
         "prevented": {
             "type": "boolean",
-            "default_value": "0",
             "description": "Default action prevented"
         }
     }
