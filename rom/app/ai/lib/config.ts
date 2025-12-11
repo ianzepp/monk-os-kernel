@@ -12,9 +12,6 @@
  * - AI: Model defaults, iteration limits
  * - Paths: VFS locations for prompts, memory, logs
  *
- * NOTE: File paths like /etc/ai/ refer to VFS mount points, not the
- * source location (rom/app/ai/etc/).
- *
  * @module rom/app/ai/lib/config
  */
 
@@ -40,12 +37,22 @@ export const MAX_EXEC_ITERATIONS = 10;
 /**
  * Path to the system prompt file.
  */
-export const SYSTEM_PROMPT_PATH = '/etc/ai/system.txt';
+export const SYSTEM_PROMPT_PATH = '/app/ai/etc/system.txt';
 
 /**
  * Path to the help text file.
  */
-export const HELP_PATH = '/etc/ai/help.txt';
+export const HELP_PATH = '/app/ai/etc/help.txt';
+
+/**
+ * Path to the self-discovery prompt template.
+ */
+export const DISCOVERY_PROMPT_PATH = '/app/ai/etc/discovery.txt';
+
+/**
+ * Path to the wake cycle prompt template.
+ */
+export const WAKE_PROMPT_PATH = '/app/ai/etc/wake.txt';
 
 /**
  * Directory for Prior's persistent memory.

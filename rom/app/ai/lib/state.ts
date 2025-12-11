@@ -35,6 +35,12 @@ const state = {
     /** System prompt loaded from /etc/prior/system.txt */
     systemPrompt: undefined as string | undefined,
 
+    /** Discovery prompt template */
+    discoveryPrompt: undefined as string | undefined,
+
+    /** Wake cycle prompt template */
+    wakePrompt: undefined as string | undefined,
+
     /** Prior's self-discovered identity */
     identity: undefined as string | undefined,
 
@@ -43,6 +49,9 @@ const state = {
 
     /** EMS schema summary */
     emsSchema: undefined as string | undefined,
+
+    /** Available commands in /bin */
+    availableCommands: undefined as string | undefined,
 
     /** Whether a tick handler is currently processing */
     tickBusy: false,
@@ -69,6 +78,42 @@ export function getSystemPrompt(): string | undefined {
  */
 export function setSystemPrompt(prompt: string | undefined): void {
     state.systemPrompt = prompt;
+}
+
+// =============================================================================
+// DISCOVERY PROMPT
+// =============================================================================
+
+/**
+ * Get the discovery prompt template.
+ */
+export function getDiscoveryPrompt(): string | undefined {
+    return state.discoveryPrompt;
+}
+
+/**
+ * Set the discovery prompt template.
+ */
+export function setDiscoveryPrompt(prompt: string | undefined): void {
+    state.discoveryPrompt = prompt;
+}
+
+// =============================================================================
+// WAKE PROMPT
+// =============================================================================
+
+/**
+ * Get the wake prompt template.
+ */
+export function getWakePrompt(): string | undefined {
+    return state.wakePrompt;
+}
+
+/**
+ * Set the wake prompt template.
+ */
+export function setWakePrompt(prompt: string | undefined): void {
+    state.wakePrompt = prompt;
 }
 
 // =============================================================================
@@ -123,6 +168,24 @@ export function getEmsSchema(): string | undefined {
  */
 export function setEmsSchema(schema: string | undefined): void {
     state.emsSchema = schema;
+}
+
+// =============================================================================
+// AVAILABLE COMMANDS
+// =============================================================================
+
+/**
+ * Get available commands list.
+ */
+export function getAvailableCommands(): string | undefined {
+    return state.availableCommands;
+}
+
+/**
+ * Set available commands list.
+ */
+export function setAvailableCommands(commands: string | undefined): void {
+    state.availableCommands = commands;
 }
 
 // =============================================================================

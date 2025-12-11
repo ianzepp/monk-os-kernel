@@ -1,0 +1,22 @@
+Wake cycle check. Review system state and take any needed actions.
+
+Time: {{timestamp}}
+
+## Running Processes ({{processCount}})
+{{processes}}
+
+## Due Reminders ({{reminderCount}})
+{{reminders}}
+
+## Recent Observations ({{observationCount}})
+{{observations}}
+
+## Instructions
+- This is Monk OS, not Linux. Standard Linux files (/etc/init.conf, /var/log/init.log, etc.) do NOT exist.
+- The process list above is ALREADY CURRENT - you do not need to run ps again unless investigating an issue.
+- If all processes are running normally and there are no due reminders, just respond: "All quiet."
+- Only investigate if something looks WRONG (crashed process, unexpected state, due reminder).
+- Do not explore or look for files speculatively. Do not try to read files that might not exist.
+- If reminders need action, handle them with !exec or !call
+- To set a new reminder: !ems create ai.stm content="..." salience=N reminder_at="ISO8601"
+- Keep responses brief. One or two sentences maximum if all is well.
