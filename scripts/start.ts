@@ -5,9 +5,10 @@
  * and blocks until shutdown signal.
  *
  * Usage:
- *   bun start                              # In-memory storage
+ *   bun start                              # PostgreSQL (monk_os database)
+ *   bun start --memory                     # In-memory storage
  *   bun start --sqlite .data/monk.db       # SQLite storage
- *   bun start --postgres postgres://...    # PostgreSQL storage
+ *   bun start --postgres postgres://...    # Custom PostgreSQL URL
  *   bun start --socket /tmp/custom.sock    # Custom gateway socket
  *   bun start --port 3000                  # Custom display port
  *   bun start --no-display                 # Headless mode
@@ -17,7 +18,7 @@
  *   --sqlite .data/monk.db    → /tmp/monk.sock
  *   --sqlite .data/foo.db     → /tmp/foo.sock
  *   --postgres .../mydb       → /tmp/mydb.sock
- *   (memory)                  → /tmp/monk.sock
+ *   (default/memory)          → /tmp/monk.sock
  */
 
 import { parseArgs } from 'util';
@@ -28,6 +29,7 @@ import type { StorageConfig } from '@src/os/types.js';
 const { values } = parseArgs({
     args: process.argv.slice(2),
     options: {
+        memory: { type: 'boolean', default: false },
         sqlite: { type: 'string' },
         postgres: { type: 'string' },
         socket: { type: 'string' },
@@ -76,17 +78,24 @@ function deriveSocketPath(storage: StorageConfig): string {
     return `/tmp/${name}.sock`;
 }
 
+// Default PostgreSQL connection
+const DEFAULT_POSTGRES_URL = 'postgres://localhost/monk_os';
+
 // Build storage configuration
 let storage: StorageConfig;
 
-if (values.postgres) {
+if (values.memory) {
+    storage = { type: 'memory' };
+}
+else if (values.postgres) {
     storage = { type: 'postgres', url: values.postgres };
 }
 else if (values.sqlite) {
     storage = { type: 'sqlite', path: values.sqlite };
 }
 else {
-    storage = { type: 'memory' };
+    // Default to PostgreSQL
+    storage = { type: 'postgres', url: DEFAULT_POSTGRES_URL };
 }
 
 // Determine socket path
