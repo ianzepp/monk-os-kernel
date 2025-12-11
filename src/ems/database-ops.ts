@@ -187,7 +187,7 @@ export class DatabaseOps {
         filterData: FilterData = {},
         options: SelectOptions = {},
     ): AsyncGenerator<T> {
-        const filter = Filter.from(table, filterData, options);
+        const filter = Filter.from(table, filterData, options, this.db.dialect);
         const { sql, params } = filter.toSQL();
 
         yield* this.query<T>(sql, params);

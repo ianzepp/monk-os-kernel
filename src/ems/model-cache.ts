@@ -70,6 +70,7 @@
 import type { DatabaseConnection } from './connection.js';
 import { Model, type ModelRow, type FieldRow } from './model.js';
 import { ENOENT } from '@src/hal/errors.js';
+import { Filter } from './filter.js';
 
 // =============================================================================
 // TYPES
@@ -127,30 +128,22 @@ interface FieldQueryResult {
 // =============================================================================
 
 /**
- * SQL for loading a model by name.
- *
- * WHY WHERE trashed_at IS NULL: Only load active (non-deleted) models.
+ * Fields to select from models table.
  */
-const MODEL_QUERY = `
-    SELECT id, model_name, status, description, sudo, frozen, immutable, external, passthrough
-    FROM models
-    WHERE model_name = ? AND trashed_at IS NULL
-`;
+const MODEL_SELECT = [
+    'id', 'model_name', 'status', 'description', 'sudo',
+    'frozen', 'immutable', 'external', 'passthrough',
+];
 
 /**
- * SQL for loading fields for a model.
- *
- * WHY ORDER BY field_name: Consistent ordering for deterministic tests.
+ * Fields to select from fields table.
  */
-const FIELDS_QUERY = `
-    SELECT id, model_name, field_name, type, is_array, required, default_value,
-           minimum, maximum, pattern, enum_values, relationship_type, related_model,
-           related_field, relationship_name, cascade_delete, required_relationship,
-           immutable, sudo, indexed, tracked, searchable, transform, description
-    FROM fields
-    WHERE model_name = ? AND trashed_at IS NULL
-    ORDER BY field_name
-`;
+const FIELDS_SELECT = [
+    'id', 'model_name', 'field_name', 'type', 'is_array', 'required', 'default_value',
+    'minimum', 'maximum', 'pattern', 'enum_values', 'relationship_type', 'related_model',
+    'related_field', 'relationship_name', 'cascade_delete', 'required_relationship',
+    'immutable', 'sudo', 'indexed', 'tracked', 'searchable', 'transform', 'description',
+];
 
 // =============================================================================
 // MODEL CACHE CLASS
@@ -361,15 +354,40 @@ export class ModelCache {
      * @returns Model or undefined
      */
     private async loadModel(modelName: string): Promise<Model | undefined> {
+        // Build model query using Filter (dialect-aware placeholders)
+        const modelFilter = Filter.from(
+            'models',
+            {
+                select: MODEL_SELECT,
+                where: { model_name: modelName },
+            },
+            { trashed: 'exclude' },
+            this.db.dialect,
+        );
+        const { sql: modelSql, params: modelParams } = modelFilter.toSQL();
+
         // Load model row
-        const modelRow = await this.db.queryOne<ModelQueryResult>(MODEL_QUERY, [modelName]);
+        const modelRow = await this.db.queryOne<ModelQueryResult>(modelSql, modelParams);
 
         if (!modelRow) {
             return undefined;
         }
 
+        // Build fields query using Filter (dialect-aware placeholders)
+        const fieldsFilter = Filter.from(
+            'fields',
+            {
+                select: FIELDS_SELECT,
+                where: { model_name: modelName },
+                order: [{ field: 'field_name', sort: 'asc' }],
+            },
+            { trashed: 'exclude' },
+            this.db.dialect,
+        );
+        const { sql: fieldsSql, params: fieldsParams } = fieldsFilter.toSQL();
+
         // Load field rows
-        const fieldRows = await this.db.query<FieldQueryResult>(FIELDS_QUERY, [modelName]);
+        const fieldRows = await this.db.query<FieldQueryResult>(fieldsSql, fieldsParams);
 
         // Construct Model
         return new Model(modelRow as ModelRow, fieldRows as FieldRow[]);

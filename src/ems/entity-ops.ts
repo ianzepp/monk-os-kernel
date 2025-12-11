@@ -48,7 +48,7 @@ import type { OperationType } from './observers/types.js';
 import type { EOBSINVALID } from './observers/errors.js';
 import { Filter } from './filter.js';
 import { EFAULT, ENOENT } from '@src/hal/errors.js';
-import { getDialect, type DatabaseDialect } from './dialect.js';
+import type { DatabaseDialect } from './dialect.js';
 import type {
     FilterData,
     SelectOptions,
@@ -128,7 +128,7 @@ export class EntityOps {
 
     constructor(db: DatabaseConnection, cache: ModelCache, runner: ObserverRunner) {
         this.dbOps = new DatabaseOps(db);
-        this.system = { db, cache, dialect: getDialect(db.dialect), runner };
+        this.system = { db, cache, dialect: db.dialect, runner };
     }
 
     // =========================================================================
@@ -143,7 +143,7 @@ export class EntityOps {
         filterData: FilterData = {},
         options: SelectOptions = {},
     ): AsyncGenerator<T> {
-        const filter = Filter.from(modelName, filterData, options);
+        const filter = Filter.from(modelName, filterData, options, this.system.dialect);
         const { sql, params } = filter.toSQL();
 
         yield* this.dbOps.query<T>(sql, params);

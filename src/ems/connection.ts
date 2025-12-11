@@ -69,6 +69,7 @@
 import type { Channel, ChannelDevice } from '@src/hal/channel.js';
 import type { FileDevice } from '@src/hal/file.js';
 import { EIO } from '@src/hal/errors.js';
+import { type DatabaseDialect, getDialect } from './dialect.js';
 
 // =============================================================================
 // CONSTANTS
@@ -184,12 +185,12 @@ export class DatabaseConnection {
     readonly path: string;
 
     /**
-     * Database dialect (sqlite or postgres).
+     * Database dialect instance for SQL generation.
      *
-     * WHY: DDL observers need to generate dialect-specific SQL.
-     * Derived from the channel's protocol type.
+     * WHY: Provides dialect-specific placeholder syntax, type mapping,
+     * and DDL generation. Derived from the channel's protocol type.
      */
-    readonly dialect: 'sqlite' | 'postgres';
+    readonly dialect: DatabaseDialect;
 
     // =========================================================================
     // CONSTRUCTOR
@@ -207,7 +208,7 @@ export class DatabaseConnection {
     constructor(channel: Channel, path: string) {
         this.channel = channel;
         this.path = path;
-        this.dialect = channel.proto === 'postgres' ? 'postgres' : 'sqlite';
+        this.dialect = getDialect(channel.proto === 'postgres' ? 'postgres' : 'sqlite');
     }
 
     // =========================================================================
@@ -489,7 +490,7 @@ export async function createDatabase(
     const conn = await createDatabaseConnection(channelDevice, path);
 
     // Load and execute schema via HAL (dialect-specific)
-    const schema = await loadSchemaAsync(fileDevice, conn.dialect);
+    const schema = await loadSchemaAsync(fileDevice, conn.dialect.name);
 
     await conn.exec(schema);
 

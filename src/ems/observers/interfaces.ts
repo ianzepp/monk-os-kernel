@@ -146,11 +146,11 @@ export interface ModelRecord {
  */
 export interface DatabaseAdapter {
     /**
-     * Database dialect (sqlite or postgres).
+     * Database dialect for SQL generation.
      *
      * WHY: DDL observers need to generate dialect-specific SQL.
      */
-    readonly dialect: 'sqlite' | 'postgres';
+    readonly dialect: DatabaseDialect;
 
     /**
      * Execute an INSERT/UPDATE/DELETE statement.

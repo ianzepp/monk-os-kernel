@@ -1,11 +1,15 @@
 /**
- * Filter - Query builder with SQL generation for SQLite
+ * Filter - Query builder with dialect-aware SQL generation
  *
  * ARCHITECTURE OVERVIEW
  * =====================
  * The Filter class provides a fluent query builder that generates parameterized
- * SQL for SQLite. It supports 26 operators including comparisons, pattern
- * matching, array membership, and logical combinations.
+ * SQL for SQLite and PostgreSQL. It supports 26 operators including comparisons,
+ * pattern matching, array membership, and logical combinations.
+ *
+ * The dialect parameter controls placeholder syntax:
+ * - SQLite: ? (positional, same placeholder for all params)
+ * - PostgreSQL: $1, $2, $3 (numbered placeholders)
  *
  * TODO: PostgreSQL-only operators not yet implemented:
  * - $any   : Array overlap (field && ARRAY[...])
@@ -161,6 +165,7 @@ import {
     type TrashedOption,
 } from './filter-types.js';
 import { EINVAL } from '@src/hal/errors.js';
+import { type DatabaseDialect, SqliteDialect } from './dialect.js';
 
 // =============================================================================
 // CONSTANTS
@@ -202,12 +207,19 @@ const METADATA_TABLES = new Set([
  * TESTABILITY: Pure class with no external dependencies.
  * All SQL generation is deterministic and testable.
  */
+/**
+ * Default dialect used when none is provided.
+ * WHY: Maintains backward compatibility with existing code that doesn't pass dialect.
+ */
+const DEFAULT_DIALECT = new SqliteDialect();
+
 export class Filter {
     // =========================================================================
     // STATE
     // =========================================================================
 
     private readonly tableName: string;
+    private readonly dialect: DatabaseDialect;
     private selectFields: string[] = ['*'];
     private whereData: WhereConditions = {};
     private orderSpecs: OrderSpec[] = [];
@@ -227,10 +239,12 @@ export class Filter {
      * llm_provider). This conversion happens at the SQL boundary.
      *
      * @param tableName - Table name or model name (validated for SQL injection)
+     * @param dialect - Database dialect for placeholder generation (defaults to SQLite)
      */
-    constructor(tableName: string) {
+    constructor(tableName: string, dialect: DatabaseDialect = DEFAULT_DIALECT) {
         this.validateIdentifier(tableName, 'table name');
         this.tableName = tableName.replace(/\./g, '_');
+        this.dialect = dialect;
     }
 
     /**
@@ -622,7 +636,7 @@ export class Filter {
         if (typeof value !== 'object') {
             params.push(value);
 
-            return `${qualifiedField} = ?`;
+            return `${qualifiedField} = ${this.dialect.placeholder(params.length)}`;
         }
 
         // Operator object
@@ -660,7 +674,7 @@ export class Filter {
 
                 params.push(value);
 
-                return `${field} = ?`;
+                return `${field} = ${this.dialect.placeholder(params.length)}`;
 
             case '$ne':
             case FilterOp.NE:
@@ -672,70 +686,71 @@ export class Filter {
 
                 params.push(value);
 
-                return `${field} != ?`;
+                return `${field} != ${this.dialect.placeholder(params.length)}`;
 
             case '$gt':
             case FilterOp.GT:
                 params.push(value);
 
-                return `${field} > ?`;
+                return `${field} > ${this.dialect.placeholder(params.length)}`;
 
             case '$gte':
             case FilterOp.GTE:
                 params.push(value);
 
-                return `${field} >= ?`;
+                return `${field} >= ${this.dialect.placeholder(params.length)}`;
 
             case '$lt':
             case FilterOp.LT:
                 params.push(value);
 
-                return `${field} < ?`;
+                return `${field} < ${this.dialect.placeholder(params.length)}`;
 
             case '$lte':
             case FilterOp.LTE:
                 params.push(value);
 
-                return `${field} <= ?`;
+                return `${field} <= ${this.dialect.placeholder(params.length)}`;
 
             // Pattern matching
             case '$like':
             case FilterOp.LIKE:
                 params.push(value);
 
-                return `${field} LIKE ?`;
+                return `${field} LIKE ${this.dialect.placeholder(params.length)}`;
 
             case '$ilike':
             case FilterOp.ILIKE:
                 // SQLite: use LOWER() for case-insensitive
+                // PostgreSQL: native ILIKE support (but we use LOWER for consistency)
                 params.push(String(value).toLowerCase());
 
-                return `LOWER(${field}) LIKE LOWER(?)`;
+                return `LOWER(${field}) LIKE LOWER(${this.dialect.placeholder(params.length)})`;
 
             case '$nlike':
             case FilterOp.NLIKE:
                 params.push(value);
 
-                return `${field} NOT LIKE ?`;
+                return `${field} NOT LIKE ${this.dialect.placeholder(params.length)}`;
 
             case '$nilike':
             case FilterOp.NILIKE:
                 params.push(String(value).toLowerCase());
 
-                return `LOWER(${field}) NOT LIKE LOWER(?)`;
+                return `LOWER(${field}) NOT LIKE LOWER(${this.dialect.placeholder(params.length)})`;
 
             // Regex matching (requires regexp function registered in SQLite)
             case '$regex':
             case FilterOp.REGEX:
                 params.push(value);
 
-                return `${field} REGEXP ?`;
+                return `${field} REGEXP ${this.dialect.placeholder(params.length)}`;
 
             case '$nregex':
             case FilterOp.NREGEX:
                 params.push(value);
 
-                return `${field} NOT REGEXP ?`;
+                return `${field} NOT REGEXP ${this.dialect.placeholder(params.length)}`;
 
             // Text search (case-insensitive contains)
             case '$find':
@@ -744,7 +759,7 @@ export class Filter {
             case FilterOp.TEXT:
                 params.push(`%${String(value).toLowerCase()}%`);
 
-                return `LOWER(${field}) LIKE ?`;
+                return `LOWER(${field}) LIKE ${this.dialect.placeholder(params.length)}`;
 
             // Array membership
             case '$in':
@@ -755,7 +770,9 @@ export class Filter {
                     return '0=1';
                 } // Empty IN = no match
 
-                const placeholders = arr.map(() => '?').join(', ');
+                // Generate placeholders for each array element
+                const startIdx = params.length + 1;
+                const placeholders = arr.map((_, i) => this.dialect.placeholder(startIdx + i)).join(', ');
 
                 params.push(...arr);
 
@@ -770,7 +787,9 @@ export class Filter {
                     return '1=1';
                 } // Empty NIN = all match
 
-                const placeholders = arr.map(() => '?').join(', ');
+                // Generate placeholders for each array element
+                const startIdx = params.length + 1;
+                const placeholders = arr.map((_, i) => this.dialect.placeholder(startIdx + i)).join(', ');
 
                 params.push(...arr);
 
@@ -796,7 +815,7 @@ export class Filter {
                 // Simple equality: { $size: 3 }
                 params.push(value);
 
-                return `${lengthExpr} = ?`;
+                return `${lengthExpr} = ${this.dialect.placeholder(params.length)}`;
             }
 
             // Range
@@ -804,9 +823,12 @@ export class Filter {
             case FilterOp.BETWEEN: {
                 const [min, max] = value as [unknown, unknown];
 
-                params.push(min, max);
+                params.push(min);
+                const minPlaceholder = this.dialect.placeholder(params.length);
+                params.push(max);
+                const maxPlaceholder = this.dialect.placeholder(params.length);
 
-                return `${field} BETWEEN ? AND ?`;
+                return `${field} BETWEEN ${minPlaceholder} AND ${maxPlaceholder}`;
             }
 
             // Null/existence
@@ -837,34 +859,34 @@ export class Filter {
             case FilterOp.EQ:
                 params.push(value);
 
-                return `${lengthExpr} = ?`;
+                return `${lengthExpr} = ${this.dialect.placeholder(params.length)}`;
             case '$ne':
             case FilterOp.NE:
             case '$neq':
             case FilterOp.NEQ:
                 params.push(value);
 
-                return `${lengthExpr} != ?`;
+                return `${lengthExpr} != ${this.dialect.placeholder(params.length)}`;
             case '$gt':
             case FilterOp.GT:
                 params.push(value);
 
-                return `${lengthExpr} > ?`;
+                return `${lengthExpr} > ${this.dialect.placeholder(params.length)}`;
             case '$gte':
             case FilterOp.GTE:
                 params.push(value);
 
-                return `${lengthExpr} >= ?`;
+                return `${lengthExpr} >= ${this.dialect.placeholder(params.length)}`;
             case '$lt':
             case FilterOp.LT:
                 params.push(value);
 
-                return `${lengthExpr} < ?`;
+                return `${lengthExpr} < ${this.dialect.placeholder(params.length)}`;
             case '$lte':
             case FilterOp.LTE:
                 params.push(value);
 
-                return `${lengthExpr} <= ?`;
+                return `${lengthExpr} <= ${this.dialect.placeholder(params.length)}`;
             default:
                 throw new EINVAL(`Unsupported operator for $size: ${op}`);
         }
@@ -950,12 +972,14 @@ export class Filter {
      * @param tableName - Table to query
      * @param data - Filter data
      * @param options - Select options
+     * @param dialect - Database dialect for placeholder generation (defaults to SQLite)
      */
     static from(
         tableName: string,
         data: FilterData = {},
         options: SelectOptions = {},
+        dialect?: DatabaseDialect,
     ): Filter {
-        return new Filter(tableName).apply(data, options);
+        return new Filter(tableName, dialect).apply(data, options);
     }
 }

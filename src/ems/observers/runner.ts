@@ -204,7 +204,7 @@ export class ObserverRunner {
                 // Skip if observer is dialect-specific and doesn't match
                 if (
                     observer.dialect &&
-                    observer.dialect !== context.system.db.dialect
+                    observer.dialect !== context.system.dialect.name
                 ) {
                     continue;
                 }
