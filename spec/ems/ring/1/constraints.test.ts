@@ -8,6 +8,7 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
 import { Constraints } from '@src/ems/ring/1/index.js';
 import { ObserverRing, EOBSINVALID } from '@src/ems/observers/index.js';
+import { getDialect } from '@src/ems/dialect.js';
 import type {
     ObserverContext,
     Model,
@@ -23,6 +24,7 @@ import type {
 
 function createMockDatabase(): DatabaseAdapter {
     return {
+        dialect: 'sqlite',
         async execute(_sql: string, _params?: unknown[]): Promise<number> {
             return 1;
         },
@@ -65,6 +67,7 @@ function createMockModel(
 ): Model {
     return {
         modelName: name,
+        tableName: name,
         isFrozen: false,
         isImmutable: false,
         requiresSudo: false,
@@ -131,6 +134,7 @@ function createContext(
         system: {
             db: createMockDatabase(),
             cache: createMockCache(),
+            dialect: getDialect('sqlite'),
         },
         operation,
         model,

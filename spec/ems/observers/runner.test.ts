@@ -6,6 +6,7 @@ import {
     EOBSSEC,
     EOBSSYS,
 } from '@src/ems/observers/index.js';
+import { getDialect } from '@src/ems/dialect.js';
 import type {
     Observer,
     ObserverContext,
@@ -14,6 +15,7 @@ import type {
     OperationType,
     DatabaseAdapter,
     ModelCacheAdapter,
+    SystemContext,
 } from '@src/ems/observers/index.js';
 
 // =============================================================================
@@ -26,6 +28,7 @@ import type {
 function createMockModel(name = 'test_model'): Model {
     return {
         modelName: name,
+        tableName: name,
         isFrozen: false,
         isImmutable: false,
         requiresSudo: false,
@@ -67,7 +70,11 @@ function createMockContext(
     modelName = 'test_model',
 ): ObserverContext {
     return {
-        system: { db: null as unknown as DatabaseAdapter, cache: null as unknown as ModelCacheAdapter },
+        system: {
+            db: null as unknown as DatabaseAdapter,
+            cache: null as unknown as ModelCacheAdapter,
+            dialect: getDialect('sqlite'),
+        },
         operation,
         model: createMockModel(modelName),
         record: createMockRecord(),

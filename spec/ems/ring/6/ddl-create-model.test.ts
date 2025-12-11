@@ -5,8 +5,9 @@
  */
 
 import { describe, it, expect, beforeEach } from 'bun:test';
-import { DdlCreateModelSqlite } from '@src/ems/ring/6/index.js';
+import { DdlCreateModel } from '@src/ems/ring/6/index.js';
 import { ObserverRing, EOBSSYS } from '@src/ems/observers/index.js';
+import { getDialect } from '@src/ems/dialect.js';
 import type {
     ObserverContext,
     Model,
@@ -26,6 +27,7 @@ function createMockDatabase(): DatabaseAdapter & { execCalls: string[]; shouldFa
     const execCalls: string[] = [];
 
     return {
+        dialect: 'sqlite',
         execCalls,
         shouldFail: false,
         async execute(_sql: string, _params?: unknown[]): Promise<number> {
@@ -55,6 +57,7 @@ function createMockCache(): ModelCacheAdapter {
 function createMockModel(name = 'models'): Model {
     return {
         modelName: name,
+        tableName: name,
         isFrozen: false,
         isImmutable: false,
         requiresSudo: false,
@@ -122,6 +125,7 @@ function createContext(
         system: {
             db,
             cache: createMockCache(),
+            dialect: getDialect('sqlite'),
         },
         operation,
         model: createMockModel(modelName),
@@ -136,18 +140,18 @@ function createContext(
 // DDL CREATE MODEL TESTS
 // =============================================================================
 
-describe('DdlCreateModelSqlite', () => {
-    let observer: DdlCreateModelSqlite;
+describe('DdlCreateModel', () => {
+    let observer: DdlCreateModel;
     let mockDb: ReturnType<typeof createMockDatabase>;
 
     beforeEach(() => {
-        observer = new DdlCreateModelSqlite();
+        observer = new DdlCreateModel();
         mockDb = createMockDatabase();
     });
 
     describe('configuration', () => {
         it('should have correct name', () => {
-            expect(observer.name).toBe('DdlCreateModelSqlite');
+            expect(observer.name).toBe('DdlCreateModel');
         });
 
         it('should be in Ring 6 (PostDatabase)', () => {

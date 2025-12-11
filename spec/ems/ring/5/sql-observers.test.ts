@@ -8,6 +8,7 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
 import { SqlCreate, SqlUpdate, SqlDelete } from '@src/ems/ring/5/index.js';
 import { ObserverRing, EOBSSYS } from '@src/ems/observers/index.js';
+import { getDialect } from '@src/ems/dialect.js';
 import type {
     ObserverContext,
     Model,
@@ -35,6 +36,7 @@ function createMockDatabase(): DatabaseAdapter & { calls: SqlCall[]; shouldFail:
     const calls: SqlCall[] = [];
 
     return {
+        dialect: 'sqlite',
         calls,
         shouldFail: false,
         async execute(sql: string, params?: unknown[]): Promise<number> {
@@ -87,6 +89,7 @@ function createMockCache(): ModelCacheAdapter {
 function createMockModel(name = 'test_model'): Model {
     return {
         modelName: name,
+        tableName: name,
         isFrozen: false,
         isImmutable: false,
         requiresSudo: false,
@@ -160,6 +163,7 @@ function createContext(
         system: {
             db,
             cache: createMockCache(),
+            dialect: getDialect('sqlite'),
         },
         operation,
         model: createMockModel(modelName),
