@@ -259,6 +259,13 @@ export class OS extends BaseOS {
             // Boot kernel (activates services, starts tick)
             await this.__kernel!.boot();
 
+            // Spawn the init process
+            const initPath = opts?.init ?? DEFAULT_INIT_PATH;
+
+            await this.__kernel!.spawnExternal(initPath, {
+                args: [initPath],
+            });
+
             // RC-3: Only set booted after full success
             this.booted = true;
         }

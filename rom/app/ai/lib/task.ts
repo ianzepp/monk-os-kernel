@@ -33,7 +33,7 @@ import type {
     ParsedBangCommand,
 } from './types.js';
 import { DEFAULT_MODEL, MAX_EXEC_ITERATIONS } from './config.js';
-import { log, generateRequestId } from './logging.js';
+import { log, generateRequestId, debugTask } from './logging.js';
 import {
     getSystemPrompt,
     getIdentity,
@@ -85,6 +85,9 @@ export async function executeTask(
     const startTime = Date.now();
     const model = instruction.model ?? DEFAULT_MODEL;
     const requestId = generateRequestId();
+
+    debugTask('starting task [%s] model=%s', requestId, model);
+    debugTask('task: %s', instruction.task.slice(0, 100));
 
     // Create ai.request record
     try {
@@ -169,22 +172,25 @@ export async function executeTask(
                 }
             }).join('\n\n');
 
-            await log(`ai: iteration ${iterations}, calling llm:complete with model=${model}`);
+            debugTask('[%s] iteration %d - calling llm:complete', requestId, iterations);
 
             const response = await call<CompletionResponse>('llm:complete', model, prompt, {
                 system: getSystemPrompt(),
             });
 
-            await log(`ai: llm responded, ${response.text.length} chars`);
+            debugTask('[%s] llm response: %d chars', requestId, response.text.length);
 
             // Check for bang commands
             const bangCommands = parseBangCommands(response.text);
 
             if (!bangCommands || bangCommands.length === 0) {
                 // No commands - this is the final response
+                debugTask('[%s] no bang commands - final response', requestId);
                 finalResponse = response.text;
                 break;
             }
+
+            debugTask('[%s] found %d bang commands', requestId, bangCommands.length);
 
             // Execute all commands
             conversation.push({ role: 'assistant', content: response.text });
@@ -228,10 +234,12 @@ export async function executeTask(
         }
 
         if (iterations >= MAX_EXEC_ITERATIONS) {
+            debugTask('[%s] reached max iterations (%d)', requestId, MAX_EXEC_ITERATIONS);
             finalResponse = `[Reached maximum iterations (${MAX_EXEC_ITERATIONS}). Last response may be incomplete.]`;
         }
 
         const durationMs = Date.now() - startTime;
+        debugTask('[%s] completed in %dms with %d iterations', requestId, durationMs, iterations);
 
         // Update ai.request record on success
         try {

@@ -32,7 +32,7 @@
 import { call } from '@rom/lib/process/index.js';
 
 import type { StmEntry, Instruction } from './types.js';
-import { log } from './logging.js';
+import { log, debugMemory } from './logging.js';
 import { executeTask } from './task.js';
 
 // =============================================================================
@@ -46,10 +46,11 @@ import { executeTask } from './task.js';
  * Reviews STM entries by salience and extracts insights.
  */
 export async function consolidateMemory(): Promise<void> {
-    await log('ai: starting memory consolidation');
+    debugMemory('--- starting memory consolidation ---');
 
     try {
         // Find unconsolidated STM entries, ordered by salience
+        debugMemory('querying unconsolidated STM entries');
         const stmEntries = await call<StmEntry[]>(
             'ems:select',
             'ai.stm',
@@ -61,12 +62,12 @@ export async function consolidateMemory(): Promise<void> {
         );
 
         if (stmEntries.length === 0) {
-            await log('ai: no memories to consolidate');
+            debugMemory('no memories to consolidate');
 
             return;
         }
 
-        await log(`ai: consolidating ${stmEntries.length} memories`);
+        debugMemory('found %d unconsolidated memories', stmEntries.length);
 
         // Build context for LLM
         const memoryList = stmEntries
@@ -93,6 +94,8 @@ Output only JSON lines, no commentary. If nothing is worth keeping, output nothi
             // Parse JSON lines from response
             const lines = result.result.split('\n').filter((l: string) => l.trim().startsWith('{'));
 
+            debugMemory('LLM returned %d insight lines', lines.length);
+
             for (const line of lines) {
                 try {
                     const insight = JSON.parse(line) as { content: string; category: string };
@@ -105,15 +108,19 @@ Output only JSON lines, no commentary. If nothing is worth keeping, output nothi
                         last_accessed: new Date().toISOString(),
                     });
 
-                    await log(`ai: stored insight [${insight.category}]: ${insight.content.slice(0, 50)}...`);
+                    debugMemory('stored insight [%s]: %s', insight.category, insight.content.slice(0, 50));
                 }
                 catch {
-                    // Skip malformed lines
+                    debugMemory('skipped malformed insight line');
                 }
             }
         }
+        else {
+            debugMemory('consolidation LLM call failed: %s', result.error);
+        }
 
         // Mark all processed STM entries as consolidated
+        debugMemory('marking %d STM entries as consolidated', stmEntries.length);
         const now = new Date().toISOString();
 
         for (const entry of stmEntries) {
@@ -123,11 +130,11 @@ Output only JSON lines, no commentary. If nothing is worth keeping, output nothi
             });
         }
 
-        await log('ai: memory consolidation complete');
+        debugMemory('memory consolidation complete');
     }
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);
 
-        await log(`ai: consolidation error: ${message}`);
+        debugMemory('consolidation error: %s', message);
     }
 }

@@ -55,6 +55,7 @@ import {
     IDENTITY_PATH,
     CONTEXT_PATH,
     log,
+    debugMain,
     setSystemPrompt,
     setDiscoveryPrompt,
     getDiscoveryPrompt,
@@ -70,6 +71,8 @@ import {
     consolidateMemory,
 } from './lib/index.js';
 
+import { debugInit } from '@rom/lib/process/index.js';
+
 import type { ModelSchema } from './lib/index.js';
 
 // =============================================================================
@@ -83,8 +86,12 @@ import type { ModelSchema } from './lib/index.js';
  * Tasks are received via the system gateway, not direct network connections.
  */
 export default async function main(): Promise<void> {
+    // Initialize debug logging (fetch patterns from kernel)
+    await debugInit();
+
     const pid = await getpid();
 
+    debugMain('--- starting (pid %d) ---', pid);
     await log(`ai: starting (pid ${pid})`);
 
     // -------------------------------------------------------------------------
@@ -92,13 +99,14 @@ export default async function main(): Promise<void> {
     // -------------------------------------------------------------------------
 
     try {
+        debugMain('loading system prompt from %s', SYSTEM_PROMPT_PATH);
         const systemPrompt = await readFile(SYSTEM_PROMPT_PATH);
 
         setSystemPrompt(systemPrompt);
-        await log(`ai: loaded system prompt (${systemPrompt.length} chars)`);
+        debugMain('loaded system prompt (%d chars)', systemPrompt.length);
     }
     catch {
-        await log('ai: no system prompt found, running without');
+        debugMain('no system prompt found at %s', SYSTEM_PROMPT_PATH);
     }
 
     // -------------------------------------------------------------------------
@@ -106,23 +114,25 @@ export default async function main(): Promise<void> {
     // -------------------------------------------------------------------------
 
     try {
+        debugMain('loading discovery prompt from %s', DISCOVERY_PROMPT_PATH);
         const discoveryPrompt = await readFile(DISCOVERY_PROMPT_PATH);
 
         setDiscoveryPrompt(discoveryPrompt);
-        await log(`ai: loaded discovery prompt template`);
+        debugMain('loaded discovery prompt (%d chars)', discoveryPrompt.length);
     }
     catch {
-        await log('ai: no discovery prompt template found');
+        debugMain('no discovery prompt found at %s', DISCOVERY_PROMPT_PATH);
     }
 
     try {
+        debugMain('loading wake prompt from %s', WAKE_PROMPT_PATH);
         const wakePrompt = await readFile(WAKE_PROMPT_PATH);
 
         setWakePrompt(wakePrompt);
-        await log(`ai: loaded wake prompt template`);
+        debugMain('loaded wake prompt (%d chars)', wakePrompt.length);
     }
     catch {
-        await log('ai: no wake prompt template found');
+        debugMain('no wake prompt found at %s', WAKE_PROMPT_PATH);
     }
 
     // -------------------------------------------------------------------------
@@ -130,13 +140,14 @@ export default async function main(): Promise<void> {
     // -------------------------------------------------------------------------
 
     try {
+        debugMain('creating memory directory at %s', MEMORY_DIR);
         await mkdir(MEMORY_DIR, { recursive: true });
-        await log(`ai: memory directory ready at ${MEMORY_DIR}`);
+        debugMain('memory directory ready');
     }
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);
 
-        await log(`ai: failed to create memory directory: ${message}`);
+        debugMain('failed to create memory directory: %s', message);
     }
 
     // -------------------------------------------------------------------------
@@ -144,13 +155,14 @@ export default async function main(): Promise<void> {
     // -------------------------------------------------------------------------
 
     try {
+        debugMain('loading identity from %s', IDENTITY_PATH);
         const identity = await readFile(IDENTITY_PATH);
 
         setIdentity(identity);
-        await log(`ai: loaded existing identity (${identity.length} chars)`);
+        debugMain('loaded existing identity (%d chars)', identity.length);
     }
     catch {
-        // No identity yet - will be created on first tick
+        debugMain('no existing identity found - will create on first tick');
     }
 
     // -------------------------------------------------------------------------
@@ -158,13 +170,14 @@ export default async function main(): Promise<void> {
     // -------------------------------------------------------------------------
 
     try {
+        debugMain('loading memory context from %s', CONTEXT_PATH);
         const memoryContext = await readFile(CONTEXT_PATH);
 
         setMemoryContext(memoryContext);
-        await log(`ai: loaded memory context (${memoryContext.length} chars)`);
+        debugMain('loaded memory context (%d chars)', memoryContext.length);
     }
     catch {
-        // No context yet - will be created by distillation
+        debugMain('no memory context found - will create during consolidation');
     }
 
     // -------------------------------------------------------------------------
@@ -172,7 +185,7 @@ export default async function main(): Promise<void> {
     // -------------------------------------------------------------------------
 
     await subscribeTicks();
-    await log('ai: subscribed to kernel ticks');
+    debugMain('subscribed to kernel ticks');
 
     // Register tick handler
     onTick(async (_dt, _now, seq) => {
@@ -204,7 +217,7 @@ export default async function main(): Promise<void> {
 
     onSignal(() => {
         running = false;
-        log('ai: received shutdown signal');
+        debugMain('received shutdown signal');
     });
 
     // Keep process alive while waiting for shutdown
@@ -212,7 +225,7 @@ export default async function main(): Promise<void> {
         await sleep(1000);
     }
 
-    await log('ai: shutdown complete');
+    debugMain('shutdown complete');
 }
 
 // =============================================================================

@@ -23,7 +23,11 @@ import {
     readFile,
     stat,
     ESRCH,
+    debug,
+    debugInit,
 } from '@rom/lib/process/index.js';
+
+const log = debug('rom:init');
 
 // =============================================================================
 // STATE
@@ -59,10 +63,14 @@ async function loadAppModels(appName: string): Promise<void> {
     }
     catch {
         // No models directory, skip
+        log('no models directory for %s', appName);
+
         return;
     }
 
     const files = await readdirAll(modelsDir);
+
+    log('found %d model files in %s', files.length, modelsDir);
 
     for (const entry of files) {
         if (!entry.name.endsWith('.yaml') && !entry.name.endsWith('.json')) {
@@ -74,16 +82,26 @@ async function loadAppModels(appName: string): Promise<void> {
         const modelName = `${appName}.${baseName}`;
         const modelPath = `${modelsDir}/${entry.name}`;
 
+        log('loading model %s from %s', modelName, modelPath);
+
         try {
             const content = await readFile(modelPath);
+
+            log('parsing %s (%d bytes)', modelPath, content.length);
+
             const def = parseYaml(content);
 
+            log('importing model %s', modelName);
+
             await call('ems:import', modelName, def);
+
+            log('imported model %s', modelName);
             await println(`init: loaded model ${modelName}`);
         }
         catch (err) {
             const message = err instanceof Error ? err.message : String(err);
 
+            log('FAILED to load model %s: %s', modelPath, message);
             await eprintln(`init: failed to load model ${modelPath}: ${message}`);
         }
     }
@@ -168,8 +186,12 @@ async function spawnAllApps(): Promise<void> {
  * Main init loop
  */
 async function main(): Promise<void> {
+    // Initialize debug logging (fetches patterns from kernel)
+    await debugInit();
+
     const pid = await getpid();
 
+    log('--- starting (pid %d) ---', pid);
     await println(`init: starting (pid ${pid})`);
 
     // Ignore SIGTERM - init cannot be killed

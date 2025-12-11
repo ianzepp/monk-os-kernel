@@ -3,16 +3,17 @@
  *
  * PURPOSE
  * =======
- * Provides structured logging for the AI process with request ID correlation.
- * All log messages include the OS instance ID and optional request ID
- * for tracing across distributed systems.
+ * Provides structured logging for the AI process using the debug syscall
+ * infrastructure. Messages go through debug:log for consistent output
+ * with other OS components.
  *
- * OUTPUT FORMAT
- * =============
- * [OSID] message
- * [OSID] [REQID] message
- *
- * Messages are written to both stderr and the UDP debug monitor.
+ * DEBUG NAMESPACES
+ * ================
+ * - rom:ai        - Main AI process lifecycle
+ * - rom:ai:task   - Task execution and agentic loop
+ * - rom:ai:bang   - Bang command parsing and execution
+ * - rom:ai:exec   - Shell command execution
+ * - rom:ai:memory - Memory consolidation
  *
  * @module rom/app/ai/lib/logging
  */
@@ -23,21 +24,25 @@
 
 import {
     eprintln,
-    debug,
-    getenv,
+    debug as createDebugLogger,
+    type DebugLogger,
 } from '@rom/lib/process/index.js';
 
 import { ID_CHARS, REQUEST_ID_LENGTH, SPAWN_ID_LENGTH } from './config.js';
 
 // =============================================================================
-// STATE
+// DEBUG LOGGERS
 // =============================================================================
 
 /**
- * Cached OS instance ID.
- * WHY: Avoid repeated getenv calls on every log.
+ * Debug loggers for different namespaces.
+ * Created lazily to avoid syscalls if not enabled.
  */
-let osId: string | undefined;
+export const debugMain = createDebugLogger('rom:ai');
+export const debugTask = createDebugLogger('rom:ai:task');
+export const debugBang = createDebugLogger('rom:ai:bang');
+export const debugExec = createDebugLogger('rom:ai:exec');
+export const debugMemory = createDebugLogger('rom:ai:memory');
 
 // =============================================================================
 // ID GENERATION
@@ -87,21 +92,14 @@ export function generateSpawnId(): string {
 // =============================================================================
 
 /**
- * Log a message to both stderr and the UDP monitor.
+ * Log a message to stderr.
  *
- * Format: [OSID] message  or  [OSID] [REQID] message
+ * This is the main log function for user-visible output.
+ * For debug output, use the debug* loggers directly.
  *
  * @param message - The message to log
- * @param requestId - Optional request ID for correlation
+ * @param _requestId - Optional request ID (currently unused)
  */
-export async function log(message: string, requestId?: string): Promise<void> {
-    if (osId === undefined) {
-        osId = await getenv('MONK_OS') ?? '????';
-    }
-
-    const prefix = requestId ? `[${osId}] [${requestId}]` : `[${osId}]`;
-    const formatted = `${prefix} ${message}`;
-
-    await eprintln(formatted);
-    await debug(formatted);
+export async function log(message: string, _requestId?: string): Promise<void> {
+    await eprintln(message);
 }

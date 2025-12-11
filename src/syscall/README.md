@@ -22,7 +22,8 @@ The syscall layer is a switch-based routing system that separates syscall orches
 │  ├── hal.ts      - net:*, port:*, channel:* syscalls        │
 │  ├── pool.ts     - pool:*, worker:* syscalls                │
 │  ├── auth.ts     - auth:* syscalls                          │
-│  └── llm.ts      - llm:* syscalls                           │
+│  ├── llm.ts      - llm:* syscalls                           │
+│  └── debug.ts    - debug:* syscalls                         │
 ├─────────────────────────────────────────────────────────────┤
 │  StreamController (backpressure management)                 │
 └─────────────────────────────────────────────────────────────┘
@@ -43,6 +44,7 @@ src/syscall/
 ├── pool.ts               # Worker pool syscalls
 ├── auth.ts               # Authentication syscalls
 ├── llm.ts                # LLM inference syscalls
+├── debug.ts              # Debug logging syscalls
 └── stream/
     ├── index.ts          # Stream module exports
     ├── types.ts          # Stream types
@@ -216,6 +218,18 @@ Arguments follow pattern: `proc, kernel, [subsystem], [syscall-specific args]`
 | `llm:chat:stream` | Streaming chat completion |
 | `llm:embed` | Generate embeddings |
 | `llm:models` | List available models |
+
+---
+
+### Debug Syscalls (`debug.ts`)
+
+| Syscall | Purpose |
+|---------|---------|
+| `debug:enabled` | Check if a debug namespace is enabled |
+| `debug:log` | Log a message to a namespace (if enabled) |
+| `debug:patterns` | List all enabled debug patterns |
+
+These syscalls allow processes to interact with the DEBUG= logging infrastructure at runtime. Debug patterns are configured via the DEBUG environment variable at process startup.
 
 ## Stream Controller
 

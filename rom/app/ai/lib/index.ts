@@ -58,6 +58,11 @@ export {
     log,
     generateRequestId,
     generateSpawnId,
+    debugMain,
+    debugTask,
+    debugBang,
+    debugExec,
+    debugMemory,
 } from './logging.js';
 
 // =============================================================================

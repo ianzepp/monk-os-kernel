@@ -38,7 +38,7 @@ import type {
     LtmEntry,
 } from './types.js';
 import { HELP_PATH } from './config.js';
-import { log, generateSpawnId } from './logging.js';
+import { log, generateSpawnId, debugBang } from './logging.js';
 import {
     getSpawnedAgent,
     setSpawnedAgent,
@@ -303,10 +303,16 @@ export async function executeBangCommand(
     cmd: ParsedBangCommand,
     ctx: BangExecutionContext,
 ): Promise<string> {
+    debugBang('executing %s', getBangCommandDescription(cmd));
+
     switch (cmd.type) {
         case 'exec': {
             const shellCmd = cmd.args as string;
+
+            debugBang('exec: %s', shellCmd.slice(0, 80));
             const execResult = await exec(shellCmd);
+
+            debugBang('exec result: code=%d stdout=%d chars', execResult.code, execResult.stdout.length);
 
             return execResult.code === 0
                 ? execResult.stdout || '(no output)'
@@ -315,6 +321,8 @@ export async function executeBangCommand(
 
         case 'call': {
             const { name, args } = cmd.args as CallArgs;
+
+            debugBang('call: %s with %d args', name, args.length);
 
             return await executeCall(name, args);
         }
@@ -430,7 +438,7 @@ async function executeSpawn(spawnArgs: SpawnArgs, ctx: BangExecutionContext): Pr
     const spawnId = generateSpawnId();
     const spawnModel = spawnArgs.model ?? ctx.currentModel;
 
-    await log(`ai: !spawn ${spawnId} "${spawnArgs.task.slice(0, 50)}..."`);
+    debugBang('spawn: %s model=%s task=%s', spawnId, spawnModel, spawnArgs.task.slice(0, 50));
 
     // Create instruction for subagent (inherits context)
     const subInstruction = {
@@ -480,10 +488,12 @@ async function executeWait(waitId: string): Promise<string> {
         const agents = getAllSpawnedAgents();
 
         if (agents.size === 0) {
+            debugBang('wait all: no pending spawns');
+
             return '(no pending spawns)';
         }
 
-        await log(`ai: !wait all (${agents.size} pending...)`);
+        debugBang('wait all: %d pending spawns', agents.size);
 
         const waitResults: string[] = [];
 
@@ -519,8 +529,9 @@ async function executeWait(waitId: string): Promise<string> {
     }
 
     // Wait for completion
-    await log(`ai: !wait ${waitId} (blocking...)`);
+    debugBang('wait %s: blocking...', waitId);
     const agentResult = await agent.promise;
+    debugBang('wait %s: completed', waitId);
 
     deleteSpawnedAgent(waitId);
 

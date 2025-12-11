@@ -147,6 +147,12 @@ export interface BootOpts {
      * Only applies if not set during init().
      */
     debug?: boolean;
+
+    /**
+     * Path to init process (inside VFS).
+     * Defaults to '/app/init.ts'.
+     */
+    init?: string;
 }
 
 /**

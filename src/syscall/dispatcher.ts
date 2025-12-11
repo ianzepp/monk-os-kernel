@@ -98,6 +98,11 @@ import { debugIsEnabled, debugLog, debugListPatterns } from './debug.js';
 // Stream controller
 import { StreamController, StallError } from './stream/index.js';
 
+// Debug logging
+import { debug } from '@src/debug.js';
+
+const log = debug('syscall:dispatch');
+
 // =============================================================================
 // AUTH GATING CONSTANTS
 // =============================================================================
@@ -117,6 +122,40 @@ const ALLOW_ANONYMOUS = new Set([
     'auth:token',
     'auth:register',
 ]);
+
+// =============================================================================
+// HELPER FUNCTIONS
+// =============================================================================
+
+/**
+ * Summarize syscall arguments for debug logging.
+ *
+ * Produces compact representations:
+ * - Strings: truncated with quotes (e.g., "/path/to/file")
+ * - Numbers: as-is
+ * - Objects: {keys} or [length]
+ * - null/undefined: as-is
+ */
+function summarizeArgs(args: unknown[]): string {
+    return args.map(arg => {
+        if (arg === null) return 'null';
+        if (arg === undefined) return 'undefined';
+        if (typeof arg === 'string') {
+            const truncated = arg.length > 32 ? arg.slice(0, 32) + '...' : arg;
+
+            return `"${truncated}"`;
+        }
+        if (typeof arg === 'number' || typeof arg === 'boolean') return String(arg);
+        if (Array.isArray(arg)) return `[${arg.length}]`;
+        if (typeof arg === 'object') {
+            const keys = Object.keys(arg);
+
+            return keys.length <= 3 ? `{${keys.join(',')}}` : `{${keys.length} keys}`;
+        }
+
+        return typeof arg;
+    }).join(', ');
+}
 
 // =============================================================================
 // SYSCALL DISPATCHER
@@ -162,6 +201,11 @@ export class SyscallDispatcher {
      * @param args - Syscall arguments
      */
     async *dispatch(proc: Process, name: string, args: unknown[]): AsyncIterable<Response> {
+        // Syscall logging - uncomment for detailed syscall tracing
+        // if (!name.startsWith('debug:')) {
+        //     log('pid=%s %s(%s)', proc.id.slice(0, 8), name, summarizeArgs(args));
+        // }
+
         // =====================================================================
         // AUTH GATING
         // =====================================================================

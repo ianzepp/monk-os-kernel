@@ -19,6 +19,13 @@ export * from './types.js';
 export { respond } from './respond.js';
 export { syscall, call, collect, onSignal, onTick, toError } from './syscall.js';
 export type { SignalHandler, TickHandler } from './syscall.js';
+export {
+    debug,
+    debugEnabled,
+    debugPatterns,
+    debugInit,
+} from './debug.js';
+export type { DebugLogger } from './debug.js';
 
 // =============================================================================
 // CONSTANTS
@@ -571,71 +578,6 @@ export function access(path: string, acl?: Grant[] | null): Promise<Grant[] | vo
  */
 export function symlink(target: string, linkPath: string): Promise<void> {
     return call<void>('file:symlink', target, linkPath);
-}
-
-// =============================================================================
-// DEBUG OUTPUT
-// =============================================================================
-
-/**
- * UDP port fd for debug messages.
- * Lazily created on first debug() call.
- */
-let debugPortFd: number | null = null;
-let debugPortPending: Promise<number> | null = null;
-
-const DEBUG_ADDRESS = '127.0.0.1:9999';
-
-/**
- * Get or create the debug UDP port.
- */
-async function getDebugPort(): Promise<number> {
-    if (debugPortFd !== null) {
-        return debugPortFd;
-    }
-
-    if (debugPortPending) {
-        return debugPortPending;
-    }
-
-    debugPortPending = call<number>('port:create', 'udp:bind', { port: 0 });
-    debugPortFd = await debugPortPending;
-    debugPortPending = null;
-
-    return debugPortFd;
-}
-
-/**
- * Path to the system log file.
- */
-const SYSLOG_PATH = '/var/log/syslog';
-
-/**
- * Send a debug message to the external monitor (UDP port 9999) and syslog.
- *
- * Uses the kernel's UDP port facility to send messages that can be
- * received by `bun run monitor`. Also appends to /var/log/syslog for
- * persistent logging.
- *
- * @param message - Debug message to send
- */
-export async function debug(message: string): Promise<void> {
-    const fd = await getDebugPort();
-    const data = new TextEncoder().encode(message);
-
-    // Send to UDP monitor
-    await call<void>('port:send', fd, DEBUG_ADDRESS, data);
-
-    // Append to syslog (best effort - don't fail if file write fails)
-    try {
-        const timestamp = new Date().toISOString();
-        const logLine = `${timestamp} ${message}\n`;
-
-        await call<void>('file:append', SYSLOG_PATH, logLine);
-    }
-    catch {
-        // Ignore syslog write failures (e.g., /var/log doesn't exist yet)
-    }
 }
 
 // =============================================================================

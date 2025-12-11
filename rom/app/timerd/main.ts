@@ -129,15 +129,15 @@ export default async function main(): Promise<void> {
     await subscribeTicks();
     await println('timerd: subscribed to kernel ticks');
 
-    // Tick handler - check timers every second
+    // Tick handler - check timers every 60 seconds
     onTick(async (_dt, _now, seq) => {
         if (!running) {
             return;
         }
 
-        // Heartbeat every 60 ticks
-        if (seq % 60 === 0) {
-            await println(`timerd: heartbeat tick=${seq}`);
+        // Only poll every 60 ticks (once per minute)
+        if (seq % 60 !== 0) {
+            return;
         }
 
         const now = new Date().toISOString();
