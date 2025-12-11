@@ -1,12 +1,9 @@
 /**
- * DdlCreateField Observer - SQLite Implementation
+ * DdlCreateFieldSqlite Observer
  *
- * ARCHITECTURE OVERVIEW
- * =====================
  * Adds a column to an existing SQLite table when a record is inserted into
- * the 'fields' table. This is the SQLite-specific implementation.
- *
- * See 10-ddl-create-field.ts for the base class with shared documentation.
+ * the 'fields' table. Runs in Ring 6 (Post-Database) after the field metadata
+ * has been persisted.
  *
  * SQLITE TYPE MAPPING
  * ===================
@@ -19,34 +16,59 @@
  * @module ems/ring/6/ddl-create-field-sqlite
  */
 
-import { DdlCreateFieldBase } from './10-ddl-create-field.js';
+import { BaseObserver } from '../../observers/base-observer.js';
+import type { ObserverContext } from '../../observers/interfaces.js';
+import { ObserverRing, type OperationType } from '../../observers/types.js';
+import { EOBSSYS } from '../../observers/errors.js';
 
-// =============================================================================
-// SQLITE IMPLEMENTATION
-// =============================================================================
-
-/**
- * SQLite-specific DDL for column creation.
- */
-export class DdlCreateFieldSqlite extends DdlCreateFieldBase {
+export class DdlCreateFieldSqlite extends BaseObserver {
     readonly name = 'DdlCreateFieldSqlite';
-    readonly dialect = 'sqlite' as const;
+    override readonly dialect = 'sqlite' as const;
+    readonly ring = ObserverRing.PostDatabase;
+    readonly priority = 10;
+    readonly operations: readonly OperationType[] = ['create'];
+    override readonly models: readonly string[] = ['fields'];
+
+    async execute(context: ObserverContext): Promise<void> {
+        const { system, record } = context;
+        const modelName = record.get('model_name') as string;
+        const fieldName = record.get('field_name') as string;
+        const fieldType = record.get('type') as string;
+
+        if (!modelName || !fieldName) {
+            throw new EOBSSYS('Cannot add column: model_name or field_name is missing');
+        }
+
+        const tableName = modelName.replace(/\./g, '_');
+        const sqlType = this.mapType(fieldType);
+        const sql = `ALTER TABLE ${tableName} ADD COLUMN ${fieldName} ${sqlType}`;
+
+        try {
+            await system.db.exec(sql);
+        }
+        catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+
+            // Ignore "duplicate column" errors - column already exists
+            if (message.includes('duplicate column')) {
+                return;
+            }
+
+            throw new EOBSSYS(`ALTER TABLE ADD COLUMN failed for '${modelName}.${fieldName}': ${message}`);
+        }
+    }
 
     /**
      * Map field type to SQLite type affinity.
-     *
-     * WHY type affinity: SQLite doesn't enforce types strictly.
-     * Any column can hold any value, but affinity determines
-     * storage preference and comparison behavior.
      */
-    protected mapType(type: string): string {
+    private mapType(type: string): string {
         switch (type) {
             case 'integer':
                 return 'INTEGER';
             case 'numeric':
                 return 'REAL';
             case 'boolean':
-                return 'INTEGER'; // 0/1
+                return 'INTEGER';
             case 'binary':
                 return 'BLOB';
             case 'text':
@@ -57,13 +79,6 @@ export class DdlCreateFieldSqlite extends DdlCreateFieldBase {
             default:
                 return 'TEXT';
         }
-    }
-
-    /**
-     * Detect duplicate column error from SQLite.
-     */
-    protected isDuplicateColumnError(message: string): boolean {
-        return message.includes('duplicate column');
     }
 }
 

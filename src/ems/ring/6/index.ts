@@ -14,10 +14,6 @@
  * @module ems/ring/6
  */
 
-// Base classes (for extension)
-export { DdlCreateModelBase } from './10-ddl-create-model.js';
-export { DdlCreateFieldBase } from './10-ddl-create-field.js';
-
 // SQLite implementations
 export { DdlCreateModelSqlite } from './10-ddl-create-model.sqlite.js';
 export { DdlCreateFieldSqlite } from './10-ddl-create-field.sqlite.js';

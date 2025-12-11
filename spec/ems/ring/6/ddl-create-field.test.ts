@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'bun:test';
-import { DdlCreateField } from '@src/ems/ring/6/index.js';
+import { DdlCreateFieldSqlite } from '@src/ems/ring/6/index.js';
 import { ObserverRing, EOBSSYS } from '@src/ems/observers/index.js';
 import type {
     ObserverContext,
@@ -141,18 +141,18 @@ function createContext(
 // DDL CREATE FIELD TESTS
 // =============================================================================
 
-describe('DdlCreateField', () => {
-    let observer: DdlCreateField;
+describe('DdlCreateFieldSqlite', () => {
+    let observer: DdlCreateFieldSqlite;
     let mockDb: ReturnType<typeof createMockDatabase>;
 
     beforeEach(() => {
-        observer = new DdlCreateField();
+        observer = new DdlCreateFieldSqlite();
         mockDb = createMockDatabase();
     });
 
     describe('configuration', () => {
         it('should have correct name', () => {
-            expect(observer.name).toBe('DdlCreateField');
+            expect(observer.name).toBe('DdlCreateFieldSqlite');
         });
 
         it('should be in Ring 6 (PostDatabase)', () => {

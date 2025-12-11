@@ -1,46 +1,44 @@
 /**
- * DdlCreateModel Observer - PostgreSQL Implementation
+ * DdlCreateModelPostgres Observer
  *
- * ARCHITECTURE OVERVIEW
- * =====================
  * Creates a new PostgreSQL table when a record is inserted into the 'models' table.
- * This is the PostgreSQL-specific implementation that generates PostgreSQL DDL syntax.
- *
- * See 10-ddl-create-model.ts for the base class with shared documentation.
+ * Runs in Ring 6 (Post-Database) after the model metadata has been persisted.
  *
  * POSTGRESQL-SPECIFIC DDL
  * =======================
  * - UUID: gen_random_uuid()::text
  * - Timestamps: TIMESTAMPTZ with now() default
- * - Booleans: native BOOLEAN type
  *
  * @module ems/ring/6/ddl-create-model-postgres
  */
 
-import { DdlCreateModelBase } from './10-ddl-create-model.js';
+import { BaseObserver } from '../../observers/base-observer.js';
+import type { ObserverContext } from '../../observers/interfaces.js';
+import { ObserverRing, type OperationType } from '../../observers/types.js';
+import { EOBSSYS } from '../../observers/errors.js';
 
-// =============================================================================
-// POSTGRESQL IMPLEMENTATION
-// =============================================================================
-
-/**
- * PostgreSQL-specific DDL for model table creation.
- */
-export class DdlCreateModelPostgres extends DdlCreateModelBase {
+export class DdlCreateModelPostgres extends BaseObserver {
     readonly name = 'DdlCreateModelPostgres';
-    readonly dialect = 'postgres' as const;
+    override readonly dialect = 'postgres' as const;
+    readonly ring = ObserverRing.PostDatabase;
+    readonly priority = 10;
+    readonly operations: readonly OperationType[] = ['create'];
+    override readonly models: readonly string[] = ['models'];
 
-    /**
-     * Build PostgreSQL CREATE TABLE statement.
-     *
-     * WHY TIMESTAMPTZ: Stores timezone-aware timestamps, avoids
-     * ambiguity when servers are in different timezones.
-     *
-     * WHY gen_random_uuid()::text: Generates UUID and casts to text
-     * for consistency with the id column type.
-     */
-    protected buildCreateTable(tableName: string): string {
-        return `
+    async execute(context: ObserverContext): Promise<void> {
+        const { system, record } = context;
+        const modelName = record.get('model_name') as string;
+
+        if (!modelName) {
+            throw new EOBSSYS('Cannot create table: model_name is missing');
+        }
+
+        // WHY: PostgreSQL interprets 'ai.request' as schema.table
+        const tableName = modelName.replace(/\./g, '_');
+
+        // WHY TIMESTAMPTZ: Stores timezone-aware timestamps.
+        // WHY gen_random_uuid()::text: Generates UUID, casts to text for consistency.
+        const sql = `
             CREATE TABLE IF NOT EXISTS ${tableName} (
                 id          TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
                 created_at  TIMESTAMPTZ DEFAULT now(),
@@ -49,6 +47,14 @@ export class DdlCreateModelPostgres extends DdlCreateModelBase {
                 expired_at  TIMESTAMPTZ
             )
         `;
+
+        try {
+            await system.db.exec(sql);
+        }
+        catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            throw new EOBSSYS(`CREATE TABLE failed for '${modelName}': ${message}`);
+        }
     }
 }
 
