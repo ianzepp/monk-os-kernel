@@ -136,6 +136,7 @@ export default async function main(): Promise<void> {
     if (parsed.flags.help) {
         await println(HELP_TEXT);
         await send(1, respond.done());
+
         return exit(EXIT_SAME);
     }
 
@@ -150,12 +151,15 @@ export default async function main(): Promise<void> {
     // Parse context count
     if (parsed.flags.unified !== undefined && parsed.flags.unified !== true) {
         const ctx = parseInt(parsed.flags.unified as string, 10);
+
         if (!isNaN(ctx) && ctx >= 0) {
             options.context = ctx;
         }
     }
+
     if (parsed.flags.U !== undefined) {
         const ctx = parseInt(parsed.flags.U as string, 10);
+
         if (!isNaN(ctx) && ctx >= 0) {
             options.context = ctx;
         }
@@ -170,6 +174,7 @@ export default async function main(): Promise<void> {
     if (parsed.positional.length !== 2) {
         await eprintln('diff: missing operand');
         await eprintln('Try \'diff --help\' for more information.');
+
         return exit(EXIT_TROUBLE);
     }
 
@@ -190,6 +195,7 @@ export default async function main(): Promise<void> {
         if (lines1.length > 0 && lines1[lines1.length - 1] === '') {
             lines1.pop();
         }
+
         if (lines2.length > 0 && lines2[lines2.length - 1] === '') {
             lines2.pop();
         }
@@ -199,7 +205,9 @@ export default async function main(): Promise<void> {
             if (options.reportIdentical) {
                 await println(`Files ${file1} and ${file2} are identical`);
             }
+
             await send(1, respond.done());
+
             return exit(EXIT_SAME);
         }
 
@@ -207,6 +215,7 @@ export default async function main(): Promise<void> {
         if (options.brief) {
             await println(`Files ${file1} and ${file2} differ`);
             await send(1, respond.done());
+
             return exit(EXIT_DIFFERENT);
         }
 
@@ -234,10 +243,12 @@ export default async function main(): Promise<void> {
         }
 
         await send(1, respond.done());
+
         return exit(EXIT_DIFFERENT);
     }
     catch (err) {
         await eprintln(`diff: ${formatError(err)}`);
+
         return exit(EXIT_TROUBLE);
     }
 }
@@ -256,6 +267,7 @@ function computeDiff(oldLines: string[], newLines: string[]): DiffEdit[] {
 
     // Compute LCS length table using dynamic programming
     const lcs: number[][] = Array(m + 1);
+
     for (let i = 0; i <= m; i++) {
         lcs[i] = Array(n + 1).fill(0);
     }
@@ -333,6 +345,7 @@ function buildHunks(edits: DiffEdit[], oldLines: string[], newLines: string[], c
             if (currentHunk === null) {
                 // Look ahead to see if there are changes coming within context range
                 let hasChangesAhead = false;
+
                 for (let j = i + 1; j < Math.min(i + 1 + contextLines, edits.length); j++) {
                     if (edits[j]!.type !== 'keep') {
                         hasChangesAhead = true;
@@ -362,6 +375,7 @@ function buildHunks(edits: DiffEdit[], oldLines: string[], newLines: string[], c
 
                 // Check if we should close the hunk (no more changes within context)
                 let hasChangesAhead = false;
+
                 for (let j = i + 1; j < Math.min(i + 1 + contextLines + 1, edits.length); j++) {
                     if (edits[j]!.type !== 'keep') {
                         hasChangesAhead = true;
@@ -383,6 +397,7 @@ function buildHunks(edits: DiffEdit[], oldLines: string[], newLines: string[], c
             if (currentHunk === null) {
                 // Start new hunk with preceding context
                 const contextStart = Math.max(0, oldIdx - contextLines);
+
                 currentHunk = {
                     oldStart: contextStart + 1,
                     oldCount: 0,
@@ -412,6 +427,7 @@ function buildHunks(edits: DiffEdit[], oldLines: string[], newLines: string[], c
             if (currentHunk === null) {
                 // Start new hunk with preceding context
                 const contextStart = Math.max(0, newIdx - contextLines);
+
                 currentHunk = {
                     oldStart: oldIdx + 1,
                     oldCount: 0,

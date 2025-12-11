@@ -199,6 +199,7 @@ export class TestOS extends BaseOS {
     async init(opts?: TestInitOpts): Promise<void> {
         // Default to full init if no layers specified
         const layers = opts?.layers ?? ['hal', 'ems', 'auth', 'vfs', 'kernel', 'dispatcher', 'gateway'];
+
         this.initLayers = layers;
 
         // Cascade dependencies: gateway -> dispatcher -> kernel -> vfs -> auth -> ems -> hal

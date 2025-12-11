@@ -300,6 +300,7 @@ export class SqliteDialect implements DatabaseDialect {
             if (!Array.isArray(value)) {
                 return JSON.stringify([value]);
             }
+
             return JSON.stringify(value);
         }
 
@@ -315,6 +316,7 @@ export class SqliteDialect implements DatabaseDialect {
                 if (value instanceof Date) {
                     return value.toISOString();
                 }
+
                 return value;
 
             default:
@@ -332,12 +334,14 @@ export class SqliteDialect implements DatabaseDialect {
             if (typeof value === 'string') {
                 try {
                     const parsed = JSON.parse(value);
+
                     return Array.isArray(parsed) ? parsed : [parsed];
                 }
                 catch {
                     return [value];
                 }
             }
+
             return Array.isArray(value) ? value : [value];
         }
 
@@ -360,6 +364,7 @@ export class SqliteDialect implements DatabaseDialect {
                         return value;
                     }
                 }
+
                 return value;
 
             default:
@@ -432,6 +437,7 @@ export class PostgresDialect implements DatabaseDialect {
     sqlType(fieldType: string): string {
         if (this.isArrayType(fieldType)) {
             const base = this.sqlType(this.baseType(fieldType));
+
             return `${base}[]`;
         }
 
@@ -479,6 +485,7 @@ export class PostgresDialect implements DatabaseDialect {
             if (!Array.isArray(value)) {
                 return [value];
             }
+
             return value;
         }
 

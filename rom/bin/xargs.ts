@@ -118,6 +118,7 @@ export default async function main(): Promise<void> {
     if (parsed.flags.help) {
         await println(HELP_TEXT);
         await send(1, respond.done());
+
         return exit(EXIT_SUCCESS);
     }
 
@@ -131,6 +132,7 @@ export default async function main(): Promise<void> {
 
     if (parsed.flags.maxArgs && isNaN(maxArgsPerCommand)) {
         await eprintln(`xargs: invalid number: ${parsed.flags.maxArgs}`);
+
         return exit(EXIT_FAILURE);
     }
 
@@ -144,6 +146,7 @@ export default async function main(): Promise<void> {
     if (items.length === 0) {
         // No input: don't run command (GNU xargs behavior)
         await send(1, respond.done());
+
         return exit(EXIT_SUCCESS);
     }
 
@@ -159,6 +162,7 @@ export default async function main(): Promise<void> {
             );
 
             const code = await executeCommand(command, cmdArgs, verbose);
+
             if (code !== 0) {
                 hadError = true;
                 exitCode = mapExitCode(code);
@@ -172,6 +176,7 @@ export default async function main(): Promise<void> {
             const cmdArgs = [...initialArgs, ...chunk];
 
             const code = await executeCommand(command, cmdArgs, verbose);
+
             if (code !== 0) {
                 hadError = true;
                 exitCode = mapExitCode(code);
@@ -180,6 +185,7 @@ export default async function main(): Promise<void> {
     }
 
     await send(1, respond.done());
+
     return exit(hadError ? exitCode : EXIT_SUCCESS);
 }
 
@@ -197,6 +203,7 @@ async function collectItems(nullDelimited: boolean): Promise<string[]> {
     for await (const msg of recv(0)) {
         if (msg.op === 'item') {
             const text = (msg.data as { text?: string }).text ?? '';
+
             buffer += text;
         }
     }
@@ -204,15 +211,18 @@ async function collectItems(nullDelimited: boolean): Promise<string[]> {
     if (nullDelimited) {
         // Split by null bytes
         const parts = buffer.split('\0');
+
         // Remove trailing empty string if buffer ended with null
         if (parts[parts.length - 1] === '') {
             parts.pop();
         }
+
         items.push(...parts.filter(s => s.length > 0));
     }
     else {
         // Split by whitespace (spaces, tabs, newlines)
         const parts = buffer.split(/\s+/);
+
         items.push(...parts.filter(s => s.length > 0));
     }
 
@@ -234,6 +244,7 @@ async function executeCommand(
 
     // Spawn the command
     let pid: number;
+
     try {
         pid = await spawn(`/bin/${command}.ts`, {
             args: [command, ...cmdArgs],
@@ -241,21 +252,27 @@ async function executeCommand(
     }
     catch (err) {
         const msg = formatError(err);
+
         if (msg.includes('not found') || msg.includes('ENOENT')) {
             await eprintln(`xargs: ${command}: command not found`);
+
             return EXIT_NOT_FOUND;
         }
+
         await eprintln(`xargs: ${command}: ${msg}`);
+
         return EXIT_NOT_EXECUTABLE;
     }
 
     // Wait for command to complete
     try {
         const status = await wait(pid);
+
         return status.code;
     }
     catch (err) {
         await eprintln(`xargs: ${command}: ${formatError(err)}`);
+
         return EXIT_FAILURE;
     }
 }
@@ -267,17 +284,22 @@ function mapExitCode(code: number): number {
     if (code === 0) {
         return EXIT_SUCCESS;
     }
+
     if (code > 128) {
         return EXIT_KILLED; // Killed by signal
     }
+
     if (code >= 1 && code <= 125) {
         return EXIT_COMMAND_ERROR;
     }
+
     if (code === 126) {
         return EXIT_NOT_EXECUTABLE;
     }
+
     if (code === 127) {
         return EXIT_NOT_FOUND;
     }
+
     return EXIT_COMMAND_ERROR;
 }

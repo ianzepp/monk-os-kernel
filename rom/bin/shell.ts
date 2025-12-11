@@ -347,6 +347,7 @@ async function builtinExit(state: ShellState, args: string[]): Promise<number> {
 async function builtinSource(state: ShellState, args: string[]): Promise<number> {
     if (args.length === 0) {
         await eprintln('source: missing file argument');
+
         return 1;
     }
 
@@ -360,7 +361,9 @@ async function builtinSource(state: ShellState, args: string[]): Promise<number>
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         await eprintln(`source: ${scriptPath}: ${msg}`);
+
         return 1;
     }
 
@@ -426,8 +429,10 @@ async function builtinTest(state: ShellState, args: string[], command: string): 
     if (command === '[') {
         if (args.length === 0 || args[args.length - 1] !== ']') {
             await eprintln('[: missing ]');
+
             return 2;
         }
+
         // Remove the closing ']' from args
         args = args.slice(0, -1);
     }
@@ -442,7 +447,9 @@ async function builtinTest(state: ShellState, args: string[], command: string): 
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         await eprintln(`test: ${msg}`);
+
         return 2;
     }
 }
@@ -474,12 +481,14 @@ async function evaluateTestExpr(state: ShellState, args: string[]): Promise<bool
     // Two arguments: unary operators
     if (args.length === 2) {
         const [op, operand] = args;
+
         return evaluateUnaryTest(state, op!, operand!);
     }
 
     // Three arguments: binary operators
     if (args.length === 3) {
         const [left, op, right] = args;
+
         return evaluateBinaryTest(left!, op!, right!);
     }
 
@@ -502,8 +511,10 @@ async function evaluateUnaryTest(state: ShellState, op: string, operand: string)
         case '-e':
         case '-a': { // -a is deprecated but still used
             const path = resolvePath(state.cwd, operand);
+
             try {
                 await stat(path);
+
                 return true;
             }
             catch {
@@ -513,8 +524,10 @@ async function evaluateUnaryTest(state: ShellState, op: string, operand: string)
 
         case '-f': {
             const path = resolvePath(state.cwd, operand);
+
             try {
                 const info = await stat(path);
+
                 return info.model === 'file';
             }
             catch {
@@ -524,8 +537,10 @@ async function evaluateUnaryTest(state: ShellState, op: string, operand: string)
 
         case '-d': {
             const path = resolvePath(state.cwd, operand);
+
             try {
                 const info = await stat(path);
+
                 return info.model === 'folder';
             }
             catch {
@@ -535,8 +550,10 @@ async function evaluateUnaryTest(state: ShellState, op: string, operand: string)
 
         case '-s': {
             const path = resolvePath(state.cwd, operand);
+
             try {
                 const info = await stat(path);
+
                 return info.size > 0;
             }
             catch {
@@ -548,8 +565,10 @@ async function evaluateUnaryTest(state: ShellState, op: string, operand: string)
         case '-h': {
             // Symlink test
             const path = resolvePath(state.cwd, operand);
+
             try {
                 const info = await stat(path);
+
                 return info.model === 'link';
             }
             catch {
@@ -578,49 +597,66 @@ function evaluateBinaryTest(left: string, op: string, right: string): boolean {
         case '-eq': {
             const l = parseInt(left, 10);
             const r = parseInt(right, 10);
+
             if (isNaN(l) || isNaN(r)) {
                 throw new Error(`integer expression expected: ${left} or ${right}`);
             }
+
             return l === r;
         }
+
         case '-ne': {
             const l = parseInt(left, 10);
             const r = parseInt(right, 10);
+
             if (isNaN(l) || isNaN(r)) {
                 throw new Error(`integer expression expected: ${left} or ${right}`);
             }
+
             return l !== r;
         }
+
         case '-lt': {
             const l = parseInt(left, 10);
             const r = parseInt(right, 10);
+
             if (isNaN(l) || isNaN(r)) {
                 throw new Error(`integer expression expected: ${left} or ${right}`);
             }
+
             return l < r;
         }
+
         case '-le': {
             const l = parseInt(left, 10);
             const r = parseInt(right, 10);
+
             if (isNaN(l) || isNaN(r)) {
                 throw new Error(`integer expression expected: ${left} or ${right}`);
             }
+
             return l <= r;
         }
+
         case '-gt': {
             const l = parseInt(left, 10);
             const r = parseInt(right, 10);
+
             if (isNaN(l) || isNaN(r)) {
                 throw new Error(`integer expression expected: ${left} or ${right}`);
             }
+
             return l > r;
         }
+
         case '-ge': {
             const l = parseInt(left, 10);
             const r = parseInt(right, 10);
+
             if (isNaN(l) || isNaN(r)) {
                 throw new Error(`integer expression expected: ${left} or ${right}`);
             }
+
             return l >= r;
         }
 
@@ -651,8 +687,10 @@ async function builtinRead(state: ShellState, args: string[]): Promise<number> {
 
     // Parse arguments
     let i = 0;
+
     while (i < args.length) {
         const arg = args[i];
+
         if (arg === '-r') {
             rawMode = true;
         }
@@ -662,6 +700,7 @@ async function builtinRead(state: ShellState, args: string[]): Promise<number> {
         else if (arg && !arg.startsWith('-')) {
             varNames.push(arg);
         }
+
         i++;
     }
 
@@ -685,6 +724,7 @@ async function builtinRead(state: ShellState, args: string[]): Promise<number> {
 
     // Process line (handle backslashes unless -r)
     let processedLine = line;
+
     if (!rawMode) {
         // Remove trailing backslash-newline continuation
         processedLine = processedLine.replace(/\\$/g, '');
@@ -699,6 +739,7 @@ async function builtinRead(state: ShellState, args: string[]): Promise<number> {
     // If fewer parts than variables, remaining vars are empty
     for (let j = 0; j < varNames.length; j++) {
         const varName = varNames[j]!;
+
         if (j < parts.length - 1) {
             state.env[varName] = parts[j] ?? '';
         }
@@ -729,12 +770,20 @@ function splitByIFS(str: string, ifs: string): string[] {
         if ('/.*+?^${}()|[]\\'.includes(c)) {
             return '\\' + c;
         }
-        if (c === '\t') return '\\t';
-        if (c === '\n') return '\\n';
+
+        if (c === '\t') {
+            return '\\t';
+        }
+
+        if (c === '\n') {
+            return '\\n';
+        }
+
         return c;
     }).join('');
 
     const regex = new RegExp(`[${ifsChars}]+`);
+
     return str.trim().split(regex).filter(s => s !== '');
 }
 
@@ -1303,6 +1352,7 @@ async function executeLineNoHistory(state: ShellState, line: string): Promise<nu
     // Handle background execution
     if (parsed.background) {
         await eprintln('shell: background execution not yet implemented');
+
         return 1;
     }
 

@@ -123,9 +123,11 @@ const ARG_SPECS = {
 function randomString(length: number): string {
     const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     let result = '';
+
     for (let i = 0; i < length; i++) {
         result += chars.charAt(Math.floor(Math.random() * chars.length));
     }
+
     return result;
 }
 
@@ -135,9 +137,11 @@ function randomString(length: number): string {
  */
 function validateTemplate(template: string): number {
     const match = template.match(/X+$/);
+
     if (!match || match[0].length < 3) {
         return -1;
     }
+
     return match[0].length;
 }
 
@@ -147,6 +151,7 @@ function validateTemplate(template: string): number {
 function fillTemplate(template: string, xCount: number): string {
     const prefix = template.slice(0, -xCount);
     const suffix = randomString(xCount);
+
     return prefix + suffix;
 }
 
@@ -156,6 +161,7 @@ function fillTemplate(template: string, xCount: number): string {
 async function pathExists(path: string): Promise<boolean> {
     try {
         await stat(path);
+
         return true;
     }
     catch {
@@ -174,6 +180,7 @@ export default async function main(): Promise<void> {
     if (parsed.flags.help) {
         await println(HELP_TEXT);
         await send(1, respond.done());
+
         return exit(EXIT_SUCCESS);
     }
 
@@ -181,7 +188,9 @@ export default async function main(): Promise<void> {
         for (const err of parsed.errors) {
             await eprintln(`mktemp: ${err}`);
         }
+
         await send(1, respond.done());
+
         return exit(EXIT_FAILURE);
     }
 
@@ -209,11 +218,14 @@ export default async function main(): Promise<void> {
 
     // Validate template
     const xCount = validateTemplate(template);
+
     if (xCount === -1) {
         if (!isQuiet) {
             await eprintln('mktemp: too few X\'s in template');
         }
+
         await send(1, respond.done());
+
         return exit(EXIT_FAILURE);
     }
 
@@ -221,6 +233,7 @@ export default async function main(): Promise<void> {
 
     // Try to create unique path (max 10000 attempts to avoid infinite loop)
     const maxAttempts = 10000;
+
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
         const path = resolvePath(cwd, fillTemplate(template, xCount));
 
@@ -240,6 +253,7 @@ export default async function main(): Promise<void> {
                 }
                 else {
                     const fd = await open(path, { write: true, create: true });
+
                     await close(fd);
                 }
             }
@@ -247,12 +261,15 @@ export default async function main(): Promise<void> {
                 if (!isQuiet) {
                     await eprintln(`mktemp: cannot create ${isDirectory ? 'directory' : 'file'}: ${formatError(err)}`);
                 }
+
                 await send(1, respond.done());
+
                 return exit(EXIT_FAILURE);
             }
         }
 
         await send(1, respond.done());
+
         return exit(EXIT_SUCCESS);
     }
 
@@ -260,6 +277,8 @@ export default async function main(): Promise<void> {
     if (!isQuiet) {
         await eprintln('mktemp: failed to create unique name');
     }
+
     await send(1, respond.done());
+
     return exit(EXIT_FAILURE);
 }

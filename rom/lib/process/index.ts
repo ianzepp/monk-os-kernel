@@ -464,6 +464,7 @@ export function getenv(name?: string): Promise<string | undefined | Record<strin
     if (name === undefined) {
         return call<Record<string, string>>('proc:getenv');
     }
+
     return call<string | undefined>('proc:getenv', name);
 }
 

@@ -205,6 +205,7 @@ export class SqlUpdate extends BaseObserver {
 
         // WHERE clause placeholder is after all SET placeholders
         const whereClause = `id = ${dialect.placeholder(columns.length + 1)}`;
+
         values.push(id);
 
         const sql = `UPDATE ${tableName} SET ${setClauses} WHERE ${whereClause}`;

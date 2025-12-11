@@ -128,6 +128,7 @@ export default async function main(): Promise<void> {
     if (parsed.flags.help) {
         await println(HELP_TEXT);
         await send(1, respond.done());
+
         return exit(0);
     }
 
@@ -135,32 +136,39 @@ export default async function main(): Promise<void> {
     if (parsed.positional.length < 2) {
         await eprintln('timeout: missing operand');
         await eprintln('Try \'timeout --help\' for more information.');
+
         return exit(EXIT_FAILURE);
     }
 
     // Parse duration
     const durationArg = parsed.positional[0]!;
     const durationMs = parseDuration(durationArg);
+
     if (durationMs === null || durationMs < 0) {
         await eprintln(`timeout: invalid duration: ${durationArg}`);
+
         return exit(EXIT_FAILURE);
     }
 
     // Parse kill-after duration
     let killAfterMs: number | null = null;
+
     if (parsed.flags.killAfter) {
         killAfterMs = parseDuration(String(parsed.flags.killAfter));
         if (killAfterMs === null || killAfterMs < 0) {
             await eprintln(`timeout: invalid kill-after duration: ${parsed.flags.killAfter}`);
+
             return exit(EXIT_FAILURE);
         }
     }
 
     // Parse signal
     let signal = 15; // SIGTERM
+
     if (parsed.flags.signal) {
         const sigArg = String(parsed.flags.signal).toUpperCase().replace(/^SIG/, '');
         const sigNum = parseInt(sigArg, 10);
+
         if (!isNaN(sigNum) && sigNum > 0 && sigNum < 32) {
             signal = sigNum;
         }
@@ -169,6 +177,7 @@ export default async function main(): Promise<void> {
         }
         else {
             await eprintln(`timeout: invalid signal: ${parsed.flags.signal}`);
+
             return exit(EXIT_FAILURE);
         }
     }
@@ -181,6 +190,7 @@ export default async function main(): Promise<void> {
 
     // Spawn the command
     let pid: number;
+
     try {
         pid = await spawn(`/bin/${command}.ts`, {
             args: [command, ...cmdArgs],
@@ -188,11 +198,15 @@ export default async function main(): Promise<void> {
     }
     catch (err) {
         const msg = formatError(err);
+
         if (msg.includes('not found') || msg.includes('ENOENT')) {
             await eprintln(`timeout: ${command}: command not found`);
+
             return exit(EXIT_NOT_FOUND);
         }
+
         await eprintln(`timeout: ${command}: ${msg}`);
+
         return exit(EXIT_NOT_EXECUTABLE);
     }
 
@@ -241,10 +255,12 @@ export default async function main(): Promise<void> {
         if (preserveStatus) {
             return exit(status.code);
         }
+
         return exit(killed ? EXIT_KILLED : EXIT_TIMEOUT);
     }
 
     // Command completed normally
     await send(1, respond.done());
+
     return exit(status.code);
 }

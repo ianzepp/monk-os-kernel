@@ -158,49 +158,66 @@ function evaluateBinary(left: string, op: string, right: string): boolean {
         case '-eq': {
             const l = parseInt(left, 10);
             const r = parseInt(right, 10);
+
             if (isNaN(l) || isNaN(r)) {
                 throw new Error('integer expression expected');
             }
+
             return l === r;
         }
+
         case '-ne': {
             const l = parseInt(left, 10);
             const r = parseInt(right, 10);
+
             if (isNaN(l) || isNaN(r)) {
                 throw new Error('integer expression expected');
             }
+
             return l !== r;
         }
+
         case '-lt': {
             const l = parseInt(left, 10);
             const r = parseInt(right, 10);
+
             if (isNaN(l) || isNaN(r)) {
                 throw new Error('integer expression expected');
             }
+
             return l < r;
         }
+
         case '-le': {
             const l = parseInt(left, 10);
             const r = parseInt(right, 10);
+
             if (isNaN(l) || isNaN(r)) {
                 throw new Error('integer expression expected');
             }
+
             return l <= r;
         }
+
         case '-gt': {
             const l = parseInt(left, 10);
             const r = parseInt(right, 10);
+
             if (isNaN(l) || isNaN(r)) {
                 throw new Error('integer expression expected');
             }
+
             return l > r;
         }
+
         case '-ge': {
             const l = parseInt(left, 10);
             const r = parseInt(right, 10);
+
             if (isNaN(l) || isNaN(r)) {
                 throw new Error('integer expression expected');
             }
+
             return l >= r;
         }
 
@@ -218,6 +235,7 @@ async function evaluateExpression(testArgs: string[], cwd: string): Promise<bool
         if (testArgs.length === 1) {
             throw new Error("missing argument after '!'");
         }
+
         return !(await evaluateExpression(testArgs.slice(1), cwd));
     }
 
@@ -229,12 +247,14 @@ async function evaluateExpression(testArgs: string[], cwd: string): Promise<bool
     // Two arguments: unary operators
     if (testArgs.length === 2) {
         const [op, operand] = testArgs;
+
         return evaluateUnary(op!, operand!, cwd);
     }
 
     // Three arguments: binary operators
     if (testArgs.length === 3) {
         const [left, op, right] = testArgs;
+
         return evaluateBinary(left!, op!, right!);
     }
 
@@ -266,11 +286,14 @@ export default async function main(): Promise<void> {
 
     try {
         const result = await evaluateExpression(testArgs, cwd);
+
         return exit(result ? EXIT_TRUE : EXIT_FALSE);
     }
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+
         await eprintln(`test: ${message}`);
+
         return exit(EXIT_ERROR);
     }
 }

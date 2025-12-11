@@ -38,12 +38,15 @@ function formatBytes(bytes: number, unit: Unit, human: boolean): string {
         if (bytes >= 1024 * 1024 * 1024) {
             return (bytes / (1024 * 1024 * 1024)).toFixed(1) + 'G';
         }
+
         if (bytes >= 1024 * 1024) {
             return (bytes / (1024 * 1024)).toFixed(1) + 'M';
         }
+
         if (bytes >= 1024) {
             return (bytes / 1024).toFixed(1) + 'K';
         }
+
         return bytes + 'B';
     }
 
@@ -70,6 +73,7 @@ export default async function main(): Promise<void> {
         switch (arg) {
             case '--help':
                 await println(HELP_TEXT);
+
                 return exit(0);
             case '-b':
                 unit = 'b';
@@ -108,6 +112,7 @@ export default async function main(): Promise<void> {
 
     // Output header
     const unitLabel = human ? '' : unit === 'b' ? ' (bytes)' : ` (${unit}i)`;
+
     await println(`              total        used        free`);
     await println(`Heap:   ${totalStr}${usedStr}${freeStr}`);
     await println(`RSS:    ${rssStr}`);
