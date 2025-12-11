@@ -6,16 +6,16 @@ This document describes the testing patterns used in the Monk OS codebase.
 
 ```
 BaseOS (abstract)
-├── OS        - Production boot (full linear sequence)
-└── TestOS    - Testing boot (flexible partial layers)
+├── OS        - Production init/boot (full linear sequence)
+└── TestOS    - Testing init/boot (flexible partial layers)
 ```
 
-- **OS**: Use for production behavior verification (full boot, init process)
-- **TestOS**: Use for most tests (partial boot, internal accessors)
+- **OS**: Use for production behavior verification (full init/boot)
+- **TestOS**: Use for most tests (partial init, internal accessors)
 
 ## TestOS: The Preferred Testing Tool
 
-TestOS provides flexible partial boot and direct subsystem access:
+TestOS provides flexible partial initialization and direct subsystem access:
 
 ```typescript
 import { TestOS } from '@src/os/test.js';
@@ -25,7 +25,7 @@ describe('MyFeature', () => {
 
     beforeEach(async () => {
         os = new TestOS();
-        await os.boot({ layers: ['dispatcher'] });  // Boot up to dispatcher layer
+        await os.init({ layers: ['dispatcher'] });  // Init up to dispatcher layer
     });
 
     afterEach(async () => {
@@ -45,9 +45,9 @@ describe('MyFeature', () => {
 });
 ```
 
-## Boot Layers
+## Init Layers
 
-TestOS supports partial boot via the `layers` option. Each layer cascades its dependencies:
+TestOS supports partial initialization via the `layers` option. Each layer cascades its dependencies:
 
 | Layer | Dependencies | What it provides |
 |-------|--------------|------------------|
@@ -55,15 +55,18 @@ TestOS supports partial boot via the `layers` option. Each layer cascades its de
 | `ems` | hal | Entity management system |
 | `auth` | hal, ems | Authentication |
 | `vfs` | hal, ems, auth | Virtual filesystem |
-| `kernel` | hal, ems, auth, vfs | Process management |
+| `kernel` | hal, ems, auth, vfs | Process management (with PID 1 placeholder) |
 | `dispatcher` | all above | Syscall routing |
 | `gateway` | all above | External socket interface |
 
 ```typescript
-// Boot only what you need
-await os.boot({ layers: ['vfs'] });     // Just HAL, EMS, Auth, VFS
-await os.boot({ layers: ['ems'] });     // Just HAL, EMS
-await os.boot({ layers: ['dispatcher'] }); // Full stack minus gateway
+// Init only what you need
+await os.init({ layers: ['vfs'] });        // Just HAL, EMS, Auth, VFS
+await os.init({ layers: ['ems'] });        // Just HAL, EMS
+await os.init({ layers: ['dispatcher'] }); // Full stack minus gateway
+
+// For backwards compatibility, boot() also accepts layers:
+await os.boot({ layers: ['dispatcher'] }); // Auto-calls init() first
 ```
 
 ## Internal Accessors
@@ -92,7 +95,7 @@ describe('VFS Syscalls', () => {
 
     beforeEach(async () => {
         os = new TestOS();
-        await os.boot({ layers: ['dispatcher'] });
+        await os.init({ layers: ['dispatcher'] });
     });
 
     afterEach(async () => {
@@ -134,7 +137,7 @@ const customHal = new BunHAL({ storage: { type: 'memory' } });
 await customHal.init();
 
 const os = new TestOS();
-await os.boot({ hal: customHal, layers: ['vfs'] });
+await os.init({ hal: customHal, layers: ['vfs'] });
 
 // customHal won't be shut down by os.shutdown()
 // (ownsHal = false when injected)
@@ -158,8 +161,8 @@ await loadVfsSchemaWithFileDevice(ems);
 
 Use `OS` (not `TestOS`) when:
 
-1. Testing full production boot sequence
-2. Testing init process behavior
+1. Testing full production init/boot sequence
+2. Testing service activation
 3. Testing ROM copy
 4. Testing gateway socket communication
 5. Testing process spawn with real scripts
@@ -167,12 +170,13 @@ Use `OS` (not `TestOS`) when:
 ```typescript
 import { OS } from '@src/index.js';
 
-it('should boot and spawn processes', async () => {
+it('should init and boot', async () => {
     const os = new OS({ storage: { type: 'memory' } });
+    await os.init();
+    // Can configure VFS here before boot
     await os.boot();
 
-    const pid = await os.spawn('/svc/init.ts');
-    expect(pid).toBeGreaterThan(0);
+    // Or just: await os.boot();  // auto-calls init()
 
     await os.shutdown();
 });
@@ -195,9 +199,10 @@ spec/
 
 ## Best Practices
 
-1. **Use TestOS by default** - Only use OS when testing production boot behavior
-2. **Boot minimal layers** - Faster tests, clearer dependencies
+1. **Use TestOS by default** - Only use OS when testing production init/boot behavior
+2. **Init minimal layers** - Faster tests, clearer dependencies
 3. **Use syscalls for behavior tests** - Tests the real dispatch chain
 4. **Use internal* for assertions** - Direct access for verification
 5. **Clean up in afterEach** - Always call `os.shutdown()`
 6. **Avoid mocks** - Real integration tests are more valuable
+7. **Most tests don't need boot()** - `init()` is sufficient for syscall testing

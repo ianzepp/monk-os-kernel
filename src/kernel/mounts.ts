@@ -142,7 +142,7 @@ export interface MountLoaderDeps {
     };
     loader: {
         setAliases(aliases: Record<string, string>): void;
-    };
+    } | null;
 }
 
 /**
@@ -244,7 +244,7 @@ export async function applyMount(deps: MountLoaderDeps, mount: MountDef): Promis
                 readonly: true,
             });
             // Store aliases for loader to use
-            if (mount.options?.aliases) {
+            if (mount.options?.aliases && loader) {
                 loader.setAliases(mount.options.aliases);
             }
 

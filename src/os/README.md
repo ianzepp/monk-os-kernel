@@ -1,6 +1,33 @@
 # OS Module
 
-The OS class is the main entry point for Monk OS. It provides a unified interface for booting, configuring, and interacting with the operating system.
+The OS class is the main entry point for Monk OS. It provides a unified interface for initializing, booting, configuring, and interacting with the operating system.
+
+## Lifecycle
+
+The OS has a two-phase startup: **init** (prepare subsystems) and **boot** (activate services).
+
+### Init Phase
+
+`init()` initializes all subsystems and creates a functional VFS/EMS that can be configured before services start:
+
+```typescript
+import { OS } from '@monk-api/os';
+
+const os = new OS({ storage: { type: 'sqlite', path: '.data/monk.db' } });
+
+await os.init();
+
+// After init(), VFS and EMS are fully functional
+// Configure before boot:
+await os.copy('./config', '/etc/myapp');
+// Write service configs, set up initial data, etc.
+
+await os.boot();  // Now activate services
+```
+
+### Boot Phase
+
+`boot()` activates services and starts the kernel tick. For backwards compatibility, calling `boot()` without `init()` will automatically call `init()` first.
 
 ## Boot Modes
 
@@ -17,23 +44,27 @@ const os = new OS({
     env: { MONK_PORT: '8080' }, // Gateway port (default: 7778)
 });
 
-// Blocks until SIGINT/SIGTERM (spawns /svc/init.ts by default)
+// Blocks until SIGINT/SIGTERM
 const exitCode = await os.exec();
-// or specify custom init: await os.exec({ main: '/app/server.ts' });
 process.exit(exitCode);
 ```
 
-### Library Mode (`boot`)
+### Library Mode (`init` + `boot`)
 
-Use when Monk OS is a component within your application. Returns immediately. By default, spawns `/svc/init.ts` as PID 1.
+Use when Monk OS is a component within your application. Returns immediately.
 
 ```typescript
 import { OS } from '@monk-api/os';
 
 const os = new OS({ storage: { type: 'memory' } });
 
+// Two-phase startup allows configuration between init and boot
+await os.init();
+// ... configure VFS, write files, etc. ...
 await os.boot();
-// or specify custom init: await os.boot({ main: '/app/my-init.ts' });
+
+// Or for simple cases, just boot (auto-calls init):
+// await os.boot();
 
 // Use the OS APIs...
 const content = await os.text('/etc/config.json');
@@ -220,61 +251,88 @@ interface OSConfig {
 }
 ```
 
-## Boot Options
+## Init and Boot Options
 
-The `boot()` method accepts optional configuration:
+### Init Options
 
 ```typescript
-interface BootOpts {
-    // Path to init script inside VFS (default: '/svc/init.ts')
-    main?: string;
-
-    // Enable kernel debug logging (overrides OSConfig.debug)
+interface InitOpts {
+    // Enable kernel debug logging
     debug?: boolean;
 
     // Path to ROM directory on host (overrides OSConfig.romPath, default: './rom')
     romPath?: string;
 }
 
-await os.boot({ main: '/app/server.ts', debug: true });
+await os.init({ debug: true });
+```
+
+### Boot Options
+
+```typescript
+interface BootOpts {
+    // Enable kernel debug logging (only applies if not set during init)
+    debug?: boolean;
+}
+
+await os.boot({ debug: true });
 ```
 
 ## State Machine
 
 ```
-[created] --boot()--> [booting] --success--> [booted]
-    |                     |                     |
-    |                     | failure             | shutdown()
-    |                     v                     v
-    |                 [failed]              [shutdown]
-    |                                           |
-    +-------------------------------------------+
-               (can boot again after shutdown)
+[created] --init()--> [initialized] --boot()--> [booted]
+    |                      |                       |
+    |                      | (can configure)       | shutdown()
+    |                      |                       v
+    |                      |                   [shutdown]
+    |                      |                       |
+    +----------------------+-----------------------+
+               (can init/boot again after shutdown)
 ```
 
-The OS can be booted multiple times over its lifetime. After shutdown, it returns to the created state and can be booted again.
+The OS has three main states:
+- **created**: Initial state after construction
+- **initialized**: Subsystems ready, VFS/EMS functional, services not yet active
+- **booted**: Services activated, system fully running
 
-## Boot Sequence
+After shutdown, it returns to the created state and can be initialized again.
+
+## Init Sequence
+
+`init()` performs these steps:
 
 1. **HAL** - Hardware abstraction layer (entropy, storage, network)
 2. **EMS** - Entity management system (database)
 3. **Auth** - Authentication subsystem (identity management)
 4. **LLM** - Language model inference (AI agents)
 5. **VFS** - Virtual filesystem
-6. **Standard directories** - /app, /bin, /ems, /etc, /home, /svc, /tmp, /usr, /var, /var/log, /vol
+6. **Standard directories** - /app, /bin, /ems, /etc, /home, /tmp, /usr, /var, /var/log, /vol
 7. **ROM copy** - Copy bundled userspace from host to VFS (skipped if persistent storage has content)
-8. **Kernel + Dispatcher** - Process management, syscall routing
-9. **Gateway** - External syscall interface (TCP socket on port 7778)
-10. **Init** - Spawn init process (PID 1, default: /svc/init.ts)
+8. **Load mounts** - Apply mounts from /etc/mounts.json
+9. **Kernel + Dispatcher** - Process management, syscall routing
+10. **Gateway** - External syscall interface (TCP socket on port 7778)
+11. **Kernel init** - Mount /proc, load pool config, load service definitions, create PID 1 placeholder (/bin/true)
 
-On boot failure, all partially initialized subsystems are cleaned up in reverse order.
+After init(), the system is ready for configuration. VFS and EMS are fully functional.
+
+On init failure, all partially initialized subsystems are cleaned up in reverse order.
+
+## Boot Sequence
+
+`boot()` performs these steps:
+
+1. **Activate services** - Start all services defined in /etc/services/
+2. **Start tick broadcaster** - Begin kernel tick for AI processes
+
+On boot failure, the init state remains valid (services may be partially activated).
 
 ## Shutdown Sequence
 
-When `shutdown()` is called, subsystems are torn down in reverse boot order:
+When `shutdown()` is called, subsystems are torn down in reverse init order:
 
 1. Gateway
-2. Kernel (terminates all processes)
+2. Kernel (terminates all processes, stops services, stops tick)
 3. Dispatcher
 4. VFS
 5. LLM
@@ -304,18 +362,23 @@ import { TestOS } from '@src/os/test.js';
 
 const os = new TestOS();
 
-// Partial boot - only VFS layer (faster tests)
-await os.boot({ layers: ['vfs'] });
+// Partial init - only VFS layer (faster tests)
+await os.init({ layers: ['vfs'] });
 
-// Full boot with init process
-await os.boot({
-    layers: ['kernel'],
-    skipInit: false,  // Spawn /svc/init.ts (default: true, skip for speed)
-    skipRom: false,   // Copy ROM files (default: true, skip for speed)
-});
+// Full init with all layers
+await os.init({ layers: ['dispatcher'] });
+
+// Init with ROM copy (default: skipped for speed)
+await os.init({ layers: ['kernel'], skipRom: false });
 
 // Inject existing HAL
-await os.boot({ hal: myHal, layers: ['vfs'] });
+await os.init({ hal: myHal, layers: ['vfs'] });
+
+// Boot to activate services (most tests don't need this)
+await os.boot({ skipServices: false });
+
+// For backwards compatibility, boot() with layers auto-calls init():
+await os.boot({ layers: ['dispatcher'] });  // Same as init() then boot()
 
 // Direct subsystem access for assertions
 const hal = os.internalHal;
@@ -362,12 +425,17 @@ const os = new OS({
     aliases: { '@app': '/vol/app' },
 });
 
+// Initialize subsystems
+await os.init();
+
+// Configure before boot (optional)
+await os.mount('host', './src', '/vol/app');
+await os.copy('./config.json', '/etc/myapp/config.json');
+
+// Boot to activate services
 await os.boot();
 
-// Mount host directory into VFS
-await os.mount('host', './src', '/vol/app');
-
-// Start services
+// Start additional services
 await os.service('start', 'httpd');
 await os.service('start', 'worker');
 

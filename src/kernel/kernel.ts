@@ -434,13 +434,24 @@ export class Kernel {
     readonly id: string;
 
     /**
+     * Initialized state flag.
+     *
+     * STATE MACHINE:
+     * - false: kernel not yet initialized (or shutdown complete)
+     * - true: kernel is initialized (init succeeded, PID 1 exists)
+     *
+     * INVARIANT: If initialized=true, PID 1 exists in process table
+     */
+    initialized = false;
+
+    /**
      * Boot state flag.
      *
      * STATE MACHINE:
      * - false: kernel not yet booted (or shutdown complete)
-     * - true: kernel is running (boot succeeded)
+     * - true: kernel is running (boot succeeded, services active)
      *
-     * INVARIANT: If booted=true, init process exists in process table
+     * INVARIANT: If booted=true, services are activated and tick is running
      */
     booted = false;
 
@@ -483,6 +494,86 @@ export class Kernel {
     }
 
     // =========================================================================
+    // LIFECYCLE: INIT
+    // =========================================================================
+
+    /**
+     * Initialize the kernel.
+     *
+     * INIT SEQUENCE:
+     * 1. Mount /proc (synthetic filesystem backed by ProcessTable)
+     * 2. Load worker pool configuration
+     * 3. Load service definitions (no activation)
+     * 4. Create PID 1 placeholder (/bin/true - exits immediately)
+     *
+     * After init(), the kernel is ready for configuration but no services
+     * are running. The OS can write config files to VFS, modify service
+     * definitions, or set environment variables before calling boot().
+     *
+     * INVARIANT: After init(), PID 1 exists (may be zombie if /bin/true exited).
+     *
+     * @param opts - Init options
+     * @throws EBUSY if already initialized
+     */
+    async init(opts?: { debug?: boolean }): Promise<void> {
+        // Guard against double init
+        if (this.initialized) {
+            throw new EBUSY('Kernel already initialized');
+        }
+
+        // Enable debug logging if requested
+        this.debugEnabled = opts?.debug ?? false;
+        printk(this, 'init', 'Starting kernel init sequence');
+
+        // ---------------------------------------------------------------------
+        // PHASE 1: PROC FILESYSTEM
+        // Mount /proc (synthetic filesystem backed by ProcessTable)
+        // ---------------------------------------------------------------------
+
+        printk(this, 'init', 'Mounting /proc');
+        this.vfs.mountProc(this.processes);
+
+        // ---------------------------------------------------------------------
+        // PHASE 2: POOL CONFIGURATION
+        // ---------------------------------------------------------------------
+
+        printk(this, 'init', 'Loading pool configuration');
+        await this.poolManager.loadConfig(this.vfs);
+
+        // ---------------------------------------------------------------------
+        // PHASE 3: SERVICE DEFINITIONS
+        // Load service definitions but don't activate them yet
+        // ---------------------------------------------------------------------
+
+        printk(this, 'init', 'Loading service definitions');
+        await loadServices(this);
+
+        // ---------------------------------------------------------------------
+        // PHASE 4: PID 1 PLACEHOLDER
+        // Create /bin/true as PID 1 - it exits immediately, becoming a zombie.
+        // This reserves the PID 1 slot and establishes the process table invariant.
+        // ---------------------------------------------------------------------
+
+        printk(this, 'init', 'Creating PID 1 placeholder (/bin/true)');
+        const placeholder = createProcess(this, {
+            cmd: '/bin/true',
+            env: {},
+            args: ['/bin/true'],
+        });
+
+        this.processes.register(placeholder);
+
+        // Setup stdio and spawn - /bin/true will exit(0) immediately
+        await setupInitStdio(this, placeholder);
+        placeholder.worker = await spawnWorker(this, placeholder, '/bin/true');
+        placeholder.state = 'running';
+
+        // Init complete
+        this.initialized = true;
+        printk(this, 'init', 'Kernel init complete');
+    }
+
+    // =========================================================================
     // LIFECYCLE: BOOT
     // =========================================================================
 
@@ -490,98 +581,48 @@ export class Kernel {
      * Boot the kernel.
      *
      * BOOT SEQUENCE:
-     * 1. Initialize VFS (creates root folder, /dev devices)
-     * 2. Create standard directories (/app, /bin, /etc, /home, /tmp, /usr, /var, /vol)
-     * 3. Copy ROM into VFS (bundled userspace code)
-     * 4. Load mount policy from /etc/mounts.policy.json
-     * 5. Load and apply mounts from /etc/mounts.json
-     * 6. Load worker pool configuration
-     * 7. Create init process (PID 1)
-     * 8. Load and activate services
-     * 9. Setup init stdio and start worker
+     * 1. Activate services
+     * 2. Start tick broadcaster
      *
-     * INVARIANT: After boot(), init process exists and is running.
+     * PRECONDITION: init() must be called first.
+     * INVARIANT: After boot(), services are active and tick is running.
      *
-     * @param env - Boot environment configuration
-     * @throws Error if already booted
+     * @throws EINVAL if not initialized
+     * @throws EBUSY if already booted
      */
-    async boot(env: BootEnv): Promise<void> {
+    async boot(): Promise<void> {
+        // Guard: must be initialized first
+        if (!this.initialized) {
+            throw new EINVAL('Kernel not initialized - call init() first');
+        }
+
         // Guard against double boot
         if (this.booted) {
             throw new EBUSY('Kernel already booted');
         }
 
-        // Enable debug logging if requested
-        this.debugEnabled = env.debug ?? false;
         printk(this, 'boot', 'Starting kernel boot sequence');
 
         // ---------------------------------------------------------------------
-        // PHASE 1: VFS INITIALIZATION
+        // PHASE 1: SERVICE ACTIVATION
+        // Activate all services that were loaded during init()
         // ---------------------------------------------------------------------
 
-        printk(this, 'boot', 'Initializing VFS');
-        await this.vfs.init();
+        printk(this, 'boot', 'Activating services');
+        const { activateService } = await import('@src/kernel/kernel/activate-service.js');
 
-        // Mount /proc (synthetic filesystem backed by ProcessTable)
-        printk(this, 'boot', 'Mounting /proc');
-        this.vfs.mountProc(this.processes);
-
-        // ---------------------------------------------------------------------
-        // PHASE 1.5: STANDARD DIRECTORY STRUCTURE
-        // Create all core directories defensively before anything else runs.
-        // This ensures a consistent filesystem layout regardless of ROM contents.
-        // ---------------------------------------------------------------------
-
-        printk(this, 'boot', 'Creating standard directory structure');
-        await this.createStandardDirectories();
+        for (const [name, def] of this.services) {
+            try {
+                await activateService(this, name, def);
+                printk(this, 'boot', `Activated service: ${name}`);
+            }
+            catch (err) {
+                printk(this, 'warn', `Failed to activate service ${name}: ${formatError(err)}`);
+            }
+        }
 
         // ---------------------------------------------------------------------
-        // PHASE 2: MOUNTS, POLICY, AND POOLS
-        // NOTE: ROM copy moved to OS.boot() - kernel shouldn't handle userspace
-        // ---------------------------------------------------------------------
-
-        printk(this, 'boot', 'Loading mounts');
-        await loadMounts({ vfs: this.vfs, hal: this.hal, loader: this.loader });
-
-        printk(this, 'boot', 'Loading pool configuration');
-        await this.poolManager.loadConfig(this.vfs);
-
-        // ---------------------------------------------------------------------
-        // PHASE 3: INIT PROCESS CREATION
-        // Init must be created first to be PID 1
-        // ---------------------------------------------------------------------
-
-        printk(this, 'boot', `Creating init process: ${env.initPath}`);
-        const init = createProcess(this, {
-            cmd: env.initPath,
-            env: env.env,
-            args: env.initArgs,
-        });
-
-        this.processes.register(init);
-
-        // ---------------------------------------------------------------------
-        // PHASE 4: SERVICE LOADING
-        // Services are loaded after init exists but before it starts
-        // NOTE: Services are registered but not auto-activated
-        // ---------------------------------------------------------------------
-
-        printk(this, 'boot', 'Loading services');
-        await loadServices(this);
-
-        // ---------------------------------------------------------------------
-        // PHASE 5: INIT STARTUP
-        // ---------------------------------------------------------------------
-
-        printk(this, 'boot', 'Setting up init stdio');
-        await setupInitStdio(this, init);
-
-        printk(this, 'boot', 'Starting init worker');
-        init.worker = await spawnWorker(this, init, env.initPath);
-        init.state = 'running';
-
-        // ---------------------------------------------------------------------
-        // PHASE 6: TICK BROADCASTER
+        // PHASE 2: TICK BROADCASTER
         // Start the kernel tick for AI processes (monks)
         // ---------------------------------------------------------------------
 
@@ -591,58 +632,6 @@ export class Kernel {
         // Boot complete
         this.booted = true;
         printk(this, 'boot', 'Kernel boot complete');
-    }
-
-    /**
-     * Create standard directory structure.
-     *
-     * FILESYSTEM HIERARCHY (inspired by FHS but simplified):
-     * ```
-     * /
-     * ├── app/    - Application data and state
-     * ├── bin/    - User commands (shell, utilities)
-     * ├── etc/    - System configuration (services, mounts, pools)
-     * ├── home/   - User home directories (per-user mounts)
-     * ├── tmp/    - Temporary files (cleared on reboot)
-     * ├── usr/    - Installed packages
-     * ├── var/    - Variable data
-     * │   └── log/  - Log files
-     * └── vol/    - Mounted volumes (tenant storage)
-     * ```
-     *
-     * WHY DEFENSIVE: Creating these early ensures:
-     * 1. ROM copy has directories to write into
-     * 2. Services have expected paths available
-     * 3. No race between directory creation and first use
-     * 4. Consistent layout regardless of ROM contents
-     */
-    private async createStandardDirectories(): Promise<void> {
-        const standardDirs = [
-            '/app',      // Application data and state
-            '/bin',      // User commands
-            '/etc',      // System configuration
-            '/home',     // User home directories
-            '/tmp',      // Temporary files
-            '/usr',      // Installed packages
-            '/var',      // Variable data
-            '/var/log',  // Log files
-            '/vol',      // Mounted volumes
-        ];
-
-        for (const dir of standardDirs) {
-            try {
-                await this.vfs.mkdir(dir, 'kernel', { recursive: true });
-                printk(this, 'boot', `Created directory: ${dir}`);
-            }
-            catch (err) {
-                // EEXIST is fine - directory already exists (idempotent)
-                const error = err as Error & { code?: string };
-
-                if (error.code !== 'EEXIST') {
-                    printk(this, 'warn', `Failed to create ${dir}: ${formatError(err)}`);
-                }
-            }
-        }
     }
 
     // =========================================================================
@@ -665,8 +654,8 @@ export class Kernel {
      * Force exit is synchronous (terminate worker immediately).
      */
     async shutdown(): Promise<void> {
-        if (!this.booted) {
-            return; // Already shutdown or never booted
+        if (!this.initialized) {
+            return; // Already shutdown or never initialized
         }
 
         printk(this, 'shutdown', 'Starting kernel shutdown');
@@ -779,6 +768,7 @@ export class Kernel {
         this.poolManager.shutdown();
         this.leasedWorkers.clear();
 
+        this.initialized = false;
         this.booted = false;
         printk(this, 'shutdown', 'Kernel shutdown complete');
     }
@@ -923,6 +913,13 @@ export class Kernel {
      */
     getProcessTable(): ProcessTable {
         return this.processes;
+    }
+
+    /**
+     * Check if initialized.
+     */
+    isInitialized(): boolean {
+        return this.initialized;
     }
 
     /**
