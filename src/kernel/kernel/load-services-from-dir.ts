@@ -58,6 +58,9 @@
 import type { Kernel } from '../kernel.js';
 import type { ServiceDef } from '../services.js';
 import { logServiceError } from './log-service-error.js';
+import { debug } from '@src/debug.js';
+
+const log = debug('kernel:init');
 
 // =============================================================================
 // MAIN FUNCTION
@@ -165,6 +168,7 @@ export async function loadServicesFromDir(self: Kernel, dir: string): Promise<vo
             // -------------------------------------------------------------------------
 
             // WHY: Register service definition for later manual activation
+            log('  loaded service: %s (%s)', serviceName, def.handler);
             self.services.set(serviceName, def);
 
             // NOTE: Auto-activation disabled. Services can be started via:

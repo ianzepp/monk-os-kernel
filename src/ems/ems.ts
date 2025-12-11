@@ -49,6 +49,9 @@ import { PathCache } from '@src/vfs/path-cache.js';
 import { EntityOps } from './entity-ops.js';
 import { createObserverRunner, type ObserverRunner } from './observers/index.js';
 import { EntityAPI } from '@src/os/ems.js';
+import { debug } from '@src/debug.js';
+
+const log = debug('ems:init');
 
 // =============================================================================
 // TYPES
@@ -134,30 +137,41 @@ export class EMS {
             throw new EINVAL('EMS already initialized');
         }
 
+        log('--- initializing ---');
+
         // 1. Create database connection with schema
+        log('creating database connection (%s)', this.config.path ?? ':memory:');
         this._db = await createDatabase(
             this.hal.channel,
             this.hal.file,
             this.config.path,
         );
+        log('database connection created (dialect: %s)', this._db.dialect.name);
 
         // 2. Create model metadata cache
+        log('creating model cache');
         this._models = new ModelCache(this._db);
 
         // 3. Create observer pipeline runner
+        log('creating observer pipeline');
         this._runner = createObserverRunner();
+        log('observer pipeline created (%d observers)', this._runner.getObserverCount());
 
         // 4. Create entity operations (streaming CRUD with observers)
+        log('creating entity ops');
         this._ops = new EntityOps(this._db, this._models, this._runner);
 
         // 5. Create path cache and populate from database
+        log('loading path cache from database');
         this._pathCache = new PathCache();
         await this._pathCache.loadFromDatabase(this._db);
+        log('path cache loaded (%d entries)', this._pathCache.size);
 
         // 6. Wire path cache to ops for Ring 8 PathCacheSync observer
         this._ops.setPathCache(this._pathCache);
 
         this.initialized = true;
+        log('initialized');
     }
 
     /**

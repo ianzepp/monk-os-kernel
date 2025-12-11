@@ -77,6 +77,9 @@ import { printk } from '@src/kernel/kernel/printk.js';
 import { formatError } from '@src/kernel/kernel/format-error.js';
 import { interruptProcess } from '@src/kernel/kernel/interrupt-process.js';
 import { startTick, stopTick } from '@src/kernel/kernel/tick.js';
+import { debug } from '@src/debug.js';
+
+const log = debug('kernel:init');
 
 // =============================================================================
 // TYPES
@@ -518,8 +521,11 @@ export class Kernel {
     async init(opts?: { debug?: boolean }): Promise<void> {
         // Guard against double init
         if (this.initialized) {
+            log('already initialized, skipping');
             throw new EBUSY('Kernel already initialized');
         }
+
+        log('--- initializing ---');
 
         // Enable debug logging if requested
         this.debugEnabled = opts?.debug ?? false;
@@ -530,6 +536,7 @@ export class Kernel {
         // Mount /proc (synthetic filesystem backed by ProcessTable)
         // ---------------------------------------------------------------------
 
+        log('mounting /proc');
         printk(this, 'init', 'Mounting /proc');
         this.vfs.mountProc(this.processes);
 
@@ -537,6 +544,7 @@ export class Kernel {
         // PHASE 2: POOL CONFIGURATION
         // ---------------------------------------------------------------------
 
+        log('loading pool configuration');
         printk(this, 'init', 'Loading pool configuration');
         await this.poolManager.loadConfig(this.vfs);
 
@@ -545,8 +553,10 @@ export class Kernel {
         // Load service definitions but don't activate them yet
         // ---------------------------------------------------------------------
 
+        log('loading service definitions');
         printk(this, 'init', 'Loading service definitions');
         await loadServices(this);
+        log('loaded %d services', this.services.size);
 
         // ---------------------------------------------------------------------
         // PHASE 4: PID 1 PLACEHOLDER
@@ -554,6 +564,7 @@ export class Kernel {
         // This reserves the PID 1 slot and establishes the process table invariant.
         // ---------------------------------------------------------------------
 
+        log('creating PID 1 placeholder (/bin/true)');
         printk(this, 'init', 'Creating PID 1 placeholder (/bin/true)');
         const placeholder = createProcess(this, {
             cmd: '/bin/true',
@@ -570,6 +581,7 @@ export class Kernel {
 
         // Init complete
         this.initialized = true;
+        log('initialized');
         printk(this, 'init', 'Kernel init complete');
     }
 
@@ -598,9 +610,11 @@ export class Kernel {
 
         // Guard against double boot
         if (this.booted) {
+            log('already booted, skipping');
             throw new EBUSY('Kernel already booted');
         }
 
+        log('--- booting ---');
         printk(this, 'boot', 'Starting kernel boot sequence');
 
         // ---------------------------------------------------------------------
@@ -608,15 +622,18 @@ export class Kernel {
         // Activate all services that were loaded during init()
         // ---------------------------------------------------------------------
 
+        log('activating %d services', this.services.size);
         printk(this, 'boot', 'Activating services');
         const { activateService } = await import('@src/kernel/kernel/activate-service.js');
 
         for (const [name, def] of this.services) {
             try {
                 await activateService(this, name, def);
+                log('activated service: %s', name);
                 printk(this, 'boot', `Activated service: ${name}`);
             }
             catch (err) {
+                log('failed to activate service %s: %s', name, formatError(err));
                 printk(this, 'warn', `Failed to activate service ${name}: ${formatError(err)}`);
             }
         }
@@ -626,11 +643,13 @@ export class Kernel {
         // Start the kernel tick for AI processes (monks)
         // ---------------------------------------------------------------------
 
+        log('starting tick broadcaster');
         printk(this, 'boot', 'Starting tick broadcaster');
         startTick(this);
 
         // Boot complete
         this.booted = true;
+        log('booted');
         printk(this, 'boot', 'Kernel boot complete');
     }
 

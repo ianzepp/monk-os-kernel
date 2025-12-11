@@ -59,6 +59,9 @@ import { collect } from '@src/ems/entity-ops.js';
 import type { JWTPayload, TokenResult, AuthConfig, LoginResult, AuthUser, AuthSession } from './types.js';
 import { DEFAULT_AUTH_CONFIG, ROOT_USER_ID, DEFAULT_ROOT_PASSWORD, REVALIDATE_INTERVAL } from './types.js';
 import { signJWT, verifyJWT, generateKey } from './jwt.js';
+import { debug } from '@src/debug.js';
+
+const log = debug('auth:init');
 
 // =============================================================================
 // AUTH CLASS
@@ -140,15 +143,23 @@ export class Auth {
      * restart. This is acceptable because the DB is also ephemeral.
      */
     async init(): Promise<void> {
+        log('--- initializing ---');
+
         // Generate ephemeral signing key
         // WHY 32 bytes: HS256 requires at least 256-bit key
+        log('generating ephemeral signing key');
         this.signingKey = generateKey(32);
 
         // Phase 1: Load auth schema and seed root user
         if (this.ems) {
+            log('loading auth schema');
             await this.loadSchema();
+
+            log('seeding root user');
             await this.seedRootUser();
         }
+
+        log('initialized');
     }
 
     /**
@@ -165,6 +176,7 @@ export class Auth {
         const modelNames = ['auth_user', 'auth_session'];
 
         for (const name of modelNames) {
+            log('  importing model: %s', name);
             const jsonPath = new URL(`./models/${name}.json`, import.meta.url).pathname;
             const jsonText = await this.hal.file.readText(jsonPath);
             const definition = JSON.parse(jsonText) as Record<string, unknown>;

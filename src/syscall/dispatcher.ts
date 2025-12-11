@@ -92,6 +92,9 @@ import { authToken, authWhoami, authLogin, authLogout, authSession, authRegister
 // LLM syscalls
 import { llmComplete, llmStream, llmChat, llmChatStream, llmEmbed, llmModels } from './llm.js';
 
+// Debug syscalls
+import { debugIsEnabled, debugLog, debugListPatterns } from './debug.js';
+
 // Stream controller
 import { StreamController, StallError } from './stream/index.js';
 
@@ -666,6 +669,22 @@ export class SyscallDispatcher {
                 }
 
                 yield* llmModels(proc, this.llm, args[0]);
+                break;
+
+                // =================================================================
+                // DEBUG SYSCALLS
+                // =================================================================
+
+            case 'debug:enabled':
+                yield* debugIsEnabled(proc, args[0]);
+                break;
+
+            case 'debug:log':
+                yield* debugLog(proc, args[0], args[1], ...args.slice(2));
+                break;
+
+            case 'debug:patterns':
+                yield* debugListPatterns(proc);
                 break;
 
                 // =================================================================

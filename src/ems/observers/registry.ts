@@ -40,6 +40,9 @@
  */
 
 import { ObserverRunner } from './runner.js';
+import { debug } from '@src/debug.js';
+
+const log = debug('ems:init');
 
 // Re-export ObserverRunner for consumers that import from registry
 export { ObserverRunner } from './runner.js';
@@ -98,11 +101,13 @@ export function createObserverRunner(): ObserverRunner {
     // =========================================================================
     // RING 0: DATA PREPARATION
     // =========================================================================
+    log('  ring 0: UpdateMerger');
     runner.register(new UpdateMerger());
 
     // =========================================================================
     // RING 1: INPUT VALIDATION
     // =========================================================================
+    log('  ring 1: Frozen, Immutable, Constraints');
     runner.register(new Frozen());
     runner.register(new Immutable());
     runner.register(new Constraints());
@@ -120,11 +125,13 @@ export function createObserverRunner(): ObserverRunner {
     // =========================================================================
     // RING 4: ENRICHMENT
     // =========================================================================
+    log('  ring 4: TransformProcessor');
     runner.register(new TransformProcessor());
 
     // =========================================================================
     // RING 5: DATABASE
     // =========================================================================
+    log('  ring 5: SqlCreate, SqlUpdate, SqlDelete, PathnameSync');
     runner.register(new SqlCreate());
     runner.register(new SqlUpdate());
     runner.register(new SqlDelete());
@@ -133,17 +140,20 @@ export function createObserverRunner(): ObserverRunner {
     // =========================================================================
     // RING 6: POST-DATABASE (DDL)
     // =========================================================================
+    log('  ring 6: DdlCreateModel, DdlCreateField');
     runner.register(new DdlCreateModel());
     runner.register(new DdlCreateField());
 
     // =========================================================================
     // RING 7: AUDIT
     // =========================================================================
+    log('  ring 7: Tracked');
     runner.register(new Tracked());
 
     // =========================================================================
     // RING 8: INTEGRATION
     // =========================================================================
+    log('  ring 8: Cache, PathCacheSync');
     runner.register(new Cache());
     runner.register(new PathCacheSync());
 

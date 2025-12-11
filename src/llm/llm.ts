@@ -39,6 +39,9 @@ import type {
     EmbeddingResponse,
     StreamChunk,
 } from './types.js';
+import { debug } from '@src/debug.js';
+
+const log = debug('llm:init');
 
 // =============================================================================
 // LLM CLASS
@@ -115,17 +118,25 @@ export class LLM {
      */
     async init(): Promise<void> {
         if (this.initialized) {
+            log('already initialized, skipping');
             return;
         }
 
+        log('--- initializing ---');
         this.initialized = true;
 
         // Import model definitions from JSON
+        log('importing model definitions');
         await this.initModels();
 
         // Seed default providers and models
+        log('seeding providers');
         await this.seedProviders();
+
+        log('seeding models');
         await this.seedModels();
+
+        log('initialized');
     }
 
     /**
@@ -135,6 +146,7 @@ export class LLM {
         const modelNames = ['llm.provider', 'llm.model'];
 
         for (const name of modelNames) {
+            log('  importing model: %s', name);
             const jsonPath = new URL(`./models/${name}.json`, import.meta.url).pathname;
             const jsonText = await this.hal.file.readText(jsonPath);
             const definition = JSON.parse(jsonText) as Record<string, unknown>;
@@ -162,6 +174,7 @@ export class LLM {
             }
 
             if (!exists) {
+                log('  seeding provider: %s', provider.provider_name);
                 await this.ems.ops.createOne('llm.provider', provider);
             }
         }
@@ -186,6 +199,7 @@ export class LLM {
             }
 
             if (!exists) {
+                log('  seeding model: %s', model.model_name);
                 await this.ems.ops.createOne('llm.model', model);
             }
         }

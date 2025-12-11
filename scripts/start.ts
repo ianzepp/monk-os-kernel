@@ -66,16 +66,9 @@ const os = new OS({
     },
 });
 
-// Log startup info
-console.log(`Storage: ${storage.type}${storage.path ? ` (${storage.path})` : ''}${storage.url ? ` (${storage.url})` : ''}`);
-
-// Initialize subsystems
+// Initialize and boot
 await os.init();
-console.log('Initialized');
-
-// Boot kernel and services
 await os.boot();
-console.log('Booted');
 
 // Block until shutdown signal
 console.log('Monk OS running. Press Ctrl+C to stop.');

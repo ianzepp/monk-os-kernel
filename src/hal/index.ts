@@ -123,6 +123,9 @@ import { BunFileDevice } from './file.js';
 import { BunJsonDevice } from './json.js';
 import { BunYamlDevice } from './yaml.js';
 import { EIO } from './errors.js';
+import { debug } from '@src/debug.js';
+
+const log = debug('hal:init');
 
 // =============================================================================
 // ERROR TYPES (RE-EXPORTS)
@@ -473,12 +476,19 @@ export class BunHAL implements HAL {
      * @param config - HAL configuration options
      */
     constructor(config?: HALConfig) {
+        log('constructing BunHAL');
+
         // Block device: file-based or memory
         // WHY: Block device is where VFS stores file content as raw bytes.
         // Memory block device is fast for tests, file-based is durable.
-        this.block = config?.blockPath
-            ? new BunBlockDevice(config.blockPath)
-            : new MemoryBlockDevice();
+        if (config?.blockPath) {
+            log('block device: file (%s)', config.blockPath);
+            this.block = new BunBlockDevice(config.blockPath);
+        }
+        else {
+            log('block device: memory');
+            this.block = new MemoryBlockDevice();
+        }
 
         // Storage engine: SQLite, PostgreSQL, or memory
         // WHY: Storage engine is where VFS stores metadata (filenames, UUIDs, etc.).
@@ -487,29 +497,36 @@ export class BunHAL implements HAL {
 
         switch (storageConfig.type) {
             case 'memory':
+                log('storage engine: memory');
                 this.storage = new MemoryStorageEngine();
                 break;
             case 'sqlite':
+                log('storage engine: sqlite (%s)', storageConfig.path);
                 this.storage = new BunStorageEngine(storageConfig.path);
                 break;
             case 'postgres':
                 // WHY: PostgreSQL enables distributed VFS with multiple Monk nodes
                 // NOTE: pg.init() is called in init() method to handle async schema setup
+                log('storage engine: postgres (%s)', storageConfig.url);
                 this.storage = new PostgresStorageEngine(storageConfig.url);
                 break;
             default:
+                log('storage engine: memory (default)');
                 this.storage = new MemoryStorageEngine();
         }
 
         // Remaining devices: Bun implementations
         // WHY: These devices are less frequently mocked. Tests that need mocked
         // timers/clocks/etc. can construct devices individually.
+        log('creating devices: timer, network, clock, entropy, crypto, console');
         this.timer = new BunTimerDevice();
         this.network = new BunNetworkDevice();
         this.clock = new BunClockDevice();
         this.entropy = new BunEntropyDevice();
         this.crypto = new BunCryptoDevice();
         this.console = new BunConsoleDevice();
+
+        log('creating devices: dns, host, ipc, channel, compression, file, json, yaml');
         this.dns = new BunDNSDevice();
         this.host = new BunHostDevice();
         this.ipc = new BunIPCDevice();
@@ -538,15 +555,21 @@ export class BunHAL implements HAL {
      */
     async init(): Promise<void> {
         if (this.initialized) {
+            log('already initialized, skipping');
             return;
         }
 
+        log('--- initializing ---');
         this.initialized = true;
+
         // WHY: PostgresStorageEngine requires async schema initialization
         // SQLite and Memory engines initialize synchronously in constructor
         if (this.storage instanceof PostgresStorageEngine) {
+            log('initializing postgres storage engine');
             await this.storage.init();
         }
+
+        log('initialized');
     }
 
     /**

@@ -100,6 +100,9 @@ import {
     entityOpen,
 } from '@src/vfs/mounts/entity.js';
 import type { ProcessTable } from '@src/kernel/process-table.js';
+import { debug } from '@src/debug.js';
+
+const log = debug('vfs:init');
 
 // =============================================================================
 // CONSTANTS
@@ -337,21 +340,28 @@ export class VFS {
     async init(): Promise<void> {
         // Idempotency guard
         if (this.initialized) {
+            log('already initialized, skipping');
             return;
         }
 
+        log('--- initializing ---');
         this.initialized = true;
 
         // Load and apply VFS models via JSON definitions
         if (this.ems) {
+            log('loading models from JSON definitions');
             await this.initModels();
+
+            log('seeding root entity');
             await this.seedRoot();
 
             // Reload EntityCache to pick up root entity
+            log('reloading path cache');
             await this.ems.pathCache.loadFromDatabase(this.ems.db);
         }
 
         // Verify root exists (seeded by VFS schema)
+        log('verifying root entity');
         await this.ensureRootExists();
 
         // Mount root with folder model
@@ -361,10 +371,14 @@ export class VFS {
             throw new ENOENT('Folder model not registered');
         }
 
+        log('mounting root (/)');
         this.mount('/', folderModel, {});
 
         // Initialize /dev directory with standard devices
+        log('initializing /dev devices');
         await this.initDevices();
+
+        log('initialized (%d models registered)', this.models.size);
     }
 
     /**
@@ -420,6 +434,7 @@ export class VFS {
         const modelNames = ['file', 'folder', 'device', 'proc', 'link', 'temp'];
 
         for (const name of modelNames) {
+            log('  importing model: %s', name);
             const jsonPath = new URL(`./models/${name}.json`, import.meta.url).pathname;
             const jsonText = await this.hal.file.readText(jsonPath);
             const definition = JSON.parse(jsonText) as Record<string, unknown>;
