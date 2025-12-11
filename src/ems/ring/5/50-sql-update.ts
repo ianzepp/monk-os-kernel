@@ -35,7 +35,7 @@
  * CONCURRENCY MODEL
  * =================
  * Each UPDATE is atomic at the database level. No cross-record transaction
- * boundaries. Concurrent updates to the same record are serialized by SQLite.
+ * boundaries. Concurrent updates to the same record are serialized by the database.
  *
  * RACE CONDITION MITIGATIONS
  * ==========================
@@ -50,7 +50,8 @@
  */
 
 import { BaseObserver } from '../../observers/base-observer.js';
-import type { ObserverContext } from '../../observers/interfaces.js';
+import type { ObserverContext, DatabaseAdapter } from '../../observers/interfaces.js';
+import type { DatabaseDialect } from '../../dialect.js';
 import { ObserverRing, type OperationType } from '../../observers/types.js';
 import { EOBSSYS } from '../../observers/errors.js';
 
@@ -108,6 +109,7 @@ export class SqlUpdate extends BaseObserver {
      */
     async execute(context: ObserverContext): Promise<void> {
         const { model, record, system } = context;
+        const { dialect } = system;
 
         const changes = record.toChanges();
         const id = record.get('id') as string;
@@ -119,7 +121,7 @@ export class SqlUpdate extends BaseObserver {
 
         // Meta-models don't use entities table
         if (META_MODELS.has(model.modelName)) {
-            await this.updateDirect(system.db, model.tableName, id, changes);
+            await this.updateDirect(system.db, dialect, model.tableName, id, changes);
 
             return;
         }
@@ -143,10 +145,10 @@ export class SqlUpdate extends BaseObserver {
         // If both need updating, use transaction
         if (hasEntityChanges && hasDetailChanges) {
             try {
-                await system.db.execute('BEGIN IMMEDIATE');
+                await system.db.execute(dialect.beginTransaction());
                 try {
-                    await this.updateTable(system.db, 'entities', id, entityChanges);
-                    await this.updateTable(system.db, model.tableName, id, detailChanges);
+                    await this.updateTable(system.db, dialect, 'entities', id, entityChanges);
+                    await this.updateTable(system.db, dialect, model.tableName, id, detailChanges);
                     await system.db.execute('COMMIT');
                 }
                 catch (err) {
@@ -161,10 +163,10 @@ export class SqlUpdate extends BaseObserver {
             }
         }
         else if (hasEntityChanges) {
-            await this.updateTable(system.db, 'entities', id, entityChanges);
+            await this.updateTable(system.db, dialect, 'entities', id, entityChanges);
         }
         else if (hasDetailChanges) {
-            await this.updateTable(system.db, model.tableName, id, detailChanges);
+            await this.updateTable(system.db, dialect, model.tableName, id, detailChanges);
         }
     }
 
@@ -172,19 +174,21 @@ export class SqlUpdate extends BaseObserver {
      * Update directly in a table (for meta-models).
      */
     private async updateDirect(
-        db: ObserverContext['system']['db'],
+        db: DatabaseAdapter,
+        dialect: DatabaseDialect,
         tableName: string,
         id: string,
         changes: Record<string, unknown>,
     ): Promise<void> {
-        await this.updateTable(db, tableName, id, changes);
+        await this.updateTable(db, dialect, tableName, id, changes);
     }
 
     /**
      * Execute UPDATE on a specific table.
      */
     private async updateTable(
-        db: ObserverContext['system']['db'],
+        db: DatabaseAdapter,
+        dialect: DatabaseDialect,
         tableName: string,
         id: string,
         changes: Record<string, unknown>,
@@ -195,12 +199,15 @@ export class SqlUpdate extends BaseObserver {
             return;
         }
 
-        const setClauses = columns.map(col => `${col} = ?`).join(', ');
+        // Build SET clause with dialect-specific placeholders
+        const setClauses = columns.map((col, i) => `${col} = ${dialect.placeholder(i + 1)}`).join(', ');
         const values = columns.map(col => changes[col]);
 
+        // WHERE clause placeholder is after all SET placeholders
+        const whereClause = `id = ${dialect.placeholder(columns.length + 1)}`;
         values.push(id);
 
-        const sql = `UPDATE ${tableName} SET ${setClauses} WHERE id = ?`;
+        const sql = `UPDATE ${tableName} SET ${setClauses} WHERE ${whereClause}`;
 
         try {
             await db.execute(sql, values);

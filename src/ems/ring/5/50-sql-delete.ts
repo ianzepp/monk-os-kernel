@@ -117,13 +117,16 @@ export class SqlDelete extends BaseObserver {
      */
     async execute(context: ObserverContext): Promise<void> {
         const { model, record, system } = context;
+        const { dialect } = system;
 
         const id = record.get('id') as string;
         const trashedAt = record.get('trashed_at');
 
         // For both entity models and meta-models, update the model's table directly
         // (Entity models have trashed_at in detail table, not entities table)
-        const sql = `UPDATE ${model.tableName} SET trashed_at = ? WHERE id = ?`;
+        const p1 = dialect.placeholder(1);
+        const p2 = dialect.placeholder(2);
+        const sql = `UPDATE ${model.tableName} SET trashed_at = ${p1} WHERE id = ${p2}`;
 
         try {
             await system.db.execute(sql, [trashedAt, id]);

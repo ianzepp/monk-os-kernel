@@ -52,7 +52,8 @@
  */
 
 import { BaseObserver } from '../../observers/base-observer.js';
-import type { ObserverContext } from '../../observers/interfaces.js';
+import type { ObserverContext, DatabaseAdapter } from '../../observers/interfaces.js';
+import type { DatabaseDialect } from '../../dialect.js';
 import { ObserverRing, type OperationType } from '../../observers/types.js';
 import { EOBSSYS } from '../../observers/errors.js';
 
@@ -126,6 +127,7 @@ export class SqlCreate extends BaseObserver {
      */
     async execute(context: ObserverContext): Promise<void> {
         const { model, record, system } = context;
+        const { dialect } = system;
 
         // Get merged record (original + changes)
         const data = record.toRecord();
@@ -133,7 +135,7 @@ export class SqlCreate extends BaseObserver {
 
         // Meta-models don't use entities table - single INSERT, no transaction needed
         if (META_MODELS.has(model.modelName)) {
-            await this.insertDirect(system.db, model.tableName, data);
+            await this.insertDirect(system.db, dialect, model.tableName, data);
 
             return;
         }
@@ -142,8 +144,8 @@ export class SqlCreate extends BaseObserver {
         // Uses single transaction message to avoid parallel write conflicts
         try {
             await system.db.transaction([
-                this.buildEntityInsert(model.modelName, data),
-                this.buildDetailInsert(model.tableName, data),
+                this.buildEntityInsert(dialect, model.modelName, data),
+                this.buildDetailInsert(dialect, model.tableName, data),
             ]);
         }
         catch (err) {
@@ -159,12 +161,13 @@ export class SqlCreate extends BaseObserver {
      * Insert directly into a table (for meta-models).
      */
     private async insertDirect(
-        db: ObserverContext['system']['db'],
+        db: DatabaseAdapter,
+        dialect: DatabaseDialect,
         tableName: string,
         data: Record<string, unknown>,
     ): Promise<void> {
         const columns = Object.keys(data);
-        const placeholders = columns.map(() => '?').join(', ');
+        const placeholders = dialect.placeholders(columns.length);
         const values = columns.map(col => data[col]);
 
         const sql = `INSERT INTO ${tableName} (${columns.join(', ')}) VALUES (${placeholders})`;
@@ -188,11 +191,14 @@ export class SqlCreate extends BaseObserver {
      * @returns Statement object with sql and params for transaction
      */
     private buildEntityInsert(
+        dialect: DatabaseDialect,
         modelName: string,
         data: Record<string, unknown>,
     ): { sql: string; params: unknown[] } {
+        const placeholders = dialect.placeholders(4);
+
         return {
-            sql: 'INSERT INTO entities (id, model, parent, pathname) VALUES (?, ?, ?, ?)',
+            sql: `INSERT INTO entities (id, model, parent, pathname) VALUES (${placeholders})`,
             params: [
                 data.id,
                 modelName,
@@ -208,6 +214,7 @@ export class SqlCreate extends BaseObserver {
      * @returns Statement object with sql and params for transaction
      */
     private buildDetailInsert(
+        dialect: DatabaseDialect,
         tableName: string,
         data: Record<string, unknown>,
     ): { sql: string; params: unknown[] } {
@@ -221,7 +228,7 @@ export class SqlCreate extends BaseObserver {
         }
 
         const columns = Object.keys(detailData);
-        const placeholders = columns.map(() => '?').join(', ');
+        const placeholders = dialect.placeholders(columns.length);
         const values = columns.map(col => detailData[col]);
 
         return {
