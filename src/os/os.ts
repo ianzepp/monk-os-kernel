@@ -109,9 +109,14 @@ export class OS extends BaseOS {
             // WHY path: EMS and HAL storage must share the same database for persistence.
             // Without this, EMS defaults to :memory: while HAL persists to SQLite file,
             // causing child indexes to survive but entity data to disappear on restart.
-            const emsPath = this.config.storage?.type === 'sqlite'
-                ? (this.config.storage.path ?? '.data/monk.db')
-                : undefined;
+            let emsPath: string | undefined;
+
+            if (this.config.storage?.type === 'sqlite') {
+                emsPath = this.config.storage.path ?? '.data/monk.db';
+            }
+            else if (this.config.storage?.type === 'postgres') {
+                emsPath = this.config.storage.url;
+            }
 
             this.__ems = new EMS(this.__hal, { path: emsPath });
             await this.__ems.init();

@@ -320,6 +320,61 @@ export async function* fileSetstat(
 }
 
 /**
+ * Append data to a file (high-level syscall).
+ *
+ * Opens the file in append mode, writes the data, and closes.
+ * Creates the file if it doesn't exist.
+ *
+ * @param proc - Calling process
+ * @param kernel - Kernel instance
+ * @param path - File path
+ * @param data - Data to append (string)
+ */
+export async function* fileAppend(
+    proc: Process,
+    kernel: Kernel,
+    path: unknown,
+    data: unknown,
+): AsyncIterable<Response> {
+    if (typeof path !== 'string') {
+        yield respond.error('EINVAL', 'path must be a string');
+
+        return;
+    }
+
+    if (typeof data !== 'string') {
+        yield respond.error('EINVAL', 'data must be a string');
+
+        return;
+    }
+
+    // Open with create + append flags
+    const fd = await openFile(kernel, proc, path, {
+        write: true,
+        create: true,
+        append: true,
+    });
+
+    try {
+        // Get handle and write
+        const handle = getHandle(kernel, proc, fd);
+
+        if (handle) {
+            // Consume the generator to complete the write
+            for await (const _ of handle.exec({ op: 'send', data: { data } })) {
+                // Discard responses
+            }
+        }
+
+        yield respond.ok();
+    }
+    finally {
+        // Always close the handle
+        await closeHandle(kernel, proc, fd);
+    }
+}
+
+/**
  * Get file stats by file descriptor.
  *
  * Needs Kernel (to get handle) and VFS (to stat by path).

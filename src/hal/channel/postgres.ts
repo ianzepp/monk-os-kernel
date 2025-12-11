@@ -237,6 +237,16 @@ export class BunPostgresChannel implements Channel {
                     break;
                 }
 
+                case 'exec': {
+                    // WHY: Exec operation for raw DDL/schema statements (CREATE TABLE, etc.)
+                    // May contain multiple statements. No return value needed.
+                    const { sql } = msg.data as { sql: string };
+
+                    await this.sql.unsafe(sql);
+                    yield respond.ok();
+                    break;
+                }
+
                 case 'transaction': {
                     // WHY: Transaction operation for atomic multi-statement execution.
                     // All statements succeed or all are rolled back. Uses Bun.SQL's

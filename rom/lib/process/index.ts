@@ -605,11 +605,16 @@ async function getDebugPort(): Promise<number> {
 }
 
 /**
- * Send a debug message to the external monitor (UDP port 9999).
+ * Path to the system log file.
+ */
+const SYSLOG_PATH = '/var/log/syslog';
+
+/**
+ * Send a debug message to the external monitor (UDP port 9999) and syslog.
  *
  * Uses the kernel's UDP port facility to send messages that can be
- * received by `bun run monitor`. This goes through proper Monk OS
- * channels rather than bypassing the HAL.
+ * received by `bun run monitor`. Also appends to /var/log/syslog for
+ * persistent logging.
  *
  * @param message - Debug message to send
  */
@@ -617,7 +622,19 @@ export async function debug(message: string): Promise<void> {
     const fd = await getDebugPort();
     const data = new TextEncoder().encode(message);
 
+    // Send to UDP monitor
     await call<void>('port:send', fd, DEBUG_ADDRESS, data);
+
+    // Append to syslog (best effort - don't fail if file write fails)
+    try {
+        const timestamp = new Date().toISOString();
+        const logLine = `${timestamp} ${message}\n`;
+
+        await call<void>('file:append', SYSLOG_PATH, logLine);
+    }
+    catch {
+        // Ignore syslog write failures (e.g., /var/log doesn't exist yet)
+    }
 }
 
 // =============================================================================
