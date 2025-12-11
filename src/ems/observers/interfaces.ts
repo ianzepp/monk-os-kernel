@@ -31,6 +31,7 @@
 
 import type { ObserverRing, OperationType } from './types.js';
 import type { EOBSINVALID } from './errors.js';
+import type { DatabaseDialect } from '../dialect.js';
 
 // =============================================================================
 // FORWARD DECLARATIONS
@@ -230,6 +231,14 @@ export interface SystemContext {
      * Provides invalidate() for cache management after model/field changes.
      */
     cache: ModelCacheAdapter;
+
+    /**
+     * Database dialect for SQL generation and type conversion.
+     *
+     * Provides dialect-specific SQL syntax (placeholders, transactions, DDL)
+     * and value conversion between JavaScript and database-native formats.
+     */
+    dialect: DatabaseDialect;
 }
 
 // =============================================================================

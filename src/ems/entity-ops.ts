@@ -48,6 +48,7 @@ import type { OperationType } from './observers/types.js';
 import type { EOBSINVALID } from './observers/errors.js';
 import { Filter } from './filter.js';
 import { EFAULT, ENOENT } from '@src/hal/errors.js';
+import { getDialect, type DatabaseDialect } from './dialect.js';
 import type {
     FilterData,
     SelectOptions,
@@ -94,6 +95,9 @@ export interface EntitySystemContext extends SystemContext {
     /** Model metadata cache */
     cache: ModelCache;
 
+    /** Database dialect for SQL generation and type conversion */
+    dialect: DatabaseDialect;
+
     /** Observer runner */
     runner: ObserverRunner;
 
@@ -124,7 +128,7 @@ export class EntityOps {
 
     constructor(db: DatabaseConnection, cache: ModelCache, runner: ObserverRunner) {
         this.dbOps = new DatabaseOps(db);
-        this.system = { db, cache, runner };
+        this.system = { db, cache, dialect: getDialect(db.dialect), runner };
     }
 
     // =========================================================================
