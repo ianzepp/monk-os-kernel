@@ -31,6 +31,7 @@
         "typecheck:rom": "bun x tsc --noEmit -p tsconfig.rom.json",
         "lint": "eslint src rom spec",
         "lint:fix": "eslint src rom spec --fix",
+        "lint:models": "bun scripts/lint-models.ts",
         "audit": "bun scripts/audit.ts",
         "kill": "bun scripts/kill.ts",
         "monitor": "bun scripts/monitor.ts",

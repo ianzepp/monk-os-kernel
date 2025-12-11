@@ -63,6 +63,7 @@
 
 import type { VFS } from '@src/vfs/index.js';
 import type { HAL } from '@src/hal/index.js';
+import { ENOENT } from '@src/hal/errors.js';
 import type { CachedModule, ModuleCacheConfig } from './types.js';
 import { ModuleCache } from './cache.js';
 import { resolveImport, isVFSPath, rewriteImports } from './imports.js';
@@ -348,6 +349,47 @@ export class VFSLoader {
     }
 
     // =========================================================================
+    // ENTRY POINT RESOLUTION
+    // =========================================================================
+
+    /**
+     * Resolve entry point path for command execution.
+     *
+     * For commands (e.g., `/bin/true`), auto-appends `.ts` if the exact path
+     * doesn't exist. This allows users to run `ls` instead of `ls.ts`.
+     *
+     * WHY only for entry points:
+     * Code imports within modules should be explicit (no magic resolution).
+     * Only command execution gets the convenience of extension-less paths.
+     *
+     * @param entryPath - Requested entry point path
+     * @returns Resolved path (may have .ts appended)
+     * @throws ENOENT if neither exact path nor .ts variant exists
+     */
+    private async resolveEntryPath(entryPath: string): Promise<string> {
+        // Try exact path first
+        try {
+            await this.vfs.stat(entryPath, 'kernel');
+            return entryPath;
+        }
+        catch {
+            // Exact path not found - continue to try .ts
+        }
+
+        // Try with .ts extension
+        const tsPath = `${entryPath}.ts`;
+
+        try {
+            await this.vfs.stat(tsPath, 'kernel');
+            return tsPath;
+        }
+        catch {
+            // Neither found - throw original error
+            throw new ENOENT(`No such file: ${entryPath}`);
+        }
+    }
+
+    // =========================================================================
     // BUNDLE ASSEMBLY
     // =========================================================================
 
@@ -390,7 +432,9 @@ export class VFSLoader {
      * @returns Self-contained JavaScript bundle string
      */
     async assembleBundle(entryPath: string): Promise<string> {
-        const modules = await this.resolveDependencies(entryPath);
+        // Resolve entry path - auto-append .ts for commands if not found
+        const resolvedEntry = await this.resolveEntryPath(entryPath);
+        const modules = await this.resolveDependencies(resolvedEntry);
 
         // Module registry preamble
         let bundle = `
@@ -435,7 +479,7 @@ ${mod.js}
         // This matches how compiled languages (C, Rust, Go) invoke main() automatically
         bundle += `
 // Entry point
-const __entry = __require('${entryPath}');
+const __entry = __require('${resolvedEntry}');
 if (typeof __entry.default === 'function') {
     __entry.default();
 }

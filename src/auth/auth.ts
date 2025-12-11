@@ -204,7 +204,7 @@ export class Auth {
                 id: ROOT_USER_ID,
                 username: 'root',
                 password_hash: passwordHash,
-                disabled: 0,
+                disabled: false,
             } as Partial<AuthUser>]),
         );
     }
@@ -573,7 +573,7 @@ export class Auth {
                 id: userId,
                 username,
                 password_hash: passwordHash,
-                disabled: 0,
+                disabled: false,
             } as Partial<AuthUser>]),
         );
 

@@ -415,6 +415,11 @@ export class EMS {
                 ...(fieldDef as Record<string, unknown>),
             };
 
+            // Serialize enum_values if it's an array (JSON files can use arrays for readability)
+            if (Array.isArray(fieldRecord.enum_values)) {
+                fieldRecord.enum_values = JSON.stringify(fieldRecord.enum_values);
+            }
+
             let existingFieldId: string | undefined;
 
             for await (const existing of this._ops.selectAny('fields', {

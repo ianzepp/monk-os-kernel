@@ -143,7 +143,7 @@ for await (const model of llm.listModels()) {
 }
 
 // Filter by capability
-for await (const model of llm.listModels({ supports_chat: 1 })) {
+for await (const model of llm.listModels({ supports_chat: true })) {
     console.log(model.model_name);
 }
 ```
@@ -247,15 +247,15 @@ await ems.ops.insert('llm.model', {
     model_name: 'qwen2.5-coder:1.5b',
     provider: 'ollama',
     model_id: 'qwen2.5-coder:1.5b',
-    supports_chat: 1,
-    supports_completion: 1,
-    supports_streaming: 1,
-    supports_embeddings: 0,
-    supports_vision: 0,
-    supports_tools: 0,
+    supports_chat: true,
+    supports_completion: true,
+    supports_streaming: true,
+    supports_embeddings: false,
+    supports_vision: false,
+    supports_tools: false,
     context_window: 32768,
     max_output: 8192,
-    strip_markdown: 0,
+    strip_markdown: false,
     system_prompt_style: 'message',
     status: 'active',
 });

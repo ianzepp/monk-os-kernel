@@ -430,6 +430,9 @@ export class VFS {
 
     /**
      * Seed root entity and folder from JSON.
+     *
+     * Uses EntityOps to create the root folder, which handles both the
+     * `entities` table and `folder` detail table via the observer pipeline.
      */
     private async seedRoot(): Promise<void> {
         if (!this.ems) {
@@ -440,35 +443,33 @@ export class VFS {
         const jsonText = await this.hal.file.readText(jsonPath);
         const seeds = JSON.parse(jsonText) as Record<string, Array<Record<string, unknown>>>;
 
-        // Seed entities table
+        // Build seed data by merging entities + folder data by id
+        const entitiesById = new Map<string, Record<string, unknown>>();
+
         for (const entity of seeds.entities ?? []) {
-            let exists = false;
-
-            for await (const _ of this.ems.ops.selectAny('entities', {
-                where: { id: entity.id as string },
-            })) {
-                exists = true;
-                break;
-            }
-
-            if (!exists) {
-                await this.ems.ops.createOne('entities', entity);
-            }
+            entitiesById.set(entity.id as string, { ...entity });
         }
 
-        // Seed folder table
         for (const folder of seeds.folder ?? []) {
+            const id = folder.id as string;
+            const merged = entitiesById.get(id) ?? {};
+
+            entitiesById.set(id, { ...merged, ...folder });
+        }
+
+        // Seed via EntityOps (handles entities + detail table)
+        for (const data of entitiesById.values()) {
             let exists = false;
 
             for await (const _ of this.ems.ops.selectAny('folder', {
-                where: { id: folder.id as string },
+                where: { id: data.id as string },
             })) {
                 exists = true;
                 break;
             }
 
             if (!exists) {
-                await this.ems.ops.createOne('folder', folder);
+                await this.ems.ops.createOne('folder', data);
             }
         }
     }

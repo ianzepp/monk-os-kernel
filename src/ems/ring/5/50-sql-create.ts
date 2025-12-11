@@ -179,8 +179,18 @@ export class SqlCreate extends BaseObserver {
             const message = err instanceof Error ? err.message : String(err);
             const recordId = data.id ?? 'unknown';
 
+            // Find invalid values for debugging
+            const invalidCols = columns.filter(col => {
+                const v = data[col];
+                return v !== null && typeof v === 'object';
+            });
+
+            const details = invalidCols.length > 0
+                ? ` (invalid columns: ${invalidCols.map(c => `${c}=${JSON.stringify(data[c])}`).join(', ')})`
+                : '';
+
             throw new EOBSSYS(
-                `INSERT failed for ${tableName}[${recordId}]: ${message}`,
+                `INSERT failed for ${tableName}[${recordId}]: ${message}${details}`,
             );
         }
     }

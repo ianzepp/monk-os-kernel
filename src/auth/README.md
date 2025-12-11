@@ -292,7 +292,7 @@ interface AuthUser {
     id: string;
     username: string;
     password_hash: string;
-    disabled: number;           // 0 or 1
+    disabled: boolean;
     created_at: string;
     updated_at: string;
     trashed_at: string | null;

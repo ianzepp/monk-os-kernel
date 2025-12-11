@@ -197,7 +197,7 @@ export interface AuthUser {
     id: string;
     username: string;
     password_hash: string;
-    disabled: number;
+    disabled: boolean;
     created_at: string;
     updated_at: string;
     trashed_at: string | null;

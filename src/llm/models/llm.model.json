@@ -25,32 +25,29 @@
         },
         "supports_chat": {
             "type": "boolean",
-            "default_value": "1",
+            "default_value": "true",
             "description": "Supports multi-turn chat"
         },
         "supports_completion": {
             "type": "boolean",
-            "default_value": "1",
+            "default_value": "true",
             "description": "Supports single-shot completion"
         },
         "supports_streaming": {
             "type": "boolean",
-            "default_value": "1",
+            "default_value": "true",
             "description": "Supports streaming responses"
         },
         "supports_embeddings": {
             "type": "boolean",
-            "default_value": "0",
             "description": "Supports text embeddings"
         },
         "supports_vision": {
             "type": "boolean",
-            "default_value": "0",
             "description": "Supports image input"
         },
         "supports_tools": {
             "type": "boolean",
-            "default_value": "0",
             "description": "Supports tool/function calling"
         },
         "context_window": {
@@ -67,7 +64,6 @@
         },
         "strip_markdown": {
             "type": "boolean",
-            "default_value": "0",
             "description": "Strip markdown fences from output"
         },
         "system_prompt_style": {

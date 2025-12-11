@@ -16,7 +16,6 @@
         },
         "disabled": {
             "type": "boolean",
-            "default_value": "0",
             "description": "Account disabled flag"
         }
     }
