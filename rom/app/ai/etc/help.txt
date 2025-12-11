@@ -66,13 +66,13 @@ Immediately consolidate short-term memories into long-term storage.
 
 ### !spawn - Start async subagent
 !spawn "task description"
-!spawn {"task": "...", "model": "claude-haiku-3"}
+!spawn {"task": "...", "model": "claude-haiku-3.5"}
 
 Start a subagent to handle a task asynchronously. Returns a spawn ID.
 
 Examples:
   !spawn "summarize the contents of /var/log"
-  !spawn {"task": "count files", "model": "claude-haiku-3"}
+  !spawn {"task": "count files", "model": "claude-haiku-3.5"}
 
 ### !wait - Wait for subagent result
 !wait

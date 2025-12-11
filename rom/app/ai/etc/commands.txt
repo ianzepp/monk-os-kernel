@@ -1,0 +1,92 @@
+## Full Command Reference
+
+This file lists all commands available in /bin. For quick reference, see the
+summary in the system prompt. Use `!exec <command> --help` for usage details.
+
+### Text Processing
+- awk       - Pattern scanning and processing
+- cat       - Concatenate and print files
+- cut       - Remove sections from lines
+- grep      - Search for patterns in text
+- head      - Output first part of files
+- nl        - Number lines
+- sed       - Stream editor for filtering/transforming text
+- sort      - Sort lines of text
+- tail      - Output last part of files
+- tee       - Read stdin, write to stdout and files
+- tr        - Translate or delete characters
+- uniq      - Report or omit repeated lines
+- wc        - Word, line, character count
+
+### File Operations
+- chmod     - Change file mode bits
+- cp        - Copy files and directories
+- diff      - Compare files line by line
+- du        - Estimate file space usage
+- file      - Determine file type
+- find      - Search for files
+- ln        - Make links between files
+- ls        - List directory contents
+- mkdir     - Make directories
+- mktemp    - Create temporary file or directory
+- mv        - Move (rename) files
+- rm        - Remove files or directories
+- rmdir     - Remove empty directories
+- stat      - Display file status
+- touch     - Change file timestamps
+
+### Path Utilities
+- basename  - Strip directory from filenames
+- cd        - Change directory
+- dirname   - Strip last component from path
+- pwd       - Print working directory
+- realpath  - Print resolved path
+
+### System Information
+- date      - Print or set system date/time
+- df        - Report filesystem disk space usage
+- env       - Print environment variables
+- free      - Display memory usage (Bun heap)
+- kill      - Send signal to processes
+- ps        - Report process status
+- timeout   - Run command with time limit
+- uname     - Print system information
+- whoami    - Print current user name
+
+### Networking
+- ip        - Show network interface info (simulated)
+- netstat   - Show listening ports
+
+### Output/Input
+- echo      - Display a line of text
+- printf    - Format and print data
+- yes       - Output a string repeatedly
+
+### Logic/Control
+- false     - Do nothing, unsuccessfully
+- seq       - Print sequence of numbers
+- sleep     - Delay for specified time
+- test      - Check file types and compare values
+- true      - Do nothing, successfully
+
+### Data Encoding
+- base64    - Base64 encode/decode
+- md5sum    - Compute MD5 checksum
+- sha256sum - Compute SHA256 checksum
+
+### Math
+- bc        - Calculator (supports sqrt, sin, cos, log, etc.)
+
+### EMS Database
+- create    - Create EMS record
+- delete    - Soft delete EMS record
+- describe  - Show EMS model schema
+- expire    - Permanently delete EMS record
+- grant     - Grant permissions
+- revert    - Restore soft-deleted record
+- select    - Query EMS records
+- update    - Update EMS record
+
+### Shell
+- shell     - Interactive shell (used internally)
+- xargs     - Build and execute commands from stdin

@@ -206,8 +206,9 @@ export async function executeTask(
             for (let i = 0; i < otherResults.length; i++) {
                 const resultText = otherResults[i]!;
                 const cmd = getBangCommandDescription(otherCommands[i]!);
+                const logText = resultText.trim();
 
-                await log(`ai: ${cmd} -> ${resultText.slice(0, 80)}${resultText.length > 80 ? '...' : ''}`);
+                await log(`ai: ${cmd} -> ${logText.slice(0, 80)}${logText.length > 80 ? '...' : ''}`);
                 conversation.push({ role: 'exec', content: resultText });
             }
 
@@ -219,8 +220,9 @@ export async function executeTask(
             for (let i = 0; i < waitResults.length; i++) {
                 const resultText = waitResults[i]!;
                 const cmd = getBangCommandDescription(waitCommands[i]!);
+                const logText = resultText.trim();
 
-                await log(`ai: ${cmd} -> ${resultText.slice(0, 80)}${resultText.length > 80 ? '...' : ''}`);
+                await log(`ai: ${cmd} -> ${logText.slice(0, 80)}${logText.length > 80 ? '...' : ''}`);
                 conversation.push({ role: 'exec', content: resultText });
             }
         }

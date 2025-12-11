@@ -1,5 +1,5 @@
 {
-    "description": "Short-term memory - raw experiences awaiting consolidation",
+    "description": "Short-term memory - raw experiences, reminders, and notes awaiting consolidation",
     "passthrough": false,
     "fields": {
         "content": {
@@ -17,6 +17,11 @@
             "default_value": "5",
             "indexed": "simple",
             "description": "Salience 1-9 (1=trivial, 9=critical)"
+        },
+        "reminder_at": {
+            "type": "timestamp",
+            "indexed": "simple",
+            "description": "When to surface this memory as a reminder (null = not a reminder)"
         },
         "consolidated": {
             "type": "boolean",
