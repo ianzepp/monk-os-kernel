@@ -137,16 +137,21 @@ export class EntityOps {
 
     /**
      * Stream records matching filter criteria.
+     *
+     * Requires a model definition - raw table access should use DatabaseOps.
      */
     async *selectAny<T extends EntityRecord>(
         modelName: string,
         filterData: FilterData = {},
         options: SelectOptions = {},
     ): AsyncGenerator<T> {
+        const model = await this.system.cache.require(modelName);
         const filter = Filter.from(modelName, filterData, options, this.system.dialect);
         const { sql, params } = filter.toSQL();
 
-        yield* this.dbOps.query<T>(sql, params);
+        for await (const row of this.dbOps.query<Record<string, unknown>>(sql, params)) {
+            yield this.convertFromDatabase(row, model) as T;
+        }
     }
 
     /**
@@ -691,6 +696,30 @@ export class EntityOps {
         for await (const item of source) {
             yield item;
         }
+    }
+
+    /**
+     * Convert database row values to JavaScript types using dialect and model metadata.
+     *
+     * WHY: SQLite stores booleans as 0/1, arrays as JSON strings, etc.
+     * This converts them back to proper JS types based on field definitions.
+     */
+    private convertFromDatabase(row: Record<string, unknown>, model: Model): Record<string, unknown> {
+        const converted: Record<string, unknown> = {};
+
+        for (const [key, value] of Object.entries(row)) {
+            const field = model.getField(key);
+
+            if (field) {
+                converted[key] = this.system.dialect.fromDatabase(value, field.type);
+            }
+            else {
+                // System fields or unknown fields pass through unchanged
+                converted[key] = value;
+            }
+        }
+
+        return converted;
     }
 
     /**
