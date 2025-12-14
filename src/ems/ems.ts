@@ -43,7 +43,8 @@
 
 import type { HAL } from '@src/hal/index.js';
 import { EINVAL } from '@src/hal/errors.js';
-import { createDatabase, type DatabaseConnection } from './connection.js';
+import type { DatabaseConnection } from '@src/hal/connection.js';
+import { createDatabase } from './database.js';
 import { ModelCache } from './model-cache.js';
 import { PathCache } from '@src/vfs/path-cache.js';
 import { EntityOps } from './entity-ops.js';

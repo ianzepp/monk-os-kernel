@@ -1,46 +1,48 @@
 /**
- * Model Database Connection - HAL-based SQLite database management
+ * Database Connection - HAL-based SQLite/PostgreSQL database management
  *
  * ARCHITECTURE OVERVIEW
  * =====================
- * This module provides database connection management for the model layer,
- * using HAL's channel abstraction to access SQLite. This enforces the
- * architectural boundary: Bun is the hardware, HAL is the abstraction layer,
- * and the model layer goes through HAL to access databases.
+ * This module provides database connection management using HAL's channel
+ * abstraction to access SQLite or PostgreSQL. This enforces the architectural
+ * boundary: Bun is the hardware, HAL is the abstraction layer.
  *
  * The module provides:
- * - DatabaseConnection: A wrapper around HAL's SQLite channel with convenient methods
- * - Factory functions: Create initialized database connections with schema
+ * - DatabaseConnection: A wrapper around HAL's database channel with convenient methods
+ * - Factory functions: Create database connections
  *
  * DATABASE OPERATIONS
  * ===================
  * All database operations flow through HAL's channel interface:
  * ```
- * Model Layer (this module)
- *       │
- *       ▼
- * HAL Channel (sqlite protocol)
- *       │
- *       ▼
- * bun:sqlite (hardware)
+ * Higher Layers (EMS, VFS, etc.)
+ *       |
+ *       v
+ * DatabaseConnection (this module)
+ *       |
+ *       v
+ * HAL Channel (sqlite/postgres protocol)
+ *       |
+ *       v
+ * bun:sqlite / Bun.SQL (hardware)
  * ```
  *
  * USAGE
  * =====
  * ```typescript
- * import { createDatabase, DatabaseConnection } from '@src/ems/connection.js';
+ * import { createDatabaseConnection, DatabaseConnection } from '@src/hal/connection.js';
  * import { BunChannelDevice } from '@src/hal/channel.js';
  *
  * const channelDevice = new BunChannelDevice();
  *
- * // Create database with schema
- * const db = await createDatabase(channelDevice, ':memory:');
+ * // Create database connection
+ * const db = await createDatabaseConnection(channelDevice, ':memory:');
  *
  * // Query
- * const rows = await db.query('SELECT * FROM models');
+ * const rows = await db.query('SELECT * FROM users');
  *
  * // Execute
- * const result = await db.execute('INSERT INTO models (model_name) VALUES (?)', ['test']);
+ * const result = await db.execute('INSERT INTO users (name) VALUES (?)', ['test']);
  *
  * // Close
  * await db.close();
@@ -49,9 +51,8 @@
  * INVARIANTS
  * ==========
  * INV-1: All database operations go through HAL channel (no direct bun:sqlite)
- * INV-2: Schema is idempotent - safe to run multiple times
- * INV-3: DatabaseConnection owns the channel and must close it
- * INV-4: Query results are fully materialized (not streaming)
+ * INV-2: DatabaseConnection owns the channel and must close it
+ * INV-3: Query results are fully materialized (not streaming)
  *
  * CONCURRENCY MODEL
  * =================
@@ -60,15 +61,15 @@
  * - Single writer at a time
  * - Readers do not block writers (and vice versa)
  *
- * The channel interface is async but SQLite operations are synchronous
- * internally (bun:sqlite is sync). No async interleaving within a query.
+ * PostgreSQL via Bun.SQL:
+ * - Connection pooling handled by Bun
+ * - Multiple concurrent queries supported
  *
- * @module model/connection
+ * @module hal/connection
  */
 
-import type { Channel, ChannelDevice } from '@src/hal/channel.js';
-import type { FileDevice } from '@src/hal/file.js';
-import { EIO } from '@src/hal/errors.js';
+import type { Channel, ChannelDevice } from './channel.js';
+import { EIO } from './errors.js';
 import { type DatabaseDialect, getDialect } from './dialect.js';
 
 // =============================================================================
@@ -83,64 +84,12 @@ import { type DatabaseDialect, getDialect } from './dialect.js';
  */
 const DEFAULT_PATH = ':memory:';
 
-/**
- * Path to the schema.sql file.
- *
- * WHY: Using import.meta.url ensures the path is relative to this module,
- * regardless of the current working directory.
- */
-const SCHEMA_PATH = new URL('./schema.sql', import.meta.url).pathname;
-
-/**
- * Cached schema SQL content (Promise-based for race condition safety).
- *
- * WHY Promise: The old pattern `if (cache === null) { cache = await read() }` had
- * a TOCTOU bug where concurrent calls would both read the file before either
- * cached. Using a Promise cache ensures only one read occurs.
- *
- * INVARIANT: Once set, never changes (schema is static).
- */
-let cachedSchemaPromise: Promise<string> | null = null;
-
-// =============================================================================
-// SCHEMA LOADING
-// =============================================================================
-
-/**
- * Load the schema SQL content via HAL FileDevice.
- *
- * ALGORITHM:
- * 1. Check if Promise is cached
- * 2. If not, start read and cache the Promise immediately
- * 3. Return cached Promise (all callers share same read)
- *
- * RACE CONDITION FIX: By caching the Promise (not the result), concurrent
- * calls share the same in-flight read. The old check-then-read pattern:
- *   if (cache === null) { cache = await read() }
- * allowed two concurrent calls to both start reads before either completed.
- *
- * WHY FileDevice parameter: Maintains HAL boundary - no direct Bun.file()
- * access outside HAL. The FileDevice is provided by the kernel.
- *
- * @param fileDevice - HAL FileDevice for reading schema file
- * @returns Promise resolving to schema SQL content
- * @throws Error if schema.sql cannot be read
- */
-async function loadSchemaAsync(fileDevice: FileDevice): Promise<string> {
-    if (cachedSchemaPromise === null) {
-        // Cache the Promise immediately - all concurrent callers share this read
-        cachedSchemaPromise = fileDevice.readText(SCHEMA_PATH);
-    }
-
-    return cachedSchemaPromise;
-}
-
 // =============================================================================
 // DATABASE CONNECTION CLASS
 // =============================================================================
 
 /**
- * Database connection wrapping a HAL SQLite channel.
+ * Database connection wrapping a HAL SQLite or PostgreSQL channel.
  *
  * WHY: Provides convenient methods for common database operations while
  * ensuring all operations go through HAL's channel abstraction.
@@ -186,10 +135,7 @@ export class DatabaseConnection {
     /**
      * Create a database connection from a HAL channel.
      *
-     * WHY private: Use factory functions (createDatabase, etc.) instead.
-     * This ensures proper initialization with schema.
-     *
-     * @param channel - HAL SQLite channel
+     * @param channel - HAL SQLite or PostgreSQL channel
      * @param path - Database path (for debugging)
      */
     constructor(channel: Channel, path: string) {
@@ -234,8 +180,6 @@ export class DatabaseConnection {
 
                 default:
                     // SAFETY: Ignore unexpected response types (progress, event, etc.)
-                    // These should not occur in SQLite channel but don't break if they do.
-                    // Log for debugging if needed: console.warn(`Unexpected response.op: ${response.op}`);
                     break;
             }
         }
@@ -291,7 +235,7 @@ export class DatabaseConnection {
                 }
 
                 default:
-                    // SAFETY: Ignore unexpected response types (progress, event, etc.)
+                    // SAFETY: Ignore unexpected response types
                     break;
             }
         }
@@ -325,7 +269,7 @@ export class DatabaseConnection {
                 }
 
                 default:
-                    // SAFETY: Ignore unexpected response types (progress, event, etc.)
+                    // SAFETY: Ignore unexpected response types
                     break;
             }
         }
@@ -422,11 +366,8 @@ export class DatabaseConnection {
  * 2. Wrap in DatabaseConnection
  * 3. Return connection (no schema initialization)
  *
- * WHY separate from createDatabase: Allows creating connection without
- * schema for cases like connecting to existing databases.
- *
- * @param channelDevice - HAL channel device for opening SQLite channel
- * @param path - SQLite database path, or ':memory:' for in-memory
+ * @param channelDevice - HAL channel device for opening database channel
+ * @param path - Database path, or ':memory:' for in-memory
  * @returns Promise resolving to DatabaseConnection
  */
 export async function createDatabaseConnection(
@@ -439,53 +380,13 @@ export async function createDatabaseConnection(
 }
 
 /**
- * Create a database with the model schema initialized.
- *
- * ALGORITHM:
- * 1. Open SQLite channel via HAL
- * 2. Load schema.sql content via HAL FileDevice
- * 3. Execute schema via channel's exec operation
- * 4. Return ready-to-use DatabaseConnection
- *
- * @param channelDevice - HAL channel device for opening SQLite channel
- * @param fileDevice - HAL file device for reading schema.sql
- * @param path - SQLite database path, or ':memory:' for in-memory (default)
- * @returns Promise resolving to initialized DatabaseConnection
- *
- * @example
- * ```typescript
- * import { BunChannelDevice, BunFileDevice } from '@src/hal/index.js';
- *
- * const channelDevice = new BunChannelDevice();
- * const fileDevice = new BunFileDevice();
- * const db = await createDatabase(channelDevice, fileDevice);
- *
- * const models = await db.query("SELECT model_name FROM models WHERE status = 'system'");
- * ```
- */
-export async function createDatabase(
-    channelDevice: ChannelDevice,
-    fileDevice: FileDevice,
-    path: string = DEFAULT_PATH,
-): Promise<DatabaseConnection> {
-    const conn = await createDatabaseConnection(channelDevice, path);
-
-    // Load and execute schema via HAL
-    const schema = await loadSchemaAsync(fileDevice);
-
-    await conn.exec(schema);
-
-    return conn;
-}
-
-/**
- * Create a database with provided schema (no file read).
+ * Create a database connection with provided schema (no file read).
  *
  * WHY: For cases where schema is already available (e.g., bundled into
  * the application, or for testing with custom schema).
  *
- * @param channelDevice - HAL channel device for opening SQLite channel
- * @param path - SQLite database path
+ * @param channelDevice - HAL channel device for opening database channel
+ * @param path - Database path
  * @param schema - Schema SQL to execute
  * @returns Promise resolving to initialized DatabaseConnection
  */
@@ -511,25 +412,13 @@ export async function createDatabaseWithSchema(
  * TESTABILITY: Allows tests to override defaults without modifying code.
  */
 export interface DatabaseConfig {
-    /** SQLite database path (default: ':memory:') */
+    /** Database path (default: ':memory:') */
     path?: string;
 }
 
 // =============================================================================
 // PUBLIC ACCESSORS (for testing)
 // =============================================================================
-
-/**
- * Get the schema SQL content.
- *
- * TESTABILITY: Allows tests to verify schema content or use it directly.
- *
- * @param fileDevice - HAL file device for reading schema.sql
- * @returns Promise resolving to schema SQL content
- */
-export async function getSchema(fileDevice: FileDevice): Promise<string> {
-    return loadSchemaAsync(fileDevice);
-}
 
 /**
  * Get the default database path.
@@ -540,15 +429,4 @@ export async function getSchema(fileDevice: FileDevice): Promise<string> {
  */
 export function getDefaultPath(): string {
     return DEFAULT_PATH;
-}
-
-/**
- * Clear the cached schema (for testing).
- *
- * TESTABILITY: Allows tests to force schema reload.
- *
- * WHY: Tests may modify schema.sql and need to reload it.
- */
-export function clearSchemaCache(): void {
-    cachedSchemaPromise = null;
 }

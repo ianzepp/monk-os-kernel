@@ -4,8 +4,8 @@
  * ARCHITECTURE OVERVIEW
  * =====================
  * DatabaseDialect provides a unified interface for generating SQL and converting
- * values between JavaScript and database-native formats. This enables Ring 5/6
- * observers to work with both SQLite and PostgreSQL without dialect-specific code.
+ * values between JavaScript and database-native formats. This enables code to
+ * work with both SQLite and PostgreSQL without dialect-specific logic.
  *
  * RESPONSIBILITIES:
  * - SQL syntax generation (placeholders, transactions, DDL)
@@ -41,7 +41,7 @@
  * const jsValue = dialect.fromDatabase(1, 'boolean'); // true
  * ```
  *
- * @module ems/dialect
+ * @module hal/dialect
  */
 
 // =============================================================================
@@ -54,10 +54,10 @@
 export type DialectName = 'sqlite' | 'postgres';
 
 /**
- * Abstract field types used in the EMS.
+ * Abstract field types used in the database layer.
  *
- * These are the logical types stored in the `fields.type` column.
- * Each dialect maps these to appropriate SQL types.
+ * These are the logical types that get mapped to appropriate SQL types
+ * by each dialect.
  */
 export type FieldType =
     | 'text'

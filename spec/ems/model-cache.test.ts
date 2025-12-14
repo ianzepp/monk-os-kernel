@@ -7,7 +7,8 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { BunHAL } from '@src/hal/index.js';
-import { createDatabase, type DatabaseConnection } from '@src/ems/connection.js';
+import type { DatabaseConnection } from '@src/hal/connection.js';
+import { createDatabase } from '@src/ems/database.js';
 import { ModelCache } from '@src/ems/model-cache.js';
 import { ENOENT } from '@src/hal/errors.js';
 import { loadVfsSchema } from '../helpers/test-os.js';

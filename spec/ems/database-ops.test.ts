@@ -7,8 +7,8 @@
  */
 
 import { describe, it, expect, beforeEach } from 'bun:test';
-import { DatabaseOps, collect, type DbRecord } from '@src/ems/database-ops.js';
-import type { DatabaseConnection } from '@src/ems/connection.js';
+import { DatabaseOps, collect, type DbRecord } from '@src/hal/database-ops.js';
+import type { DatabaseConnection } from '@src/hal/connection.js';
 
 // =============================================================================
 // TEST HELPERS

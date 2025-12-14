@@ -1,5 +1,5 @@
 /**
- * Filter Types - Query building types for DatabaseService
+ * Filter Types - Query building types for SQL generation
  *
  * Provides type definitions for the Filter system, enabling complex queries
  * with 26 operators, logical combinations, and SQL generation.
@@ -12,7 +12,7 @@
  * - $search: Full-text search (to_tsvector @@ plainto_tsquery)
  * These require PostgreSQL-specific syntax and have no direct SQLite equivalent.
  *
- * @module model/filter-types
+ * @module hal/filter-types
  */
 
 // =============================================================================
@@ -145,9 +145,9 @@ export enum FilterOp {
  * Where condition value - can be a primitive or operator object.
  *
  * Examples:
- * - `'active'` → implicit $eq
- * - `{ $gte: 18 }` → explicit operator
- * - `{ $in: ['a', 'b'] }` → array membership
+ * - `'active'` - implicit $eq
+ * - `{ $gte: 18 }` - explicit operator
+ * - `{ $in: ['a', 'b'] }` - array membership
  */
 export type WhereValue =
     | string
@@ -160,9 +160,9 @@ export type WhereValue =
  * Where conditions - field to value/operator mapping.
  *
  * Examples:
- * - `{ status: 'active' }` → status = 'active'
- * - `{ age: { $gte: 18 } }` → age >= 18
- * - `{ $or: [{ a: 1 }, { b: 2 }] }` → (a = 1 OR b = 2)
+ * - `{ status: 'active' }` - status = 'active'
+ * - `{ age: { $gte: 18 } }` - age >= 18
+ * - `{ $or: [{ a: 1 }, { b: 2 }] }` - (a = 1 OR b = 2)
  */
 export interface WhereConditions {
     [field: string]: WhereValue | WhereConditions[] | undefined;

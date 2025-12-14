@@ -217,6 +217,57 @@ export type { JsonDevice } from './json.js';
 export type { YamlDevice } from './yaml.js';
 
 // =============================================================================
+// DATABASE ABSTRACTION (RE-EXPORTS)
+// =============================================================================
+
+// Dialect - SQL syntax and type conversion abstraction
+export {
+    type DialectName,
+    type FieldType,
+    type DatabaseDialect,
+    SqliteDialect,
+    PostgresDialect,
+    getDialect,
+} from './dialect.js';
+
+// Connection - Database connection wrapper
+export {
+    DatabaseConnection,
+    createDatabaseConnection,
+    createDatabaseWithSchema,
+    getDefaultPath,
+    type DatabaseConfig,
+} from './connection.js';
+
+// Filter - Query builder
+export {
+    FilterOp,
+    type FilterData,
+    type WhereConditions,
+    type WhereValue,
+    type OrderSpec,
+    type SelectOptions,
+    type TrashedOption,
+    type CreateInput,
+    type UpdateInput,
+    type DeleteInput,
+    type RevertInput,
+    type SqlResult,
+    type WhereResult,
+} from './filter-types.js';
+
+export { Filter } from './filter.js';
+
+// DatabaseOps - Generic SQL streaming
+export {
+    DatabaseOps,
+    collect,
+    type Source,
+    type DbRecord,
+    type UpdateRecord,
+} from './database-ops.js';
+
+// =============================================================================
 // DEVICE IMPLEMENTATION CLASSES (RE-EXPORTS)
 // =============================================================================
 

@@ -7,7 +7,7 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
 import { DdlCreateModel } from '@src/ems/ring/6/index.js';
 import { ObserverRing, EOBSSYS } from '@src/ems/observers/index.js';
-import { getDialect } from '@src/ems/dialect.js';
+import { getDialect } from '@src/hal/dialect.js';
 import type {
     ObserverContext,
     Model,

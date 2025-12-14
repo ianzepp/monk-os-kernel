@@ -4,10 +4,8 @@
  * ARCHITECTURE OVERVIEW
  * =====================
  * DatabaseOps provides generic streaming SQL operations over a DatabaseConnection.
- * It is NOT tied to the EMS observer pipeline - it's a reusable SQL streaming
+ * It is NOT tied to any specific domain - it's a reusable SQL streaming
  * library that can be used for any table.
- *
- * For entity-aware operations with observer pipeline, use EntityOps.
  *
  * STREAMING MODEL
  * ===============
@@ -17,23 +15,22 @@
  * LAYERS
  * ======
  * ```
- * ┌─────────────────────────────────────┐
- * │  EntityOps                          │  ← EMS: observer pipeline + entities
- * ├─────────────────────────────────────┤
- * │  DatabaseOps (this module)          │  ← Generic SQL streaming
- * ├─────────────────────────────────────┤
- * │  DatabaseConnection                 │  ← HAL: channel wrapper
- * └─────────────────────────────────────┘
+ * +-----------------------------------------+
+ * |  Higher Layers (EMS EntityOps, etc.)    |  <- Domain-specific operations
+ * +-----------------------------------------+
+ * |  DatabaseOps (this module)              |  <- Generic SQL streaming
+ * +-----------------------------------------+
+ * |  DatabaseConnection                     |  <- HAL: channel wrapper
+ * +-----------------------------------------+
  * ```
  *
  * INVARIANTS
  * ==========
  * INV-1: All database access goes through DatabaseConnection
- * INV-2: No model/entity awareness - just tables and rows
- * INV-3: No observer pipeline - pure SQL operations
- * INV-4: Records stream one at a time (no batching)
+ * INV-2: No domain awareness - just tables and rows
+ * INV-3: Records stream one at a time (no batching)
  *
- * @module ems/database-ops
+ * @module hal/database-ops
  */
 
 import type { DatabaseConnection } from './connection.js';
@@ -113,7 +110,7 @@ export async function collect<T>(source: AsyncIterable<T>): Promise<T[]> {
 /**
  * Generic SQL streaming operations.
  *
- * No model awareness, no observer pipeline. Just SQL over DatabaseConnection.
+ * No domain awareness. Just SQL over DatabaseConnection.
  */
 export class DatabaseOps {
     // =========================================================================

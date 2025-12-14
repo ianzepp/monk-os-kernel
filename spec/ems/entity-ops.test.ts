@@ -13,11 +13,11 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { BunHAL } from '@src/hal/index.js';
-import { createDatabase } from '@src/ems/connection.js';
+import { createDatabase } from '@src/ems/database.js';
 import { ModelCache } from '@src/ems/model-cache.js';
 import { EntityOps, collect } from '@src/ems/entity-ops.js';
 import { createObserverRunner, ObserverRunner } from '@src/ems/observers/index.js';
-import type { DatabaseConnection } from '@src/ems/connection.js';
+import type { DatabaseConnection } from '@src/hal/connection.js';
 import { loadVfsSchema } from '../helpers/test-os.js';
 
 // =============================================================================

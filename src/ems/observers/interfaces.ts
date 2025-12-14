@@ -31,7 +31,7 @@
 
 import type { ObserverRing, OperationType } from './types.js';
 import type { EOBSINVALID } from './errors.js';
-import type { DatabaseDialect } from '../dialect.js';
+import type { DatabaseDialect } from '@src/hal/dialect.js';
 
 // =============================================================================
 // FORWARD DECLARATIONS

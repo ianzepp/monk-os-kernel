@@ -67,7 +67,7 @@
  * @module model/model-cache
  */
 
-import type { DatabaseConnection } from './connection.js';
+import type { DatabaseConnection } from '@src/hal/connection.js';
 import { Model, type ModelRow, type FieldRow } from './model.js';
 import { ENOENT } from '@src/hal/errors.js';
 

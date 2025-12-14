@@ -67,19 +67,24 @@
 export { EMS, type EMSConfig } from './ems.js';
 
 // =============================================================================
-// CONNECTION / SCHEMA
+// CONNECTION / SCHEMA (re-exported from HAL + EMS database)
 // =============================================================================
 
+// Generic database primitives from HAL
 export {
     DatabaseConnection,
-    createDatabase,
     createDatabaseConnection,
     createDatabaseWithSchema,
-    getSchema,
     getDefaultPath,
-    clearSchemaCache,
     type DatabaseConfig,
-} from './connection.js';
+} from '@src/hal/connection.js';
+
+// EMS-specific database creation (loads EMS schema)
+export {
+    createDatabase,
+    getSchema,
+    clearSchemaCache,
+} from './database.js';
 
 // =============================================================================
 // MODEL METADATA
@@ -113,7 +118,7 @@ export {
 } from '@src/vfs/path-cache.js';
 
 // =============================================================================
-// FILTER SYSTEM
+// FILTER SYSTEM (re-exported from HAL)
 // =============================================================================
 
 export {
@@ -130,12 +135,12 @@ export {
     type RevertInput,
     type SqlResult,
     type WhereResult,
-} from './filter-types.js';
+} from '@src/hal/filter-types.js';
 
-export { Filter } from './filter.js';
+export { Filter } from '@src/hal/filter.js';
 
 // =============================================================================
-// DATABASE OPERATIONS (Generic SQL Streaming)
+// DATABASE OPERATIONS (re-exported from HAL)
 // =============================================================================
 
 export {
@@ -144,7 +149,7 @@ export {
     type Source,
     type DbRecord,
     type UpdateRecord,
-} from './database-ops.js';
+} from '@src/hal/database-ops.js';
 
 // =============================================================================
 // ENTITY OPERATIONS (Entity-Aware Streaming with Observer Pipeline)

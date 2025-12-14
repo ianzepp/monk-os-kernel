@@ -37,8 +37,8 @@
  * @module ems/entity-ops
  */
 
-import type { DatabaseConnection } from './connection.js';
-import { DatabaseOps, collect, type Source, type DbRecord } from './database-ops.js';
+import type { DatabaseConnection } from '@src/hal/connection.js';
+import { DatabaseOps, collect, type Source, type DbRecord } from '@src/hal/database-ops.js';
 import type { ModelCache } from './model-cache.js';
 import type { Model } from './model.js';
 import { ModelRecord } from './model-record.js';
@@ -46,7 +46,7 @@ import type { ObserverRunner } from './observers/runner.js';
 import type { ObserverContext, SystemContext } from './observers/interfaces.js';
 import type { OperationType } from './observers/types.js';
 import type { EOBSINVALID } from './observers/errors.js';
-import { Filter } from './filter.js';
+import { Filter } from '@src/hal/filter.js';
 import { EFAULT, ENOENT } from '@src/hal/errors.js';
 import type {
     FilterData,
@@ -55,13 +55,13 @@ import type {
     UpdateInput,
     DeleteInput,
     RevertInput,
-} from './filter-types.js';
+} from '@src/hal/filter-types.js';
 
 // =============================================================================
 // RE-EXPORTS
 // =============================================================================
 
-export { collect, type Source } from './database-ops.js';
+export { collect, type Source } from '@src/hal/database-ops.js';
 
 // =============================================================================
 // TYPES

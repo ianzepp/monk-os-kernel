@@ -49,7 +49,7 @@ import { EMS } from '@src/ems/ems.js';
 import { Auth } from '@src/auth/index.js';
 import { SyscallDispatcher } from '@src/dispatch/index.js';
 import { Gateway } from '@src/gateway/index.js';
-import type { DatabaseConnection } from '@src/ems/connection.js';
+import type { DatabaseConnection } from '@src/hal/connection.js';
 import type { FileDevice } from '@src/hal/file.js';
 import type { Process } from '@src/kernel/types.js';
 import type { Response } from '@src/message.js';

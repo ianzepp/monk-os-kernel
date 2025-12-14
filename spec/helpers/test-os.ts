@@ -20,7 +20,7 @@ import type { VFS } from '@src/vfs/index.js';
 import type { Kernel } from '@src/kernel/kernel.js';
 import type { SyscallDispatcher } from '@src/dispatch/dispatcher.js';
 import type { Gateway } from '@src/gateway/gateway.js';
-import type { DatabaseConnection } from '@src/ems/connection.js';
+import type { DatabaseConnection } from '@src/hal/connection.js';
 import type { FileDevice } from '@src/hal/file.js';
 
 /** Path to VFS schema file relative to this helper module */

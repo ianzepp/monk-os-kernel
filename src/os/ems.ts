@@ -52,7 +52,7 @@ import type {
     UpdateInput,
     DeleteInput,
     RevertInput,
-} from '@src/ems/filter-types.js';
+} from '@src/ems/index.js';
 import { ENOENT, EIO } from '@src/hal/errors.js';
 
 // =============================================================================
@@ -67,7 +67,7 @@ export type {
     UpdateInput,
     DeleteInput,
     RevertInput,
-} from '@src/ems/filter-types.js';
+} from '@src/ems/index.js';
 
 // =============================================================================
 // HOST INTERFACE

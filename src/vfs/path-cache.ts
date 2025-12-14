@@ -78,7 +78,7 @@
  * @module vfs/path-cache
  */
 
-import type { DatabaseConnection } from '../ems/connection.js';
+import type { DatabaseConnection } from '@src/hal/connection.js';
 
 // =============================================================================
 // CONSTANTS

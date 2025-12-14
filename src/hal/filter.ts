@@ -19,85 +19,69 @@
  * ===================
  *
  * Comparison Operators:
- * ┌──────────┬─────────────────────┬─────────────────────────────────────────┐
- * │ Operator │ SQL Generated       │ Example                                 │
- * ├──────────┼─────────────────────┼─────────────────────────────────────────┤
- * │ $eq      │ field = ?           │ { status: 'active' }                    │
- * │          │ field IS NULL       │ { status: { $eq: null } }               │
- * │ $ne      │ field != ?          │ { status: { $ne: 'deleted' } }          │
- * │ $neq     │ (alias for $ne)     │ { status: { $neq: 'deleted' } }         │
- * │ $gt      │ field > ?           │ { age: { $gt: 18 } }                    │
- * │ $gte     │ field >= ?          │ { age: { $gte: 18 } }                   │
- * │ $lt      │ field < ?           │ { age: { $lt: 65 } }                    │
- * │ $lte     │ field <= ?          │ { age: { $lte: 65 } }                   │
- * └──────────┴─────────────────────┴─────────────────────────────────────────┘
+ * | Operator | SQL Generated       | Example                                 |
+ * |----------|---------------------|-----------------------------------------|
+ * | $eq      | field = ?           | { status: 'active' }                    |
+ * |          | field IS NULL       | { status: { $eq: null } }               |
+ * | $ne      | field != ?          | { status: { $ne: 'deleted' } }          |
+ * | $neq     | (alias for $ne)     | { status: { $neq: 'deleted' } }         |
+ * | $gt      | field > ?           | { age: { $gt: 18 } }                    |
+ * | $gte     | field >= ?          | { age: { $gte: 18 } }                   |
+ * | $lt      | field < ?           | { age: { $lt: 65 } }                    |
+ * | $lte     | field <= ?          | { age: { $lte: 65 } }                   |
  *
  * Pattern Matching Operators:
- * ┌──────────┬─────────────────────────────┬─────────────────────────────────┐
- * │ Operator │ SQL Generated               │ Example                         │
- * ├──────────┼─────────────────────────────┼─────────────────────────────────┤
- * │ $like    │ field LIKE ?                │ { name: { $like: 'John%' } }    │
- * │ $ilike   │ LOWER(field) LIKE LOWER(?)  │ { name: { $ilike: 'john%' } }   │
- * │ $nlike   │ field NOT LIKE ?            │ { name: { $nlike: '%test%' } }  │
- * │ $nilike  │ LOWER(field) NOT LIKE ...   │ { name: { $nilike: '%TEST%' } } │
- * │ $regex   │ field REGEXP ?              │ { name: { $regex: '^test' } }   │
- * │ $nregex  │ field NOT REGEXP ?          │ { name: { $nregex: '^test' } }  │
- * └──────────┴─────────────────────────────┴─────────────────────────────────┘
+ * | Operator | SQL Generated               | Example                         |
+ * |----------|-----------------------------|---------------------------------|
+ * | $like    | field LIKE ?                | { name: { $like: 'John%' } }    |
+ * | $ilike   | LOWER(field) LIKE LOWER(?)  | { name: { $ilike: 'john%' } }   |
+ * | $nlike   | field NOT LIKE ?            | { name: { $nlike: '%test%' } }  |
+ * | $nilike  | LOWER(field) NOT LIKE ...   | { name: { $nilike: '%TEST%' } } |
+ * | $regex   | field REGEXP ?              | { name: { $regex: '^test' } }   |
+ * | $nregex  | field NOT REGEXP ?          | { name: { $nregex: '^test' } }  |
  *
  * Text Search Operators:
- * ┌──────────┬─────────────────────────────┬─────────────────────────────────┐
- * │ Operator │ SQL Generated               │ Example                         │
- * ├──────────┼─────────────────────────────┼─────────────────────────────────┤
- * │ $find    │ LOWER(field) LIKE ?         │ { desc: { $find: 'foo' } }      │
- * │ $text    │ (alias for $find)           │ { desc: { $text: 'foo' } }      │
- * └──────────┴─────────────────────────────┴─────────────────────────────────┘
+ * | Operator | SQL Generated               | Example                         |
+ * |----------|-----------------------------|---------------------------------|
+ * | $find    | LOWER(field) LIKE ?         | { desc: { $find: 'foo' } }      |
+ * | $text    | (alias for $find)           | { desc: { $text: 'foo' } }      |
  * Note: $find/$text wrap value with %...% for contains matching.
  *
  * Array Membership Operators:
- * ┌──────────┬─────────────────────────────┬─────────────────────────────────┐
- * │ Operator │ SQL Generated               │ Example                         │
- * ├──────────┼─────────────────────────────┼─────────────────────────────────┤
- * │ $in      │ field IN (?, ?, ...)        │ { status: { $in: ['a', 'b'] } } │
- * │          │ 0=1 (empty array)           │ { status: { $in: [] } }         │
- * │ $nin     │ field NOT IN (?, ?, ...)    │ { status: { $nin: ['x'] } }     │
- * │          │ 1=1 (empty array)           │ { status: { $nin: [] } }        │
- * └──────────┴─────────────────────────────┴─────────────────────────────────┘
+ * | Operator | SQL Generated               | Example                         |
+ * |----------|-----------------------------|---------------------------------|
+ * | $in      | field IN (?, ?, ...)        | { status: { $in: ['a', 'b'] } } |
+ * |          | 0=1 (empty array)           | { status: { $in: [] } }         |
+ * | $nin     | field NOT IN (?, ?, ...)    | { status: { $nin: ['x'] } }     |
+ * |          | 1=1 (empty array)           | { status: { $nin: [] } }        |
  *
  * JSON Array Operators:
- * ┌──────────┬─────────────────────────────┬─────────────────────────────────┐
- * │ Operator │ SQL Generated               │ Example                         │
- * ├──────────┼─────────────────────────────┼─────────────────────────────────┤
- * │ $size    │ json_array_length(field)    │ { tags: { $size: 3 } }          │
- * │          │ (supports nested operators) │ { tags: { $size: { $gte: 1 } }} │
- * └──────────┴─────────────────────────────┴─────────────────────────────────┘
+ * | Operator | SQL Generated               | Example                         |
+ * |----------|-----------------------------|---------------------------------|
+ * | $size    | json_array_length(field)    | { tags: { $size: 3 } }          |
+ * |          | (supports nested operators) | { tags: { $size: { $gte: 1 } }} |
  *
  * Logical Operators:
- * ┌──────────┬─────────────────────────────┬─────────────────────────────────┐
- * │ Operator │ SQL Generated               │ Example                         │
- * ├──────────┼─────────────────────────────┼─────────────────────────────────┤
- * │ $and     │ (... AND ...)               │ { $and: [{ a: 1 }, { b: 2 }] }  │
- * │ $or      │ (... OR ...)                │ { $or: [{ a: 1 }, { b: 2 }] }   │
- * │ $not     │ NOT (...)                   │ { $not: { status: 'deleted' } } │
- * │ $nand    │ NOT (... AND ...)           │ { $nand: [{ a: 1 }, { b: 2 }] } │
- * │ $nor     │ NOT (... OR ...)            │ { $nor: [{ a: 1 }, { b: 2 }] }  │
- * └──────────┴─────────────────────────────┴─────────────────────────────────┘
+ * | Operator | SQL Generated               | Example                         |
+ * |----------|-----------------------------|---------------------------------|
+ * | $and     | (... AND ...)               | { $and: [{ a: 1 }, { b: 2 }] }  |
+ * | $or      | (... OR ...)                | { $or: [{ a: 1 }, { b: 2 }] }   |
+ * | $not     | NOT (...)                   | { $not: { status: 'deleted' } } |
+ * | $nand    | NOT (... AND ...)           | { $nand: [{ a: 1 }, { b: 2 }] } |
+ * | $nor     | NOT (... OR ...)            | { $nor: [{ a: 1 }, { b: 2 }] }  |
  *
  * Range Operator:
- * ┌──────────┬─────────────────────────────┬─────────────────────────────────┐
- * │ Operator │ SQL Generated               │ Example                         │
- * ├──────────┼─────────────────────────────┼─────────────────────────────────┤
- * │ $between │ field BETWEEN ? AND ?       │ { age: { $between: [18, 65] } } │
- * └──────────┴─────────────────────────────┴─────────────────────────────────┘
+ * | Operator | SQL Generated               | Example                         |
+ * |----------|-----------------------------|---------------------------------|
+ * | $between | field BETWEEN ? AND ?       | { age: { $between: [18, 65] } } |
  *
  * Null/Existence Operators:
- * ┌──────────┬─────────────────────────────┬─────────────────────────────────┐
- * │ Operator │ SQL Generated               │ Example                         │
- * ├──────────┼─────────────────────────────┼─────────────────────────────────┤
- * │ $exists  │ field IS NOT NULL (true)    │ { email: { $exists: true } }    │
- * │          │ field IS NULL (false)       │ { email: { $exists: false } }   │
- * │ $null    │ field IS NULL (true)        │ { deleted: { $null: true } }    │
- * │          │ field IS NOT NULL (false)   │ { deleted: { $null: false } }   │
- * └──────────┴─────────────────────────────┴─────────────────────────────────┘
+ * | Operator | SQL Generated               | Example                         |
+ * |----------|-----------------------------|---------------------------------|
+ * | $exists  | field IS NOT NULL (true)    | { email: { $exists: true } }    |
+ * |          | field IS NULL (false)       | { email: { $exists: false } }   |
+ * | $null    | field IS NULL (true)        | { deleted: { $null: true } }    |
+ * |          | field IS NOT NULL (false)   | { deleted: { $null: false } }   |
  *
  * USAGE
  * =====
@@ -147,7 +131,7 @@
  * Filters are typically created per-request and discarded after use.
  * They should not be shared across requests or stored long-term.
  *
- * @module model/filter
+ * @module hal/filter
  */
 
 import {
@@ -160,7 +144,7 @@ import {
     type WhereResult,
     type TrashedOption,
 } from './filter-types.js';
-import { EINVAL } from '@src/hal/errors.js';
+import { EINVAL } from './errors.js';
 
 // =============================================================================
 // CONSTANTS

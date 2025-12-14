@@ -1,13 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { BunChannelDevice, BunFileDevice } from '@src/hal/index.js';
-import type {
-    DatabaseConnection } from '@src/ems/connection.js';
+import type { DatabaseConnection } from '@src/hal/connection.js';
+import { createDatabaseConnection } from '@src/hal/connection.js';
 import {
     createDatabase,
-    createDatabaseConnection,
     getSchema,
     clearSchemaCache,
-} from '@src/ems/connection.js';
+} from '@src/ems/database.js';
 import { unlink } from 'node:fs/promises';
 import { loadVfsSchemaWithFileDevice } from '../helpers/test-os.js';
 

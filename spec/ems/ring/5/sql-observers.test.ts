@@ -8,7 +8,7 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
 import { SqlCreate, SqlUpdate, SqlDelete } from '@src/ems/ring/5/index.js';
 import { ObserverRing, EOBSSYS } from '@src/ems/observers/index.js';
-import { getDialect } from '@src/ems/dialect.js';
+import { getDialect } from '@src/hal/dialect.js';
 import type {
     ObserverContext,
     Model,
@@ -620,7 +620,7 @@ describe('Ring 5 is required for persistence', () => {
 
     it('should NOT persist records when Ring 5 observers are missing', async () => {
         const { BunHAL } = await import('@src/hal/index.js');
-        const { createDatabase } = await import('@src/ems/connection.js');
+        const { createDatabase } = await import('@src/ems/database.js');
         const { ModelCache } = await import('@src/ems/model-cache.js');
         const { EntityOps, collect } = await import('@src/ems/entity-ops.js');
         const { ObserverRunner } = await import('@src/ems/observers/runner.js');
@@ -665,7 +665,7 @@ describe('Ring 5 is required for persistence', () => {
 
     it('should persist records when Ring 5 observers ARE registered', async () => {
         const { BunHAL } = await import('@src/hal/index.js');
-        const { createDatabase } = await import('@src/ems/connection.js');
+        const { createDatabase } = await import('@src/ems/database.js');
         const { ModelCache } = await import('@src/ems/model-cache.js');
         const { EntityOps, collect } = await import('@src/ems/entity-ops.js');
         const { createObserverRunner } = await import('@src/ems/observers/registry.js');
