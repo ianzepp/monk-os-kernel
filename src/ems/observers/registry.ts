@@ -64,7 +64,7 @@ import { SqlCreate, SqlUpdate, SqlDelete, PathnameSync } from '../ring/5/index.j
 import { DdlCreateModel, DdlCreateField } from '../ring/6/index.js';
 
 // Ring 7: Audit
-import { Tracked } from '../ring/7/index.js';
+// NOTE: Tracked observer moved to src/audit/ - register separately if needed
 
 // Ring 8: Integration
 import { Cache, PathCacheSync } from '../ring/8/index.js';
@@ -86,9 +86,11 @@ import { Cache, PathCacheSync } from '../ring/8/index.js';
  * - Ring 4: TransformProcessor (enrichment)
  * - Ring 5: SqlCreate, SqlUpdate, SqlDelete, PathnameSync (database operations)
  * - Ring 6: DdlCreateModel, DdlCreateField (schema management)
- * - Ring 7: Tracked (audit)
  * - Ring 8: Cache (model cache invalidation)
  * - Ring 8: PathCacheSync (entity cache sync)
+ *
+ * NOTE: Audit (Tracked observer) moved to src/audit/ subsystem.
+ * Register separately via Audit.init() if audit logging is needed.
  *
  * @returns Configured ObserverRunner
  */
@@ -139,7 +141,7 @@ export function createObserverRunner(): ObserverRunner {
     // =========================================================================
     // RING 7: AUDIT
     // =========================================================================
-    runner.register(new Tracked());
+    // Tracked observer moved to src/audit/ - not registered by default
 
     // =========================================================================
     // RING 8: INTEGRATION

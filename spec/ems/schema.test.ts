@@ -68,14 +68,7 @@ describe('Model Schema', () => {
             expect(tables[0]!.name).toBe('fields');
         });
 
-        it('should create tracked table', async () => {
-            const tables = await db.query<{ name: string }>(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='tracked'",
-            );
-
-            expect(tables.length).toBe(1);
-            expect(tables[0]!.name).toBe('tracked');
-        });
+        // NOTE: tracked table moved to src/audit/ subsystem
 
         it('should create indexes', async () => {
             const indexes = await db.query<{ name: string }>(
@@ -85,7 +78,7 @@ describe('Model Schema', () => {
 
             expect(names).toContain('idx_models_status');
             expect(names).toContain('idx_fields_model');
-            expect(names).toContain('idx_tracked_record');
+            // idx_tracked_record moved to audit subsystem
         });
     });
 
@@ -176,22 +169,7 @@ describe('Model Schema', () => {
         });
     });
 
-    describe('tracked table columns', () => {
-        it('should have all required columns', async () => {
-            const columns = await db.query<{ name: string }>('PRAGMA table_info(tracked)');
-            const names = columns.map(c => c.name);
-
-            expect(names).toContain('id');
-            expect(names).toContain('change_id');
-            expect(names).toContain('model_name');
-            expect(names).toContain('record_id');
-            expect(names).toContain('operation');
-            expect(names).toContain('changes');
-            expect(names).toContain('created_by');
-            expect(names).toContain('request_id');
-            expect(names).toContain('metadata');
-        });
-    });
+    // NOTE: tracked table columns test moved to audit subsystem tests
 
     describe('foreign key constraints', () => {
         it('should enforce fields.model_name references models.model_name', async () => {
@@ -249,15 +227,7 @@ describe('Model Schema', () => {
             expect(model!.sudo).toBe(1);
         });
 
-        it('should seed tracked meta-model', async () => {
-            const model = await db.queryOne<{ model_name: string; status: string; sudo: number }>(
-                "SELECT model_name, status, sudo FROM models WHERE model_name = 'tracked'",
-            );
-
-            expect(model).not.toBeNull();
-            expect(model!.status).toBe('system');
-            expect(model!.sudo).toBe(1);
-        });
+        // NOTE: tracked meta-model moved to audit subsystem
     });
 
     describe('VFS system models seed data', () => {
@@ -306,13 +276,14 @@ describe('Model Schema', () => {
             expect(model!.status).toBe('system');
         });
 
-        it('should have 9 system models total', async () => {
+        it('should have 8 system models total', async () => {
             const count = await db.queryOne<{ cnt: number }>(
                 "SELECT COUNT(*) as cnt FROM models WHERE status = 'system'",
             );
 
-            // 3 meta-models + 6 VFS models = 9
-            expect(count!.cnt).toBe(9);
+            // 2 meta-models (models, fields) + 6 VFS models = 8
+            // tracked model moved to audit subsystem
+            expect(count!.cnt).toBe(8);
         });
     });
 
@@ -442,23 +413,7 @@ describe('Model Schema', () => {
         });
     });
 
-    describe('tracked meta-model fields seed data', () => {
-        it('should have fields for tracked table', async () => {
-            const fields = await db.query<{ field_name: string }>(
-                "SELECT field_name FROM fields WHERE model_name = 'tracked'",
-            );
-            const names = fields.map(f => f.field_name);
-
-            expect(names).toContain('change_id');
-            expect(names).toContain('model_name');
-            expect(names).toContain('record_id');
-            expect(names).toContain('operation');
-            expect(names).toContain('changes');
-            expect(names).toContain('created_by');
-            expect(names).toContain('request_id');
-            expect(names).toContain('metadata');
-        });
-    });
+    // NOTE: tracked meta-model fields test moved to audit subsystem tests
 
     describe('idempotency', () => {
         it('should be safe to run schema multiple times', async () => {
@@ -473,7 +428,8 @@ describe('Model Schema', () => {
                 "SELECT COUNT(*) as cnt FROM models WHERE status = 'system'",
             );
 
-            expect(count!.cnt).toBe(9);
+            // 2 meta-models + 6 VFS models = 8 (tracked in audit subsystem)
+            expect(count!.cnt).toBe(8);
         });
     });
 
@@ -554,33 +510,7 @@ describe('Model Schema', () => {
             ).rejects.toThrow();
         });
 
-        it('should enforce operation enum values in tracked', async () => {
-            await expect(
-                db.execute(`
-                    INSERT INTO tracked (model_name, record_id, operation, changes)
-                    VALUES ('file', 'test-id', 'invalid', '{}')
-                `),
-            ).rejects.toThrow();
-        });
-
-        it('should allow valid operation values in tracked', async () => {
-            await db.execute(`
-                INSERT INTO tracked (model_name, record_id, operation, changes)
-                VALUES ('file', 'test-id-1', 'create', '{}')
-            `);
-            await db.execute(`
-                INSERT INTO tracked (model_name, record_id, operation, changes)
-                VALUES ('file', 'test-id-2', 'update', '{}')
-            `);
-            await db.execute(`
-                INSERT INTO tracked (model_name, record_id, operation, changes)
-                VALUES ('file', 'test-id-3', 'delete', '{}')
-            `);
-
-            const count = await db.queryOne<{ cnt: number }>('SELECT COUNT(*) as cnt FROM tracked');
-
-            expect(count!.cnt).toBe(3);
-        });
+        // NOTE: tracked table check constraint tests moved to audit subsystem tests
 
         it('should enforce relationship_type enum values', async () => {
             await db.execute("INSERT INTO models (model_name) VALUES ('test_rel')");
@@ -834,15 +764,15 @@ describe('Model Schema', () => {
     });
 
     describe('table count', () => {
-        it('should have 10 total tables (EMS core + VFS detail)', async () => {
+        it('should have 9 total tables (EMS core + VFS detail)', async () => {
             const tables = await db.query<{ name: string }>(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
             );
 
-            // EMS core: models, fields, tracked, entities = 4
+            // EMS core: models, fields, entities = 3 (tracked moved to audit)
             // VFS detail: file, folder, device, proc, link, temp = 6
-            // Total = 10 (since VFS schema is loaded in beforeEach)
-            expect(tables.length).toBe(10);
+            // Total = 9 (since VFS schema is loaded in beforeEach)
+            expect(tables.length).toBe(9);
         });
     });
 });
@@ -879,9 +809,9 @@ describe('Connection Module', () => {
         it('should create database with schema', async () => {
             const db = await createDatabase(channelDevice, fileDevice);
 
-            // Verify tables exist
+            // Verify tables exist (tracked moved to audit subsystem)
             const tables = await db.query<{ name: string }>(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('models', 'fields', 'tracked')",
+                "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('models', 'fields', 'entities')",
             );
 
             expect(tables.length).toBe(3);
@@ -896,9 +826,9 @@ describe('Connection Module', () => {
                 "SELECT model_name FROM models WHERE status = 'system'",
             );
 
-            // EMS core: models, fields, tracked = 3
+            // EMS core: models, fields = 2 (tracked moved to audit subsystem)
             // VFS models (file, folder, etc.) are seeded separately by VFS.init()
-            expect(models.length).toBe(3);
+            expect(models.length).toBe(2);
 
             await db.close();
         });
@@ -912,7 +842,8 @@ describe('Connection Module', () => {
             expect(schema).toBeTruthy();
             expect(schema).toContain('CREATE TABLE IF NOT EXISTS models');
             expect(schema).toContain('CREATE TABLE IF NOT EXISTS fields');
-            expect(schema).toContain('CREATE TABLE IF NOT EXISTS tracked');
+            expect(schema).toContain('CREATE TABLE IF NOT EXISTS entities');
+            // tracked table moved to audit subsystem
         });
     });
 

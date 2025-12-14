@@ -3,8 +3,8 @@
 -- =============================================================================
 --
 -- Entity Management System meta-model tables.
--- Defines the schema system itself: models, fields, change tracking, and
--- the core entities table used for VFS path hierarchy.
+-- Defines the schema system itself: models, fields, and the core entities
+-- table used for VFS path hierarchy.
 --
 -- ARCHITECTURE OVERVIEW
 -- =====================
@@ -15,8 +15,6 @@
 --   models      Model definitions (what entity types exist)
 --      |
 --      +-- fields   Field definitions (what columns each model has)
---      |
---      +-- tracked  Change history for audited fields
 --
 -- WHY entities is here: The entities table is foundational infrastructure
 -- that multiple subsystems depend on (Auth, LLM have FK constraints to it).
@@ -25,12 +23,16 @@
 --
 -- Per-model detail tables are created dynamically by DdlCreateModel observer.
 --
+-- NOTE: The `tracked` field flag exists in fields table, but the actual
+-- audit infrastructure (tracked table + observer) is in src/audit/.
+--
 -- LOAD ORDER
 -- ==========
--- 1. EMS schema (this file) - creates entities, models, fields, tracked
+-- 1. EMS schema (this file) - creates entities, models, fields
 -- 2. VFS schema - seeds root entity, creates VFS model detail tables
 -- 3. Auth schema - creates users/sessions with FK to entities
--- 4. Other subsystems - register their models via EMS
+-- 4. Audit schema (optional) - creates tracked table for audit logging
+-- 5. Other subsystems - register their models via EMS
 --
 -- BUN TOUCHPOINTS
 -- ===============
@@ -287,60 +289,6 @@ CREATE INDEX IF NOT EXISTS idx_fields_model
     WHERE trashed_at IS NULL;
 
 -- =============================================================================
--- TRACKED TABLE
--- =============================================================================
--- Change history for fields with tracked=1.
---
--- WHY separate table: Keeps entity tables clean while providing full audit.
--- WHY JSON changes: Flexible schema for any field changes.
-
-CREATE TABLE IF NOT EXISTS tracked (
-    -- -------------------------------------------------------------------------
-    -- System Fields
-    -- -------------------------------------------------------------------------
-    id          TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
-    created_at  TEXT DEFAULT (datetime('now')),
-    updated_at  TEXT DEFAULT (datetime('now')),
-    trashed_at  TEXT,
-    expired_at  TEXT,
-
-    -- -------------------------------------------------------------------------
-    -- Change Identity
-    -- -------------------------------------------------------------------------
-    -- WHY change_id: Sequence number for ordering changes within a record.
-    -- Computed by observer at insert time (MAX(change_id) + 1 for record).
-    change_id   INTEGER,
-
-    -- Model and record that changed
-    model_name  TEXT NOT NULL,
-    record_id   TEXT NOT NULL,
-
-    -- -------------------------------------------------------------------------
-    -- Change Details
-    -- -------------------------------------------------------------------------
-    -- operation: What happened to the entity
-    operation   TEXT NOT NULL CHECK (operation IN ('create', 'update', 'delete')),
-
-    -- changes: JSON object with changed fields, e.g.:
-    -- { "status": { "old": "draft", "new": "sent" } }
-    changes     TEXT NOT NULL,
-
-    -- Who made the change (user ID, process ID, or system)
-    created_by  TEXT,
-
-    -- Correlation ID for request tracing
-    request_id  TEXT,
-
-    -- Additional context (JSON)
-    metadata    TEXT
-);
-
--- Index for retrieving change history for a specific record
--- WHY DESC on change_id: Most recent changes first
-CREATE INDEX IF NOT EXISTS idx_tracked_record
-    ON tracked(model_name, record_id, change_id DESC);
-
--- =============================================================================
 -- SEED DATA: SYSTEM META-MODELS
 -- =============================================================================
 -- These models define the schema system itself. They require sudo access
@@ -350,8 +298,7 @@ CREATE INDEX IF NOT EXISTS idx_tracked_record
 
 INSERT OR IGNORE INTO models (model_name, status, sudo, description) VALUES
     ('models', 'system', 1, 'Model definitions - schema for entity types'),
-    ('fields', 'system', 1, 'Field definitions - columns for each model'),
-    ('tracked', 'system', 1, 'Change tracking history - audit log');
+    ('fields', 'system', 1, 'Field definitions - columns for each model');
 
 -- =============================================================================
 -- SEED DATA: MODELS TABLE FIELDS (Meta-model)
@@ -396,17 +343,3 @@ INSERT OR IGNORE INTO fields (model_name, field_name, type, required, descriptio
     ('fields', 'searchable', 'boolean', 0, 'Include in full-text search'),
     ('fields', 'transform', 'text', 0, 'Auto-transform: lowercase, trim, uppercase'),
     ('fields', 'description', 'text', 0, 'Field description');
-
--- =============================================================================
--- SEED DATA: TRACKED TABLE FIELDS (Meta-model)
--- =============================================================================
-
-INSERT OR IGNORE INTO fields (model_name, field_name, type, required, description) VALUES
-    ('tracked', 'change_id', 'integer', 1, 'Sequence number within record'),
-    ('tracked', 'model_name', 'text', 1, 'Model where change occurred'),
-    ('tracked', 'record_id', 'text', 1, 'Entity that was changed'),
-    ('tracked', 'operation', 'text', 1, 'Operation: create, update, or delete'),
-    ('tracked', 'changes', 'text', 1, 'Field changes as JSON object'),
-    ('tracked', 'created_by', 'text', 0, 'User or process that made change'),
-    ('tracked', 'request_id', 'text', 0, 'Request correlation ID'),
-    ('tracked', 'metadata', 'text', 0, 'Additional context as JSON');

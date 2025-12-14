@@ -234,9 +234,9 @@ describe('ModelCache', () => {
             await cache.preloadSystemModels();
 
             // Meta-models only - VFS models load on-demand after VFS.init()
+            // tracked model moved to audit subsystem
             expect(cache.isCached('models')).toBe(true);
             expect(cache.isCached('fields')).toBe(true);
-            expect(cache.isCached('tracked')).toBe(true);
 
             // VFS models are NOT preloaded (they load after VFS.init())
             expect(cache.isCached('file')).toBe(false);
