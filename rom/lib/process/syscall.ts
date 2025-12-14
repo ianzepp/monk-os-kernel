@@ -13,10 +13,12 @@ import type {
     SyscallRequest,
     SyscallResponse,
     SignalMessage,
+    SigcallRequest,
     KernelMessage,
 } from './types.js';
 import { fromCode, SIGTERM, SIGTICK } from './types.js';
 import type { TickPayload } from './types.js';
+import { handleSigcallRequest } from './sigcall.js';
 
 // =============================================================================
 // WORKER GLOBALS
@@ -88,6 +90,10 @@ function installMessageHandler(): void {
 
             case 'signal':
                 await handleSignal(msg as SignalMessage);
+                break;
+
+            case 'sigcall:request':
+                await handleSigcallRequest(msg as SigcallRequest);
                 break;
 
             // Port messages handled separately via port:recv syscall

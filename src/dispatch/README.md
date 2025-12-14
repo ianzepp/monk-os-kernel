@@ -1,20 +1,27 @@
-# Syscall Module
+# Dispatch Module
 
-The syscall layer is a switch-based routing system that separates syscall orchestration from kernel core responsibilities. It implements a clean architecture where each syscall function receives exactly what it needs as parameters, validates inputs, and yields responses through async generators.
+The dispatch layer is a switch-based routing system that separates syscall/sigcall orchestration from kernel core responsibilities. It implements a clean architecture where each handler function receives exactly what it needs as parameters, validates inputs, and yields responses through async generators.
+
+**Syscalls** are userspace-to-kernel requests (traditional model).
+**Sigcalls** are kernel-to-userspace requests (inverse model for service handlers).
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  Worker Process                                             │
-│  └── postMessage({ type: 'syscall', name, args })           │
+│  ├── postMessage({ type: 'syscall:request', name, args })   │
+│  └── onmessage({ type: 'sigcall:request', name, args })     │
 ├─────────────────────────────────────────────────────────────┤
-│  SyscallDispatcher                                          │
-│  ├── onWorkerMessage() - entry point                        │
+│  Dispatcher                                                 │
+│  ├── onWorkerMessage() - entry point for syscalls           │
 │  ├── execute() - wrap with StreamController                 │
-│  └── dispatch() - switch-based routing                      │
+│  ├── dispatch() - switch-based routing                      │
+│  │   ├── Built-in syscalls → domain handlers                │
+│  │   └── Unknown → check sigcall registry → route to user   │
+│  └── handleSigcallResponse() - receive sigcall responses    │
 ├─────────────────────────────────────────────────────────────┤
-│  Domain Handlers                                            │
+│  Syscall Handlers (syscall/)                                │
 │  ├── vfs.ts      - file:*, fs:* syscalls                    │
 │  ├── ems.ts      - ems:* syscalls                           │
 │  ├── process.ts  - proc:*, activation:* syscalls            │
@@ -22,32 +29,46 @@ The syscall layer is a switch-based routing system that separates syscall orches
 │  ├── hal.ts      - net:*, port:*, channel:* syscalls        │
 │  ├── pool.ts     - pool:*, worker:* syscalls                │
 │  ├── auth.ts     - auth:* syscalls                          │
-│  └── llm.ts      - llm:* syscalls                           │
+│  ├── llm.ts      - llm:* syscalls                           │
+│  └── sigcall.ts  - sigcall:* syscalls (registration)        │
 ├─────────────────────────────────────────────────────────────┤
-│  StreamController (backpressure management)                 │
+│  Sigcall Registry (sigcall/)                                │
+│  └── registry.ts - tracks which process handles each name   │
+├─────────────────────────────────────────────────────────────┤
+│  Stream Controllers (stream/)                               │
+│  ├── controller.ts      - base StreamController             │
+│  ├── syscall-controller.ts - kernel→userspace streams       │
+│  └── sigcall-controller.ts - userspace→kernel streams       │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ## Directory Structure
 
 ```
-src/syscall/
+src/dispatch/
 ├── index.ts              # Module exports
 ├── types.ts              # Shared type definitions
-├── dispatcher.ts         # Main syscall router
-├── vfs.ts                # File system syscalls
-├── ems.ts                # Entity Management System syscalls
-├── process.ts            # Process lifecycle syscalls
-├── handle.ts             # Handle manipulation & IPC syscalls
-├── hal.ts                # Network/channel syscalls
-├── pool.ts               # Worker pool syscalls
-├── auth.ts               # Authentication syscalls
-├── llm.ts                # LLM inference syscalls
-└── stream/
+├── dispatcher.ts         # Main dispatcher (syscalls + sigcall routing)
+├── syscall/              # Syscall handlers (kernel-side)
+│   ├── vfs.ts            # file:*, fs:* syscalls
+│   ├── ems.ts            # ems:* syscalls
+│   ├── process.ts        # proc:*, activation:* syscalls
+│   ├── handle.ts         # handle:*, ipc:* syscalls
+│   ├── hal.ts            # net:*, port:*, channel:* syscalls
+│   ├── pool.ts           # pool:*, worker:* syscalls
+│   ├── auth.ts           # auth:* syscalls
+│   ├── llm.ts            # llm:* syscalls
+│   └── sigcall.ts        # sigcall:register/unregister/list syscalls
+├── sigcall/              # Sigcall infrastructure
+│   ├── index.ts          # Sigcall module exports
+│   └── registry.ts       # Handler registration tracking
+└── stream/               # Backpressure management
     ├── index.ts          # Stream module exports
     ├── types.ts          # Stream types
     ├── constants.ts      # Flow control constants
-    └── controller.ts     # StreamController implementation
+    ├── controller.ts     # Base StreamController
+    ├── syscall-controller.ts  # For kernel→userspace streams
+    └── sigcall-controller.ts  # For userspace→kernel streams
 ```
 
 ## Design Principles
@@ -206,6 +227,23 @@ Arguments follow pattern: `proc, kernel, [subsystem], [syscall-specific args]`
 
 ---
 
+### Sigcall Syscalls (`sigcall.ts`)
+
+| Syscall | Purpose |
+|---------|---------|
+| `sigcall:register` | Register as handler for a sigcall name |
+| `sigcall:unregister` | Unregister a sigcall handler |
+| `sigcall:list` | List all registered sigcall handlers |
+
+**Rules:**
+- Exact pattern matching only (no globs)
+- One handler per name (first registration wins)
+- Re-registering same name from same process is idempotent
+- Registration is automatically removed on process exit
+- Cannot register `syscall:*` names (reserved for kernel)
+
+---
+
 ### LLM Syscalls (`llm.ts`)
 
 | Syscall | Purpose |
@@ -246,32 +284,115 @@ Manages consumer-driven backpressure to prevent unbounded memory growth.
 - `onPing(processed)` - Handle consumer acknowledgement
 - `onCancel()` - Handle consumer cancellation
 
-## SyscallDispatcher
+### Controller Hierarchy
 
-Central routing class that connects workers to syscall handlers.
+```
+StreamController (abstract base)
+├── SyscallController (kernel produces → userspace consumes)
+└── SigcallController (userspace produces → kernel consumes)
+```
+
+The inversion determines who sends pings:
+
+| Controller | Producer | Consumer | Who Pings |
+|------------|----------|----------|-----------|
+| SyscallController | Kernel | Userspace | Userspace sends `syscall:ping` |
+| SigcallController | Userspace | Kernel | Kernel sends `sigcall:ping` |
+
+## Sigcall Routing
+
+When dispatch() receives an unknown syscall name, it checks the sigcall registry before returning ENOSYS.
+
+### Routing Flow
+
+```
+Caller Process                Dispatcher                Handler Process
+     │                            │                            │
+     │──syscall('window:create')─▶│                            │
+     │                            ├── lookup registry          │
+     │                            │   'window:create' → pid    │
+     │                            │                            │
+     │                            │──sigcall:request──────────▶│
+     │                            │                            ├── handler()
+     │                            │◀──sigcall:response─────────│
+     │◀──syscall:response─────────│                            │
+     │                            │◀──sigcall:response─────────│
+     │◀──syscall:response─────────│                            │
+     │                            │◀──sigcall:response (done)──│
+     │◀──syscall:response (done)──│                            │
+```
+
+### Pending Sigcall Tracking
+
+The dispatcher maintains a `pendingSigcalls` map to correlate responses:
+
+```typescript
+interface PendingSigcall {
+    queue: Response[];
+    done: boolean;
+    waiting: ((response: Response | null) => void) | null;
+    controller: SigcallController;
+}
+```
+
+## Dispatcher
+
+Central routing class that connects workers to syscall/sigcall handlers.
 
 ### Key Methods
 
 | Method | Purpose |
 |--------|---------|
-| `dispatch(proc, name, args)` | Route syscall to handler |
+| `dispatch(proc, name, args)` | Route syscall to handler (or sigcall registry) |
 | `execute(proc, name, args)` | Wrap dispatch with StreamController |
 | `onWorkerMessage(proc, msg)` | Entry point for worker messages |
 | `sendResponse(proc, id, response)` | Send response back to worker |
+| `routeToUserspace(proc, reg, name, args)` | Forward to sigcall handler |
+| `handleSigcallResponse(msg)` | Process sigcall:response from worker |
 
-### Message Flow
+### Message Types
+
+```typescript
+// Syscalls (userspace → kernel → userspace)
+'syscall:request'      // Request from worker
+'syscall:response'     // Response to worker
+'syscall:ping'         // Backpressure ack from worker
+'syscall:cancel'       // Cancel stream from worker
+
+// Sigcalls (kernel → userspace → kernel)
+'sigcall:request'      // Request to handler worker
+'sigcall:response'     // Response from handler worker
+'sigcall:ping'         // Backpressure ack from kernel (future)
+'sigcall:cancel'       // Cancel stream from kernel (future)
+```
+
+### Message Flow (Syscall)
 
 ```
 Worker                    Kernel
   │                         │
-  │──syscall request──────▶│
+  │──syscall:request──────▶│
   │                         ├── dispatch()
   │                         ├── execute handler
-  │◀──response stream──────│
-  │──stream_ping──────────▶│ (every 100ms)
-  │◀──more responses───────│
-  │──stream_cancel────────▶│ (optional)
+  │◀──syscall:response─────│
+  │──syscall:ping─────────▶│ (every 100ms)
+  │◀──syscall:response─────│
+  │──syscall:cancel───────▶│ (optional)
   │                         │
+```
+
+### Message Flow (Sigcall)
+
+```
+Caller Worker           Dispatcher            Handler Worker
+  │                         │                         │
+  │──syscall:request──────▶│                         │
+  │                         │──sigcall:request──────▶│
+  │                         │◀──sigcall:response─────│
+  │◀──syscall:response─────│                         │
+  │                         │◀──sigcall:response─────│
+  │◀──syscall:response─────│                         │
+  │                         │                         │
 ```
 
 ## Error Codes
@@ -306,14 +427,24 @@ All syscalls yield `Response` objects:
 ## Public Exports
 
 ```typescript
-export { SyscallDispatcher } from './dispatcher.js';
+// Main dispatcher
+export { Dispatcher } from './dispatcher.js';
+
+// Stream controllers
 export { StreamController, StallError } from './stream/index.js';
+export { SyscallController } from './stream/syscall-controller.js';
+export { SigcallController } from './stream/sigcall-controller.js';
 export {
     STREAM_HIGH_WATER,
     STREAM_LOW_WATER,
     STREAM_PING_INTERVAL,
     STREAM_STALL_TIMEOUT
 } from './stream/index.js';
+
+// Sigcall registry
+export * as sigcallRegistry from './sigcall/index.js';
+
+// Response helpers and constants
 export {
     respond,
     MAX_STREAM_ENTRIES,

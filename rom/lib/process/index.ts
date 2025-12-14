@@ -19,6 +19,8 @@ export * from './types.js';
 export { respond } from './respond.js';
 export { syscall, call, collect, onSignal, onTick, toError } from './syscall.js';
 export type { SignalHandler, TickHandler } from './syscall.js';
+export { onSigcall, offSigcall } from './sigcall.js';
+export type { SigcallHandler } from './sigcall.js';
 
 // =============================================================================
 // CONSTANTS

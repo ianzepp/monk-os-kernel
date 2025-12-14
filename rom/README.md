@@ -72,6 +72,8 @@ rom/
 │   ├── process/            # Syscall wrappers (the "libc")
 │   │   ├── index.ts        # Main entry point
 │   │   ├── syscall.ts      # postMessage transport
+│   │   ├── sigcall.ts      # Sigcall handler API
+│   │   ├── respond.ts      # Response builders
 │   │   └── types.ts        # Wire protocol types
 │   └── errors.ts           # HAL error classes (copied from src/hal/)
 ├── bin/                    # Minimal executables
@@ -109,6 +111,58 @@ export default async function main() {
     await println(new TextDecoder().decode(data));
 }
 ```
+
+## Sigcall Handlers
+
+Sigcalls are the inverse of syscalls: kernel-to-userspace requests that expect streaming responses back. They enable userspace processes to act as service handlers.
+
+```
+Syscall:  userspace ──request──> kernel ──response*──> userspace
+Sigcall:  kernel ──request──> userspace ──response*──> kernel
+```
+
+### Registering a Sigcall Handler
+
+To handle sigcalls, a process must:
+1. Register the sigcall name with the kernel via `sigcall:register`
+2. Set up a handler function via `onSigcall()`
+
+```typescript
+import { syscall, onSigcall, respond } from '@rom/lib/process/index.js';
+
+export default async function main() {
+    // Register with kernel - tells dispatcher to route these calls to us
+    for await (const r of syscall('sigcall:register', 'window:create')) {
+        if (r.op === 'error') throw new Error(r.data.message);
+    }
+    for await (const r of syscall('sigcall:register', 'window:delete')) {
+        if (r.op === 'error') throw new Error(r.data.message);
+    }
+
+    // Set up handlers - invoked when sigcall arrives
+    onSigcall('window:create', async function*(opts) {
+        // Handlers can make syscalls
+        const window = yield* syscall('ems:create', 'windows', opts);
+        yield respond.ok({ id: window.id });
+    });
+
+    onSigcall('window:delete', async function*(windowId) {
+        yield* syscall('ems:delete', 'windows', windowId);
+        yield respond.ok({ deleted: windowId });
+    });
+
+    // Process stays running to handle requests...
+}
+```
+
+### Handler API
+
+| Function | Description |
+|----------|-------------|
+| `onSigcall(name, handler)` | Register handler for sigcall name |
+| `offSigcall(name)` | Unregister handler |
+
+Handlers are async generators that yield `Response` objects. Terminal responses (`ok`, `error`, `done`) end the stream.
 
 ## Type Imports from `@src/`
 

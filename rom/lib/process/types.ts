@@ -164,12 +164,36 @@ export interface PortMessage {
 }
 
 /**
+ * Sigcall request from kernel to userspace handler.
+ *
+ * Sent when a process invokes a syscall that's registered
+ * in the sigcall registry.
+ */
+export interface SigcallRequest {
+    type: 'sigcall:request';
+    /** Request correlation ID */
+    id: string;
+    /** Sigcall name (e.g., 'window:create') */
+    name: string;
+    /** Handler arguments */
+    args: unknown[];
+    /** Caller information */
+    caller?: {
+        /** Calling process ID */
+        pid?: string;
+        /** Gateway connection ID (for push responses) */
+        connId?: string;
+    };
+}
+
+/**
  * All message types from kernel.
  */
 export type KernelMessage =
     | SyscallResponse
     | SignalMessage
-    | PortMessage;
+    | PortMessage
+    | SigcallRequest;
 
 // =============================================================================
 // DOMAIN TYPES

@@ -58,9 +58,10 @@
 │  ├── Convenience helpers (read, text, spawn, mount, copy)   │
 │  └── Service management (start, stop, restart, list)        │
 ├─────────────────────────────────────────────────────────────┤
-│  Syscall Layer (src/syscall/)                               │
-│  ├── SyscallDispatcher (switch-based routing, outside kernel)│
+│  Dispatch Layer (src/dispatch/)                             │
+│  ├── Dispatcher (syscall routing + sigcall routing)         │
 │  ├── StreamController (backpressure, ping/cancel protocol)  │
+│  ├── Sigcall registry (userspace handler registration)      │
 │  ├── Domain handlers (vfs, ems, hal, process, handle, pool) │
 │  └── Worker message handling (onWorkerMessage callback)     │
 ├─────────────────────────────────────────────────────────────┤
@@ -178,7 +179,7 @@ Worker ──postMessage──▶ kernel.onWorkerMessage ──▶ dispatcher.on
 - `poll.ts` - Event polling
 - `validate.ts` - Input validation utilities
 
-**Note**: Syscall handlers have been moved to `src/syscall/`. The kernel now focuses solely on process management, handle management, and resource lifecycle. See "Syscall Layer" section below.
+**Note**: Syscall handlers have been moved to `src/dispatch/`. The kernel now focuses solely on process management, handle management, and resource lifecycle. See "Dispatch Layer" section below.
 
 **Execution Model**:
 - Syscalls return `AsyncIterable<Response>` (generators)
@@ -187,32 +188,40 @@ Worker ──postMessage──▶ kernel.onWorkerMessage ──▶ dispatcher.on
 - Non-terminal ops (`item`, `event`, `progress`, `data`) may yield multiple times
 - Backpressure via `stream_ping` every 100ms (managed by StreamController)
 
-### A.1 Syscall Layer (`src/syscall/`)
+### A.1 Dispatch Layer (`src/dispatch/`)
 
-**Purpose**: Separates syscall routing and implementation from the kernel. The kernel focuses on process/handle management while syscalls orchestrate operations across kernel, VFS, EMS, and HAL.
+**Purpose**: Separates syscall/sigcall routing and implementation from the kernel. The kernel focuses on process/handle management while the dispatcher orchestrates operations across kernel, VFS, EMS, and HAL.
 
 **Architecture**:
-- **Dispatcher sits outside kernel**: `SyscallDispatcher` is created by OS layer, receives `(kernel, vfs, ems, hal)` as constructor dependencies
+- **Dispatcher sits outside kernel**: `Dispatcher` is created by OS layer, receives `(kernel, vfs, ems, hal)` as constructor dependencies
 - **Kernel provides callback**: The kernel exposes `onWorkerMessage` callback set by OS after creating the dispatcher
 - **Direct dependencies**: Each syscall function receives exactly what it needs as parameters—no context objects
+- **Sigcall routing**: Unknown syscall names are checked against the sigcall registry and routed to userspace handlers
 
 **Directory Structure**:
 ```
-src/syscall/
-├── index.ts           # Exports SyscallDispatcher
-├── dispatcher.ts      # Switch-based routing, StreamController wrapping
+src/dispatch/
+├── index.ts           # Exports Dispatcher
+├── dispatcher.ts      # Switch-based routing, sigcall routing
 ├── types.ts           # Shared types
-├── stream/            # Backpressure protocol
-│   ├── index.ts
-│   ├── controller.ts  # StreamController (ping/cancel, high/low water)
-│   ├── constants.ts   # STREAM_HIGH_WATER, STREAM_STALL_TIMEOUT, etc.
-│   └── types.ts
-├── vfs.ts             # file:* syscalls → VFS + Kernel (for handles)
-├── ems.ts             # ems:* syscalls → EMS
-├── hal.ts             # net:*, port:*, channel:* syscalls → HAL + Kernel
-├── process.ts         # proc:*, activation:* syscalls → Kernel
-├── handle.ts          # handle:*, ipc:* syscalls → Kernel
-└── pool.ts            # pool:*, worker:* syscalls → Kernel
+├── syscall/           # Kernel-side syscall handlers
+│   ├── vfs.ts         # file:* syscalls → VFS + Kernel
+│   ├── ems.ts         # ems:* syscalls → EMS
+│   ├── hal.ts         # net:*, port:*, channel:* syscalls → HAL + Kernel
+│   ├── process.ts     # proc:*, activation:* syscalls → Kernel
+│   ├── handle.ts      # handle:*, ipc:* syscalls → Kernel
+│   ├── pool.ts        # pool:*, worker:* syscalls → Kernel
+│   └── sigcall.ts     # sigcall:register/unregister/list syscalls
+├── sigcall/           # Sigcall infrastructure
+│   ├── index.ts       # Exports registry
+│   └── registry.ts    # Handler registration tracking
+└── stream/            # Backpressure protocol
+    ├── index.ts
+    ├── controller.ts  # StreamController (ping/cancel, high/low water)
+    ├── syscall-controller.ts  # Kernel→userspace streams
+    ├── sigcall-controller.ts  # Userspace→kernel streams
+    ├── constants.ts   # STREAM_HIGH_WATER, STREAM_STALL_TIMEOUT, etc.
+    └── types.ts
 ```
 
 **Syscall Function Pattern**:
@@ -524,6 +533,8 @@ process.exit(exitCode);
 - `index.ts` - Re-exports all modules
 - `types.ts` - OpenFlags, Stat, SpawnOpts, Message, Response, respond helper
 - `syscall.ts` - Core syscall transport (postMessage, stream handling)
+- `sigcall.ts` - Sigcall handler API (onSigcall, offSigcall)
+- `respond.ts` - Response builders (ok, error, item, done, etc.)
 - `error.ts` - SyscallError class
 - `file.ts` - File operations (open, read, write, stat, etc.)
 - `dir.ts` - Directory operations (mkdir, readdir, unlink, etc.)
@@ -538,10 +549,11 @@ process.exit(exitCode);
 - `head.ts`, `tail.ts` - Stream utilities
 
 **Transport**:
-- Messages format: `{ type: 'syscall'|'response'|'signal', id, data }`
+- Messages format: `{ type: 'syscall:request'|'syscall:response'|'signal'|'sigcall:request', id, data }`
 - Syscalls via `postMessage()` (IPC)
 - Automatic stream ping every 100ms for backpressure
 - Signal handling via `onSignal(handler)`
+- Sigcall handling via `onSigcall(name, handler)`
 
 **Convenience Wrappers**:
 - `call<T>()` - Single request/response (awaits `ok` response)
@@ -681,21 +693,28 @@ Streams of `Response` objects are the fundamental data flow unit. Arrays are a c
 ```
 .
 ├── src/                          # Kernel & core
-│   ├── syscall/                  # Syscall layer (outside kernel)
-│   │   ├── index.ts              # Exports SyscallDispatcher
-│   │   ├── dispatcher.ts         # Switch routing, StreamController
+│   ├── dispatch/                 # Dispatch layer (outside kernel)
+│   │   ├── index.ts              # Exports Dispatcher
+│   │   ├── dispatcher.ts         # Switch routing, sigcall routing
 │   │   ├── types.ts              # Shared types
-│   │   ├── stream/               # Backpressure protocol
-│   │   │   ├── index.ts
-│   │   │   ├── controller.ts
-│   │   │   ├── constants.ts
-│   │   │   └── types.ts
-│   │   ├── vfs.ts                # file:*, fs:* syscalls
-│   │   ├── ems.ts                # ems:* syscalls
-│   │   ├── hal.ts                # net:*, port:*, channel:* syscalls
-│   │   ├── process.ts            # proc:*, activation:* syscalls
-│   │   ├── handle.ts             # handle:*, ipc:* syscalls
-│   │   └── pool.ts               # pool:*, worker:* syscalls
+│   │   ├── syscall/              # Kernel-side syscall handlers
+│   │   │   ├── vfs.ts            # file:*, fs:* syscalls
+│   │   │   ├── ems.ts            # ems:* syscalls
+│   │   │   ├── hal.ts            # net:*, port:*, channel:* syscalls
+│   │   │   ├── process.ts        # proc:*, activation:* syscalls
+│   │   │   ├── handle.ts         # handle:*, ipc:* syscalls
+│   │   │   ├── pool.ts           # pool:*, worker:* syscalls
+│   │   │   └── sigcall.ts        # sigcall:register/unregister/list
+│   │   ├── sigcall/              # Sigcall infrastructure
+│   │   │   ├── index.ts          # Exports registry
+│   │   │   └── registry.ts       # Handler registration
+│   │   └── stream/               # Backpressure protocol
+│   │       ├── index.ts
+│   │       ├── controller.ts
+│   │       ├── syscall-controller.ts
+│   │       ├── sigcall-controller.ts
+│   │       ├── constants.ts
+│   │       └── types.ts
 │   ├── kernel/                   # Process & handle management
 │   │   ├── kernel.ts             # Boot, lifecycle, onWorkerMessage
 │   │   ├── kernel/               # Extracted kernel functions
@@ -1055,7 +1074,7 @@ await worker.release(workerId);                // Release to pool
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| Syscall Layer | 100% | Complete migration to src/syscall/, all 4 phases done |
+| Dispatch Layer | 100% | Complete with sigcall routing (src/dispatch/) |
 | Kernel/Core | 95% | Full process lifecycle, worker pools, handle management |
 | Process Mgmt | 95% | UUID/PID, signals, parent-child, worker isolation |
 | VFS | 95% | Plan 9 "everything is a file", hybrid EMS/HAL storage |
