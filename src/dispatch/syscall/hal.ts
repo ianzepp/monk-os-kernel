@@ -33,8 +33,8 @@
 
 import type { Kernel } from '@src/kernel/kernel.js';
 import type { HAL, ChannelOpts } from '@src/hal/index.js';
-import type { Process, Response, Message, ProcessPortMessage } from './types.js';
-import { respond } from './types.js';
+import type { Process, Response, Message, ProcessPortMessage } from '../types.js';
+import { respond } from '../types.js';
 
 // Kernel functions for HAL operations
 import { connectTcp } from '@src/kernel/kernel/connect-tcp.js';

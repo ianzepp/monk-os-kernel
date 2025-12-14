@@ -37,8 +37,8 @@
 
 import type { EMS } from '@src/ems/ems.js';
 import type { EntityRecord } from '@src/ems/entity-ops.js';
-import type { Process, Response } from './types.js';
-import { respond } from './types.js';
+import type { Process, Response } from '../types.js';
+import { respond } from '../types.js';
 
 // =============================================================================
 // SCHEMA INTROSPECTION

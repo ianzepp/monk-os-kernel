@@ -280,7 +280,7 @@ export const STREAM_STALL_TIMEOUT = 5000; // Abort if no ping for this long
  * Worker matches the creator's Worker.
  */
 export interface SyscallRequest {
-    type: 'syscall';
+    type: 'syscall:request';
     /** Request correlation ID (for response matching) */
     id: string;
     /**
@@ -301,7 +301,7 @@ export interface SyscallRequest {
  * Syscall response from kernel to process
  */
 export interface SyscallResponse {
-    type: 'response';
+    type: 'syscall:response';
     id: string;
     result?: unknown;
     error?: {
@@ -335,7 +335,7 @@ export interface TickPayload {
  * Stream ping message from userspace to kernel (progress report)
  */
 export interface StreamPingMessage {
-    type: 'stream_ping';
+    type: 'syscall:ping';
     id: string;
     /** Number of items consumer has processed */
     processed: number;
@@ -345,7 +345,7 @@ export interface StreamPingMessage {
  * Stream cancel message from userspace to kernel (stop producing, cleanup)
  */
 export interface StreamCancelMessage {
-    type: 'stream_cancel';
+    type: 'syscall:cancel';
     id: string;
 }
 

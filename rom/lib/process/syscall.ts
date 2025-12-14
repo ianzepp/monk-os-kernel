@@ -82,7 +82,7 @@ function installMessageHandler(): void {
         const msg = event.data;
 
         switch (msg.type) {
-            case 'response':
+            case 'syscall:response':
                 handleResponse(msg as SyscallResponse);
                 break;
 
@@ -188,7 +188,7 @@ export function syscall(name: string, ...args: unknown[]): AsyncIterable<Respons
     const id = uuid();
 
     const request: SyscallRequest = {
-        type: 'syscall',
+        type: 'syscall:request',
         id,
         pid: __MONK_PID__,
         name,
@@ -214,7 +214,7 @@ export function syscall(name: string, ...args: unknown[]): AsyncIterable<Respons
     stream.pingTimer = setInterval(() => {
         if (stream.processed > 0) {
             self.postMessage({
-                type: 'stream_ping',
+                type: 'syscall:ping',
                 id,
                 processed: stream.processed,
             });
@@ -270,7 +270,7 @@ export function syscall(name: string, ...args: unknown[]): AsyncIterable<Respons
                 async return(): Promise<IteratorResult<Response>> {
                     // Cancel the stream
                     self.postMessage({
-                        type: 'stream_cancel',
+                        type: 'syscall:cancel',
                         id,
                     });
 

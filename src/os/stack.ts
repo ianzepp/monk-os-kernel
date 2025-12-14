@@ -43,7 +43,7 @@ import { BunHAL } from '@src/hal/index.js';
 import { VFS } from '@src/vfs/vfs.js';
 import { Kernel } from '@src/kernel/kernel.js';
 import { EMS } from '@src/ems/ems.js';
-import { SyscallDispatcher } from '@src/syscall/index.js';
+import { SyscallDispatcher } from '@src/dispatch/index.js';
 
 // =============================================================================
 // TYPES

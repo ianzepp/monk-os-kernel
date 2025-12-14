@@ -5,14 +5,14 @@
  */
 
 import { describe, it, expect } from 'bun:test';
-import { StreamController, StallError } from '@src/syscall/stream/controller.js';
+import { StreamController, StallError } from '@src/dispatch/stream/controller.js';
 import {
     STREAM_HIGH_WATER,
     STREAM_LOW_WATER,
     STREAM_STALL_TIMEOUT,
-} from '@src/syscall/stream/constants.js';
+} from '@src/dispatch/stream/constants.js';
 
-import type { StreamControllerDeps } from '@src/syscall/stream/types.js';
+import type { StreamControllerDeps } from '@src/dispatch/stream/types.js';
 
 type TimeoutId = ReturnType<typeof globalThis.setTimeout>;
 

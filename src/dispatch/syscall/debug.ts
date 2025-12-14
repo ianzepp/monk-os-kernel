@@ -23,8 +23,8 @@
  * @module syscall/debug
  */
 
-import type { Process, Response } from './types.js';
-import { respond } from './types.js';
+import type { Process, Response } from '../types.js';
+import { respond } from '../types.js';
 import { debug, debugPatterns } from '@src/debug.js';
 
 // =============================================================================

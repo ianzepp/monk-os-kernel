@@ -94,7 +94,7 @@ export namespace Responses {
  * Syscall request from process to kernel.
  */
 export interface SyscallRequest {
-    type: 'syscall';
+    type: 'syscall:request';
     /** Request correlation ID */
     id: string;
     /** Process ID making the syscall */
@@ -109,7 +109,7 @@ export interface SyscallRequest {
  * Syscall response from kernel to process.
  */
 export interface SyscallResponse {
-    type: 'response';
+    type: 'syscall:response';
     id: string;
     result?: Response;
 }
@@ -139,7 +139,7 @@ export interface TickPayload {
  * Stream ping message (progress report for backpressure).
  */
 export interface StreamPingMessage {
-    type: 'stream_ping';
+    type: 'syscall:ping';
     id: string;
     processed: number;
 }
@@ -148,7 +148,7 @@ export interface StreamPingMessage {
  * Stream cancel message (stop producing).
  */
 export interface StreamCancelMessage {
-    type: 'stream_cancel';
+    type: 'syscall:cancel';
     id: string;
 }
 

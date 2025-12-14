@@ -40,7 +40,7 @@ import type { EMS } from '@src/ems/ems.js';
 import type { EntityOps } from '@src/ems/entity-ops.js';
 import type { Auth } from '@src/auth/index.js';
 import type { LLM } from '@src/llm/index.js';
-import type { SyscallDispatcher } from '@src/syscall/index.js';
+import type { SyscallDispatcher } from '@src/dispatch/index.js';
 import type { Gateway } from '@src/gateway/index.js';
 
 // =============================================================================

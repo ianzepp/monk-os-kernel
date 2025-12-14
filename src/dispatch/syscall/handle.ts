@@ -30,8 +30,8 @@
  */
 
 import type { Kernel } from '@src/kernel/kernel.js';
-import type { Process, Response, Message } from './types.js';
-import { respond } from './types.js';
+import type { Process, Response, Message } from '../types.js';
+import { respond } from '../types.js';
 
 // Kernel functions for handle operations
 import { redirectHandle as kernelRedirectHandle } from '@src/kernel/kernel/redirect-handle.js';

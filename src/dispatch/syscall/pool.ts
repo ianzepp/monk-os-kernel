@@ -31,8 +31,8 @@
  */
 
 import type { Kernel } from '@src/kernel/kernel.js';
-import type { Process, Response } from './types.js';
-import { respond } from './types.js';
+import type { Process, Response } from '../types.js';
+import { respond } from '../types.js';
 
 // Kernel functions for pool operations
 import { leaseWorker as kernelLeaseWorker } from '@src/kernel/kernel/lease-worker.js';

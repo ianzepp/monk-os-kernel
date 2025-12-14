@@ -10,8 +10,8 @@ import { Gateway } from '@src/gateway/gateway.js';
 import { BunNetworkDevice, BunEntropyDevice } from '@src/hal/index.js';
 import type { Kernel } from '@src/kernel/kernel.js';
 import type { HAL } from '@src/hal/index.js';
-import type { SyscallDispatcher } from '@src/syscall/dispatcher.js';
-import type { Process, Response } from '@src/syscall/types.js';
+import type { SyscallDispatcher } from '@src/dispatch/dispatcher.js';
+import type { Process, Response } from '@src/dispatch/types.js';
 
 // =============================================================================
 // TEST HELPERS

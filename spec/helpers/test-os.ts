@@ -18,7 +18,7 @@ import type { HAL } from '@src/hal/index.js';
 import type { EMS } from '@src/ems/index.js';
 import type { VFS } from '@src/vfs/index.js';
 import type { Kernel } from '@src/kernel/kernel.js';
-import type { SyscallDispatcher } from '@src/syscall/dispatcher.js';
+import type { SyscallDispatcher } from '@src/dispatch/dispatcher.js';
 import type { Gateway } from '@src/gateway/gateway.js';
 import type { DatabaseConnection } from '@src/ems/connection.js';
 import type { FileDevice } from '@src/hal/file.js';

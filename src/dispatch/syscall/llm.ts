@@ -26,8 +26,8 @@
 
 import type { LLM } from '@src/llm/index.js';
 import type { WhereConditions } from '@src/ems/index.js';
-import type { Process, Response } from './types.js';
-import { respond } from './types.js';
+import type { Process, Response } from '../types.js';
+import { respond } from '../types.js';
 
 // =============================================================================
 // COMPLETION OPERATIONS

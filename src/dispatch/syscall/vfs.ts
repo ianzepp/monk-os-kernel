@@ -49,8 +49,8 @@
 
 import type { Kernel } from '@src/kernel/kernel.js';
 import type { VFS } from '@src/vfs/index.js';
-import type { Process, OpenFlags, Response, SeekWhence } from './types.js';
-import { respond, MAX_STREAM_ENTRIES } from './types.js';
+import type { Process, OpenFlags, Response, SeekWhence } from '../types.js';
+import { respond, MAX_STREAM_ENTRIES } from '../types.js';
 
 // Kernel functions for handle management
 import { openFile } from '@src/kernel/kernel/open-file.js';

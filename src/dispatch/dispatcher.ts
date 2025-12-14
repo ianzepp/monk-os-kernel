@@ -58,39 +58,39 @@ import type { Process, Response } from './types.js';
 import { respond } from './types.js';
 
 // VFS syscalls
-import { fileOpen, fileClose, fileRead, fileWrite, fileAppend, fileSeek } from './vfs.js';
-import { fileStat, fileSetstat, fileFstat, fileMkdir, fileUnlink, fileRmdir } from './vfs.js';
-import { fileReaddir, fileRename, fileSymlink, fileAccess } from './vfs.js';
-import { fileRecv, fileSend } from './vfs.js';
-import { fsMount, fsUmount } from './vfs.js';
+import { fileOpen, fileClose, fileRead, fileWrite, fileAppend, fileSeek } from './syscall/vfs.js';
+import { fileStat, fileSetstat, fileFstat, fileMkdir, fileUnlink, fileRmdir } from './syscall/vfs.js';
+import { fileReaddir, fileRename, fileSymlink, fileAccess } from './syscall/vfs.js';
+import { fileRecv, fileSend } from './syscall/vfs.js';
+import { fsMount, fsUmount } from './syscall/vfs.js';
 
 // Process syscalls
-import { procSpawn, procExit, procKill, procWait } from './process.js';
-import { procGetpid, procGetppid, procCreate } from './process.js';
-import { procGetargs, procGetcwd, procChdir, procGetenv, procSetenv } from './process.js';
-import { activationGet, poolStats, procTickSubscribe, procTickUnsubscribe, procList } from './process.js';
+import { procSpawn, procExit, procKill, procWait } from './syscall/process.js';
+import { procGetpid, procGetppid, procCreate } from './syscall/process.js';
+import { procGetargs, procGetcwd, procChdir, procGetenv, procSetenv } from './syscall/process.js';
+import { activationGet, poolStats, procTickSubscribe, procTickUnsubscribe, procList } from './syscall/process.js';
 
 // EMS syscalls
-import { emsDescribe, emsSelect, emsCreate, emsUpdate, emsDelete, emsRevert, emsExpire, emsImport } from './ems.js';
+import { emsDescribe, emsSelect, emsCreate, emsUpdate, emsDelete, emsRevert, emsExpire, emsImport } from './syscall/ems.js';
 
 // HAL syscalls (network, channel)
-import { netConnect } from './hal.js';
-import { portCreate, portClose, portRecv, portSend } from './hal.js';
-import { channelOpen, channelClose, channelCall, channelStream } from './hal.js';
-import { channelPush, channelRecv, channelAccept } from './hal.js';
+import { netConnect } from './syscall/hal.js';
+import { portCreate, portClose, portRecv, portSend } from './syscall/hal.js';
+import { channelOpen, channelClose, channelCall, channelStream } from './syscall/hal.js';
+import { channelPush, channelRecv, channelAccept } from './syscall/hal.js';
 
 // Handle/IPC syscalls
-import { handleRedirect, handleRestore, handleSend, handleClose } from './handle.js';
-import { ipcPipe } from './handle.js';
+import { handleRedirect, handleRestore, handleSend, handleClose } from './syscall/handle.js';
+import { ipcPipe } from './syscall/handle.js';
 
 // Pool/worker syscalls
-import { poolLease, workerLoad, workerSend, workerRecv, workerRelease } from './pool.js';
+import { poolLease, workerLoad, workerSend, workerRecv, workerRelease } from './syscall/pool.js';
 
 // Auth syscalls
-import { authToken, authWhoami, authLogin, authLogout, authSession, authRegister, authGrant } from './auth.js';
+import { authToken, authWhoami, authLogin, authLogout, authSession, authRegister, authGrant } from './syscall/auth.js';
 
 // LLM syscalls
-import { llmComplete, llmStream, llmChat, llmChatStream, llmEmbed, llmModels } from './llm.js';
+import { llmComplete, llmStream, llmChat, llmChatStream, llmEmbed, llmModels } from './syscall/llm.js';
 
 // Stream controller
 import { StreamController, StallError } from './stream/index.js';
@@ -776,10 +776,10 @@ export class SyscallDispatcher {
 
         let pid: string | undefined;
 
-        if (msg.type === 'syscall') {
+        if (msg.type === 'syscall:request') {
             pid = (msg as SyscallRequest).pid;
         }
-        else if (msg.type === 'stream_ping' || msg.type === 'stream_cancel') {
+        else if (msg.type === 'syscall:ping' || msg.type === 'syscall:cancel') {
             // Stream messages don't include pid - find process by stream ID
             // WHY: Protocol compatibility - stream messages reference request ID
             for (const proc of this.kernel.processes.all()) {
@@ -806,7 +806,7 @@ export class SyscallDispatcher {
 
         // SECURITY: Verify message came from correct Worker
         if (proc.worker !== worker) {
-            if (msg.type === 'syscall') {
+            if (msg.type === 'syscall:request') {
                 this.sendResponse(proc, (msg as SyscallRequest).id, {
                     op: 'error',
                     data: { code: 'EPERM', message: 'Worker mismatch' },
@@ -830,7 +830,7 @@ export class SyscallDispatcher {
         // ---------------------------------------------------------------------
 
         switch (msg.type) {
-            case 'syscall': {
+            case 'syscall:request': {
                 const request = msg as SyscallRequest;
 
                 // Execute syscall and send responses
@@ -841,7 +841,7 @@ export class SyscallDispatcher {
                 break;
             }
 
-            case 'stream_ping': {
+            case 'syscall:ping': {
                 // Call registered ping handler
                 const handler = proc.streamPingHandlers.get(msg.id);
 
@@ -852,7 +852,7 @@ export class SyscallDispatcher {
                 break;
             }
 
-            case 'stream_cancel': {
+            case 'syscall:cancel': {
                 // Trigger abort controller
                 const abort = proc.activeStreams.get(msg.id);
 
@@ -879,7 +879,7 @@ export class SyscallDispatcher {
     private sendResponse(proc: Process, requestId: string, response: Response): void {
         try {
             proc.worker.postMessage({
-                type: 'response',
+                type: 'syscall:response',
                 id: requestId,
                 result: response,
             });

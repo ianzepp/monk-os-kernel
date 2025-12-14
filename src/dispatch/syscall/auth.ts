@@ -25,8 +25,8 @@
  * @module syscall/auth
  */
 
-import type { Process, Response } from './types.js';
-import { respond } from './types.js';
+import type { Process, Response } from '../types.js';
+import { respond } from '../types.js';
 import type { Auth } from '@src/auth/index.js';
 import { ROOT_USER_ID } from '@src/auth/types.js';
 

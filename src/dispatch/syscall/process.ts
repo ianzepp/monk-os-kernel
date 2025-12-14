@@ -39,8 +39,8 @@
 
 import type { Kernel } from '@src/kernel/kernel.js';
 import type { VFS } from '@src/vfs/index.js';
-import type { Process, SpawnOpts, Response } from './types.js';
-import { respond } from './types.js';
+import type { Process, SpawnOpts, Response } from '../types.js';
+import { respond } from '../types.js';
 
 // Kernel functions for process management
 import { spawn } from '@src/kernel/kernel/spawn.js';
