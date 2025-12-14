@@ -1,5 +1,9 @@
 {
     "handler": "main.ts",
     "activate": { "type": "manual" },
-    "description": "HTTP server daemon"
+    "description": "HTTP static file server",
+    "env": {
+        "HTTPD_PORT": "8080",
+        "HTTPD_ROOT": "/var/www"
+    }
 }

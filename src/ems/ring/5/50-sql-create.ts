@@ -140,10 +140,12 @@ export class SqlCreate extends BaseObserver {
 
         // Entity models: atomic transaction for entities + detail table
         // Uses single transaction message to avoid parallel write conflicts
+        const { dialect } = system.db;
+
         try {
             await system.db.transaction([
-                this.buildEntityInsert(model.modelName, data),
-                this.buildDetailInsert(model.modelName, data),
+                this.buildEntityInsert(dialect, model.modelName, data),
+                this.buildDetailInsert(dialect, model.modelName, data),
             ]);
         }
         catch (err) {
@@ -164,7 +166,7 @@ export class SqlCreate extends BaseObserver {
         data: Record<string, unknown>,
     ): Promise<void> {
         const columns = Object.keys(data);
-        const placeholders = columns.map(() => '?').join(', ');
+        const placeholders = db.dialect.placeholders(columns.length);
         const values = columns.map(col => data[col]);
 
         const sql = `INSERT INTO ${tableName} (${columns.join(', ')}) VALUES (${placeholders})`;
@@ -188,11 +190,14 @@ export class SqlCreate extends BaseObserver {
      * @returns Statement object with sql and params for transaction
      */
     private buildEntityInsert(
+        dialect: ObserverContext['system']['db']['dialect'],
         modelName: string,
         data: Record<string, unknown>,
     ): { sql: string; params: unknown[] } {
+        const placeholders = dialect.placeholders(4);
+
         return {
-            sql: 'INSERT INTO entities (id, model, parent, pathname) VALUES (?, ?, ?, ?)',
+            sql: `INSERT INTO entities (id, model, parent, pathname) VALUES (${placeholders})`,
             params: [
                 data.id,
                 modelName,
@@ -208,6 +213,7 @@ export class SqlCreate extends BaseObserver {
      * @returns Statement object with sql and params for transaction
      */
     private buildDetailInsert(
+        dialect: ObserverContext['system']['db']['dialect'],
         tableName: string,
         data: Record<string, unknown>,
     ): { sql: string; params: unknown[] } {
@@ -221,7 +227,7 @@ export class SqlCreate extends BaseObserver {
         }
 
         const columns = Object.keys(detailData);
-        const placeholders = columns.map(() => '?').join(', ');
+        const placeholders = dialect.placeholders(columns.length);
         const values = columns.map(col => detailData[col]);
 
         return {

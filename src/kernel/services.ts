@@ -168,6 +168,9 @@ export interface ServiceDef {
     /** I/O configuration (stdin/stdout/stderr routing) */
     io?: ServiceIO;
 
+    /** Environment variables for the service */
+    env?: Record<string, string>;
+
     /** Optional description */
     description?: string;
 }

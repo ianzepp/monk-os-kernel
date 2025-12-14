@@ -120,9 +120,10 @@ export async function spawnServiceHandler(
     // -------------------------------------------------------------------------
 
     // WHY: Services inherit env from kernel process (e.g., HOME, USER, HOSTNAME)
-    // Services are kernel-spawned, so init is effectively their "parent" for env purposes.
+    // then merge with service-specific env from service.json
     const init = self.processes.getInit();
-    const proc = createProcess(self, { cmd: def.handler, env: init?.env });
+    const env = { ...init?.env, ...def.env };
+    const proc = createProcess(self, { cmd: def.handler, env });
 
     // WHY: Store activation message for handler to read on startup
     //      (TCP connection info, pubsub topic, watch event, etc.)

@@ -1,13 +1,11 @@
 /**
  * httpd - Static File Server
  *
- * Serves static files from the userspace /cdn directory over HTTP.
- * The /cdn directory is dynamically mounted into the VFS by the OS
- * from a host directory.
+ * Serves static files from a VFS directory over HTTP.
  *
- * Configuration via environment:
- *   HTTPD_PORT - Port to listen on (default: 8080)
- *   HTTPD_ROOT - Root directory to serve (default: /cdn)
+ * Required environment variables (set via service.json):
+ *   HTTPD_PORT - Port to listen on
+ *   HTTPD_ROOT - Root directory to serve
  *
  * Supported MIME types are inferred from file extensions.
  */
@@ -244,10 +242,26 @@ async function handleConnection(root: string, socketFd: number): Promise<void> {
 export default async function main(): Promise<void> {
     const pid = await getpid();
 
-    // Configuration from environment
-    const portStr = await getenv('HTTPD_PORT') ?? '8080';
+    // Configuration from environment (required)
+    const portStr = await getenv('HTTPD_PORT');
+    const root = await getenv('HTTPD_ROOT');
+
+    if (!portStr) {
+        await eprintln('httpd: HTTPD_PORT environment variable is required');
+        return;
+    }
+
+    if (!root) {
+        await eprintln('httpd: HTTPD_ROOT environment variable is required');
+        return;
+    }
+
     const port = parseInt(portStr, 10);
-    const root = await getenv('HTTPD_ROOT') ?? '/cdn';
+
+    if (isNaN(port) || port < 1 || port > 65535) {
+        await eprintln(`httpd: invalid HTTPD_PORT: ${portStr}`);
+        return;
+    }
 
     await println(`httpd: starting (pid ${pid})`);
     await println(`httpd: serving ${root} on port ${port}`);

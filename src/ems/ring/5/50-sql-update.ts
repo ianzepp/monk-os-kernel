@@ -140,17 +140,19 @@ export class SqlUpdate extends BaseObserver {
         const hasEntityChanges = Object.keys(entityChanges).length > 0;
         const hasDetailChanges = Object.keys(detailChanges).length > 0;
 
+        const { db } = system;
+
         // If both need updating, use transaction
         if (hasEntityChanges && hasDetailChanges) {
             try {
-                await system.db.execute('BEGIN IMMEDIATE');
+                await db.execute(db.dialect.beginTransaction());
                 try {
-                    await this.updateTable(system.db, 'entities', id, entityChanges);
-                    await this.updateTable(system.db, model.modelName, id, detailChanges);
-                    await system.db.execute('COMMIT');
+                    await this.updateTable(db, 'entities', id, entityChanges);
+                    await this.updateTable(db, model.modelName, id, detailChanges);
+                    await db.execute('COMMIT');
                 }
                 catch (err) {
-                    await system.db.execute('ROLLBACK');
+                    await db.execute('ROLLBACK');
                     throw err;
                 }
             }
@@ -161,10 +163,10 @@ export class SqlUpdate extends BaseObserver {
             }
         }
         else if (hasEntityChanges) {
-            await this.updateTable(system.db, 'entities', id, entityChanges);
+            await this.updateTable(db, 'entities', id, entityChanges);
         }
         else if (hasDetailChanges) {
-            await this.updateTable(system.db, model.modelName, id, detailChanges);
+            await this.updateTable(db, model.modelName, id, detailChanges);
         }
     }
 
@@ -195,12 +197,13 @@ export class SqlUpdate extends BaseObserver {
             return;
         }
 
-        const setClauses = columns.map(col => `${col} = ?`).join(', ');
+        const { dialect } = db;
+        const setClauses = columns.map((col, i) => `${col} = ${dialect.placeholder(i + 1)}`).join(', ');
         const values = columns.map(col => changes[col]);
 
         values.push(id);
 
-        const sql = `UPDATE ${tableName} SET ${setClauses} WHERE id = ?`;
+        const sql = `UPDATE ${tableName} SET ${setClauses} WHERE id = ${dialect.placeholder(columns.length + 1)}`;
 
         try {
             await db.execute(sql, values);
