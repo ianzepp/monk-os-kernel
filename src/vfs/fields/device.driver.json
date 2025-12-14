@@ -1,0 +1,7 @@
+{
+    "model_name": "device",
+    "field_name": "driver",
+    "type": "text",
+    "required": true,
+    "description": "Device driver identifier (e.g., hal:console)"
+}

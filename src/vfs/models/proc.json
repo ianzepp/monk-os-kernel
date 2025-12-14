@@ -1,0 +1,6 @@
+{
+    "model_name": "proc",
+    "status": "system",
+    "description": "Process/virtual file entity - dynamic content",
+    "pathname": "name"
+}

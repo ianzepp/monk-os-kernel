@@ -62,6 +62,7 @@
 
 import type { HAL } from '@src/hal/index.js';
 import type { EMS } from '@src/ems/ems.js';
+import { loadSchemaSync, type SchemaOps } from '@src/ems/schema-loader.js';
 import type { Model, ModelStat, ModelContext, WatchEvent } from '@src/vfs/model.js';
 import type { FileHandle, OpenFlags, OpenOptions } from '@src/vfs/handle.js';
 import type { ACL } from '@src/vfs/acl.js';
@@ -342,14 +343,17 @@ export class VFS {
 
         this.initialized = true;
 
-        // Load and apply VFS schema (creates tables and seeds)
+        // Load and apply VFS schema from JSON definitions
         if (this.ems) {
-            const schemaPath = new URL('./schema.sql', import.meta.url).pathname;
-            const schema = await this.hal.file.readText(schemaPath);
+            // Clear model cache to ensure fresh metadata
+            this.ems.models.clear();
 
-            await this.ems.exec(schema, { clearModels: true });
+            // Load models, fields, and seeds from JSON files
+            // WHY cast: EntityOps has more specific types; SchemaOps is the minimal interface
+            const schemaPath = new URL('.', import.meta.url).pathname;
+            await loadSchemaSync(schemaPath, this.ems.ops as unknown as SchemaOps);
 
-            // Reload EntityCache to pick up root entity from VFS schema
+            // Reload PathCache to pick up root entity from VFS seeds
             await this.ems.pathCache.loadFromDatabase(this.ems.db);
         }
 
@@ -391,11 +395,11 @@ export class VFS {
     /**
      * Ensure root folder exists.
      *
-     * Root is seeded in EMS via schema.sql. This method verifies it's in EntityCache.
+     * Root is seeded via JSON definitions in seeds/. This method verifies it's in PathCache.
      * No HAL storage is used for root - EMS is the source of truth.
      */
     private async ensureRootExists(): Promise<void> {
-        // Root is seeded in schema.sql and loaded into EntityCache.
+        // Root is seeded from JSON and loaded into PathCache.
         // Just verify it exists in cache.
         if (this.ems) {
             const root = this.ems.pathCache.getEntry(ROOT_ID);

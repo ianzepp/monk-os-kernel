@@ -1,0 +1,6 @@
+{
+    "model_name": "folder",
+    "status": "system",
+    "description": "Directory entity - contains child entries",
+    "pathname": "name"
+}

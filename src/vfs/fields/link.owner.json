@@ -1,0 +1,7 @@
+{
+    "model_name": "link",
+    "field_name": "owner",
+    "type": "uuid",
+    "required": true,
+    "description": "Owner user or process ID"
+}

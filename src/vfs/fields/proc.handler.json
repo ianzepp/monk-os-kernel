@@ -1,0 +1,7 @@
+{
+    "model_name": "proc",
+    "field_name": "handler",
+    "type": "text",
+    "required": true,
+    "description": "Handler function identifier"
+}

@@ -1,0 +1,6 @@
+{
+    "model_name": "link",
+    "status": "system",
+    "description": "Symbolic link entity - path redirection",
+    "pathname": "name"
+}

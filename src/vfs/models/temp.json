@@ -1,0 +1,6 @@
+{
+    "model_name": "temp",
+    "status": "system",
+    "description": "Temporary file entity - SQL metadata + HAL blob",
+    "pathname": "name"
+}

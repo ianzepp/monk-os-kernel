@@ -1,0 +1,6 @@
+{
+    "model_name": "file",
+    "status": "system",
+    "description": "Regular file entity - has associated blob data",
+    "pathname": "name"
+}

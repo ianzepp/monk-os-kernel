@@ -1,0 +1,6 @@
+{
+    "model_name": "file",
+    "field_name": "data",
+    "type": "uuid",
+    "description": "UUID reference to blob in HAL block storage"
+}

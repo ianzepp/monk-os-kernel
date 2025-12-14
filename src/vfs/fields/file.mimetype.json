@@ -1,0 +1,6 @@
+{
+    "model_name": "file",
+    "field_name": "mimetype",
+    "type": "text",
+    "description": "MIME type (e.g., application/pdf)"
+}

@@ -1,0 +1,7 @@
+{
+    "model_name": "link",
+    "field_name": "target",
+    "type": "text",
+    "required": true,
+    "description": "Target path (absolute or relative)"
+}

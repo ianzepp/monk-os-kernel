@@ -1,0 +1,264 @@
+# JSON Schema Definitions
+
+## Overview
+
+Subsystems define their EMS models, fields, and seed data using JSON files instead of SQL. This makes schema definitions dialect-agnostic - the EMS observer pipeline handles SQL generation for SQLite or PostgreSQL automatically.
+
+**Exception**: The EMS bootstrap schema (`src/ems/schema.sql`) remains as raw SQL because it creates the `models`, `fields`, and `entities` tables that everything else depends on. This file will have dialect-specific variants (`schema.sqlite.sql`, `schema.pg.sql`).
+
+## Directory Structure
+
+Each subsystem that defines EMS models uses this structure:
+
+```
+src/{subsystem}/
+  models/                    # Model definitions
+    {model_name}.json
+  fields/                    # Field definitions
+    {model_name}.{field_name}.json
+  seeds/                     # Seed data (optional)
+    {NN}-{description}.json  # Number prefix for ordering
+```
+
+### Example: VFS Subsystem
+
+```
+src/vfs/
+  models/
+    file.json
+    folder.json
+    device.json
+    proc.json
+    link.json
+    temp.json
+  fields/
+    file.owner.json
+    file.data.json
+    file.size.json
+    file.mimetype.json
+    file.checksum.json
+    folder.owner.json
+    device.owner.json
+    device.driver.json
+    proc.owner.json
+    proc.handler.json
+    link.owner.json
+    link.target.json
+    temp.owner.json
+    temp.size.json
+    temp.mimetype.json
+  seeds/
+    00-root-folder.json
+```
+
+## File Formats
+
+### Model Definition (`models/{model_name}.json`)
+
+Maps directly to a row in the `models` table:
+
+```json
+{
+  "model_name": "file",
+  "status": "system",
+  "description": "Regular file entity - has associated blob data",
+  "pathname": "name",
+  "sudo": 0,
+  "frozen": 0,
+  "immutable": 0,
+  "external": 0,
+  "passthrough": 0
+}
+```
+
+**Required fields:**
+- `model_name` - Unique identifier, must match filename
+
+**Optional fields:**
+- `status` - "active" (default), "disabled", or "system"
+- `description` - Human-readable description
+- `pathname` - Field that becomes VFS path component (null = not VFS-addressable)
+- `sudo`, `frozen`, `immutable`, `external`, `passthrough` - Behavioral flags (default 0)
+
+### Field Definition (`fields/{model_name}.{field_name}.json`)
+
+Maps directly to a row in the `fields` table:
+
+```json
+{
+  "model_name": "file",
+  "field_name": "owner",
+  "type": "uuid",
+  "required": true,
+  "description": "Owner user or process ID"
+}
+```
+
+**Required fields:**
+- `model_name` - Parent model (must match filename prefix)
+- `field_name` - Field name (must match filename suffix)
+- `type` - Data type: text, integer, numeric, boolean, uuid, timestamp, date, jsonb, binary
+
+**Optional fields:**
+- `required` - Field required on create (boolean)
+- `default_value` - Default if not provided
+- `description` - Human-readable description
+- `is_array` - Field holds array (boolean)
+- `minimum`, `maximum` - Numeric range validation
+- `pattern` - Regex for text validation
+- `enum_values` - JSON array of allowed values
+- `relationship_type` - "owned" or "referenced"
+- `related_model`, `related_field`, `relationship_name` - Relationship config
+- `cascade_delete`, `required_relationship` - Relationship behavior
+- `immutable`, `sudo` - Field-level flags
+- `indexed` - "simple" or "unique"
+- `tracked` - Record changes in audit log (0 or 1)
+- `searchable` - Include in full-text search (0 or 1)
+- `transform` - Auto-transform: "lowercase", "trim", "uppercase"
+
+### Seed Data (`seeds/{NN}-{description}.json`)
+
+Contains data to insert after models/fields are created:
+
+**Single record:**
+```json
+{
+  "model": "folder",
+  "data": {
+    "id": "00000000-0000-0000-0000-000000000000",
+    "owner": "system"
+  }
+}
+```
+
+**Multiple records:**
+```json
+[
+  {
+    "model": "device",
+    "data": { "name": "console", "owner": "system", "driver": "hal:console" }
+  },
+  {
+    "model": "device",
+    "data": { "name": "null", "owner": "system", "driver": "hal:null" }
+  }
+]
+```
+
+**Seed fields:**
+- `model` - Target model name
+- `data` - Entity data (can include `id` for well-known UUIDs)
+
+**Ordering:**
+- Files are processed in sorted order (use `00-`, `10-`, `20-` prefixes)
+- Earlier seeds can be referenced by later ones (e.g., root folder before child folders)
+
+## Load Sequence
+
+```
+1. EMS bootstrap (schema.sqlite.sql or schema.pg.sql)
+   └── Creates: entities, models, fields tables
+   └── Seeds: models/fields meta-model definitions
+
+2. Subsystem schema load (e.g., VFS.init())
+   └── Process models/*.json → ems:upsert('models', ...)
+       └── DdlCreateModel observer creates detail table
+   └── Process fields/*.json → ems:upsert('fields', ...)
+       └── DdlCreateField observer adds columns
+   └── Process seeds/*.json (sorted) → ems:upsert(model, ...)
+```
+
+## Loader Implementation
+
+The schema loader is a shared utility:
+
+```typescript
+// src/ems/schema-loader.ts
+
+export async function* loadSchema(
+    basePath: string,
+    ems: { upsert: (model: string, data: object) => AsyncIterable<Response> }
+): AsyncIterable<Response> {
+    // 1. Load models (triggers DdlCreateModel)
+    const modelFiles = await glob(`${basePath}/models/*.json`);
+    modelFiles.sort();
+
+    for (const file of modelFiles) {
+        const model = JSON.parse(await readFile(file));
+        yield* ems.upsert('models', model);
+    }
+
+    // 2. Load fields (triggers DdlCreateField)
+    const fieldFiles = await glob(`${basePath}/fields/*.json`);
+    fieldFiles.sort();
+
+    for (const file of fieldFiles) {
+        const field = JSON.parse(await readFile(file));
+        yield* ems.upsert('fields', field);
+    }
+
+    // 3. Load seeds (sorted by filename)
+    const seedFiles = await glob(`${basePath}/seeds/*.json`);
+    seedFiles.sort();
+
+    for (const file of seedFiles) {
+        const content = JSON.parse(await readFile(file));
+        const seeds = Array.isArray(content) ? content : [content];
+
+        for (const seed of seeds) {
+            yield* ems.upsert(seed.model, seed.data);
+        }
+    }
+}
+```
+
+## Migration Plan
+
+### Phase 1: VFS (this PR)
+- Create `src/vfs/models/*.json` (6 files)
+- Create `src/vfs/fields/*.json` (~15 files)
+- Create `src/vfs/seeds/*.json` (root folder)
+- Update `VFS.init()` to use loader
+- Delete `src/vfs/schema.sql`
+
+### Phase 2: Auth
+- Create `src/auth/models/*.json` (2 files)
+- Create `src/auth/fields/*.json` (~7 files)
+- Create `src/auth/seeds/*.json` (none - root user created in code)
+- Update `Auth.init()` to use loader
+- Delete `src/auth/schema.sql`
+
+### Phase 3: LLM
+- Create `src/llm/models/*.json` (2 files)
+- Create `src/llm/fields/*.json` (~20 files)
+- Create `src/llm/seeds/*.json` (default providers/models)
+- Update `LLM.init()` to use loader
+- Delete `src/llm/schema.sql`
+
+### Phase 4: Audit
+- Create `src/audit/models/*.json` (1 file)
+- Create `src/audit/fields/*.json` (~8 files)
+- Create `src/audit/seeds/*.json` (none)
+- Update `Audit.init()` to use loader
+- Delete `src/audit/schema.sql`
+
+### Phase 5: EMS Dialect Split
+- Create `src/ems/schema.sqlite.sql`
+- Create `src/ems/schema.pg.sql`
+- Update EMS bootstrap to select based on storage type
+- Delete `src/ems/schema.sql`
+
+## Benefits
+
+1. **Dialect-agnostic** - JSON definitions work with any database backend
+2. **Single source of truth** - No duplication between SQL files
+3. **Validates through EMS** - Field definitions go through observer pipeline
+4. **Git-friendly** - One file per model/field, clean diffs
+5. **Consistent** - Same pattern for system and user-defined models
+6. **Self-documenting** - File names indicate content
+
+## Notes
+
+- The `entities` table remains in EMS bootstrap SQL because it's infrastructure, not a model
+- System fields (id, created_at, updated_at, trashed_at, expired_at) are added automatically by DdlCreateModel
+- Models using dot notation (e.g., `llm.provider`) create tables with underscores (`llm_provider`)

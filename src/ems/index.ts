@@ -189,3 +189,14 @@ export {
     // Registry
     createObserverRunner,
 } from './observers/index.js';
+
+// =============================================================================
+// SCHEMA LOADER
+// =============================================================================
+
+export {
+    loadSchema,
+    loadSchemaSync,
+    type SchemaOps,
+    type LoadResult,
+} from './schema-loader.js';

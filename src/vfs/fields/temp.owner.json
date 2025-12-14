@@ -1,0 +1,7 @@
+{
+    "model_name": "temp",
+    "field_name": "owner",
+    "type": "text",
+    "required": true,
+    "description": "Owner process or user ID"
+}

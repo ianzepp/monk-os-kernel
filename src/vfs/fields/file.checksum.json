@@ -1,0 +1,6 @@
+{
+    "model_name": "file",
+    "field_name": "checksum",
+    "type": "text",
+    "description": "Content hash for integrity verification"
+}

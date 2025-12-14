@@ -1,0 +1,6 @@
+{
+    "model_name": "temp",
+    "field_name": "mimetype",
+    "type": "text",
+    "description": "MIME type (e.g., application/octet-stream)"
+}

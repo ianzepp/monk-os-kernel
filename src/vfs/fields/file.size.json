@@ -1,0 +1,7 @@
+{
+    "model_name": "file",
+    "field_name": "size",
+    "type": "integer",
+    "default_value": "0",
+    "description": "Blob size in bytes"
+}

@@ -1,0 +1,6 @@
+{
+    "model_name": "device",
+    "status": "system",
+    "description": "Device node entity - kernel device interface",
+    "pathname": "name"
+}
