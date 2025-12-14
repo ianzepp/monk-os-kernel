@@ -443,8 +443,9 @@ class OS {
 3. VFS (virtual filesystem)
 4. Standard directories (/app, /bin, /etc, /home, /svc, /tmp, /usr, /var, /vol)
 5. ROM copy (userspace code from host)
-6. Kernel + Dispatcher
-7. Init process (default: /svc/init.ts)
+6. Kernel init (creates kernel process as PID 1, mounts /proc, loads services)
+7. Dispatcher setup
+8. Kernel boot (activates services, starts tick)
 
 **Configuration**:
 ```typescript
@@ -811,7 +812,9 @@ Minimal system services that run as Workers inside the OS:
 
 | Service | Purpose | Activation |
 |---------|---------|------------|
-| **init.ts** | PID 1, reaps zombie children | boot |
+| **init.ts** | Reaps zombie children (optional boot service) | boot |
+
+Note: The kernel process (id='kernel') is PID 1, created during kernel.init(). The init.ts service is a separate boot-activated service for zombie reaping.
 
 ### Gateway (`src/gateway/`)
 

@@ -145,8 +145,8 @@ Each process is a Bun Worker with UUID identity (not integer PID).
 
 ```typescript
 interface Process {
-    id: string;                    // UUID
-    parent: string;                // Parent UUID (empty for init)
+    id: string;                    // UUID (kernel process has id='kernel')
+    parent: string;                // Parent UUID (empty for kernel process)
     user: string;                  // User identity for ACL checks
     state: ProcessState;           // starting | running | stopped | zombie
     worker: Worker;                // Bun Worker instance
@@ -368,17 +368,19 @@ The VFSLoader compiles TypeScript and bundles for Worker execution.
 
 ## Kernel Lifecycle
 
-### Boot Sequence
+### Init Sequence (kernel.init())
 
-1. Initialize VFS (mount /proc)
-2. Create standard directories (/app, /bin, /etc, /home, /tmp, /usr, /var, /vol)
-3. Copy ROM to VFS (handled by OS, not kernel)
-4. Load mount configuration
-5. Load worker pool configuration
-6. Create init process
-7. Load service definitions
-8. Setup init stdio and start worker
-9. Start tick broadcaster
+1. Create kernel process (PID 1) - always available, no Worker, `user: 'kernel'`
+2. Mount /proc (synthetic filesystem backed by ProcessTable)
+3. Load worker pool configuration
+4. Load service definitions (no activation yet)
+
+### Boot Sequence (kernel.boot())
+
+1. Activate services (boot, tcp:listen, udp, pubsub, watch triggers)
+2. Start tick broadcaster
+
+Note: ROM copy and standard directories are handled by OS layer before kernel.init().
 
 ### Shutdown Sequence
 
@@ -396,7 +398,7 @@ The VFSLoader compiles TypeScript and bundles for Worker execution.
 1. A process in 'zombie' state has no active worker
 2. `handleRefs[id] >= 1` for any id in handles map
 3. `proc.handles[fd]` references valid entry in kernel.handles
-4. Init process exists from boot until shutdown
+4. Kernel process (PID 1) exists from init until shutdown
 5. Child's parent field always references valid process or empty string
 6. No two processes share same UUID
 7. Handle once closed never executes again
