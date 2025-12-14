@@ -111,18 +111,18 @@ export async function activateService(
             await spawnServiceHandler(self, name, def);
             break;
 
-        // =====================================================================
-        // MANUAL ACTIVATION (no-op at boot)
-        // =====================================================================
+            // =====================================================================
+            // MANUAL ACTIVATION (no-op at boot)
+            // =====================================================================
 
         case 'manual':
             // WHY: Manual services are registered but not started at boot.
             // They can be started later via os.service('start', name).
             break;
 
-        // =====================================================================
-        // TCP SOCKET ACTIVATION
-        // =====================================================================
+            // =====================================================================
+            // TCP SOCKET ACTIVATION
+            // =====================================================================
 
         case 'tcp:listen': {
             // WHY: Listen on specified port/host, spawn handler per connection

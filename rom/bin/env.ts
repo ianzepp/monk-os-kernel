@@ -77,6 +77,7 @@ export default async function main(): Promise<void> {
 
     if (parsed.flags.help) {
         await println(HELP_TEXT);
+
         return exit(EXIT_SUCCESS);
     }
 
@@ -88,5 +89,6 @@ export default async function main(): Promise<void> {
     }
 
     await send(1, respond.done());
+
     return exit(EXIT_SUCCESS);
 }

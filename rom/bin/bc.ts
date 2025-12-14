@@ -157,6 +157,7 @@ function evaluate(expr: string, scale: number): number | undefined {
         else if (typeof result === 'number') {
             throw new Error('result is not a finite number');
         }
+
         return undefined;
     }
     catch {
@@ -178,6 +179,7 @@ function formatNumber(num: number, scale: number): string {
     }
 
     const fixed = num.toFixed(scale);
+
     // Remove trailing zeros after decimal point
     return fixed.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
 }
@@ -192,6 +194,7 @@ export default async function main(): Promise<void> {
 
     if (parsed.flags.help) {
         await println(HELP_TEXT);
+
         return exit(EXIT_SUCCESS);
     }
 
@@ -204,20 +207,24 @@ export default async function main(): Promise<void> {
     else {
         // Read from stdin
         const lines: string[] = [];
+
         for await (const msg of recv(0)) {
             if (msg.op === 'item') {
                 const data = msg.data as { text?: string } | undefined;
                 const text = data?.text ?? '';
+
                 if (text) {
                     lines.push(text);
                 }
             }
         }
+
         expression = lines.join('\n').trim();
     }
 
     if (!expression) {
         await eprintln('bc: no expression provided');
+
         return exit(EXIT_FAILURE);
     }
 
@@ -229,10 +236,13 @@ export default async function main(): Promise<void> {
     for (let line of exprLines) {
         // Handle scale setting
         const scaleMatch = line.match(/scale\s*=\s*(\d+)/);
+
         if (scaleMatch && scaleMatch[1]) {
             scale = parseInt(scaleMatch[1], 10);
             line = line.replace(/scale\s*=\s*\d+\s*;?\s*/, '').trim();
-            if (!line) continue;
+            if (!line) {
+                continue;
+            }
         }
 
         // Skip assignment-only lines
@@ -242,17 +252,21 @@ export default async function main(): Promise<void> {
 
         try {
             const result = evaluate(line, scale);
+
             if (result !== undefined) {
                 await println(formatNumber(result, scale));
             }
         }
         catch (err) {
             const message = err instanceof Error ? err.message : 'syntax error';
+
             await eprintln(`bc: ${message}`);
+
             return exit(EXIT_FAILURE);
         }
     }
 
     await send(1, respond.done());
+
     return exit(EXIT_SUCCESS);
 }

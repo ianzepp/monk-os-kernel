@@ -920,6 +920,7 @@ export class SyscallDispatcher {
             case 'sigcall:response': {
                 // Response from a sigcall handler
                 const result = (msg as { id: string; result: Response }).result;
+
                 this.handleSigcallResponse(msg.id, result);
                 break;
             }
@@ -983,11 +984,13 @@ export class SyscallDispatcher {
 
         if (!target) {
             yield respond.error('ESRCH', `Handler process ${reg.pid} not found`);
+
             return;
         }
 
         if (target.state !== 'running') {
             yield respond.error('ESRCH', `Handler process ${reg.pid} not running`);
+
             return;
         }
 

@@ -122,6 +122,7 @@ function encodeBase64(data: Uint8Array, wrapWidth: number): string {
     }
 
     const lines: string[] = [];
+
     for (let i = 0; i < base64.length; i += wrapWidth) {
         lines.push(base64.slice(i, i + wrapWidth));
     }

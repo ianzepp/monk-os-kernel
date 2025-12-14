@@ -55,6 +55,7 @@ export default async function main(): Promise<void> {
         switch (arg) {
             case '--help':
                 await println(HELP_TEXT);
+
                 return exit(0);
             case '-l':
             case '--listening':
@@ -107,10 +108,17 @@ export default async function main(): Promise<void> {
         const isTcp = port.type === 'tcp:listen' || port.type === 'tcp';
         const isUdp = port.type === 'udp:bind' || port.type === 'udp';
 
-        if (isTcp && !showTcp) continue;
-        if (isUdp && !showUdp) continue;
+        if (isTcp && !showTcp) {
+            continue;
+        }
 
-        if (listeningOnly && port.state !== 'LISTEN') continue;
+        if (isUdp && !showUdp) {
+            continue;
+        }
+
+        if (listeningOnly && port.state !== 'LISTEN') {
+            continue;
+        }
 
         const proto = isTcp ? 'tcp' : isUdp ? 'udp' : port.type;
         const addr = port.port ? `0.0.0.0:${port.port}` : '0.0.0.0:*';
@@ -127,6 +135,7 @@ export default async function main(): Promise<void> {
         if (showTcp) {
             await println('tcp    0.0.0.0:7777           LISTEN');
         }
+
         if (showUdp) {
             await println('udp    0.0.0.0:9999           -');
         }

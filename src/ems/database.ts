@@ -29,8 +29,9 @@
 import type { ChannelDevice } from '@src/hal/channel.js';
 import type { FileDevice } from '@src/hal/file.js';
 import type { DatabaseDialect } from '@src/hal/dialect.js';
+import type {
+    DatabaseConnection } from '@src/hal/connection.js';
 import {
-    DatabaseConnection,
     createDatabaseConnection,
     getDefaultPath,
 } from '@src/hal/connection.js';
@@ -96,11 +97,13 @@ async function loadSchemaAsync(fileDevice: FileDevice, dialect: DatabaseDialect)
 
     if (cachedSchemaPromises[cacheKey] === null) {
         const schemaPath = SCHEMA_PATHS[cacheKey];
+
         // Cache the Promise immediately - all concurrent callers share this read
         (cachedSchemaPromises as Record<string, Promise<string> | null>)[cacheKey] = fileDevice.readText(schemaPath);
     }
 
     const promise = cachedSchemaPromises[cacheKey];
+
     return promise!;
 }
 

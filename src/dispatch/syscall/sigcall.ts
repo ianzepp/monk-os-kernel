@@ -49,12 +49,14 @@ export async function* sigcallRegister(
     // Validate name
     if (typeof name !== 'string' || name.length === 0) {
         yield respond.error('EINVAL', 'sigcall name must be non-empty string');
+
         return;
     }
 
     // Disallow registering syscall:* names (reserved for kernel)
     if (name.startsWith('syscall:')) {
         yield respond.error('EPERM', 'Cannot register syscall:* names');
+
         return;
     }
 
@@ -62,7 +64,9 @@ export async function* sigcallRegister(
 
     if (error) {
         const parts = error.split(': ', 2);
+
         yield respond.error(parts[0] ?? 'EINVAL', parts[1] ?? error);
+
         return;
     }
 
@@ -90,6 +94,7 @@ export async function* sigcallUnregister(
     // Validate name
     if (typeof name !== 'string' || name.length === 0) {
         yield respond.error('EINVAL', 'sigcall name must be non-empty string');
+
         return;
     }
 
@@ -97,7 +102,9 @@ export async function* sigcallUnregister(
 
     if (error) {
         const parts = error.split(': ', 2);
+
         yield respond.error(parts[0] ?? 'EINVAL', parts[1] ?? error);
+
         return;
     }
 

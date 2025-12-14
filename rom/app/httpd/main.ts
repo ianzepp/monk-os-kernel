@@ -87,6 +87,7 @@ const MIME_TYPES: Record<string, string> = {
  */
 function getMimeType(path: string): string {
     const ext = path.substring(path.lastIndexOf('.')).toLowerCase();
+
     return MIME_TYPES[ext] ?? 'application/octet-stream';
 }
 
@@ -139,6 +140,7 @@ async function handleRequest(
 
             try {
                 await stat(indexPath);
+
                 return handleRequest(root, { ...request, path: filePath + '/index.html' });
             }
             catch {
@@ -220,6 +222,7 @@ async function handleConnection(root: string, socketFd: number): Promise<void> {
     }
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+
         await eprintln(`httpd: connection error: ${message}`);
     }
     finally {
@@ -248,11 +251,13 @@ export default async function main(): Promise<void> {
 
     if (!portStr) {
         await eprintln('httpd: HTTPD_PORT environment variable is required');
+
         return;
     }
 
     if (!root) {
         await eprintln('httpd: HTTPD_ROOT environment variable is required');
+
         return;
     }
 
@@ -260,6 +265,7 @@ export default async function main(): Promise<void> {
 
     if (isNaN(port) || port < 1 || port > 65535) {
         await eprintln(`httpd: invalid HTTPD_PORT: ${portStr}`);
+
         return;
     }
 
@@ -283,7 +289,9 @@ export default async function main(): Promise<void> {
     }
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+
         await eprintln(`httpd: failed to listen on port ${port}: ${message}`);
+
         return;
     }
 
@@ -297,6 +305,7 @@ export default async function main(): Promise<void> {
             // Handle connection in background (don't await)
             handleConnection(root, socketFd).catch(async err => {
                 const message = err instanceof Error ? err.message : String(err);
+
                 await eprintln(`httpd: unhandled error: ${message}`);
             });
         }
@@ -306,6 +315,7 @@ export default async function main(): Promise<void> {
             }
 
             const message = err instanceof Error ? err.message : String(err);
+
             await eprintln(`httpd: accept error: ${message}`);
         }
     }

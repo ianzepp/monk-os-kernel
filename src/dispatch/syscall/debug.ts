@@ -48,6 +48,7 @@ export async function* debugIsEnabled(
 ): AsyncGenerator<Response> {
     if (typeof namespace !== 'string') {
         yield respond.error('EINVAL', 'namespace must be a string');
+
         return;
     }
 
@@ -84,11 +85,13 @@ export async function* debugLog(
 ): AsyncGenerator<Response> {
     if (typeof namespace !== 'string') {
         yield respond.error('EINVAL', 'namespace must be a string');
+
         return;
     }
 
     if (typeof message !== 'string') {
         yield respond.error('EINVAL', 'message must be a string');
+
         return;
     }
 

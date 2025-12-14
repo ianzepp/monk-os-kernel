@@ -465,6 +465,7 @@ export async function* procList(
 
         if (p.parent) {
             const parent = processTable.get(p.parent);
+
             if (parent) {
                 // Find this process's PID in parent's children map
                 for (const [childPid, childId] of parent.children) {
@@ -473,12 +474,14 @@ export async function* procList(
                         break;
                     }
                 }
+
                 // Find parent's PID
                 if (parent === init) {
                     ppid = 1;
                 }
                 else if (parent.parent) {
                     const grandparent = processTable.get(parent.parent);
+
                     if (grandparent) {
                         for (const [parentPid, parentId] of grandparent.children) {
                             if (parentId === parent.id) {

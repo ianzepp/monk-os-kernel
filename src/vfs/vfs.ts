@@ -351,6 +351,7 @@ export class VFS {
             // Load models, fields, and seeds from JSON files
             // WHY cast: EntityOps has more specific types; SchemaOps is the minimal interface
             const schemaPath = new URL('.', import.meta.url).pathname;
+
             await loadSchemaSync(schemaPath, this.ems.ops as unknown as SchemaOps);
 
             // Reload PathCache to pick up root entity from VFS seeds

@@ -116,8 +116,13 @@ function format(msg: string, args: unknown[]): string {
     let i = 0;
 
     return msg.replace(/%([sdoOjf%])/g, (match, specifier) => {
-        if (specifier === '%') return '%';
-        if (i >= args.length) return match;
+        if (specifier === '%') {
+            return '%';
+        }
+
+        if (i >= args.length) {
+            return match;
+        }
 
         const arg = args[i++];
 
@@ -134,6 +139,7 @@ function format(msg: string, args: unknown[]): string {
                 catch {
                     return '[Circular]';
                 }
+
             default: return match;
         }
     });
@@ -167,7 +173,9 @@ export function debug(namespace: string): DebugLogger {
     const enabled = initialized && isEnabled(namespace);
 
     const logger = ((message: string, ...args: unknown[]) => {
-        if (!logger.enabled) return;
+        if (!logger.enabled) {
+            return;
+        }
 
         // Format locally, send via syscall
         const formatted = format(message, args);
@@ -247,6 +255,6 @@ export function debugEnabled(): boolean {
  */
 export function debugPatterns(): string[] {
     return patterns.include.map(r =>
-        r.source.replace(/\^|\$/g, '').replace(/\.\*/g, '*')
+        r.source.replace(/\^|\$/g, '').replace(/\.\*/g, '*'),
     );
 }

@@ -155,6 +155,7 @@ function format(msg: string, args: unknown[]): string {
                 catch {
                     return '[circular]';
                 }
+
             default:
                 return match;
         }

@@ -67,6 +67,7 @@ export default async function main(): Promise<void> {
 
     if (cmd === '--help' || cmd === '-h') {
         await println(HELP_TEXT);
+
         return exit(0);
     }
 
@@ -89,6 +90,7 @@ export default async function main(): Promise<void> {
 
         default:
             await println(`ip: unknown object "${cmd}"`);
+
             return exit(1);
     }
 

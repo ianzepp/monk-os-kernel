@@ -168,6 +168,7 @@ export class Auth {
 
         // Load models and fields from JSON definitions
         const schemaPath = new URL('.', import.meta.url).pathname;
+
         await loadSchemaSync(schemaPath, this.ems.ops as unknown as SchemaOps);
     }
 

@@ -122,8 +122,10 @@ export default async function main(): Promise<void> {
     // Handle -l (list signals)
     if (rawArgs.includes('-l')) {
         const names = Object.keys(SIGNALS).sort((a, b) => SIGNALS[a]! - SIGNALS[b]!);
+
         await println(names.join(' '));
         await send(1, respond.done());
+
         return exit(EXIT_SUCCESS);
     }
 
@@ -131,6 +133,7 @@ export default async function main(): Promise<void> {
     if (rawArgs.includes('--help') || rawArgs.includes('-h')) {
         await println(HELP_TEXT);
         await send(1, respond.done());
+
         return exit(EXIT_SUCCESS);
     }
 
@@ -139,6 +142,7 @@ export default async function main(): Promise<void> {
     const pids: number[] = [];
 
     let i = 0;
+
     while (i < rawArgs.length) {
         const arg = rawArgs[i]!;
 
@@ -146,54 +150,70 @@ export default async function main(): Promise<void> {
             // -s SIGNAL
             const sigArg = rawArgs[++i]!;
             const parsed = parseSignal(sigArg);
+
             if (parsed === null) {
                 await eprintln(`kill: invalid signal: ${sigArg}`);
+
                 return exit(EXIT_USAGE);
             }
+
             signal = parsed;
         }
         else if (arg.startsWith('-') && arg.length > 1 && arg !== '--') {
             // -SIGNAL or -NUMBER
             const sigArg = arg.slice(1);
             const parsed = parseSignal(sigArg);
+
             if (parsed === null) {
                 await eprintln(`kill: invalid signal: ${sigArg}`);
+
                 return exit(EXIT_USAGE);
             }
+
             signal = parsed;
         }
         else if (arg === '--') {
             // End of options, rest are PIDs
             for (let j = i + 1; j < rawArgs.length; j++) {
                 const pid = parseInt(rawArgs[j]!, 10);
+
                 if (isNaN(pid) || pid <= 0) {
                     await eprintln(`kill: invalid pid: ${rawArgs[j]}`);
+
                     return exit(EXIT_USAGE);
                 }
+
                 pids.push(pid);
             }
+
             break;
         }
         else {
             // PID
             const pid = parseInt(arg, 10);
+
             if (isNaN(pid) || pid <= 0) {
                 await eprintln(`kill: invalid pid: ${arg}`);
+
                 return exit(EXIT_USAGE);
             }
+
             pids.push(pid);
         }
+
         i++;
     }
 
     if (pids.length === 0) {
         await eprintln('kill: missing pid');
         await eprintln('Try \'kill --help\' for more information.');
+
         return exit(EXIT_USAGE);
     }
 
     // Send signal to each PID
     let hadError = false;
+
     for (const pid of pids) {
         try {
             await kill(pid, signal);
@@ -205,6 +225,7 @@ export default async function main(): Promise<void> {
     }
 
     await send(1, respond.done());
+
     return exit(hadError ? EXIT_FAILURE : EXIT_SUCCESS);
 }
 
@@ -214,12 +235,14 @@ export default async function main(): Promise<void> {
 function parseSignal(arg: string): number | null {
     // Try as number
     const num = parseInt(arg, 10);
+
     if (!isNaN(num) && num > 0 && num < 32) {
         return num;
     }
 
     // Try as name (with or without SIG prefix)
     const name = arg.toUpperCase().replace(/^SIG/, '');
+
     if (name in SIGNALS) {
         return SIGNALS[name]!;
     }

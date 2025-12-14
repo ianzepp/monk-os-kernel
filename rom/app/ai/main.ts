@@ -389,6 +389,7 @@ async function gatherSystemState(): Promise<SystemState> {
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         await log(`ai: wake - failed to list processes: ${msg}`);
     }
 
@@ -408,6 +409,7 @@ async function gatherSystemState(): Promise<SystemState> {
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         await log(`ai: wake - failed to query reminders: ${msg}`);
     }
 
@@ -428,6 +430,7 @@ async function gatherSystemState(): Promise<SystemState> {
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         await log(`ai: wake - failed to query recent stm: ${msg}`);
     }
 
@@ -450,6 +453,7 @@ function buildWakePrompt(state: SystemState): string {
 
     // Build process list
     let processes: string;
+
     if (state.processes.length === 0) {
         processes = 'None (unexpected - at least init should be running)';
     }
@@ -461,6 +465,7 @@ function buildWakePrompt(state: SystemState): string {
 
     // Build reminders list
     let reminders: string;
+
     if (state.reminders.length === 0) {
         reminders = 'None';
     }
@@ -468,11 +473,13 @@ function buildWakePrompt(state: SystemState): string {
         const items = state.reminders
             .map(r => `- [${r.id}] (salience ${r.salience}): ${r.content}`)
             .join('\n');
+
         reminders = `${items}\n\nAfter handling a reminder, mark it consolidated:\n!ems update ai.stm <id> consolidated=true`;
     }
 
     // Build observations list
     let observations: string;
+
     if (state.recentStm.length === 0) {
         observations = 'None';
     }

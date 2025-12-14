@@ -126,6 +126,7 @@ export class LLM {
 
         // Load models, fields, and seeds from JSON definitions
         const schemaPath = new URL('.', import.meta.url).pathname;
+
         await loadSchemaSync(schemaPath, this.ems.ops as unknown as SchemaOps);
     }
 
