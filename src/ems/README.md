@@ -25,6 +25,7 @@ src/ems/
 ├── index.ts              # Public API exports
 ├── ems.ts                # Main EMS class (unified entry point)
 ├── connection.ts         # Database connection wrapper
+├── dialect.ts            # Database dialect abstraction (SQLite/PostgreSQL)
 ├── entity-ops.ts         # Entity-aware streaming operations
 ├── database-ops.ts       # Generic SQL streaming layer
 ├── filter.ts             # SQL query builder (26 operators)
@@ -77,6 +78,73 @@ All mutations flow through a 10-ring observer pipeline. Rings execute in order (
 - **Tracked** (Ring 7): Records changes to tracked fields for audit
 - **Cache** (Ring 8): Invalidates model cache on schema changes
 - **PathCacheSync** (Ring 8): Syncs VFS path cache on entity changes
+
+## Database Dialect
+
+The `DatabaseDialect` abstraction enables Ring 5/6 observers to generate correct SQL for different database backends.
+
+### Supported Dialects
+
+| Feature | SQLite | PostgreSQL |
+|---------|--------|------------|
+| Placeholders | `?` | `$1, $2, $3` |
+| Transaction | `BEGIN IMMEDIATE` | `BEGIN` |
+| Boolean | INTEGER (0/1) | BOOLEAN |
+| Timestamp | TEXT (ISO 8601) | TIMESTAMPTZ |
+| JSON | TEXT | JSONB |
+| Arrays | TEXT (JSON) | Native arrays |
+| UUID | `lower(hex(randomblob(16)))` | `gen_random_uuid()::text` |
+
+### Usage in Observers
+
+Observers access the dialect via `context.system.db.dialect`:
+
+```typescript
+async execute(context: ObserverContext): Promise<void> {
+    const { db } = context.system;
+
+    // Generate placeholders
+    const placeholders = db.dialect.placeholders(3);  // "?, ?, ?" or "$1, $2, $3"
+
+    // Generate DDL
+    const createTable = db.dialect.createTable('users');
+    const addColumn = db.dialect.addColumn('users', 'email', 'text');
+
+    // Type mapping
+    const sqlType = db.dialect.sqlType('boolean');  // "INTEGER" or "BOOLEAN"
+
+    // Value conversion
+    const dbValue = db.dialect.toDatabase(true, 'boolean');  // 1 or true
+    const jsValue = db.dialect.fromDatabase(1, 'boolean');   // true
+}
+```
+
+### Dialect Interface
+
+```typescript
+interface DatabaseDialect {
+    readonly name: 'sqlite' | 'postgres';
+
+    // SQL syntax
+    placeholder(index: number): string;
+    placeholders(count: number): string;
+    beginTransaction(): string;
+    createTable(tableName: string): string;
+    addColumn(tableName: string, columnName: string, fieldType: string): string;
+
+    // Type mapping
+    sqlType(fieldType: string): string;
+    isArrayType(fieldType: string): boolean;
+    baseType(fieldType: string): string;
+
+    // Value conversion
+    toDatabase(value: unknown, fieldType: string): unknown;
+    fromDatabase(value: unknown, fieldType: string): unknown;
+
+    // Query helpers
+    arrayContains(column: string, placeholderIndex: number): string;
+}
+```
 
 ## Core Components
 
