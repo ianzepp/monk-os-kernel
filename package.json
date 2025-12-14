@@ -1,6 +1,6 @@
 {
     "name": "@monk-api/os",
-    "version": "0.5.0",
+    "version": "0.6.0",
     "description": "A Plan 9/BeOS-inspired operating system where Bun is the hardware",
     "type": "module",
     "main": "src/index.ts",
