@@ -104,17 +104,9 @@ export class DdlCreateModel extends BaseObserver {
             throw new EOBSSYS('Cannot create table: model_name is missing');
         }
 
-        // Build CREATE TABLE with system columns
+        // Build CREATE TABLE with system columns using dialect
         // All user-defined columns are added later via DdlCreateField
-        const sql = `
-            CREATE TABLE IF NOT EXISTS ${modelName} (
-                id          TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
-                created_at  TEXT DEFAULT (datetime('now')),
-                updated_at  TEXT DEFAULT (datetime('now')),
-                trashed_at  TEXT,
-                expired_at  TEXT
-            )
-        `;
+        const sql = system.db.dialect.createTable(modelName);
 
         try {
             await system.db.exec(sql);

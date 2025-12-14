@@ -7,6 +7,7 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
 import { DdlCreateField } from '@src/ems/ring/6/index.js';
 import { ObserverRing, EOBSSYS } from '@src/ems/observers/index.js';
+import { getDialect } from '@src/ems/dialect.js';
 import type {
     ObserverContext,
     Model,
@@ -33,6 +34,7 @@ function createMockDatabase(): DatabaseAdapter & {
         execCalls,
         shouldFail: false,
         failMessage: 'SQLITE_ERROR: no such table',
+        dialect: getDialect('sqlite'),
         async execute(_sql: string, _params?: unknown[]): Promise<number> {
             return 1;
         },
