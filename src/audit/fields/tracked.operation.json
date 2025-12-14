@@ -1,0 +1,7 @@
+{
+    "model_name": "tracked",
+    "field_name": "operation",
+    "type": "text",
+    "required": true,
+    "description": "Operation: create, update, or delete"
+}

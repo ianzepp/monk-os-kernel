@@ -24,7 +24,9 @@ import type { DatabaseConnection } from '@src/ems/connection.js';
 import type { FileDevice } from '@src/hal/file.js';
 
 /** Path to VFS schema file relative to this helper module */
-const VFS_SCHEMA_PATH = new URL('../../src/vfs/schema.sql', import.meta.url).pathname;
+// WHY .orig: VFS now uses JSON definitions, but low-level tests that bypass
+// full EMS setup still need raw SQL for direct database seeding.
+const VFS_SCHEMA_PATH = new URL('../../src/vfs/schema.sql.orig', import.meta.url).pathname;
 
 /**
  * Load VFS schema into database.

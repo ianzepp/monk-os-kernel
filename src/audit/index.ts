@@ -29,6 +29,7 @@
 
 import type { HAL } from '@src/hal/index.js';
 import type { EMS } from '@src/ems/ems.js';
+import { loadSchemaSync, type SchemaOps } from '@src/ems/schema-loader.js';
 import { Tracked } from '@src/ems/ring/7/60-tracked.js';
 
 // Re-export the observer for direct access
@@ -50,7 +51,7 @@ export class Audit {
     /**
      * Initialize the audit subsystem.
      *
-     * 1. Loads the audit schema (creates tracked table)
+     * 1. Loads the audit schema from JSON definitions
      * 2. Registers the Tracked observer in the EMS pipeline
      */
     async init(): Promise<void> {
@@ -58,11 +59,12 @@ export class Audit {
             return;
         }
 
-        // Load audit schema
-        const schemaPath = new URL('./schema.sql', import.meta.url).pathname;
-        const schema = await this.hal.file.readText(schemaPath);
+        // Clear model cache to ensure fresh metadata
+        this.ems.models.clear();
 
-        await this.ems.exec(schema, { clearModels: true });
+        // Load models and fields from JSON definitions
+        const schemaPath = new URL('.', import.meta.url).pathname;
+        await loadSchemaSync(schemaPath, this.ems.ops as unknown as SchemaOps);
 
         // Register the Tracked observer
         this.ems.runner.register(new Tracked());

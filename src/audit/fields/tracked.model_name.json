@@ -1,0 +1,7 @@
+{
+    "model_name": "tracked",
+    "field_name": "model_name",
+    "type": "text",
+    "required": true,
+    "description": "Model where change occurred"
+}

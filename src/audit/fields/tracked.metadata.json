@@ -1,0 +1,6 @@
+{
+    "model_name": "tracked",
+    "field_name": "metadata",
+    "type": "text",
+    "description": "Additional context as JSON"
+}

@@ -1,0 +1,7 @@
+{
+    "model_name": "tracked",
+    "field_name": "record_id",
+    "type": "text",
+    "required": true,
+    "description": "Entity that was changed"
+}

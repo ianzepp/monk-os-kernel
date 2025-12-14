@@ -1,0 +1,7 @@
+{
+    "model_name": "tracked",
+    "field_name": "change_id",
+    "type": "integer",
+    "required": true,
+    "description": "Sequence number within record"
+}

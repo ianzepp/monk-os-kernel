@@ -1,0 +1,6 @@
+{
+    "model_name": "tracked",
+    "field_name": "request_id",
+    "type": "text",
+    "description": "Request correlation ID"
+}

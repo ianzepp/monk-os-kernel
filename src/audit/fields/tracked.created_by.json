@@ -1,0 +1,6 @@
+{
+    "model_name": "tracked",
+    "field_name": "created_by",
+    "type": "text",
+    "description": "User or process that made change"
+}

@@ -1,0 +1,7 @@
+{
+    "model_name": "tracked",
+    "field_name": "changes",
+    "type": "text",
+    "required": true,
+    "description": "Field changes as JSON object"
+}

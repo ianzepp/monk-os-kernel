@@ -1,0 +1,6 @@
+{
+    "model_name": "tracked",
+    "status": "system",
+    "sudo": true,
+    "description": "Change tracking history - audit log"
+}
