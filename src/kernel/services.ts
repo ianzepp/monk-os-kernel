@@ -7,8 +7,12 @@
 
 /**
  * Service activation types
+ *
+ * - boot: Start automatically on kernel.boot()
+ * - manual: Registered but only started via os.service('start', name)
+ * - tcp:listen, udp:bind, pubsub:subscribe, fs:watch: Event-triggered
  */
-export type ActivationType = 'tcp:listen' | 'udp:bind' | 'pubsub:subscribe' | 'fs:watch' | 'boot';
+export type ActivationType = 'tcp:listen' | 'udp:bind' | 'pubsub:subscribe' | 'fs:watch' | 'boot' | 'manual';
 
 /**
  * TCP listener activation
@@ -52,6 +56,13 @@ export interface BootActivation {
 }
 
 /**
+ * Manual activation (only started via os.service('start', name))
+ */
+export interface ManualActivation {
+    type: 'manual';
+}
+
+/**
  * Union of all activation specs
  */
 export type Activation =
@@ -59,7 +70,8 @@ export type Activation =
     | UdpActivation
     | PubsubActivation
     | WatchActivation
-    | BootActivation;
+    | BootActivation
+    | ManualActivation;
 
 // ============================================================================
 // I/O Configuration

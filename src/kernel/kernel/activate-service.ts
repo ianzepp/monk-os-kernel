@@ -5,6 +5,7 @@
  * =====================
  * This module implements service activation based on different triggers:
  * - boot: Start service immediately at kernel boot
+ * - manual: Registered but not started (start via os.service('start', name))
  * - tcp:listen: Socket activation - spawn handler per connection
  * - pubsub:subscribe: Topic activation - spawn handler per message
  * - fs:watch: File watch activation - spawn handler per event
@@ -110,9 +111,18 @@ export async function activateService(
             await spawnServiceHandler(self, name, def);
             break;
 
-            // =====================================================================
-            // TCP SOCKET ACTIVATION
-            // =====================================================================
+        // =====================================================================
+        // MANUAL ACTIVATION (no-op at boot)
+        // =====================================================================
+
+        case 'manual':
+            // WHY: Manual services are registered but not started at boot.
+            // They can be started later via os.service('start', name).
+            break;
+
+        // =====================================================================
+        // TCP SOCKET ACTIVATION
+        // =====================================================================
 
         case 'tcp:listen': {
             // WHY: Listen on specified port/host, spawn handler per connection

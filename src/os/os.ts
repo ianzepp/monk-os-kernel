@@ -60,11 +60,6 @@ const STANDARD_DIRECTORIES = [
 ];
 
 /**
- * Default init process path.
- */
-const DEFAULT_INIT_PATH = '/app/init.ts';
-
-/**
  * Default ROM source path on host filesystem.
  */
 const DEFAULT_ROM_PATH = './rom';

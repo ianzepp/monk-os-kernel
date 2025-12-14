@@ -1,0 +1,5 @@
+{
+    "handler": "main.ts",
+    "activate": { "type": "manual" },
+    "description": "Agent daemon - manages AI agents"
+}

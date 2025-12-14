@@ -789,11 +789,17 @@ Streams of `Response` objects are the fundamental data flow unit. Arrays are a c
 │   │       ├── types.ts
 │   │       ├── syscall.ts
 │   │       └── ...
+│   ├── app/                      # Applications (registered as services)
+│   │   ├── ai/
+│   │   │   ├── main.ts           # AI assistant daemon
+│   │   │   └── service.json      # Service definition
+│   │   ├── displayd/
+│   │   │   ├── main.ts           # Display server
+│   │   │   └── service.json
+│   │   └── ...
 │   ├── bin/                      # Executable programs
 │   │   ├── true.ts               # Exit 0
 │   │   └── false.ts              # Exit 1
-│   ├── svc/                      # System services (daemons)
-│   │   └── init.ts               # PID 1, reaps zombie children
 │   └── etc/                      # Configuration
 │       └── mounts.json           # Mount configuration
 ├── spec/                         # Tests
@@ -806,21 +812,39 @@ Streams of `Response` objects are the fundamental data flow unit. Arrays are a c
 └── bunfig.toml
 ```
 
-### ROM Services (`rom/svc/`)
+### App Services (`rom/app/`)
 
-Minimal system services that run as Workers inside the OS:
+Applications are registered as services via `service.json`:
 
-| Service | Purpose | Activation |
-|---------|---------|------------|
-| **init.ts** | Reaps zombie children (optional boot service) | boot |
+```json
+{
+    "handler": "main.ts",
+    "activate": { "type": "manual" },
+    "description": "AI assistant daemon"
+}
+```
 
-Note: The kernel process (id='kernel') is PID 1, created during kernel.init(). The init.ts service is a separate boot-activated service for zombie reaping.
+**Activation types:**
+| Type | Behavior |
+|------|----------|
+| `boot` | Start automatically on kernel.boot() |
+| `manual` | Only via `os.service('start', 'name')` |
+| `tcp:listen` | Socket activation - spawn per connection |
+| `pubsub:subscribe` | Topic activation - spawn per message |
+| `fs:watch` | File watch - spawn per event |
+
+**Service discovery order:**
+1. `/etc/services/*.json` - system services
+2. `/usr/*/etc/services/*.json` - package services
+3. `/app/*/service.json` - app services
+
+Note: The kernel process (id='kernel') is PID 1, created during kernel.init(). Apps are separate services started manually or via activation triggers.
 
 ### Gateway (`src/gateway/`)
 
-The Gateway provides external applications (os-sdk) access to syscalls over a Unix domain socket. It runs in kernel context (not as a Worker), executing syscalls directly via `dispatcher.execute()`.
+The Gateway provides external applications (os-sdk) access to syscalls over TCP (port 7778) and WebSocket (port 7779). It runs in kernel context (not as a Worker), executing syscalls directly via `dispatcher.execute()`.
 
-**Wire Protocol**: Length-prefixed MessagePack over Unix socket.
+**Wire Protocol**: Length-prefixed MessagePack over TCP.
 
 ```
 [4-byte big-endian length][msgpack payload]
