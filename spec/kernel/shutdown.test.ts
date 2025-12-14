@@ -91,8 +91,8 @@ describe('Kernel Shutdown', () => {
             import { listen, recv } from '@rom/lib/process/index.js';
 
             async function main() {
-                // Create a listener port
-                const portFd = await listen({ port: 0, unix: '/tmp/test-shutdown.sock' });
+                // Create a TCP listener on ephemeral port
+                const portFd = await listen({ port: 0 });
 
                 // Block waiting for connection - should be interrupted by shutdown
                 await recv(portFd);
