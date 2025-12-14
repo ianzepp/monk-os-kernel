@@ -119,7 +119,7 @@ export async function spawnServiceHandler(
     // Create process
     // -------------------------------------------------------------------------
 
-    // WHY: Services inherit env from init process (e.g., MONK_SOCKET, HOME, PATH)
+    // WHY: Services inherit env from kernel process (e.g., HOME, USER, HOSTNAME)
     // Services are kernel-spawned, so init is effectively their "parent" for env purposes.
     const init = self.processes.getInit();
     const proc = createProcess(self, { cmd: def.handler, env: init?.env });
