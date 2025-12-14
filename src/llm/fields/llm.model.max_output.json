@@ -1,0 +1,8 @@
+{
+    "model_name": "llm.model",
+    "field_name": "max_output",
+    "type": "integer",
+    "required": true,
+    "default_value": "4096",
+    "description": "Maximum output tokens"
+}

@@ -1,0 +1,7 @@
+{
+    "model_name": "llm.model",
+    "field_name": "strip_markdown",
+    "type": "boolean",
+    "default_value": "0",
+    "description": "Strip markdown fences from output"
+}

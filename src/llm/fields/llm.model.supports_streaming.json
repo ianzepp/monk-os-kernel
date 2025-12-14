@@ -1,0 +1,7 @@
+{
+    "model_name": "llm.model",
+    "field_name": "supports_streaming",
+    "type": "boolean",
+    "default_value": "1",
+    "description": "Supports streaming responses"
+}

@@ -26,6 +26,7 @@
 import type { HAL } from '@src/hal/index.js';
 import type { EMS } from '@src/ems/ems.js';
 import type { WhereConditions } from '@src/ems/index.js';
+import { loadSchemaSync, type SchemaOps } from '@src/ems/schema-loader.js';
 import type { Channel } from '@src/hal/channel/types.js';
 import { getAdapter } from './adapters/index.js';
 import type {
@@ -108,7 +109,7 @@ export class LLM {
     /**
      * Initialize LLM subsystem.
      *
-     * Loads schema from schema.sql, creating tables and seeding default
+     * Loads schema from JSON definitions, creating tables and seeding default
      * providers/models. Idempotent - safe to call multiple times.
      *
      * @throws Error if schema cannot be loaded
@@ -120,11 +121,12 @@ export class LLM {
 
         this.initialized = true;
 
-        // Load and apply LLM schema
-        const schemaPath = new URL('./schema.sql', import.meta.url).pathname;
-        const schema = await this.hal.file.readText(schemaPath);
+        // Clear model cache to ensure fresh metadata
+        this.ems.models.clear();
 
-        await this.ems.exec(schema, { clearModels: true });
+        // Load models, fields, and seeds from JSON definitions
+        const schemaPath = new URL('.', import.meta.url).pathname;
+        await loadSchemaSync(schemaPath, this.ems.ops as unknown as SchemaOps);
     }
 
     /**

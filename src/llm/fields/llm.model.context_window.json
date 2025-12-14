@@ -1,0 +1,8 @@
+{
+    "model_name": "llm.model",
+    "field_name": "context_window",
+    "type": "integer",
+    "required": true,
+    "default_value": "4096",
+    "description": "Maximum input tokens"
+}

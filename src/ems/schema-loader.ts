@@ -19,6 +19,29 @@ import { readdir } from 'fs/promises';
 import { join } from 'path';
 
 /**
+ * Fields in the `fields` table that are stored as TEXT but may be arrays in JSON.
+ */
+const ARRAY_TEXT_FIELDS = new Set(['enum_values']);
+
+/**
+ * Normalize field data for database insertion.
+ *
+ * WHY: Field definitions have properties like `enum_values` that are stored as TEXT
+ * in SQLite but we want to allow arrays in JSON for better readability.
+ */
+function normalizeFieldData(data: Record<string, unknown>): Record<string, unknown> {
+    const result: Record<string, unknown> = { ...data };
+
+    for (const field of ARRAY_TEXT_FIELDS) {
+        if (Array.isArray(result[field])) {
+            result[field] = JSON.stringify(result[field]);
+        }
+    }
+
+    return result;
+}
+
+/**
  * Upsert options for schema loading.
  */
 export interface SchemaUpsertOptions {
@@ -116,7 +139,11 @@ export async function* loadSchema(
     const fieldFiles = await loadJsonFiles(join(basePath, 'fields'));
 
     for (const { file, data } of fieldFiles) {
-        for await (const _ of ops.upsertAll('fields', [data], { key: ['model_name', 'field_name'] })) {
+        // WHY normalize: Some fields (enum_values) are stored as TEXT in SQLite
+        // but we want to allow arrays in JSON for readability
+        const normalizedData = normalizeFieldData(data as Record<string, unknown>);
+
+        for await (const _ of ops.upsertAll('fields', [normalizedData], { key: ['model_name', 'field_name'] })) {
             // Upsert yields the created/updated record
         }
 

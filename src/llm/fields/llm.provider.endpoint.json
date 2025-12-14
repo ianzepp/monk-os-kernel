@@ -1,0 +1,7 @@
+{
+    "model_name": "llm.provider",
+    "field_name": "endpoint",
+    "type": "text",
+    "required": true,
+    "description": "Base URL for API calls"
+}

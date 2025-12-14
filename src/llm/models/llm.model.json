@@ -1,0 +1,5 @@
+{
+    "model_name": "llm.model",
+    "status": "system",
+    "description": "LLM model configuration - capabilities and limits"
+}

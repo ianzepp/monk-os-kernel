@@ -187,7 +187,7 @@ export class SqlUpdate extends BaseObserver {
      */
     private async updateTable(
         db: ObserverContext['system']['db'],
-        tableName: string,
+        modelName: string,
         id: string,
         changes: Record<string, unknown>,
     ): Promise<void> {
@@ -203,6 +203,7 @@ export class SqlUpdate extends BaseObserver {
 
         values.push(id);
 
+        const tableName = dialect.tableName(modelName);
         const sql = `UPDATE ${tableName} SET ${setClauses} WHERE id = ${dialect.placeholder(columns.length + 1)}`;
 
         try {

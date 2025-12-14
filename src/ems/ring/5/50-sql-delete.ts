@@ -124,7 +124,8 @@ export class SqlDelete extends BaseObserver {
 
         // For both entity models and meta-models, update the model's table directly
         // (Entity models have trashed_at in detail table, not entities table)
-        const sql = `UPDATE ${model.modelName} SET trashed_at = ${dialect.placeholder(1)} WHERE id = ${dialect.placeholder(2)}`;
+        const tableName = dialect.tableName(model.modelName);
+        const sql = `UPDATE ${tableName} SET trashed_at = ${dialect.placeholder(1)} WHERE id = ${dialect.placeholder(2)}`;
 
         try {
             await system.db.execute(sql, [trashedAt, id]);

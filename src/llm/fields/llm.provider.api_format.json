@@ -1,0 +1,8 @@
+{
+    "model_name": "llm.provider",
+    "field_name": "api_format",
+    "type": "text",
+    "required": true,
+    "enum_values": ["openai", "anthropic"],
+    "description": "Wire protocol format: openai or anthropic"
+}

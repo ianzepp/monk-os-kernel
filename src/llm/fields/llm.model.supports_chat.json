@@ -1,0 +1,7 @@
+{
+    "model_name": "llm.model",
+    "field_name": "supports_chat",
+    "type": "boolean",
+    "default_value": "1",
+    "description": "Supports multi-turn chat"
+}

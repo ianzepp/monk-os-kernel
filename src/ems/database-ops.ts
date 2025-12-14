@@ -292,11 +292,13 @@ export class DatabaseOps {
      * @param ids - Source of IDs to delete
      */
     async *deleteFrom(
-        table: string,
+        modelName: string,
         ids: Source<string>,
     ): AsyncGenerator<string> {
+        const tableName = this.db.dialect.tableName(modelName);
+
         for await (const id of normalize(ids)) {
-            const sql = `DELETE FROM ${table} WHERE id = ?`;
+            const sql = `DELETE FROM ${tableName} WHERE id = ?`;
 
             await this.db.execute(sql, [id]);
             yield id;

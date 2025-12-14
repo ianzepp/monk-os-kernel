@@ -1,0 +1,154 @@
+[
+    {
+        "model": "llm.model",
+        "data": {
+            "model_name": "qwen2.5-coder:1.5b",
+            "provider": "ollama",
+            "model_id": "qwen2.5-coder:1.5b",
+            "supports_chat": true,
+            "supports_completion": true,
+            "supports_streaming": true,
+            "supports_embeddings": false,
+            "supports_vision": false,
+            "supports_tools": false,
+            "context_window": 32768,
+            "max_output": 8192,
+            "strip_markdown": false,
+            "system_prompt_style": "message",
+            "status": "active"
+        }
+    },
+    {
+        "model": "llm.model",
+        "data": {
+            "model_name": "qwen2.5-coder:7b",
+            "provider": "ollama",
+            "model_id": "qwen2.5-coder:7b",
+            "supports_chat": true,
+            "supports_completion": true,
+            "supports_streaming": true,
+            "supports_embeddings": false,
+            "supports_vision": false,
+            "supports_tools": false,
+            "context_window": 32768,
+            "max_output": 8192,
+            "strip_markdown": false,
+            "system_prompt_style": "message",
+            "status": "active"
+        }
+    },
+    {
+        "model": "llm.model",
+        "data": {
+            "model_name": "llama3.2:3b",
+            "provider": "ollama",
+            "model_id": "llama3.2:3b",
+            "supports_chat": true,
+            "supports_completion": true,
+            "supports_streaming": true,
+            "supports_embeddings": false,
+            "supports_vision": false,
+            "supports_tools": false,
+            "context_window": 131072,
+            "max_output": 8192,
+            "strip_markdown": false,
+            "system_prompt_style": "message",
+            "status": "active"
+        }
+    },
+    {
+        "model": "llm.model",
+        "data": {
+            "model_name": "nomic-embed-text",
+            "provider": "ollama",
+            "model_id": "nomic-embed-text",
+            "supports_chat": false,
+            "supports_completion": false,
+            "supports_streaming": false,
+            "supports_embeddings": true,
+            "supports_vision": false,
+            "supports_tools": false,
+            "context_window": 8192,
+            "max_output": 0,
+            "strip_markdown": false,
+            "system_prompt_style": "message",
+            "status": "active"
+        }
+    },
+    {
+        "model": "llm.model",
+        "data": {
+            "model_name": "gpt-4o",
+            "provider": "openai",
+            "model_id": "gpt-4o",
+            "supports_chat": true,
+            "supports_completion": true,
+            "supports_streaming": true,
+            "supports_embeddings": false,
+            "supports_vision": true,
+            "supports_tools": true,
+            "context_window": 128000,
+            "max_output": 16384,
+            "strip_markdown": false,
+            "system_prompt_style": "message",
+            "status": "disabled"
+        }
+    },
+    {
+        "model": "llm.model",
+        "data": {
+            "model_name": "gpt-4o-mini",
+            "provider": "openai",
+            "model_id": "gpt-4o-mini",
+            "supports_chat": true,
+            "supports_completion": true,
+            "supports_streaming": true,
+            "supports_embeddings": false,
+            "supports_vision": true,
+            "supports_tools": true,
+            "context_window": 128000,
+            "max_output": 16384,
+            "strip_markdown": false,
+            "system_prompt_style": "message",
+            "status": "disabled"
+        }
+    },
+    {
+        "model": "llm.model",
+        "data": {
+            "model_name": "claude-sonnet-4",
+            "provider": "anthropic",
+            "model_id": "claude-sonnet-4-20250514",
+            "supports_chat": true,
+            "supports_completion": true,
+            "supports_streaming": true,
+            "supports_embeddings": false,
+            "supports_vision": true,
+            "supports_tools": true,
+            "context_window": 200000,
+            "max_output": 8192,
+            "strip_markdown": false,
+            "system_prompt_style": "message",
+            "status": "active"
+        }
+    },
+    {
+        "model": "llm.model",
+        "data": {
+            "model_name": "claude-haiku-3.5",
+            "provider": "anthropic",
+            "model_id": "claude-3-5-haiku-20241022",
+            "supports_chat": true,
+            "supports_completion": true,
+            "supports_streaming": true,
+            "supports_embeddings": false,
+            "supports_vision": true,
+            "supports_tools": true,
+            "context_window": 200000,
+            "max_output": 8192,
+            "strip_markdown": false,
+            "system_prompt_style": "message",
+            "status": "active"
+        }
+    }
+]

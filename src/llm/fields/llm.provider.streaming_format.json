@@ -1,0 +1,9 @@
+{
+    "model_name": "llm.provider",
+    "field_name": "streaming_format",
+    "type": "text",
+    "required": true,
+    "default_value": "sse",
+    "enum_values": ["ndjson", "sse"],
+    "description": "Streaming protocol: ndjson or sse"
+}

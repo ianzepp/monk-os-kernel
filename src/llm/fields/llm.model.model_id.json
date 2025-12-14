@@ -1,0 +1,7 @@
+{
+    "model_name": "llm.model",
+    "field_name": "model_id",
+    "type": "text",
+    "required": true,
+    "description": "Provider-specific model identifier"
+}

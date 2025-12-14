@@ -1,0 +1,7 @@
+{
+    "model_name": "llm.model",
+    "field_name": "supports_tools",
+    "type": "boolean",
+    "default_value": "0",
+    "description": "Supports tool/function calling"
+}

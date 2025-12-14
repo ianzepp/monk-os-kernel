@@ -1,0 +1,7 @@
+{
+    "model_name": "llm.model",
+    "field_name": "supports_embeddings",
+    "type": "boolean",
+    "default_value": "0",
+    "description": "Supports text embeddings"
+}

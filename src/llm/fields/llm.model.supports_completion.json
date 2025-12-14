@@ -1,0 +1,7 @@
+{
+    "model_name": "llm.model",
+    "field_name": "supports_completion",
+    "type": "boolean",
+    "default_value": "1",
+    "description": "Supports single-shot completion"
+}

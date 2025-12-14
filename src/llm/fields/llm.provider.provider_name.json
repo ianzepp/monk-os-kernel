@@ -1,0 +1,8 @@
+{
+    "model_name": "llm.provider",
+    "field_name": "provider_name",
+    "type": "text",
+    "required": true,
+    "indexed": "unique",
+    "description": "Unique provider identifier"
+}

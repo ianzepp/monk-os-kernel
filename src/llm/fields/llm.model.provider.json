@@ -1,0 +1,12 @@
+{
+    "model_name": "llm.model",
+    "field_name": "provider",
+    "type": "text",
+    "required": true,
+    "relationship_type": "referenced",
+    "related_model": "llm.provider",
+    "related_field": "provider_name",
+    "required_relationship": true,
+    "indexed": "simple",
+    "description": "Provider hosting this model"
+}

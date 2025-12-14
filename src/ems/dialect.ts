@@ -119,6 +119,17 @@ export interface DatabaseDialect {
     beginTransaction(): string;
 
     /**
+     * Convert model name to safe table name.
+     *
+     * Model names like 'llm.provider' become 'llm_provider' because
+     * SQLite/PostgreSQL interpret 'db.table' as attached database syntax.
+     *
+     * @param modelName - Model name (may contain dots)
+     * @returns Safe table name (dots replaced with underscores)
+     */
+    tableName(modelName: string): string;
+
+    /**
      * Generate CREATE TABLE for a model with standard columns.
      *
      * Standard columns: id, created_at, updated_at, trashed_at, expired_at
@@ -234,9 +245,17 @@ export class SqliteDialect implements DatabaseDialect {
         return 'BEGIN IMMEDIATE';
     }
 
+    tableName(modelName: string): string {
+        return modelName.replace(/\./g, '_');
+    }
+
     createTable(tableName: string): string {
+        // WHY replace dots: SQLite interprets 'db.table' as attached database
+        // Model names like 'llm.provider' become table 'llm_provider'
+        const safeTableName = this.tableName(tableName);
+
         return `
-            CREATE TABLE IF NOT EXISTS ${tableName} (
+            CREATE TABLE IF NOT EXISTS ${safeTableName} (
                 id          TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
                 created_at  TEXT DEFAULT (datetime('now')),
                 updated_at  TEXT DEFAULT (datetime('now')),
@@ -247,7 +266,9 @@ export class SqliteDialect implements DatabaseDialect {
     }
 
     addColumn(tableName: string, columnName: string, fieldType: string): string {
-        return `ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${this.sqlType(fieldType)}`;
+        const safeTableName = this.tableName(tableName);
+
+        return `ALTER TABLE ${safeTableName} ADD COLUMN ${columnName} ${this.sqlType(fieldType)}`;
     }
 
     // =========================================================================
@@ -414,9 +435,16 @@ export class PostgresDialect implements DatabaseDialect {
         return 'BEGIN';
     }
 
+    tableName(modelName: string): string {
+        return modelName.replace(/\./g, '_');
+    }
+
     createTable(tableName: string): string {
+        // WHY replace dots: Model names like 'llm.provider' become table 'llm_provider'
+        const safeTableName = this.tableName(tableName);
+
         return `
-            CREATE TABLE IF NOT EXISTS ${tableName} (
+            CREATE TABLE IF NOT EXISTS ${safeTableName} (
                 id          TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
                 created_at  TIMESTAMPTZ DEFAULT now(),
                 updated_at  TIMESTAMPTZ DEFAULT now(),
@@ -427,7 +455,9 @@ export class PostgresDialect implements DatabaseDialect {
     }
 
     addColumn(tableName: string, columnName: string, fieldType: string): string {
-        return `ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${this.sqlType(fieldType)}`;
+        const safeTableName = this.tableName(tableName);
+
+        return `ALTER TABLE ${safeTableName} ADD COLUMN ${columnName} ${this.sqlType(fieldType)}`;
     }
 
     // =========================================================================

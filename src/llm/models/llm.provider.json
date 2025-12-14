@@ -1,0 +1,5 @@
+{
+    "model_name": "llm.provider",
+    "status": "system",
+    "description": "LLM provider configuration - API endpoints and auth"
+}

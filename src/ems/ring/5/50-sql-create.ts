@@ -162,12 +162,13 @@ export class SqlCreate extends BaseObserver {
      */
     private async insertDirect(
         db: ObserverContext['system']['db'],
-        tableName: string,
+        modelName: string,
         data: Record<string, unknown>,
     ): Promise<void> {
         const columns = Object.keys(data);
         const placeholders = db.dialect.placeholders(columns.length);
         const values = columns.map(col => data[col]);
+        const tableName = db.dialect.tableName(modelName);
 
         const sql = `INSERT INTO ${tableName} (${columns.join(', ')}) VALUES (${placeholders})`;
 
@@ -214,7 +215,7 @@ export class SqlCreate extends BaseObserver {
      */
     private buildDetailInsert(
         dialect: ObserverContext['system']['db']['dialect'],
-        tableName: string,
+        modelName: string,
         data: Record<string, unknown>,
     ): { sql: string; params: unknown[] } {
         // Filter out hierarchy fields (those go in entities table)
@@ -229,6 +230,7 @@ export class SqlCreate extends BaseObserver {
         const columns = Object.keys(detailData);
         const placeholders = dialect.placeholders(columns.length);
         const values = columns.map(col => detailData[col]);
+        const tableName = dialect.tableName(modelName);
 
         return {
             sql: `INSERT INTO ${tableName} (${columns.join(', ')}) VALUES (${placeholders})`,

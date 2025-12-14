@@ -602,7 +602,8 @@ export class EntityOps {
             }
 
             // Execute actual DELETE
-            const sql = `DELETE FROM ${modelName} WHERE id = ?`;
+            const tableName = this.system.db.dialect.tableName(modelName);
+            const sql = `DELETE FROM ${tableName} WHERE id = ?`;
 
             await this.system.db.execute(sql, [id]);
 

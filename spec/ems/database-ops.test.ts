@@ -30,6 +30,21 @@ function createMockDb(queryResults: Record<string, unknown[][]> = {}): DatabaseC
     return {
         calls,
         path: ':memory:',
+        dialect: {
+            name: 'sqlite' as const,
+            tableName: (modelName: string) => modelName.replace(/\./g, '_'),
+            placeholder: () => '?',
+            placeholders: (count: number) => Array(count).fill('?').join(', '),
+            beginTransaction: () => 'BEGIN IMMEDIATE',
+            createTable: () => '',
+            addColumn: () => '',
+            sqlType: () => 'TEXT',
+            isArrayType: (type: string) => type.endsWith('[]'),
+            baseType: (type: string) => type.replace(/\[\]$/, ''),
+            toDatabase: (value: unknown) => value,
+            fromDatabase: (value: unknown) => value,
+            arrayContains: () => '',
+        },
         async query<T>(sql: string, params?: unknown[]): Promise<T[]> {
             calls.push({ method: 'query', sql, params });
             // Return results based on query pattern or empty array

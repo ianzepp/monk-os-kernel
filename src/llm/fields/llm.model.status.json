@@ -1,0 +1,10 @@
+{
+    "model_name": "llm.model",
+    "field_name": "status",
+    "type": "text",
+    "required": true,
+    "default_value": "active",
+    "enum_values": ["active", "disabled"],
+    "indexed": "simple",
+    "description": "Model status: active or disabled"
+}

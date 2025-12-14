@@ -1,0 +1,6 @@
+{
+    "model_name": "llm.provider",
+    "field_name": "auth_value",
+    "type": "text",
+    "description": "API key or token (null if auth_type=none)"
+}
