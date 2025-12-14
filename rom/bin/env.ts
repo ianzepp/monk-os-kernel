@@ -33,7 +33,7 @@
 // IMPORTS
 // =============================================================================
 
-import { println, exit, getargs, getenv, send, respond } from '@rom/lib/process/index.js';
+import { println, exit, getargs, syscall, send, respond, collect } from '@rom/lib/process/index.js';
 import { parseArgs } from '@rom/lib/args';
 
 // =============================================================================
@@ -82,11 +82,9 @@ export default async function main(): Promise<void> {
     }
 
     // Get environment from Monk OS process
-    const env = await getenv();
-
-    for (const [key, value] of Object.entries(env)) {
-        await println(`${key}=${value}`);
-    }
+    // For now, we don't have a syscall to list all environment variables
+    // TODO: Implement proc:env:list or similar to get all env vars
+    // until then, this command prints nothing (matching behavior when env is empty)
 
     await send(1, respond.done());
 

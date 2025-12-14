@@ -66,8 +66,11 @@ function createMockDb(queryResults: Record<string, unknown[][]> = {}): DatabaseC
         async exec(sql: string): Promise<void> {
             calls.push({ method: 'exec', sql });
         },
+        async transaction(): Promise<never[]> {
+            return [];
+        },
         async close(): Promise<void> {},
-    } as DatabaseConnection & { calls: SqlCall[] };
+    } as unknown as DatabaseConnection & { calls: SqlCall[] };
 }
 
 // =============================================================================

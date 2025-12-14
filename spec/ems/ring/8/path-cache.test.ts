@@ -9,6 +9,7 @@ import { describe, it, expect, beforeEach } from 'bun:test';
 import { PathCacheSync } from '@src/ems/ring/8/60-path-cache.js';
 import { ObserverRing } from '@src/ems/observers/types.js';
 import { ModelRecord } from '@src/ems/model-record.js';
+import { getDialect } from '@src/hal/dialect.js';
 import type { ObserverContext, Model, SystemContext } from '@src/ems/observers/interfaces.js';
 
 // =============================================================================
@@ -76,6 +77,7 @@ function createMockModel(modelName: string): Model {
 function createMockSystemContext(pathCache?: MockPathCache): SystemContext & { pathCache?: MockPathCache } {
     return {
         db: {
+            dialect: getDialect('sqlite'),
             execute: async () => 0,
             query: async () => [],
             exec: async () => {},

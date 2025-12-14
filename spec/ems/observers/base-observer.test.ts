@@ -11,6 +11,7 @@ import { describe, it, expect } from 'bun:test';
 import { BaseObserver } from '@src/ems/observers/base-observer.js';
 import { ObserverError, EOBSERVER, EOBSTIMEOUT, EOBSINVALID } from '@src/ems/observers/errors.js';
 import { ObserverRing, type OperationType } from '@src/ems/observers/types.js';
+import { getDialect } from '@src/hal/dialect.js';
 import type { ObserverContext } from '@src/ems/observers/interfaces.js';
 
 // =============================================================================
@@ -132,6 +133,7 @@ function createMockContext(): ObserverContext {
     return {
         system: {
             db: {
+                dialect: getDialect('sqlite'),
                 execute: async () => 0,
                 query: async () => [],
                 exec: async () => {},

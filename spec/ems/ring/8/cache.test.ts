@@ -8,6 +8,7 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
 import { Cache } from '@src/ems/ring/8/index.js';
 import { ObserverRing } from '@src/ems/observers/index.js';
+import { getDialect } from '@src/hal/dialect.js';
 import type {
     ObserverContext,
     Model,
@@ -25,6 +26,7 @@ import type {
  */
 function createMockDatabase(): DatabaseAdapter {
     return {
+        dialect: getDialect('sqlite'),
         async execute(_sql: string, _params?: unknown[]): Promise<number> {
             return 1;
         },
