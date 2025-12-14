@@ -160,6 +160,19 @@ export const ROOT_USER_ID = '00000000-0000-0000-0000-000000000001';
 export const DEFAULT_ROOT_PASSWORD = 'root';
 
 /**
+ * Pre-computed argon2id hash for the default root password.
+ *
+ * WHY: Argon2id is intentionally slow (~150ms) to prevent brute-force attacks.
+ * Pre-computing the hash for the default password eliminates this cost during
+ * boot/testing when using the default password. This saves ~150ms per TestOS
+ * boot, which adds up significantly in test suites.
+ *
+ * SECURITY: This is only used for the default 'root' password. Any custom
+ * password will still be hashed with argon2id at runtime.
+ */
+export const DEFAULT_ROOT_PASSWORD_HASH = '$argon2id$v=19$m=65536,t=3,p=1$DkW/iA79U3+gsirz83E67hDoTgDXrq9zWSnXlYeAca0$j9PFL3dPzzPiGjQjoIsRdTRowQeKYmUGMzJxmkMQRYM';
+
+/**
  * Session revalidation interval (5 minutes).
  *
  * WHY: Balances security (detect revoked sessions) with performance

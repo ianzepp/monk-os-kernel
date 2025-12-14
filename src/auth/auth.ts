@@ -58,7 +58,7 @@ import type { EMS } from '@src/ems/ems.js';
 import { collect } from '@src/ems/entity-ops.js';
 import { loadSchemaSync, type SchemaOps } from '@src/ems/schema-loader.js';
 import type { JWTPayload, TokenResult, AuthConfig, LoginResult, AuthUser, AuthSession } from './types.js';
-import { DEFAULT_AUTH_CONFIG, ROOT_USER_ID, DEFAULT_ROOT_PASSWORD, REVALIDATE_INTERVAL } from './types.js';
+import { DEFAULT_AUTH_CONFIG, ROOT_USER_ID, DEFAULT_ROOT_PASSWORD, DEFAULT_ROOT_PASSWORD_HASH, REVALIDATE_INTERVAL } from './types.js';
 import { signJWT, verifyJWT, generateKey } from './jwt.js';
 
 // =============================================================================
@@ -176,7 +176,8 @@ export class Auth {
      * Seed root user if not exists.
      *
      * WHY: Ensures a root user exists for initial authentication.
-     * Password is hashed with argon2id for security.
+     * Uses pre-computed hash for the default password to avoid ~150ms
+     * argon2id overhead during boot/testing.
      */
     private async seedRootUser(): Promise<void> {
         if (!this.ems) {
@@ -194,8 +195,8 @@ export class Auth {
             return;
         }
 
-        // Hash default password
-        const passwordHash = await this.hashPassword(DEFAULT_ROOT_PASSWORD);
+        // Use pre-computed hash for default password to avoid ~150ms argon2id cost
+        const passwordHash = DEFAULT_ROOT_PASSWORD_HASH;
 
         // Create root user
         await collect(
