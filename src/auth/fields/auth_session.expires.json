@@ -1,0 +1,7 @@
+{
+    "model_name": "auth_session",
+    "field_name": "expires",
+    "type": "integer",
+    "required": true,
+    "description": "Session expiry timestamp (ms since epoch)"
+}

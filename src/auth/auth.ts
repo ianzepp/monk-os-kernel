@@ -56,6 +56,7 @@
 import type { HAL } from '@src/hal/index.js';
 import type { EMS } from '@src/ems/ems.js';
 import { collect } from '@src/ems/entity-ops.js';
+import { loadSchemaSync, type SchemaOps } from '@src/ems/schema-loader.js';
 import type { JWTPayload, TokenResult, AuthConfig, LoginResult, AuthUser, AuthSession } from './types.js';
 import { DEFAULT_AUTH_CONFIG, ROOT_USER_ID, DEFAULT_ROOT_PASSWORD, REVALIDATE_INTERVAL } from './types.js';
 import { signJWT, verifyJWT, generateKey } from './jwt.js';
@@ -152,20 +153,22 @@ export class Auth {
     }
 
     /**
-     * Load auth schema into EMS.
+     * Load auth schema from JSON definitions.
      *
      * WHY: Creates auth_user and auth_session tables on first boot.
-     * Uses clearModels: true to refresh model cache.
+     * Clears model cache to ensure fresh metadata.
      */
     private async loadSchema(): Promise<void> {
         if (!this.ems) {
             return;
         }
 
-        const schemaPath = new URL('./schema.sql', import.meta.url).pathname;
-        const schema = await this.hal.file.readText(schemaPath);
+        // Clear model cache to ensure fresh metadata
+        this.ems.models.clear();
 
-        await this.ems.exec(schema, { clearModels: true });
+        // Load models and fields from JSON definitions
+        const schemaPath = new URL('.', import.meta.url).pathname;
+        await loadSchemaSync(schemaPath, this.ems.ops as unknown as SchemaOps);
     }
 
     /**

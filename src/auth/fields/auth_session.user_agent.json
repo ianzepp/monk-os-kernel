@@ -1,0 +1,6 @@
+{
+    "model_name": "auth_session",
+    "field_name": "user_agent",
+    "type": "text",
+    "description": "Client user agent"
+}

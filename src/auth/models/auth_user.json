@@ -1,0 +1,6 @@
+{
+    "model_name": "auth_user",
+    "status": "system",
+    "pathname": "username",
+    "description": "User account entity"
+}

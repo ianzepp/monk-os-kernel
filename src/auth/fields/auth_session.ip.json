@@ -1,0 +1,6 @@
+{
+    "model_name": "auth_session",
+    "field_name": "ip",
+    "type": "text",
+    "description": "Client IP address"
+}

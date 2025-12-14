@@ -68,6 +68,24 @@ export { collect, type Source } from './database-ops.js';
 // =============================================================================
 
 /**
+ * Options for upsert operations.
+ */
+export interface UpsertOptions {
+    /**
+     * Field(s) to use as the unique key for lookup on conflict.
+     * If not provided, uses 'id' as the key.
+     *
+     * @example
+     * // Single field key
+     * { key: 'model_name' }
+     *
+     * // Composite key
+     * { key: ['model_name', 'field_name'] }
+     */
+    key?: string | string[];
+}
+
+/**
  * Entity record with system fields.
  */
 export interface EntityRecord extends DbRecord {
@@ -611,12 +629,30 @@ export class EntityOps {
     // =========================================================================
 
     /**
-     * Stream upserted records (create or update based on id presence).
+     * Stream upserted records (create or update based on key).
+     *
+     * @param modelName - Target model
+     * @param source - Records to upsert
+     * @param options - Upsert options (optional key field(s))
+     *
+     * When options.key is provided:
+     * 1. Try create
+     * 2. On unique violation, lookup existing record by key field(s)
+     * 3. Update that record with the new data
+     *
+     * When options.key is not provided (default):
+     * - If record has id: try create, update on conflict
+     * - If record has no id: always create
      */
     async *upsertAll<T extends EntityRecord>(
         modelName: string,
         source: Source<CreateInput<T> | UpdateInput<T>>,
+        options?: UpsertOptions,
     ): AsyncGenerator<T> {
+        const keyFields = options?.key
+            ? Array.isArray(options.key) ? options.key : [options.key]
+            : null;
+
         for await (const data of this.normalize(source)) {
             // Check if it's an UpdateInput (has id and changes)
             if ('id' in data && 'changes' in data) {
@@ -629,36 +665,75 @@ export class EntityOps {
             // CreateInput - may or may not have id
             const createData = data as CreateInput<T> & { id?: string };
 
-            if (createData.id) {
-                // Try create first, catch unique constraint and update
-                try {
-                    for await (const created of this.createAll<T>(modelName, [createData])) {
-                        yield created;
+            // Try create first
+            try {
+                for await (const created of this.createAll<T>(modelName, [createData])) {
+                    yield created;
+                }
+
+                continue;
+            }
+            catch (err) {
+                const message = err instanceof Error ? err.message : String(err);
+                const isUniqueViolation =
+                    message.includes('UNIQUE constraint failed') ||
+                    message.includes('SQLITE_CONSTRAINT') ||
+                    message.includes('duplicate key');
+
+                if (!isUniqueViolation) {
+                    throw err;
+                }
+
+                // Handle unique violation - find existing and update
+                if (keyFields) {
+                    // Custom key: lookup by key fields, then update
+                    const where: FilterData['where'] = {};
+
+                    for (const field of keyFields) {
+                        const value = (createData as Record<string, unknown>)[field];
+
+                        if (value === undefined) {
+                            throw new EFAULT(`Upsert key field '${field}' not in data`);
+                        }
+
+                        where[field] = value as string | number | boolean | null;
                     }
 
-                    continue;
-                }
-                catch (err) {
-                    const message = err instanceof Error ? err.message : String(err);
-                    const isUniqueViolation =
-                        message.includes('UNIQUE constraint failed') ||
-                        message.includes('SQLITE_CONSTRAINT');
+                    // Find existing record
+                    const existing = await this.selectOne<T>(modelName, { where });
 
-                    if (isUniqueViolation) {
-                        const { id, ...changes } = createData;
+                    if (existing) {
+                        // Update with new data (excluding key fields from changes)
+                        const changes = { ...createData } as Record<string, unknown>;
+
+                        for (const field of keyFields) {
+                            delete changes[field];
+                        }
+
+                        delete changes.id;
 
                         yield* this.updateAll<T>(modelName, [
-                            { id: id!, changes: changes as Partial<T> },
+                            { id: existing.id, changes: changes as Partial<T> },
                         ]);
-                        continue;
                     }
+                    else {
+                        // Shouldn't happen - unique violation but no existing record
+                        throw err;
+                    }
+                }
+                else if (createData.id) {
+                    // Default: update by id
+                    const { id, ...changes } = createData;
 
+                    yield* this.updateAll<T>(modelName, [
+                        { id: id!, changes: changes as Partial<T> },
+                    ]);
+                }
+                else {
+                    // No key and no id - can't recover from unique violation
                     throw err;
                 }
             }
-
-            // No id provided - always create
-            yield* this.createAll<T>(modelName, [data as CreateInput<T>]);
         }
     }
 

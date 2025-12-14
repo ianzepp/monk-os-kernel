@@ -1,0 +1,5 @@
+{
+    "model_name": "auth_session",
+    "status": "system",
+    "description": "User session entity"
+}

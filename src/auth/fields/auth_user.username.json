@@ -1,0 +1,8 @@
+{
+    "model_name": "auth_user",
+    "field_name": "username",
+    "type": "text",
+    "required": true,
+    "indexed": "unique",
+    "description": "Unique username for login"
+}

@@ -154,6 +154,7 @@ export {
     EntityOps,
     type EntityRecord,
     type EntitySystemContext,
+    type UpsertOptions,
 } from './entity-ops.js';
 
 // =============================================================================

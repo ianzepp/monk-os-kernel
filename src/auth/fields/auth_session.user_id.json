@@ -1,0 +1,7 @@
+{
+    "model_name": "auth_session",
+    "field_name": "user_id",
+    "type": "uuid",
+    "required": true,
+    "description": "Reference to auth_user.id"
+}

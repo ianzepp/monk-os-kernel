@@ -19,6 +19,13 @@ import { readdir } from 'fs/promises';
 import { join } from 'path';
 
 /**
+ * Upsert options for schema loading.
+ */
+export interface SchemaUpsertOptions {
+    key?: string | string[];
+}
+
+/**
  * Minimal interface for EMS operations needed by the loader.
  * Accepts EntityOps or any compatible implementation.
  *
@@ -26,7 +33,7 @@ import { join } from 'path';
  * allowing testing with mock implementations.
  */
 export interface SchemaOps {
-    upsertAll(model: string, source: Iterable<unknown>): AsyncGenerator<unknown>;
+    upsertAll(model: string, source: Iterable<unknown>, options?: SchemaUpsertOptions): AsyncGenerator<unknown>;
 }
 
 /**
@@ -92,11 +99,12 @@ export async function* loadSchema(
     ops: SchemaOps,
 ): AsyncGenerator<LoadResult> {
     // 1. Load and upsert models (triggers DdlCreateModel observer)
+    // WHY key: model_name is the natural key, not id
     const modelFiles = await loadJsonFiles(join(basePath, 'models'));
 
     for (const { file, data } of modelFiles) {
         // WHY: drain the generator to ensure upsert completes
-        for await (const _ of ops.upsertAll('models', [data])) {
+        for await (const _ of ops.upsertAll('models', [data], { key: 'model_name' })) {
             // Upsert yields the created/updated record
         }
 
@@ -104,10 +112,11 @@ export async function* loadSchema(
     }
 
     // 2. Load and upsert fields (triggers DdlCreateField observer)
+    // WHY key: (model_name, field_name) is the composite natural key
     const fieldFiles = await loadJsonFiles(join(basePath, 'fields'));
 
     for (const { file, data } of fieldFiles) {
-        for await (const _ of ops.upsertAll('fields', [data])) {
+        for await (const _ of ops.upsertAll('fields', [data], { key: ['model_name', 'field_name'] })) {
             // Upsert yields the created/updated record
         }
 
