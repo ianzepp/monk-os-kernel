@@ -2,54 +2,35 @@
 -- EMS CORE SCHEMA
 -- =============================================================================
 --
--- Entity Management System core tables and meta-model seeds.
--- Subsystems (VFS, etc.) register their schemas via ems.exec() during init.
+-- Entity Management System meta-model tables.
+-- Defines the schema system itself: models, fields, change tracking, and
+-- the core entities table used for VFS path hierarchy.
 --
 -- ARCHITECTURE OVERVIEW
 -- =====================
--- This schema defines how model and field metadata is stored in Monk OS.
--- It is the foundation for the entity+data architecture where:
+-- EMS provides the infrastructure for defining entity types:
 --
--- - Entity identity and hierarchy is stored in the `entities` table
--- - Entity detail (model-specific fields) is stored in per-model tables
--- - Blob data (raw bytes) is stored separately in HAL block storage
---
--- TABLE HIERARCHY
--- ===============
--- ```
---   entities        Core identity + hierarchy (id, model, parent, name)
+--   entities    Core identity + hierarchy (id, model, parent, pathname)
 --      |
---      +-- [per-model detail tables defined by subsystems]
---
---   models          Model definitions
+--   models      Model definitions (what entity types exist)
 --      |
---      +-- fields   One row per field per model
+--      +-- fields   Field definitions (what columns each model has)
 --      |
 --      +-- tracked  Change history for audited fields
--- ```
 --
--- SYSTEM FIELDS
--- =============
--- The entities table has these columns:
---   id            UUID primary key (32 hex chars, lowercase)
---   model         Model name (determines detail table)
---   parent        Parent entity UUID (null for root)
---   name          Entity name for path resolution
---   created_at    Creation timestamp (ISO 8601)
---   updated_at    Last modification timestamp (ISO 8601)
---   trashed_at    Soft delete timestamp (null = active)
+-- WHY entities is here: The entities table is foundational infrastructure
+-- that multiple subsystems depend on (Auth, LLM have FK constraints to it).
+-- Even though it's conceptually a VFS concept, it must be created early
+-- in the boot sequence before subsystems that reference it.
 --
--- Detail tables have:
---   id            FK to entities.id (CASCADE on delete)
---   ...           Model-specific fields only
+-- Per-model detail tables are created dynamically by DdlCreateModel observer.
 --
--- INVARIANTS
+-- LOAD ORDER
 -- ==========
--- INV-1: Every entity has exactly one row in `entities`
--- INV-2: Every entity has exactly one row in its model's detail table
--- INV-3: entities.model matches the detail table name
--- INV-4: entities.parent references a valid entity or is null (root)
--- INV-5: (parent, name) is unique within active entities
+-- 1. EMS schema (this file) - creates entities, models, fields, tracked
+-- 2. VFS schema - seeds root entity, creates VFS model detail tables
+-- 3. Auth schema - creates users/sessions with FK to entities
+-- 4. Other subsystems - register their models via EMS
 --
 -- BUN TOUCHPOINTS
 -- ===============
@@ -71,44 +52,32 @@ PRAGMA foreign_keys = ON;
 -- ENTITIES TABLE (Core Identity + Hierarchy)
 -- =============================================================================
 -- Single source of truth for entity identity and path hierarchy.
--- This table is NOT a model - it's core infrastructure like models/fields.
+-- This table is VFS infrastructure - not a user-visible model.
 --
--- WHY separate from model tables:
--- 1. EntityCache loads from ONE table, not all model tables
+-- WHY in EMS schema: Auth and LLM schemas have FK constraints to entities.
+-- They load before VFS.init(), so entities must exist early.
+--
+-- WHY separate from detail tables:
+-- 1. PathCache loads from ONE table, not all model tables
 -- 2. Parent FK can reference any entity type (file in folder, link in folder)
 -- 3. Path resolution is pure entities traversal, no model knowledge needed
---
--- WHY not seeded into models/fields:
--- This is infrastructure, not a user-visible entity type. Like models/fields
--- themselves, it exists outside the normal model system.
 
 CREATE TABLE IF NOT EXISTS entities (
-    -- -------------------------------------------------------------------------
     -- Identity (minimal for cache efficiency)
-    -- -------------------------------------------------------------------------
-    -- WHY only 4 columns: EntityCache loads all entities into memory.
-    -- Every byte matters at scale. Timestamps live in detail tables.
+    -- WHY only 4 columns: PathCache loads all entities into memory.
     id          TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
 
-    -- WHY model NOT NULL: Every entity belongs to exactly one model.
-    -- This determines which detail table has additional fields.
+    -- Model name determines which detail table has additional fields
     model       TEXT NOT NULL,
 
-    -- -------------------------------------------------------------------------
-    -- Hierarchy
-    -- -------------------------------------------------------------------------
-    -- WHY parent nullable: Root entity has no parent.
-    -- WHY FK to entities: Cross-model parent relationships (file in folder).
+    -- Hierarchy: parent is null for root entity
     parent      TEXT REFERENCES entities(id),
 
-    -- WHY pathname: Derived from the field specified by models.pathname.
-    -- Example: users.email → pathname = 'ian@example.com'
-    -- Root is special case (pathname = '').
+    -- Pathname component for this entity (empty string for root)
     pathname    TEXT NOT NULL
 );
 
 -- Index for path resolution: find child by parent + pathname
--- This is the critical index for O(1) path component lookup
 CREATE UNIQUE INDEX IF NOT EXISTS idx_entities_parent_pathname
     ON entities(parent, pathname);
 

@@ -150,9 +150,11 @@ export class EMS {
         // 4. Create entity operations (streaming CRUD with observers)
         this._ops = new EntityOps(this._db, this._models, this._runner);
 
-        // 5. Create path cache and populate from database
+        // 5. Create path cache (empty - VFS will populate after seeding root)
+        // WHY not loaded here: The entities table exists but is empty at this
+        // point. VFS.init() seeds the root entity and calls loadFromDatabase().
+        // EMS just provides the container; VFS does the actual loading.
         this._pathCache = new PathCache();
-        await this._pathCache.loadFromDatabase(this._db);
 
         // 6. Wire path cache to ops for Ring 8 PathCacheSync observer
         this._ops.setPathCache(this._pathCache);

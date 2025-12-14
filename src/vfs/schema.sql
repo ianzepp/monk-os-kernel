@@ -5,16 +5,32 @@
 -- Virtual File System tables and seed data.
 -- Applied by VFS.init() after EMS core schema is loaded.
 --
+-- ARCHITECTURE OVERVIEW
+-- =====================
+-- VFS provides path-based access to entities:
+--
+--   entities      Core identity + hierarchy (defined in EMS schema)
+--      |
+--      +-- file      Regular file entities
+--      +-- folder    Directory entities
+--      +-- device    Device node entities
+--      +-- proc      Process/virtual file entities
+--      +-- link      Symbolic link entities
+--      +-- temp      Temporary file entities
+--
 -- DEPENDENCIES
 -- ============
--- Requires EMS core schema (entities, models, fields tables must exist).
--- Foreign keys reference entities.id.
+-- Requires EMS core schema (models, fields, entities tables must exist).
+-- The entities table is in EMS because Auth/LLM schemas have FK constraints
+-- referencing it, and they load before VFS.
+-- VFS models are registered via INSERT INTO models/fields.
 
 -- =============================================================================
 -- SEED DATA: ROOT ENTITY
 -- =============================================================================
 -- The root entity is the namespace origin. All paths start here.
 -- WHY well-known UUID: Simplifies bootstrap, no discovery needed.
+-- NOTE: entities table is created in EMS schema.
 
 INSERT OR IGNORE INTO entities (id, model, parent, pathname) VALUES
     ('00000000-0000-0000-0000-000000000000', 'folder', NULL, '');
