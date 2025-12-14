@@ -35,7 +35,8 @@ import { Auth } from '@src/auth/index.js';
 import { LLM } from '@src/llm/index.js';
 import { SyscallDispatcher } from '@src/syscall/index.js';
 import { Gateway } from '@src/gateway/index.js';
-import type { BootOpts, ExecOpts } from './types.js';
+import { loadMounts } from '@src/kernel/mounts.js';
+import type { InitOpts, BootOpts, ExecOpts } from './types.js';
 import { BaseOS } from './base.js';
 
 // =============================================================================
@@ -80,22 +81,27 @@ const DEFAULT_ROM_PATH = './rom';
  */
 export class OS extends BaseOS {
     // =========================================================================
-    // LIFECYCLE: BOOT
+    // LIFECYCLE: INIT
     // =========================================================================
 
     /**
-     * Boot the OS.
+     * Initialize the OS.
      *
-     * Initializes all subsystems in order and starts the init process.
-     * For standalone mode, use exec() instead.
+     * Initializes all subsystems in order, creating a functional VFS and EMS
+     * that can be configured before boot. After init(), you can:
+     * - Write config files to VFS (e.g., /etc/httpd.conf)
+     * - Modify service definitions
+     * - Set environment variables
      *
-     * @param opts - Optional boot options
-     * @throws EBUSY if already booted
+     * Call boot() after configuration to start services.
+     *
+     * @param opts - Optional init options
+     * @throws EBUSY if already initialized
      * @throws Error from any subsystem initialization
      */
-    async boot(opts?: BootOpts): Promise<void> {
-        if (this.booted) {
-            throw new EBUSY('OS already booted');
+    async init(opts?: InitOpts): Promise<void> {
+        if (this.initialized) {
+            throw new EBUSY('OS already initialized');
         }
 
         const debug = opts?.debug ?? this.config.debug;
@@ -175,7 +181,10 @@ export class OS extends BaseOS {
                 }
             }
 
-            // 8. Kernel + Dispatcher
+            // 8. Load mounts from /etc/mounts.json
+            await loadMounts({ vfs: this.__vfs, hal: this.__hal, loader: null });
+
+            // 9. Kernel + Dispatcher
             this.__kernel = new Kernel(this.__hal, this.__ems, this.__vfs);
 
             this.__dispatcher = new SyscallDispatcher(
@@ -193,7 +202,7 @@ export class OS extends BaseOS {
                 await this.__dispatcher!.onWorkerMessage(worker, msg);
             };
 
-            // 9. Gateway (external syscall interface)
+            // 10. Gateway (external syscall interface)
             const port = this.config.env?.MONK_PORT
                 ? parseInt(this.config.env.MONK_PORT, 10)
                 : 7778;
@@ -206,24 +215,50 @@ export class OS extends BaseOS {
 
             await this.__gateway.listen(port);
 
-            // 10. Init process
-            const initPath = opts?.main ? this.resolvePath(opts.main) : DEFAULT_INIT_PATH;
+            // 11. Kernel init (mounts /proc, loads services, creates PID 1 placeholder)
+            await this.__kernel.init({ debug });
 
-            await this.__kernel.boot({
-                initPath,
-                initArgs: [initPath],
-                env: this.config.env ?? {
-                    HOME: '/',
-                    USER: 'root',
-                },
-                debug,
-            });
+            // RC-3: Only set initialized after full success
+            this.initialized = true;
+        }
+        catch (err) {
+            await this.cleanupOnInitFailure();
+            throw err;
+        }
+    }
+
+    // =========================================================================
+    // LIFECYCLE: BOOT
+    // =========================================================================
+
+    /**
+     * Boot the OS.
+     *
+     * Activates services and starts the tick broadcaster.
+     * For backwards compatibility, calls init() first if not already initialized.
+     *
+     * @param opts - Optional boot options
+     * @throws EBUSY if already booted
+     */
+    async boot(opts?: BootOpts): Promise<void> {
+        // For backwards compatibility, init if not already initialized
+        if (!this.initialized) {
+            await this.init({ debug: opts?.debug });
+        }
+
+        if (this.booted) {
+            throw new EBUSY('OS already booted');
+        }
+
+        try {
+            // Boot kernel (activates services, starts tick)
+            await this.__kernel!.boot();
 
             // RC-3: Only set booted after full success
             this.booted = true;
         }
         catch (err) {
-            await this.cleanupOnBootFailure();
+            // Don't cleanup on boot failure - init state is still valid
             throw err;
         }
     }
@@ -231,13 +266,14 @@ export class OS extends BaseOS {
     /**
      * Execute the OS in standalone mode.
      *
-     * Boots the OS and blocks until a shutdown signal (SIGINT/SIGTERM).
+     * Initializes and boots the OS, then blocks until a shutdown signal (SIGINT/SIGTERM).
      *
      * @param opts - Optional exec options
      * @returns Exit code (0 for clean shutdown)
      */
     async exec(opts?: ExecOpts): Promise<number> {
-        await this.boot({ main: opts?.main });
+        await this.init();
+        await this.boot();
 
         const shutdownPromise = new Promise<number>(resolve => {
             const handleShutdown = async (signal: string) => {
@@ -317,14 +353,14 @@ export class OS extends BaseOS {
     }
 
     /**
-     * Clean up subsystems after boot failure.
+     * Clean up subsystems after init failure.
      *
-     * WHY: Maintains INV-2 (booted === false means clean state).
-     * Called from boot() catch block.
+     * WHY: Maintains INV-2 (initialized === false means clean state).
+     * Called from init() catch block.
      *
-     * RC-3: Ensures partial boot failure doesn't leave dangling subsystems.
+     * RC-3: Ensures partial init failure doesn't leave dangling subsystems.
      */
-    private async cleanupOnBootFailure(): Promise<void> {
+    private async cleanupOnInitFailure(): Promise<void> {
         // Shutdown in reverse order, ignoring errors
         if (this.__gateway) {
             try {

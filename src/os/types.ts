@@ -115,15 +115,13 @@ export interface OSConfig {
 }
 
 /**
- * Boot options
+ * Init options
+ *
+ * Options for OS.init() which initializes all subsystems but doesn't
+ * start services. After init(), you can configure the system via VFS
+ * writes before calling boot().
  */
-export interface BootOpts {
-    /**
-     * Path to init script (inside OS).
-     * If provided, spawns this as PID 1.
-     */
-    main?: string;
-
+export interface InitOpts {
     /**
      * Enable kernel debug logging (printk).
      */
@@ -135,6 +133,20 @@ export interface BootOpts {
      * Defaults to './rom'.
      */
     romPath?: string;
+}
+
+/**
+ * Boot options
+ *
+ * Options for OS.boot() which starts services and activates the system.
+ * Requires init() to be called first.
+ */
+export interface BootOpts {
+    /**
+     * Enable kernel debug logging (printk).
+     * Only applies if not set during init().
+     */
+    debug?: boolean;
 }
 
 /**

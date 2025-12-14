@@ -68,11 +68,11 @@ import { BaseOS } from './base.js';
 export type TestLayer = 'hal' | 'ems' | 'auth' | 'vfs' | 'kernel' | 'dispatcher' | 'gateway';
 
 /**
- * Boot options for TestOS.
+ * Init options for TestOS.
  *
  * Allows flexible partial initialization for testing.
  */
-export interface TestBootOpts {
+export interface TestInitOpts {
     /**
      * Inject existing HAL instance.
      *
@@ -88,7 +88,7 @@ export interface TestBootOpts {
      * Dependencies cascade automatically - requesting 'kernel'
      * will also initialize hal, ems, auth, vfs.
      *
-     * Default: all layers (full boot)
+     * Default: all layers (full init)
      */
     layers?: TestLayer[];
 
@@ -99,14 +99,22 @@ export interface TestBootOpts {
      * Default: true (skip)
      */
     skipRom?: boolean;
+}
 
+/**
+ * Boot options for TestOS.
+ *
+ * For backwards compatibility, boot() also accepts TestInitOpts.
+ * If layers are specified in boot(), it will call init() first.
+ */
+export interface TestBootOpts extends TestInitOpts {
     /**
-     * Skip init process spawn.
+     * Skip service activation during boot.
      *
-     * WHY: Init process adds overhead and isn't needed for many tests.
+     * WHY: Many tests don't need services running.
      * Default: true (skip)
      */
-    skipInit?: boolean;
+    skipServices?: boolean;
 }
 
 // =============================================================================
@@ -164,28 +172,34 @@ export class TestOS extends BaseOS {
     /**
      * Whether we own the HAL (should shut it down).
      *
-     * WHY: When HAL is injected via boot({ hal }), we don't own it
+     * WHY: When HAL is injected via init({ hal }), we don't own it
      * and shouldn't shut it down. Only shut down HAL we created.
      */
     private ownsHal = true;
 
+    /**
+     * Track which layers were initialized for boot() logic.
+     */
+    private initLayers: TestLayer[] = [];
+
     // =========================================================================
-    // LIFECYCLE: BOOT
+    // LIFECYCLE: INIT
     // =========================================================================
 
     /**
-     * Boot TestOS with flexible layer selection.
+     * Initialize TestOS with flexible layer selection.
      *
      * ALGORITHM:
      * 1. Determine which layers are needed (cascade dependencies)
      * 2. Initialize each needed layer in order
-     * 3. Mark as booted
+     * 3. Mark as initialized
      *
-     * @param opts - Boot options for layer selection and HAL injection
+     * @param opts - Init options for layer selection and HAL injection
      */
-    async boot(opts?: TestBootOpts): Promise<void> {
-        // Default to full boot if no layers specified
+    async init(opts?: TestInitOpts): Promise<void> {
+        // Default to full init if no layers specified
         const layers = opts?.layers ?? ['hal', 'ems', 'auth', 'vfs', 'kernel', 'dispatcher', 'gateway'];
+        this.initLayers = layers;
 
         // Cascade dependencies: gateway -> dispatcher -> kernel -> vfs -> auth -> ems -> hal
         const needGateway = layers.includes('gateway');
@@ -259,28 +273,20 @@ export class TestOS extends BaseOS {
                     this.__dispatcher!.onWorkerMessage(worker, msg);
             }
 
-            // Boot kernel with init process unless skipped
-            const skipInit = opts?.skipInit ?? true;
+            // Copy ROM unless skipped
+            const skipRom = opts?.skipRom ?? true;
 
-            if (!skipInit) {
-                // Copy ROM unless skipped
-                const skipRom = opts?.skipRom ?? true;
-
-                if (!skipRom) {
-                    try {
-                        await this.copy('./rom', '/');
-                    }
-                    catch {
-                        // EDGE: ROM may not exist in test environment
-                    }
+            if (!skipRom) {
+                try {
+                    await this.copy('./rom', '/');
                 }
-
-                await this.__kernel.boot({
-                    initPath: '/app/init.ts',
-                    initArgs: ['/app/init.ts'],
-                    env: { HOME: '/', USER: 'root' },
-                });
+                catch {
+                    // EDGE: ROM may not exist in test environment
+                }
             }
+
+            // Initialize kernel (mounts /proc, loads services, creates PID 1 placeholder)
+            await this.__kernel.init();
         }
 
         // =====================================================================
@@ -290,6 +296,41 @@ export class TestOS extends BaseOS {
             this.__gateway = new Gateway(this.__dispatcher, this.__kernel, this.__hal);
             // Use port 0 (auto-assign) for test isolation
             await this.__gateway.listen(0);
+        }
+
+        this.initialized = true;
+    }
+
+    // =========================================================================
+    // LIFECYCLE: BOOT
+    // =========================================================================
+
+    /**
+     * Boot TestOS (activate services).
+     *
+     * Most tests don't need this - init() is sufficient for syscall testing.
+     * Call boot() only if you need services to be activated.
+     *
+     * For backwards compatibility, boot() also accepts init options (layers, hal, skipRom).
+     * If not already initialized, it will call init() first with those options.
+     *
+     * @param opts - Boot options (also accepts init options for backwards compat)
+     */
+    async boot(opts?: TestBootOpts): Promise<void> {
+        if (!this.initialized) {
+            // For backwards compatibility, init with provided options
+            await this.init(opts);
+        }
+
+        if (this.booted) {
+            return;
+        }
+
+        // Boot kernel if it was initialized and services are wanted
+        const skipServices = opts?.skipServices ?? true;
+
+        if (this.__kernel?.isInitialized() && !skipServices) {
+            await this.__kernel.boot();
         }
 
         this.booted = true;
@@ -306,10 +347,11 @@ export class TestOS extends BaseOS {
      * Only shuts down HAL if we created it (ownsHal === true).
      */
     override async shutdown(): Promise<void> {
-        if (!this.booted) {
+        if (!this.initialized) {
             return;
         }
 
+        this.initialized = false;
         this.booted = false;
 
         // Shutdown in reverse order, only what was initialized

@@ -163,12 +163,28 @@ export abstract class BaseOS {
     // =========================================================================
 
     /**
+     * Initialized state flag.
+     *
+     * WHY: Guards against double-init and enables subsystem access validation.
+     * INVARIANT: true only when all subsystems are initialized and ready for configuration.
+     */
+    protected initialized = false;
+
+    /**
      * Boot state flag.
      *
      * WHY: Guards against double-boot and enables syscall validation.
-     * INVARIANT: true only when all subsystems are initialized.
+     * INVARIANT: true only when services are activated and system is running.
      */
     protected booted = false;
+
+    /**
+     * Cached synthetic kernel process for syscalls when no init exists.
+     *
+     * WHY: The synthetic process needs to persist across syscalls to maintain
+     * handle state. If recreated on each call, handles would be lost.
+     */
+    private syntheticKernelProcess: Process | null = null;
 
     // =========================================================================
     // CONSTRUCTOR
@@ -195,11 +211,22 @@ export abstract class BaseOS {
     // =========================================================================
 
     /**
+     * Initialize the OS.
+     *
+     * Subclasses implement this to initialize subsystems in order.
+     * After init(), the system is ready for configuration but not running.
+     * - OS: Full linear init with all subsystems
+     * - TestOS: Flexible partial init with HAL injection
+     */
+    abstract init(opts?: unknown): Promise<void>;
+
+    /**
      * Boot the OS.
      *
-     * Subclasses implement this with their specific boot sequence:
-     * - OS: Full linear boot with all subsystems
-     * - TestOS: Flexible partial boot with HAL injection
+     * Subclasses implement this to activate services and start the system.
+     * Requires init() to be called first.
+     * - OS: Activates services, starts tick
+     * - TestOS: Optional service activation
      */
     abstract boot(opts?: unknown): Promise<void>;
 
@@ -277,7 +304,32 @@ export abstract class BaseOS {
         const init = this.__kernel.processes.getInit();
 
         if (!init) {
-            throw new EINVAL('Init process not found');
+            // No init process - return cached synthetic kernel process for syscall context
+            // WHY: Tests without ROM don't have /bin/true, so no PID 1 exists.
+            // We cache to maintain handle state across multiple syscalls.
+            if (!this.syntheticKernelProcess) {
+                this.syntheticKernelProcess = {
+                    id: 'kernel',
+                    parent: '',
+                    user: 'kernel',
+                    virtual: false,
+                    state: 'running',
+                    cmd: '/kernel',
+                    cwd: '/',
+                    env: {},
+                    args: [],
+                    pathDirs: new Map(),
+                    handles: new Map(),
+                    nextHandle: 3,
+                    children: new Map(),
+                    nextPid: 2,
+                    activeStreams: new Map(),
+                    streamPingHandlers: new Map(),
+                    worker: null as unknown as Worker,
+                } as Process;
+            }
+
+            return this.syntheticKernelProcess;
         }
 
         return init;
@@ -654,22 +706,23 @@ export abstract class BaseOS {
     /**
      * Shutdown the OS gracefully.
      *
-     * Shuts down subsystems in reverse boot order:
+     * Shuts down subsystems in reverse init order:
      * Gateway -> Kernel -> VFS -> Auth -> EMS -> HAL
      *
      * RACE CONDITION:
-     * RC-2: Safe to call multiple times (idempotent via booted check).
+     * RC-2: Safe to call multiple times (idempotent via initialized check).
      *
      * Works for any subset of initialized layers - TestOS may only have
      * partial subsystems initialized, so each is checked before shutdown.
      */
     async shutdown(): Promise<void> {
-        // RC-2: Idempotent - safe to call if not booted
-        if (!this.booted) {
+        // RC-2: Idempotent - safe to call if not initialized
+        if (!this.initialized) {
             return;
         }
 
-        // Mark as not booted first to fail any in-flight syscalls
+        // Mark as not initialized/booted first to fail any in-flight syscalls
+        this.initialized = false;
         this.booted = false;
 
         // Shutdown in reverse order: Gateway -> Kernel -> VFS -> Auth -> EMS -> HAL
@@ -709,6 +762,13 @@ export abstract class BaseOS {
     // =========================================================================
     // PUBLIC ACCESSORS
     // =========================================================================
+
+    /**
+     * Check if the OS is initialized.
+     */
+    isInitialized(): boolean {
+        return this.initialized;
+    }
 
     /**
      * Check if the OS is booted.
