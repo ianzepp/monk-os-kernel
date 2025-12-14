@@ -92,8 +92,11 @@ import { authToken, authWhoami, authLogin, authLogout, authSession, authRegister
 // LLM syscalls
 import { llmComplete, llmStream, llmChat, llmChatStream, llmEmbed, llmModels } from './syscall/llm.js';
 
+// Sigcall management syscalls
+import { sigcallRegister, sigcallUnregister, sigcallList } from './syscall/sigcall.js';
+
 // Stream controller
-import { StreamController, StallError } from './stream/index.js';
+import { SyscallController, StallError } from './stream/index.js';
 
 // =============================================================================
 // AUTH GATING CONSTANTS
@@ -669,6 +672,22 @@ export class SyscallDispatcher {
                 break;
 
                 // =================================================================
+                // SIGCALL MANAGEMENT
+                // =================================================================
+
+            case 'sigcall:register':
+                yield* sigcallRegister(proc, args[0] as string);
+                break;
+
+            case 'sigcall:unregister':
+                yield* sigcallUnregister(proc, args[0] as string);
+                break;
+
+            case 'sigcall:list':
+                yield* sigcallList(proc);
+                break;
+
+                // =================================================================
                 // UNKNOWN SYSCALL
                 // =================================================================
 
@@ -680,11 +699,11 @@ export class SyscallDispatcher {
     /**
      * Execute a syscall with streaming and backpressure.
      *
-     * This wraps dispatch() with StreamController for backpressure management.
+     * This wraps dispatch() with SyscallController for backpressure management.
      * Called by the kernel's message handler.
      *
      * ALGORITHM:
-     * 1. Create StreamController and register for ping/cancel
+     * 1. Create SyscallController and register for ping/cancel
      * 2. Call dispatch() to get source iterable
      * 3. Wrap with controller for backpressure
      * 4. For each response, check process state and send to consumer
@@ -702,7 +721,7 @@ export class SyscallDispatcher {
         name: string,
         args: unknown[],
     ): AsyncIterable<Response> {
-        const controller = new StreamController();
+        const controller = new SyscallController();
 
         // Register for cancellation via stream_cancel message
         proc.activeStreams.set(requestId, controller.abort);

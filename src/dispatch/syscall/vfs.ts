@@ -261,7 +261,7 @@ export async function* fileAppend(
 
         // Write data
         for await (const response of handle.exec({ op: 'send', data: { data } })) {
-            if (response.type === 'error') {
+            if (response.op === 'error') {
                 yield response;
 
                 return;

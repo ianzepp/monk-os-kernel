@@ -99,6 +99,7 @@ import { unrefHandle } from './unref-handle.js';
 import { releaseProcessWorkers } from './release-process-workers.js';
 import { notifyWaiters } from './notify-waiters.js';
 import { printk } from './printk.js';
+import * as sigcallRegistry from '@src/dispatch/sigcall/registry.js';
 
 /**
  * Force exit a process immediately without async cleanup.
@@ -236,6 +237,14 @@ export function forceExit(self: Kernel, proc: Process, code: number): void {
     // FIRE-AND-FORGET: Errors logged but don't block cleanup
     // MEMORY: Returns workers to pool for reuse
     releaseProcessWorkers(self, proc);
+
+    // =========================================================================
+    // STEP 7.5: Clean up sigcall registrations
+    // =========================================================================
+
+    // WHY: Process may have registered sigcall handlers
+    // EFFECT: Removes all sigcall registrations for this process
+    sigcallRegistry.unregisterAll(proc.id);
 
     // =========================================================================
     // STEP 8: Reparent orphaned children to init

@@ -1,14 +1,14 @@
 /**
- * Syscall Module - Exports for the syscall layer
+ * Dispatch Module - Syscall and sigcall routing
  *
- * @module syscall
+ * @module dispatch
  */
 
 // Main dispatcher
 export { SyscallDispatcher } from './dispatcher.js';
 
-// Stream module
-export { StreamController, StallError } from './stream/index.js';
+// Stream controllers
+export { StreamController, SyscallController, SigcallController, StallError } from './stream/index.js';
 export type { StreamControllerDeps, StreamControllerOpts, StreamControllerConfig } from './stream/index.js';
 export {
     STREAM_HIGH_WATER,
