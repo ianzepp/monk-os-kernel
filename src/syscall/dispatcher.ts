@@ -58,7 +58,7 @@ import type { Process, Response } from './types.js';
 import { respond } from './types.js';
 
 // VFS syscalls
-import { fileOpen, fileClose, fileRead, fileWrite, fileSeek } from './vfs.js';
+import { fileOpen, fileClose, fileRead, fileWrite, fileAppend, fileSeek } from './vfs.js';
 import { fileStat, fileSetstat, fileFstat, fileMkdir, fileUnlink, fileRmdir } from './vfs.js';
 import { fileReaddir, fileRename, fileSymlink, fileAccess } from './vfs.js';
 import { fileRecv, fileSend } from './vfs.js';
@@ -230,6 +230,10 @@ export class SyscallDispatcher {
 
             case 'file:write':
                 yield* fileWrite(proc, this.kernel, args[0], args[1]);
+                break;
+
+            case 'file:append':
+                yield* fileAppend(proc, this.kernel, this.vfs, args[0], args[1]);
                 break;
 
             case 'file:seek':

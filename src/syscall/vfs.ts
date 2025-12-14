@@ -216,6 +216,67 @@ export async function* fileWrite(
 }
 
 /**
+ * Append data to a file (convenience syscall).
+ *
+ * Opens file with append flag, writes data, closes file.
+ * More efficient than open+write+close for simple append operations.
+ *
+ * @param proc - Calling process
+ * @param kernel - Kernel instance
+ * @param vfs - VFS instance (currently unused, kernel.vfs used)
+ * @param path - File path to append to
+ * @param data - Data to append
+ */
+export async function* fileAppend(
+    proc: Process,
+    kernel: Kernel,
+    _vfs: VFS,
+    path: unknown,
+    data: unknown,
+): AsyncIterable<Response> {
+    if (typeof path !== 'string') {
+        yield respond.error('EINVAL', 'path must be a string');
+
+        return;
+    }
+
+    if (data === undefined || data === null) {
+        yield respond.error('EINVAL', 'data must be provided');
+
+        return;
+    }
+
+    // Open with append flag (creates file if doesn't exist)
+    const fd = await openFile(kernel, proc, path, { write: true, create: true, append: true });
+
+    try {
+        // Get handle and write
+        const handle = getHandle(kernel, proc, fd);
+
+        if (!handle) {
+            yield respond.error('EBADF', `Bad file descriptor: ${fd}`);
+
+            return;
+        }
+
+        // Write data
+        for await (const response of handle.exec({ op: 'send', data: { data } })) {
+            if (response.type === 'error') {
+                yield response;
+
+                return;
+            }
+        }
+
+        yield respond.ok();
+    }
+    finally {
+        // Always close the file
+        await closeHandle(kernel, proc, fd);
+    }
+}
+
+/**
  * Seek to a position in a file.
  *
  * Only needs Kernel - get handle and delegate to it.
