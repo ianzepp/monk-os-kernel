@@ -28,6 +28,7 @@
 
 import type { ChannelDevice } from '@src/hal/channel.js';
 import type { FileDevice } from '@src/hal/file.js';
+import type { DatabaseDialect } from '@src/hal/dialect.js';
 import {
     DatabaseConnection,
     createDatabaseConnection,
@@ -39,23 +40,29 @@ import {
 // =============================================================================
 
 /**
- * Path to the EMS schema.sql file.
+ * Paths to the EMS schema files (dialect-specific).
  *
- * WHY: Using import.meta.url ensures the path is relative to this module,
+ * WHY: Using import.meta.url ensures the paths are relative to this module,
  * regardless of the current working directory.
  */
-const SCHEMA_PATH = new URL('./schema.sql', import.meta.url).pathname;
+const SCHEMA_PATHS = {
+    sqlite: new URL('./schema.sqlite.sql', import.meta.url).pathname,
+    postgres: new URL('./schema.pg.sql', import.meta.url).pathname,
+} as const;
 
 /**
- * Cached schema SQL content (Promise-based for race condition safety).
+ * Cached schema SQL content by dialect (Promise-based for race condition safety).
  *
  * WHY Promise: The old pattern `if (cache === null) { cache = await read() }` had
  * a TOCTOU bug where concurrent calls would both read the file before either
  * cached. Using a Promise cache ensures only one read occurs.
  *
- * INVARIANT: Once set, never changes (schema is static).
+ * INVARIANT: Once set, never changes (schema is static per dialect).
  */
-let cachedSchemaPromise: Promise<string> | null = null;
+const cachedSchemaPromises = {
+    sqlite: null as Promise<string> | null,
+    postgres: null as Promise<string> | null,
+} as const;
 
 // =============================================================================
 // SCHEMA LOADING
@@ -65,9 +72,10 @@ let cachedSchemaPromise: Promise<string> | null = null;
  * Load the EMS schema SQL content via HAL FileDevice.
  *
  * ALGORITHM:
- * 1. Check if Promise is cached
- * 2. If not, start read and cache the Promise immediately
- * 3. Return cached Promise (all callers share same read)
+ * 1. Determine dialect from connection
+ * 2. Check if Promise is cached for that dialect
+ * 3. If not, start read and cache the Promise immediately
+ * 4. Return cached Promise (all callers share same read)
  *
  * RACE CONDITION FIX: By caching the Promise (not the result), concurrent
  * calls share the same in-flight read. The old check-then-read pattern:
@@ -78,16 +86,22 @@ let cachedSchemaPromise: Promise<string> | null = null;
  * access outside HAL. The FileDevice is provided by the kernel.
  *
  * @param fileDevice - HAL FileDevice for reading schema file
+ * @param dialect - Database dialect ('sqlite' or 'postgres')
  * @returns Promise resolving to schema SQL content
- * @throws Error if schema.sql cannot be read
+ * @throws Error if schema file cannot be read
  */
-async function loadSchemaAsync(fileDevice: FileDevice): Promise<string> {
-    if (cachedSchemaPromise === null) {
+async function loadSchemaAsync(fileDevice: FileDevice, dialect: DatabaseDialect): Promise<string> {
+    const dialectName = dialect.name as 'sqlite' | 'postgres';
+    const cacheKey = dialectName as keyof typeof cachedSchemaPromises;
+
+    if (cachedSchemaPromises[cacheKey] === null) {
+        const schemaPath = SCHEMA_PATHS[cacheKey];
         // Cache the Promise immediately - all concurrent callers share this read
-        cachedSchemaPromise = fileDevice.readText(SCHEMA_PATH);
+        (cachedSchemaPromises as Record<string, Promise<string> | null>)[cacheKey] = fileDevice.readText(schemaPath);
     }
 
-    return cachedSchemaPromise;
+    const promise = cachedSchemaPromises[cacheKey];
+    return promise!;
 }
 
 // =============================================================================
@@ -99,12 +113,13 @@ async function loadSchemaAsync(fileDevice: FileDevice): Promise<string> {
  *
  * ALGORITHM:
  * 1. Open database channel via HAL
- * 2. Load schema.sql content via HAL FileDevice
- * 3. Execute schema via channel's exec operation
- * 4. Return ready-to-use DatabaseConnection
+ * 2. Determine dialect from connection
+ * 3. Load dialect-specific schema.sql content via HAL FileDevice
+ * 4. Execute schema via channel's exec operation
+ * 5. Return ready-to-use DatabaseConnection
  *
  * @param channelDevice - HAL channel device for opening database channel
- * @param fileDevice - HAL file device for reading schema.sql
+ * @param fileDevice - HAL file device for reading schema files
  * @param path - Database path, or ':memory:' for in-memory (default)
  * @returns Promise resolving to initialized DatabaseConnection
  *
@@ -126,8 +141,8 @@ export async function createDatabase(
 ): Promise<DatabaseConnection> {
     const conn = await createDatabaseConnection(channelDevice, path);
 
-    // Load and execute EMS schema via HAL
-    const schema = await loadSchemaAsync(fileDevice);
+    // Load and execute dialect-specific EMS schema via HAL
+    const schema = await loadSchemaAsync(fileDevice, conn.dialect);
 
     await conn.exec(schema);
 
@@ -139,26 +154,28 @@ export async function createDatabase(
 // =============================================================================
 
 /**
- * Get the EMS schema SQL content.
+ * Get the EMS schema SQL content for a specific dialect.
  *
  * TESTABILITY: Allows tests to verify schema content or use it directly.
  *
- * @param fileDevice - HAL file device for reading schema.sql
+ * @param fileDevice - HAL file device for reading schema files
+ * @param dialect - Database dialect ('sqlite' or 'postgres')
  * @returns Promise resolving to schema SQL content
  */
-export async function getSchema(fileDevice: FileDevice): Promise<string> {
-    return loadSchemaAsync(fileDevice);
+export async function getSchema(fileDevice: FileDevice, dialect: DatabaseDialect): Promise<string> {
+    return loadSchemaAsync(fileDevice, dialect);
 }
 
 /**
- * Clear the cached schema (for testing).
+ * Clear the cached schemas (for testing).
  *
  * TESTABILITY: Allows tests to force schema reload.
  *
- * WHY: Tests may modify schema.sql and need to reload it.
+ * WHY: Tests may modify schema files and need to reload them.
  */
 export function clearSchemaCache(): void {
-    cachedSchemaPromise = null;
+    (cachedSchemaPromises as Record<string, Promise<string> | null>).sqlite = null;
+    (cachedSchemaPromises as Record<string, Promise<string> | null>).postgres = null;
 }
 
 // =============================================================================

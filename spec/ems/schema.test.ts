@@ -418,7 +418,7 @@ describe('Model Schema', () => {
         it('should be safe to run schema multiple times', async () => {
             // Schema was already run in beforeEach
             // Run it again
-            const schema = await getSchema(fileDevice);
+            const schema = await getSchema(fileDevice, db.dialect);
 
             await db.exec(schema);
 
@@ -833,18 +833,20 @@ describe('Connection Module', () => {
         });
     });
 
-    describe('getSchema', () => {
-        it('should return schema SQL content', async () => {
-            clearSchemaCache();
-            const schema = await getSchema(fileDevice);
+     describe('getSchema', () => {
+         it('should return schema SQL content', async () => {
+             clearSchemaCache();
+             const tempDb = await createDatabase(channelDevice, fileDevice);
+             const schema = await getSchema(fileDevice, tempDb.dialect);
+             await tempDb.close();
 
-            expect(schema).toBeTruthy();
-            expect(schema).toContain('CREATE TABLE IF NOT EXISTS models');
-            expect(schema).toContain('CREATE TABLE IF NOT EXISTS fields');
-            expect(schema).toContain('CREATE TABLE IF NOT EXISTS entities');
-            // tracked table moved to audit subsystem
-        });
-    });
+             expect(schema).toBeTruthy();
+             expect(schema).toContain('CREATE TABLE IF NOT EXISTS models');
+             expect(schema).toContain('CREATE TABLE IF NOT EXISTS fields');
+             expect(schema).toContain('CREATE TABLE IF NOT EXISTS entities');
+             // tracked table moved to audit subsystem
+         });
+     });
 
     describe('file-based database', () => {
         const testPath = `/tmp/monk-schema-test-${Date.now()}.db`;
