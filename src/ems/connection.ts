@@ -69,6 +69,7 @@
 import type { Channel, ChannelDevice } from '@src/hal/channel.js';
 import type { FileDevice } from '@src/hal/file.js';
 import { EIO } from '@src/hal/errors.js';
+import { type DatabaseDialect, getDialect } from './dialect.js';
 
 // =============================================================================
 // CONSTANTS
@@ -170,6 +171,14 @@ export class DatabaseConnection {
      */
     readonly path: string;
 
+    /**
+     * Database dialect for SQL generation and type conversion.
+     *
+     * WHY: Provides dialect-specific placeholder syntax (? vs $1),
+     * type mapping, and DDL generation. Derived from channel protocol.
+     */
+    readonly dialect: DatabaseDialect;
+
     // =========================================================================
     // CONSTRUCTOR
     // =========================================================================
@@ -186,6 +195,7 @@ export class DatabaseConnection {
     constructor(channel: Channel, path: string) {
         this.channel = channel;
         this.path = path;
+        this.dialect = getDialect(channel.proto === 'postgres' ? 'postgres' : 'sqlite');
     }
 
     // =========================================================================

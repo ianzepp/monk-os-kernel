@@ -31,6 +31,7 @@
 
 import type { ObserverRing, OperationType } from './types.js';
 import type { EOBSINVALID } from './errors.js';
+import type { DatabaseDialect } from '../dialect.js';
 
 // =============================================================================
 // FORWARD DECLARATIONS
@@ -142,9 +143,17 @@ export interface ModelRecord {
  */
 export interface DatabaseAdapter {
     /**
+     * Database dialect for SQL generation and type conversion.
+     *
+     * WHY: Observers need dialect for placeholder syntax (? vs $1),
+     * type mapping, and DDL generation.
+     */
+    readonly dialect: DatabaseDialect;
+
+    /**
      * Execute an INSERT/UPDATE/DELETE statement.
      *
-     * @param sql - SQL statement with ? placeholders
+     * @param sql - SQL statement with placeholders (dialect-specific)
      * @param params - Parameter values (positional)
      * @returns Promise resolving to affected row count
      * @throws Error on execution failure
