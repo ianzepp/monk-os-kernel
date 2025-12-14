@@ -167,7 +167,8 @@ export function forceExit(self: Kernel, proc: Process, code: number): void {
     // EFFECT: Worker thread stops executing, memory released
     // NOTE: Synchronous operation, just sends termination signal
     // VIRTUAL: Skip for virtual processes - they share parent's Worker
-    if (!proc.virtual) {
+    // KERNEL: Skip for kernel process - it has no Worker
+    if (!proc.virtual && proc.worker) {
         proc.worker.terminate();
     }
 

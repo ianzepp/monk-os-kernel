@@ -178,14 +178,6 @@ export abstract class BaseOS {
      */
     protected booted = false;
 
-    /**
-     * Cached synthetic kernel process for syscalls when no init exists.
-     *
-     * WHY: The synthetic process needs to persist across syscalls to maintain
-     * handle state. If recreated on each call, handles would be lost.
-     */
-    private syntheticKernelProcess: Process | null = null;
-
     // =========================================================================
     // CONSTRUCTOR
     // =========================================================================
@@ -288,51 +280,26 @@ export abstract class BaseOS {
     // =========================================================================
 
     /**
-     * Get the init process for syscall context.
+     * Get the kernel process for syscall context.
      *
-     * WHY: External syscalls execute in the context of PID 1 (init).
+     * WHY: External syscalls execute in the context of the kernel process (PID 1).
      * This provides proper process identity for permission checks
      * and resource tracking.
      *
-     * @throws EINVAL if OS not booted or init process not found
+     * @throws EINVAL if OS not initialized or kernel process not found
      */
     protected getInitProcess(): Process {
         if (!this.__kernel) {
-            throw new EINVAL('OS not booted');
+            throw new EINVAL('OS not initialized');
         }
 
-        const init = this.__kernel.processes.getInit();
+        const kernelProc = this.__kernel.processes.getInit();
 
-        if (!init) {
-            // No init process - return cached synthetic kernel process for syscall context
-            // WHY: Tests without ROM don't have /bin/true, so no PID 1 exists.
-            // We cache to maintain handle state across multiple syscalls.
-            if (!this.syntheticKernelProcess) {
-                this.syntheticKernelProcess = {
-                    id: 'kernel',
-                    parent: '',
-                    user: 'kernel',
-                    virtual: false,
-                    state: 'running',
-                    cmd: '/kernel',
-                    cwd: '/',
-                    env: {},
-                    args: [],
-                    pathDirs: new Map(),
-                    handles: new Map(),
-                    nextHandle: 3,
-                    children: new Map(),
-                    nextPid: 2,
-                    activeStreams: new Map(),
-                    streamPingHandlers: new Map(),
-                    worker: null as unknown as Worker,
-                } as Process;
-            }
-
-            return this.syntheticKernelProcess;
+        if (!kernelProc) {
+            throw new EINVAL('Kernel process not found');
         }
 
-        return init;
+        return kernelProc;
     }
 
     /**

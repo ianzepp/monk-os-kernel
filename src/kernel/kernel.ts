@@ -21,7 +21,7 @@
  * INV-1: A process in 'zombie' state has no active worker
  * INV-2: handleRefs[id] >= 1 for any id in handles map
  * INV-3: proc.handles[fd] references a valid entry in kernel.handles
- * INV-4: Init process (PID 1) exists from boot until shutdown
+ * INV-4: Kernel process (PID 1) exists from init until shutdown
  * INV-5: A child's parent field always references a valid process or ''
  * INV-6: No two processes share the same UUID
  *
@@ -53,7 +53,7 @@ import type { HAL } from '@src/hal/index.js';
 import { EINVAL } from '@src/hal/errors.js';
 import type { VFS } from '@src/vfs/index.js';
 import type { EMS } from '@src/ems/ems.js';
-import type { ExitStatus, BootEnv } from '@src/kernel/types.js';
+import type { ExitStatus, BootEnv, Process } from '@src/kernel/types.js';
 import { SIGTERM, SIGKILL, TERM_GRACE_MS } from '@src/kernel/types.js';
 import { poll } from '@src/kernel/poll.js';
 import { ProcessTable } from '@src/kernel/process-table.js';
@@ -523,7 +523,36 @@ export class Kernel {
         printk(this, 'init', 'Starting kernel init sequence');
 
         // ---------------------------------------------------------------------
-        // PHASE 1: PROC FILESYSTEM
+        // PHASE 1: KERNEL PROCESS (PID 1)
+        // Create the kernel process as PID 1. This provides syscall context
+        // for OS-level operations without requiring userspace ROM.
+        // ---------------------------------------------------------------------
+
+        printk(this, 'init', 'Creating kernel process (PID 1)');
+        const kernelProcess: Process = {
+            id: 'kernel',
+            parent: '',
+            user: 'kernel',
+            worker: null as unknown as Worker,
+            virtual: false,
+            state: 'running',
+            cmd: '/kernel',
+            cwd: '/',
+            env: { MONK_PID: 'kernel', MONK_OS: this.id },
+            args: [],
+            pathDirs: new Map([['00-bin', '/bin']]),
+            handles: new Map(),
+            nextHandle: 3,
+            children: new Map(),
+            nextPid: 1,
+            activeStreams: new Map(),
+            streamPingHandlers: new Map(),
+        };
+
+        this.processes.register(kernelProcess);
+
+        // ---------------------------------------------------------------------
+        // PHASE 2: PROC FILESYSTEM
         // Mount /proc (synthetic filesystem backed by ProcessTable)
         // ---------------------------------------------------------------------
 
@@ -531,14 +560,14 @@ export class Kernel {
         this.vfs.mountProc(this.processes);
 
         // ---------------------------------------------------------------------
-        // PHASE 2: POOL CONFIGURATION
+        // PHASE 3: POOL CONFIGURATION
         // ---------------------------------------------------------------------
 
         printk(this, 'init', 'Loading pool configuration');
         await this.poolManager.loadConfig(this.vfs);
 
         // ---------------------------------------------------------------------
-        // PHASE 3: SERVICE DEFINITIONS
+        // PHASE 4: SERVICE DEFINITIONS
         // Load service definitions but don't activate them yet
         // ---------------------------------------------------------------------
 
@@ -558,12 +587,11 @@ export class Kernel {
      * Boot the kernel.
      *
      * BOOT SEQUENCE:
-     * 1. Create PID 1 placeholder (/bin/true - exits immediately)
-     * 2. Activate services
-     * 3. Start tick broadcaster
+     * 1. Activate services
+     * 2. Start tick broadcaster
      *
      * PRECONDITION: init() must be called first.
-     * INVARIANT: After boot(), PID 1 exists and services are active.
+     * INVARIANT: After boot(), kernel process (PID 1) exists and services are active.
      *
      * @throws EINVAL if not initialized
      * @throws EBUSY if already booted
@@ -582,41 +610,7 @@ export class Kernel {
         printk(this, 'boot', 'Starting kernel boot sequence');
 
         // ---------------------------------------------------------------------
-        // PHASE 1: PID 1 PLACEHOLDER
-        // Create /bin/true as PID 1 - it exits immediately, becoming a zombie.
-        // This reserves the PID 1 slot and establishes the process table invariant.
-        // Skip if /bin/true doesn't exist (e.g., tests without ROM copy).
-        // ---------------------------------------------------------------------
-
-        let hasPid1 = false;
-
-        try {
-            await this.vfs.stat('/bin/true', 'kernel');
-            hasPid1 = true;
-        }
-        catch {
-            // /bin/true doesn't exist - skip PID 1 placeholder
-            printk(this, 'boot', 'Skipping PID 1 placeholder (/bin/true not found)');
-        }
-
-        if (hasPid1) {
-            printk(this, 'boot', 'Creating PID 1 placeholder (/bin/true)');
-            const placeholder = createProcess(this, {
-                cmd: '/bin/true',
-                env: {},
-                args: ['/bin/true'],
-            });
-
-            this.processes.register(placeholder);
-
-            // Setup stdio and spawn - /bin/true will exit(0) immediately
-            await setupInitStdio(this, placeholder);
-            placeholder.worker = await spawnWorker(this, placeholder, '/bin/true');
-            placeholder.state = 'running';
-        }
-
-        // ---------------------------------------------------------------------
-        // PHASE 2: SERVICE ACTIVATION
+        // PHASE 1: SERVICE ACTIVATION
         // Activate all services that were loaded during init()
         // ---------------------------------------------------------------------
 
@@ -634,7 +628,7 @@ export class Kernel {
         }
 
         // ---------------------------------------------------------------------
-        // PHASE 3: TICK BROADCASTER
+        // PHASE 2: TICK BROADCASTER
         // Start the kernel tick for AI processes (monks)
         // ---------------------------------------------------------------------
 
