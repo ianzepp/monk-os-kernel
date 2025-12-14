@@ -4,7 +4,7 @@
  * Core type definitions for the Monk OS kernel.
  */
 
-import type { Message } from '@src/message.js';
+import type { Message, Response } from '@src/message.js';
 
 /**
  * Process state
@@ -350,6 +350,40 @@ export interface StreamCancelMessage {
 }
 
 /**
+ * Sigcall request from kernel to userspace handler.
+ *
+ * Sent when a process invokes a syscall that's registered
+ * in the sigcall registry.
+ */
+export interface SigcallRequest {
+    type: 'sigcall:request';
+    /** Request correlation ID */
+    id: string;
+    /** Sigcall name (e.g., 'window:create') */
+    name: string;
+    /** Handler arguments */
+    args: unknown[];
+    /** Caller information */
+    caller?: {
+        /** Calling process ID */
+        pid?: string;
+        /** Gateway connection ID (for push responses) */
+        connId?: string;
+    };
+}
+
+/**
+ * Sigcall response from userspace handler to kernel.
+ */
+export interface SigcallResponse {
+    type: 'sigcall:response';
+    /** Request correlation ID (matches request) */
+    id: string;
+    /** Response payload */
+    result: Response;
+}
+
+/**
  * Message types between kernel and processes
  */
 export type KernelMessage =
@@ -357,7 +391,9 @@ export type KernelMessage =
     | SyscallResponse
     | SignalMessage
     | StreamPingMessage
-    | StreamCancelMessage;
+    | StreamCancelMessage
+    | SigcallRequest
+    | SigcallResponse;
 
 /**
  * Port message delivered to a process's port.

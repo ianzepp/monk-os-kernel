@@ -95,8 +95,12 @@ import { llmComplete, llmStream, llmChat, llmChatStream, llmEmbed, llmModels } f
 // Sigcall management syscalls
 import { sigcallRegister, sigcallUnregister, sigcallList } from './syscall/sigcall.js';
 
-// Stream controller
-import { SyscallController, StallError } from './stream/index.js';
+// Sigcall registry for routing to userspace
+import * as sigcallRegistry from './sigcall/registry.js';
+import type { SigcallRegistration } from './sigcall/registry.js';
+
+// Stream controllers
+import { SyscallController, SigcallController, StallError } from './stream/index.js';
 
 // =============================================================================
 // AUTH GATING CONSTANTS
@@ -131,7 +135,27 @@ const ALLOW_ANONYMOUS = new Set([
  * - Each syscall validates its own arguments
  * - All syscalls yield errors, never throw
  */
+/**
+ * Pending sigcall tracking for responses from userspace handlers.
+ */
+interface PendingSigcall {
+    /** Response queue for items received before consumer awaits */
+    queue: Response[];
+    /** True when terminal response received */
+    done: boolean;
+    /** Resolve function when consumer is waiting */
+    waiting: ((response: Response | null) => void) | null;
+    /** SigcallController for backpressure */
+    controller: SigcallController;
+}
+
 export class SyscallDispatcher {
+    /**
+     * Pending sigcalls awaiting responses from userspace handlers.
+     * Key is the sigcall request ID.
+     */
+    private readonly pendingSigcalls = new Map<string, PendingSigcall>();
+
     constructor(
         private readonly kernel: Kernel,
         private readonly vfs: VFS,
@@ -688,11 +712,20 @@ export class SyscallDispatcher {
                 break;
 
                 // =================================================================
-                // UNKNOWN SYSCALL
+                // SIGCALL ROUTING (userspace handlers)
                 // =================================================================
 
-            default:
-                yield respond.error('ENOSYS', `Unknown syscall: ${name}`);
+            default: {
+                // Check if a userspace process has registered a handler
+                const registration = sigcallRegistry.lookup(name);
+
+                if (registration) {
+                    yield* this.routeToUserspace(proc, registration, name, args);
+                }
+                else {
+                    yield respond.error('ENOSYS', `Unknown syscall: ${name}`);
+                }
+            }
         }
     }
 
@@ -883,6 +916,13 @@ export class SyscallDispatcher {
 
                 break;
             }
+
+            case 'sigcall:response': {
+                // Response from a sigcall handler
+                const result = (msg as { id: string; result: Response }).result;
+                this.handleSigcallResponse(msg.id, result);
+                break;
+            }
         }
     }
 
@@ -906,5 +946,145 @@ export class SyscallDispatcher {
         catch {
             // Expected during worker termination - ignore
         }
+    }
+
+    // =========================================================================
+    // SIGCALL ROUTING
+    // =========================================================================
+
+    /**
+     * Route a syscall to a userspace handler (sigcall).
+     *
+     * When a process invokes a syscall name that's registered in the sigcall
+     * registry, we route to the registered handler process instead of a
+     * kernel handler.
+     *
+     * ALGORITHM:
+     * 1. Look up target process from registration
+     * 2. Validate target is running
+     * 3. Generate request ID and create SigcallController
+     * 4. Send sigcall:request to target worker
+     * 5. Yield responses as they arrive
+     * 6. Clean up on completion or error
+     *
+     * @param caller - Process making the syscall
+     * @param reg - Sigcall registration entry
+     * @param name - Syscall name
+     * @param args - Syscall arguments
+     */
+    private async *routeToUserspace(
+        caller: Process,
+        reg: SigcallRegistration,
+        name: string,
+        args: unknown[],
+    ): AsyncIterable<Response> {
+        // Find target process
+        const target = this.kernel.processes.get(reg.pid);
+
+        if (!target) {
+            yield respond.error('ESRCH', `Handler process ${reg.pid} not found`);
+            return;
+        }
+
+        if (target.state !== 'running') {
+            yield respond.error('ESRCH', `Handler process ${reg.pid} not running`);
+            return;
+        }
+
+        // Generate request ID
+        const requestId = crypto.randomUUID();
+
+        // Set up pending sigcall tracking
+        const controller = new SigcallController();
+        const pending: PendingSigcall = {
+            queue: [],
+            done: false,
+            waiting: null,
+            controller,
+        };
+
+        this.pendingSigcalls.set(requestId, pending);
+
+        try {
+            // Send sigcall request to target worker
+            target.worker.postMessage({
+                type: 'sigcall:request',
+                id: requestId,
+                name,
+                args,
+                caller: { pid: caller.id },
+            });
+
+            // Yield responses as they arrive
+            while (!pending.done) {
+                // Check for queued response
+                const queued = pending.queue.shift();
+
+                if (queued) {
+                    yield queued;
+
+                    // Check for terminal
+                    if (this.isTerminal(queued.op)) {
+                        break;
+                    }
+
+                    continue;
+                }
+
+                // Wait for next response
+                const response = await new Promise<Response | null>(resolve => {
+                    pending.waiting = resolve;
+                });
+
+                if (response === null) {
+                    // Cancelled or error
+                    break;
+                }
+
+                yield response;
+
+                if (this.isTerminal(response.op)) {
+                    break;
+                }
+            }
+        }
+        finally {
+            this.pendingSigcalls.delete(requestId);
+        }
+    }
+
+    /**
+     * Handle a sigcall response from a worker.
+     *
+     * Called by onWorkerMessage when a sigcall:response is received.
+     *
+     * @param requestId - Sigcall request ID
+     * @param response - Response from handler
+     */
+    handleSigcallResponse(requestId: string, response: Response): void {
+        const pending = this.pendingSigcalls.get(requestId);
+
+        if (!pending) {
+            return;
+        }
+
+        if (this.isTerminal(response.op)) {
+            pending.done = true;
+        }
+
+        if (pending.waiting) {
+            pending.waiting(response);
+            pending.waiting = null;
+        }
+        else {
+            pending.queue.push(response);
+        }
+    }
+
+    /**
+     * Check if a response op is terminal.
+     */
+    private isTerminal(op: string): boolean {
+        return op === 'ok' || op === 'error' || op === 'done' || op === 'redirect';
     }
 }
