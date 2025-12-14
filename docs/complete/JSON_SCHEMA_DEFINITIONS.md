@@ -4,7 +4,10 @@
 
 Subsystems define their EMS models, fields, and seed data using JSON files instead of SQL. This makes schema definitions dialect-agnostic - the EMS observer pipeline handles SQL generation for SQLite or PostgreSQL automatically.
 
-**Exception**: The EMS bootstrap schema (`src/ems/schema.sql`) remains as raw SQL because it creates the `models`, `fields`, and `entities` tables that everything else depends on. This file will have dialect-specific variants (`schema.sqlite.sql`, `schema.pg.sql`).
+The EMS bootstrap schema is dialect-specific because it creates the foundational `models`, `fields`, and `entities` tables that everything else depends on:
+- `src/ems/schema.sqlite.sql` - SQLite variant with PRAGMA statements and randomblob() UUID generation
+- `src/ems/schema.pg.sql` - PostgreSQL variant with native BOOLEAN types and gen_random_uuid()
+- The correct schema is automatically loaded based on the database dialect detected from the connection channel protocol
 
 ## Directory Structure
 
@@ -242,11 +245,13 @@ export async function* loadSchema(
 - Updated `Audit.init()` to use loader
 - Renamed `src/audit/schema.sql` → `schema.sql.orig`
 
-### Phase 5: EMS Dialect Split (TODO)
-- Create `src/ems/schema.sqlite.sql`
-- Create `src/ems/schema.pg.sql`
-- Update EMS bootstrap to select based on storage type
-- Delete `src/ems/schema.sql`
+### Phase 5: EMS Dialect Split ✅ Complete
+- Created `src/ems/schema.sqlite.sql` - SQLite-specific DDL with PRAGMA and randomblob() UUID
+- Created `src/ems/schema.pg.sql` - PostgreSQL-specific DDL with uuid-ossp and native BOOLEAN
+- Updated `src/ems/database.ts` to load dialect-specific schema based on connection.dialect
+- Deleted `src/ems/schema.sql` (migrated to dialect-specific variants)
+- Updated test helpers to pass dialect parameter to getSchema()
+- All 2046+ tests pass with dialect-agnostic schemas
 
 ## Implementation Notes
 
