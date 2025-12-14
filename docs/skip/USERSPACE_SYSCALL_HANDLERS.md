@@ -1,5 +1,7 @@
 # Userspace Syscall Handlers
 
+> **SUPERSEDED**: This document has been superseded by [SIGCALL_DESIGN.md](../planning/SIGCALL_DESIGN.md). The key difference is that the new design uses postMessage for responses (symmetric with syscalls) rather than MessagePipe (which created two different mental models). The new design also introduces distinct "sigcall" terminology to make the inversion explicit.
+
 ## Motivation
 
 Currently, all syscalls are handled in kernel context by `SyscallDispatcher`. This is monolithic—adding new syscall families requires editing the dispatcher, and handlers can't be restarted independently.
