@@ -574,9 +574,14 @@ export abstract class BaseOS {
      *
      * @param action - Action to perform (start, stop, restart, status, list)
      * @param nameOrPid - Service name or PID (required for all except 'list')
+     * @param opts - Options (env overrides for start/restart)
      * @returns Action result
      */
-    async service(action: string, nameOrPid?: string | number): Promise<unknown> {
+    async service(
+        action: string,
+        nameOrPid?: string | number,
+        opts?: { env?: Record<string, string> },
+    ): Promise<unknown> {
         if (!this.__kernel) {
             throw new EINVAL('OS not booted');
         }
@@ -621,7 +626,12 @@ export abstract class BaseOS {
                     throw new EINVAL(`Service already running: ${name}`);
                 }
 
-                await activateService(this.__kernel, name, def);
+                // Merge runtime env overrides with service.json env
+                const effectiveDef = opts?.env
+                    ? { ...def, env: { ...def.env, ...opts.env } }
+                    : def;
+
+                await activateService(this.__kernel, name, effectiveDef);
 
                 return { started: name };
             }
@@ -656,7 +666,7 @@ export abstract class BaseOS {
                 }
 
                 await this.service('stop', nameOrPid);
-                await this.service('start', nameOrPid);
+                await this.service('start', nameOrPid, opts);
 
                 return { restarted: String(nameOrPid) };
             }
