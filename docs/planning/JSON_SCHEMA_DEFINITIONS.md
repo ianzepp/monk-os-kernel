@@ -214,39 +214,58 @@ export async function* loadSchema(
 
 ## Migration Plan
 
-### Phase 1: VFS (this PR)
-- Create `src/vfs/models/*.json` (6 files)
-- Create `src/vfs/fields/*.json` (~15 files)
-- Create `src/vfs/seeds/*.json` (root folder)
-- Update `VFS.init()` to use loader
-- Delete `src/vfs/schema.sql`
+### Phase 1: VFS ✅ Complete
+- Created `src/vfs/models/*.json` (6 files)
+- Created `src/vfs/fields/*.json` (15 files)
+- Created `src/vfs/seeds/*.json` (root folder)
+- Updated `VFS.init()` to use loader
+- Renamed `src/vfs/schema.sql` → `schema.sql.orig`
 
-### Phase 2: Auth
-- Create `src/auth/models/*.json` (2 files)
-- Create `src/auth/fields/*.json` (~7 files)
-- Create `src/auth/seeds/*.json` (none - root user created in code)
-- Update `Auth.init()` to use loader
-- Delete `src/auth/schema.sql`
+### Phase 2: Auth ✅ Complete
+- Created `src/auth/models/*.json` (2 files: auth_user, auth_session)
+- Created `src/auth/fields/*.json` (7 files)
+- No seeds (root user created in code)
+- Updated `Auth.loadSchema()` to use loader
+- Renamed `src/auth/schema.sql` → `schema.sql.orig`
 
-### Phase 3: LLM
-- Create `src/llm/models/*.json` (2 files)
-- Create `src/llm/fields/*.json` (~20 files)
-- Create `src/llm/seeds/*.json` (default providers/models)
-- Update `LLM.init()` to use loader
-- Delete `src/llm/schema.sql`
+### Phase 3: LLM ✅ Complete
+- Created `src/llm/models/*.json` (2 files: llm.provider, llm.model)
+- Created `src/llm/fields/*.json` (21 files)
+- Created `src/llm/seeds/*.json` (default providers and models)
+- Updated `LLM.init()` to use loader
+- Renamed `src/llm/schema.sql` → `schema.sql.orig`
 
-### Phase 4: Audit
-- Create `src/audit/models/*.json` (1 file)
-- Create `src/audit/fields/*.json` (~8 files)
-- Create `src/audit/seeds/*.json` (none)
-- Update `Audit.init()` to use loader
-- Delete `src/audit/schema.sql`
+### Phase 4: Audit ✅ Complete
+- Created `src/audit/models/*.json` (1 file: tracked)
+- Created `src/audit/fields/*.json` (8 files)
+- No seeds
+- Updated `Audit.init()` to use loader
+- Renamed `src/audit/schema.sql` → `schema.sql.orig`
 
-### Phase 5: EMS Dialect Split
+### Phase 5: EMS Dialect Split (TODO)
 - Create `src/ems/schema.sqlite.sql`
 - Create `src/ems/schema.pg.sql`
 - Update EMS bootstrap to select based on storage type
 - Delete `src/ems/schema.sql`
+
+## Implementation Notes
+
+### Natural Key Upsert
+The schema loader uses natural keys for idempotent loading:
+- Models: `{ key: 'model_name' }`
+- Fields: `{ key: ['model_name', 'field_name'] }`
+
+This was added to `EntityOps.upsertAll()` to handle unique constraint violations gracefully.
+
+### Table Name Conversion
+Model names with dots (e.g., `llm.provider`) are converted to underscores for table names (`llm_provider`). This is handled by `dialect.tableName()` which is used by:
+- Ring 5 SQL observers (create, update, delete)
+- Filter class (SELECT queries)
+- Hard delete operations in DatabaseOps/EntityOps
+
+### Field Data Normalization
+The schema loader normalizes field data before insertion:
+- Arrays in `enum_values` are JSON-stringified (SQLite stores as TEXT)
 
 ## Benefits
 
