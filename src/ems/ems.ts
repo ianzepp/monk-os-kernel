@@ -50,6 +50,9 @@ import { PathCache } from '@src/vfs/path-cache.js';
 import { EntityOps } from './entity-ops.js';
 import { createObserverRunner, type ObserverRunner } from './observers/index.js';
 import { EntityAPI } from '@src/os/ems.js';
+import { debug } from '../debug.js';
+
+const log = debug('ems:init');
 
 // =============================================================================
 // TYPES
@@ -132,10 +135,14 @@ export class EMS {
      */
     async init(): Promise<void> {
         if (this.initialized) {
+            log('init() called but already initialized');
             throw new EINVAL('EMS already initialized');
         }
 
+        log('initializing EMS');
+
         // 1. Create database connection with schema
+        log('creating database connection');
         this._db = await createDatabase(
             this.hal.channel,
             this.hal.file,
@@ -143,24 +150,29 @@ export class EMS {
         );
 
         // 2. Create model metadata cache
+        log('creating model cache');
         this._models = new ModelCache(this._db);
 
         // 3. Create observer pipeline runner
+        log('creating observer pipeline (8 rings)');
         this._runner = createObserverRunner();
 
         // 4. Create entity operations (streaming CRUD with observers)
+        log('creating entity ops');
         this._ops = new EntityOps(this._db, this._models, this._runner);
 
         // 5. Create path cache (empty - VFS will populate after seeding root)
         // WHY not loaded here: The entities table exists but is empty at this
         // point. VFS.init() seeds the root entity and calls loadFromDatabase().
         // EMS just provides the container; VFS does the actual loading.
+        log('creating path cache');
         this._pathCache = new PathCache();
 
         // 6. Wire path cache to ops for Ring 8 PathCacheSync observer
         this._ops.setPathCache(this._pathCache);
 
         this.initialized = true;
+        log('EMS initialized');
     }
 
     /**
@@ -170,7 +182,10 @@ export class EMS {
      * Safe to call multiple times.
      */
     async shutdown(): Promise<void> {
+        log('shutting down EMS');
+
         if (this._db) {
+            log('closing database connection');
             await this._db.close();
             this._db = null;
         }
@@ -181,6 +196,8 @@ export class EMS {
         this._pathCache = null;
         this._api = null;
         this.initialized = false;
+
+        log('EMS shutdown complete');
     }
 
     /**

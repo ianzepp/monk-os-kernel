@@ -72,6 +72,9 @@ import { FolderModel } from '@src/vfs/models/folder.js';
 import { DeviceModel, initStandardDevices } from '@src/vfs/models/device.js';
 import { LinkModel } from '@src/vfs/models/link.js';
 import { ENOENT, EEXIST, ENOTDIR, EACCES, EINVAL } from '@src/hal/index.js';
+import { debug } from '../debug.js';
+
+const log = debug('vfs:init');
 import type { HostMount, HostMountOptions } from '@src/vfs/mounts/host.js';
 import {
     createHostMount,
@@ -338,9 +341,11 @@ export class VFS {
     async init(): Promise<void> {
         // Idempotency guard
         if (this.initialized) {
+            log('init() called but already initialized');
             return;
         }
 
+        log('initializing VFS');
         this.initialized = true;
 
         // Load and apply VFS schema from JSON definitions
@@ -350,11 +355,13 @@ export class VFS {
 
             // Load models, fields, and seeds from JSON files
             // WHY cast: EntityOps has more specific types; SchemaOps is the minimal interface
+            log('loading VFS schema');
             const schemaPath = new URL('.', import.meta.url).pathname;
 
             await loadSchemaSync(schemaPath, this.ems.ops as unknown as SchemaOps);
 
             // Reload PathCache to pick up root entity from VFS seeds
+            log('loading path cache from database');
             await this.ems.pathCache.loadFromDatabase(this.ems.db);
         }
 
@@ -368,10 +375,14 @@ export class VFS {
             throw new ENOENT('Folder model not registered');
         }
 
+        log('mounting root filesystem');
         this.mount('/', folderModel, {});
 
         // Initialize /dev directory with standard devices
+        log('initializing /dev');
         await this.initDevices();
+
+        log('VFS initialized with %d models', this.models.size);
     }
 
     /**
@@ -383,6 +394,8 @@ export class VFS {
      * Currently just clears in-memory state.
      */
     async shutdown(): Promise<void> {
+        log('shutting down VFS');
+
         // Clear all mounts
         this.mounts.clear();
         this.hostMounts = [];
@@ -391,6 +404,8 @@ export class VFS {
 
         // Reset initialization flag to allow re-init if needed
         this.initialized = false;
+
+        log('VFS shutdown complete');
     }
 
     /**
@@ -527,6 +542,7 @@ export class VFS {
      * @param options - Mount options (readOnly, extensions filter)
      */
     mountHost(vfsPath: string, hostPath: string, options?: HostMountOptions): void {
+        log('mounting host %s -> %s', vfsPath, hostPath);
         const mount = createHostMount(vfsPath, hostPath, options);
 
         this.hostMounts.push(mount);
@@ -557,6 +573,7 @@ export class VFS {
      * @param vfsPath - VFS path to mount at (default: '/proc')
      */
     mountProc(processTable: ProcessTable, vfsPath: string = '/proc'): void {
+        log('mounting proc at %s', vfsPath);
         this.procMount = createProcMount(vfsPath, processTable);
     }
 
