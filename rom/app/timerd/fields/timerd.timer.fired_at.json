@@ -1,0 +1,6 @@
+{
+    "model_name": "timerd.timer",
+    "field_name": "fired_at",
+    "type": "timestamp",
+    "description": "When the timer actually fired"
+}

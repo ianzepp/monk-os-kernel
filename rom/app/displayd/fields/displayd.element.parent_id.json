@@ -1,0 +1,7 @@
+{
+    "model_name": "displayd.element",
+    "field_name": "parent_id",
+    "type": "uuid",
+    "indexed": "simple",
+    "description": "Parent element (null = window root)"
+}

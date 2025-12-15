@@ -1,0 +1,6 @@
+{
+    "model_name": "crond.job",
+    "field_name": "args",
+    "type": "jsonb",
+    "description": "Arguments to pass to command"
+}

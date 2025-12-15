@@ -1,0 +1,6 @@
+{
+    "model_name": "displayd.cursor",
+    "field_name": "element_id",
+    "type": "uuid",
+    "description": "Element cursor is over"
+}

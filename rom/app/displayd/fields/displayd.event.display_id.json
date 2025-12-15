@@ -1,0 +1,8 @@
+{
+    "model_name": "displayd.event",
+    "field_name": "display_id",
+    "type": "uuid",
+    "required": true,
+    "indexed": "simple",
+    "description": "Source display"
+}

@@ -1,0 +1,6 @@
+{
+    "model_name": "displayd.element",
+    "field_name": "height",
+    "type": "text",
+    "description": "CSS height value"
+}

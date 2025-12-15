@@ -1,0 +1,7 @@
+{
+    "model_name": "displayd.window",
+    "field_name": "width",
+    "type": "integer",
+    "required": true,
+    "description": "Window width in pixels"
+}

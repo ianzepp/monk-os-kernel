@@ -1,0 +1,12 @@
+{
+    "model_name": "ai.request_event",
+    "field_name": "request_id",
+    "type": "text",
+    "required": true,
+    "indexed": "simple",
+    "relationship_type": "referenced",
+    "related_model": "ai.request",
+    "related_field": "id",
+    "required_relationship": true,
+    "description": "Parent request ID"
+}

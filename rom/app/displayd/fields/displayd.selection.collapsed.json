@@ -1,0 +1,7 @@
+{
+    "model_name": "displayd.selection",
+    "field_name": "collapsed",
+    "type": "boolean",
+    "default_value": "true",
+    "description": "Selection is collapsed"
+}

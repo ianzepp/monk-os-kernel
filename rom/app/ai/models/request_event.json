@@ -1,47 +1,6 @@
 {
+    "model_name": "ai.request_event",
+    "status": "user",
     "description": "AI request events - per-command execution trace",
-    "passthrough": false,
-    "fields": {
-        "request_id": {
-            "type": "text",
-            "required": true,
-            "indexed": "simple",
-            "relationship_type": "referenced",
-            "related_model": "ai.request",
-            "related_field": "id",
-            "required_relationship": true,
-            "description": "Parent request ID"
-        },
-        "iteration": {
-            "type": "integer",
-            "required": true,
-            "indexed": "simple",
-            "description": "Agentic loop iteration (1, 2, 3...)"
-        },
-        "sequence": {
-            "type": "integer",
-            "required": true,
-            "description": "Order within iteration (for parallel commands)"
-        },
-        "event_type": {
-            "type": "text",
-            "required": true,
-            "enum_values": "[\"exec\",\"call\",\"spawn\",\"wait\",\"ref\",\"coalesce\",\"help\",\"stm\",\"ltm\",\"ems\"]",
-            "indexed": "simple",
-            "description": "Command type"
-        },
-        "command": {
-            "type": "text",
-            "required": true,
-            "description": "What was executed"
-        },
-        "result": {
-            "type": "text",
-            "description": "Output or error"
-        },
-        "duration_ms": {
-            "type": "integer",
-            "description": "Command execution time in milliseconds"
-        }
-    }
+    "passthrough": false
 }

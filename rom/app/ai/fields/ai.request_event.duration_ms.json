@@ -1,0 +1,6 @@
+{
+    "model_name": "ai.request_event",
+    "field_name": "duration_ms",
+    "type": "integer",
+    "description": "Command execution time in milliseconds"
+}

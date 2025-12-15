@@ -1,0 +1,7 @@
+{
+    "model_name": "displayd.element",
+    "field_name": "autofocus",
+    "type": "boolean",
+    "default_value": "false",
+    "description": "Auto-focus on mount"
+}

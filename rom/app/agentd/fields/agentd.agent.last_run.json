@@ -1,0 +1,6 @@
+{
+    "model_name": "agentd.agent",
+    "field_name": "last_run",
+    "type": "timestamp",
+    "description": "Last execution time"
+}

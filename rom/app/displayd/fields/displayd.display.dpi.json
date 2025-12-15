@@ -1,0 +1,7 @@
+{
+    "model_name": "displayd.display",
+    "field_name": "dpi",
+    "type": "numeric",
+    "default_value": "1",
+    "description": "Device pixel ratio"
+}

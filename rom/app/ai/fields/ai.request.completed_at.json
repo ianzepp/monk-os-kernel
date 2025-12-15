@@ -1,0 +1,6 @@
+{
+    "model_name": "ai.request",
+    "field_name": "completed_at",
+    "type": "timestamp",
+    "description": "When request completed"
+}

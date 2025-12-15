@@ -1,0 +1,7 @@
+{
+    "model_name": "crond.job",
+    "field_name": "command",
+    "type": "text",
+    "required": true,
+    "description": "Command or script path to execute"
+}

@@ -1,0 +1,6 @@
+{
+    "model_name": "displayd.selection",
+    "field_name": "text",
+    "type": "text",
+    "description": "Selected text content"
+}

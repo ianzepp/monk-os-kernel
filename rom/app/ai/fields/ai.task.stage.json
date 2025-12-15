@@ -1,0 +1,10 @@
+{
+    "model_name": "ai.task",
+    "field_name": "stage",
+    "type": "text",
+    "required": true,
+    "default_value": "backlog",
+    "enum_values": "[\"backlog\",\"selected\",\"active\",\"delegated\",\"review\",\"release\",\"done\",\"failed\"]",
+    "indexed": "simple",
+    "description": "Pipeline stage"
+}

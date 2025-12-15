@@ -1,0 +1,7 @@
+{
+    "model_name": "ai.stm",
+    "field_name": "content",
+    "type": "text",
+    "required": true,
+    "description": "Raw memory content"
+}

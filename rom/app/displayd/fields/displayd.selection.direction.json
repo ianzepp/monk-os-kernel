@@ -1,0 +1,7 @@
+{
+    "model_name": "displayd.selection",
+    "field_name": "direction",
+    "type": "text",
+    "default_value": "forward",
+    "description": "Selection direction"
+}

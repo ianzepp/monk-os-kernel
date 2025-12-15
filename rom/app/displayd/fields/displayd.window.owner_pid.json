@@ -1,0 +1,8 @@
+{
+    "model_name": "displayd.window",
+    "field_name": "owner_pid",
+    "type": "text",
+    "required": true,
+    "indexed": "simple",
+    "description": "Owning process UUID"
+}

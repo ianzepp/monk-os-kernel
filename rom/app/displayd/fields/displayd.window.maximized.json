@@ -1,0 +1,7 @@
+{
+    "model_name": "displayd.window",
+    "field_name": "maximized",
+    "type": "boolean",
+    "default_value": "false",
+    "description": "Window is maximized"
+}

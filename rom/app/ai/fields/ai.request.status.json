@@ -1,0 +1,10 @@
+{
+    "model_name": "ai.request",
+    "field_name": "status",
+    "type": "text",
+    "required": true,
+    "default_value": "running",
+    "enum_values": "[\"running\",\"ok\",\"error\"]",
+    "indexed": "simple",
+    "description": "Execution status"
+}

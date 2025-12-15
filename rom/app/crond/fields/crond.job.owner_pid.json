@@ -1,0 +1,6 @@
+{
+    "model_name": "crond.job",
+    "field_name": "owner_pid",
+    "type": "text",
+    "description": "Process that created this job"
+}

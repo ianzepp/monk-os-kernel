@@ -73,6 +73,7 @@ import { deliverSignal } from '@src/kernel/kernel/deliver-signal.js';
 import { spawnWorker } from '@src/kernel/kernel/spawn-worker.js';
 import { setupInitStdio } from '@src/kernel/kernel/setup-init-stdio.js';
 import { loadServices } from '@src/kernel/kernel/load-services.js';
+import { loadAppSchemas } from '@src/kernel/kernel/load-app-schemas.js';
 import { printk } from '@src/kernel/kernel/printk.js';
 import { formatError } from '@src/kernel/kernel/format-error.js';
 import { interruptProcess } from '@src/kernel/kernel/interrupt-process.js';
@@ -573,6 +574,14 @@ export class Kernel {
 
         printk(this, 'init', 'Loading service definitions');
         await loadServices(this);
+
+        // ---------------------------------------------------------------------
+        // PHASE 5: APP SCHEMAS
+        // Load model/field definitions from /app directories
+        // ---------------------------------------------------------------------
+
+        printk(this, 'init', 'Loading app schemas');
+        await loadAppSchemas(this);
 
         // Init complete
         this.initialized = true;

@@ -1,0 +1,7 @@
+{
+    "model_name": "displayd.display",
+    "field_name": "connected",
+    "type": "boolean",
+    "default_value": "false",
+    "description": "Browser currently connected"
+}

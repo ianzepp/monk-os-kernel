@@ -1,0 +1,7 @@
+{
+    "model_name": "crond.job",
+    "field_name": "spec",
+    "type": "text",
+    "required": true,
+    "description": "Cron expression (e.g., '*/5 * * * *')"
+}

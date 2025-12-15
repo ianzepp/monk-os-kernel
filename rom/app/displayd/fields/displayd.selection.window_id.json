@@ -1,0 +1,11 @@
+{
+    "model_name": "displayd.selection",
+    "field_name": "window_id",
+    "type": "uuid",
+    "required": true,
+    "indexed": "simple",
+    "relationship_type": "owned",
+    "related_model": "displayd.window",
+    "cascade_delete": true,
+    "description": "Window containing selection"
+}

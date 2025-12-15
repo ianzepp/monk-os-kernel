@@ -1,0 +1,7 @@
+{
+    "model_name": "agentd.agent",
+    "field_name": "fail_count",
+    "type": "integer",
+    "default_value": "0",
+    "description": "Number of failed executions"
+}

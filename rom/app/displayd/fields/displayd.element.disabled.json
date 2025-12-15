@@ -1,0 +1,7 @@
+{
+    "model_name": "displayd.element",
+    "field_name": "disabled",
+    "type": "boolean",
+    "default_value": "false",
+    "description": "Element is disabled"
+}

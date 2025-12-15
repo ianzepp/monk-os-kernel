@@ -1,0 +1,7 @@
+{
+    "model_name": "ai.request",
+    "field_name": "iterations",
+    "type": "integer",
+    "default_value": "0",
+    "description": "Agentic loop iteration count"
+}

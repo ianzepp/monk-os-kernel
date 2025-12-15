@@ -1,0 +1,7 @@
+{
+    "model_name": "ai.request",
+    "field_name": "started_at",
+    "type": "timestamp",
+    "indexed": "simple",
+    "description": "When request started"
+}

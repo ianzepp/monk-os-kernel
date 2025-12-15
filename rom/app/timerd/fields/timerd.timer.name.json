@@ -1,0 +1,6 @@
+{
+    "model_name": "timerd.timer",
+    "field_name": "name",
+    "type": "text",
+    "description": "Optional timer name/identifier"
+}

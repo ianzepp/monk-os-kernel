@@ -1,0 +1,7 @@
+{
+    "model_name": "crond.job",
+    "field_name": "max_retries",
+    "type": "integer",
+    "default_value": "0",
+    "description": "Maximum retry attempts"
+}

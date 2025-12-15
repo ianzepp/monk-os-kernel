@@ -1,0 +1,7 @@
+{
+    "model_name": "displayd.event",
+    "field_name": "alt",
+    "type": "boolean",
+    "default_value": "false",
+    "description": "Alt key held"
+}

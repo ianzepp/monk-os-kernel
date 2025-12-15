@@ -1,0 +1,6 @@
+{
+    "model_name": "displayd.event",
+    "field_name": "button",
+    "type": "integer",
+    "description": "Mouse button"
+}

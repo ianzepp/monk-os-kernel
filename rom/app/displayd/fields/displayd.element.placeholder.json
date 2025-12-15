@@ -1,0 +1,6 @@
+{
+    "model_name": "displayd.element",
+    "field_name": "placeholder",
+    "type": "text",
+    "description": "Placeholder text"
+}

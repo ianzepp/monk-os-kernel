@@ -1,0 +1,6 @@
+{
+    "model_name": "displayd.window",
+    "field_name": "background",
+    "type": "text",
+    "description": "Background color or CSS value"
+}

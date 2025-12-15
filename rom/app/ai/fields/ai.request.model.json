@@ -1,0 +1,8 @@
+{
+    "model_name": "ai.request",
+    "field_name": "model",
+    "type": "text",
+    "required": true,
+    "indexed": "simple",
+    "description": "LLM model used"
+}

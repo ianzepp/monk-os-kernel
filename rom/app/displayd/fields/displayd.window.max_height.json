@@ -1,0 +1,6 @@
+{
+    "model_name": "displayd.window",
+    "field_name": "max_height",
+    "type": "integer",
+    "description": "Maximum window height"
+}

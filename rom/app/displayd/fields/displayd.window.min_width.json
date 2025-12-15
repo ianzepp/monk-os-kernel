@@ -1,0 +1,6 @@
+{
+    "model_name": "displayd.window",
+    "field_name": "min_width",
+    "type": "integer",
+    "description": "Minimum window width"
+}

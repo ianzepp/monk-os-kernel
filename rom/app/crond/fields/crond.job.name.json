@@ -1,0 +1,7 @@
+{
+    "model_name": "crond.job",
+    "field_name": "name",
+    "type": "text",
+    "required": true,
+    "description": "Job name/identifier"
+}

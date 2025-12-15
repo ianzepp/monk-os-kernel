@@ -1,0 +1,7 @@
+{
+    "model_name": "ai.request",
+    "field_name": "task",
+    "type": "text",
+    "required": true,
+    "description": "Original instruction text"
+}

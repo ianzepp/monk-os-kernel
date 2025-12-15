@@ -1,0 +1,6 @@
+{
+    "model_name": "timerd.timer",
+    "field_name": "context",
+    "type": "jsonb",
+    "description": "Optional context data for tracking"
+}

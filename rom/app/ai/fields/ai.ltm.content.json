@@ -1,0 +1,7 @@
+{
+    "model_name": "ai.ltm",
+    "field_name": "content",
+    "type": "text",
+    "required": true,
+    "description": "Consolidated memory content"
+}

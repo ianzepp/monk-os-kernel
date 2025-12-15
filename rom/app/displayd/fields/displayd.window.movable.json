@@ -1,0 +1,7 @@
+{
+    "model_name": "displayd.window",
+    "field_name": "movable",
+    "type": "boolean",
+    "default_value": "true",
+    "description": "Window can be moved"
+}

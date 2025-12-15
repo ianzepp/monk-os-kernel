@@ -1,0 +1,7 @@
+{
+    "model_name": "displayd.event",
+    "field_name": "ctrl",
+    "type": "boolean",
+    "default_value": "false",
+    "description": "Control key held"
+}

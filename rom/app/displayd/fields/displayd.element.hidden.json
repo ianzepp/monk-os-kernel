@@ -1,0 +1,8 @@
+{
+    "model_name": "displayd.element",
+    "field_name": "hidden",
+    "type": "boolean",
+    "default_value": "false",
+    "indexed": "simple",
+    "description": "Element is hidden"
+}

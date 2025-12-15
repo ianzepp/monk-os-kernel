@@ -1,0 +1,8 @@
+{
+    "model_name": "displayd.event",
+    "field_name": "type",
+    "type": "text",
+    "required": true,
+    "indexed": "simple",
+    "description": "Event type"
+}

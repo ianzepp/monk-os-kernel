@@ -1,0 +1,8 @@
+{
+    "model_name": "displayd.window",
+    "field_name": "z_index",
+    "type": "integer",
+    "default_value": "0",
+    "indexed": "simple",
+    "description": "Stacking order"
+}

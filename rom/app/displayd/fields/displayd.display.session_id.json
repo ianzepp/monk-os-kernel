@@ -1,0 +1,6 @@
+{
+    "model_name": "displayd.display",
+    "field_name": "session_id",
+    "type": "text",
+    "description": "Browser session identifier"
+}

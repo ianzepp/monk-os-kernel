@@ -1,0 +1,7 @@
+{
+    "model_name": "agentd.agent",
+    "field_name": "run_count",
+    "type": "integer",
+    "default_value": "0",
+    "description": "Total number of executions"
+}

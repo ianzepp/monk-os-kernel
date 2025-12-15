@@ -1,0 +1,7 @@
+{
+    "model_name": "displayd.event",
+    "field_name": "shift",
+    "type": "boolean",
+    "default_value": "false",
+    "description": "Shift key held"
+}

@@ -1,0 +1,7 @@
+{
+    "model_name": "displayd.display",
+    "field_name": "height",
+    "type": "integer",
+    "required": true,
+    "description": "Screen height in pixels"
+}

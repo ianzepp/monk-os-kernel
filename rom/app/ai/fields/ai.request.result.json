@@ -1,0 +1,6 @@
+{
+    "model_name": "ai.request",
+    "field_name": "result",
+    "type": "text",
+    "description": "Final response or error message"
+}

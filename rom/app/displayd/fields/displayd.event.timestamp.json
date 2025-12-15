@@ -1,0 +1,8 @@
+{
+    "model_name": "displayd.event",
+    "field_name": "timestamp",
+    "type": "integer",
+    "required": true,
+    "indexed": "simple",
+    "description": "Event timestamp (Unix ms)"
+}

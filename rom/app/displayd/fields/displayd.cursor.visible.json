@@ -1,0 +1,7 @@
+{
+    "model_name": "displayd.cursor",
+    "field_name": "visible",
+    "type": "boolean",
+    "default_value": "true",
+    "description": "Cursor is visible"
+}

@@ -1,0 +1,9 @@
+{
+    "model_name": "ai.request_event",
+    "field_name": "event_type",
+    "type": "text",
+    "required": true,
+    "enum_values": "[\"exec\",\"call\",\"spawn\",\"wait\",\"ref\",\"coalesce\",\"help\",\"stm\",\"ltm\",\"ems\"]",
+    "indexed": "simple",
+    "description": "Command type"
+}

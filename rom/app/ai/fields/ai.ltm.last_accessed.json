@@ -1,0 +1,7 @@
+{
+    "model_name": "ai.ltm",
+    "field_name": "last_accessed",
+    "type": "timestamp",
+    "indexed": "simple",
+    "description": "Last retrieval timestamp (for decay)"
+}

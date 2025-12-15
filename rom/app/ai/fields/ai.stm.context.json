@@ -1,0 +1,6 @@
+{
+    "model_name": "ai.stm",
+    "field_name": "context",
+    "type": "jsonb",
+    "description": "Context data (task_id, source, etc.)"
+}

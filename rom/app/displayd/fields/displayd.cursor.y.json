@@ -1,0 +1,8 @@
+{
+    "model_name": "displayd.cursor",
+    "field_name": "y",
+    "type": "integer",
+    "required": true,
+    "default_value": "0",
+    "description": "Y coordinate on screen"
+}

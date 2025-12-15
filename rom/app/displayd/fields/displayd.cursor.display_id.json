@@ -1,0 +1,11 @@
+{
+    "model_name": "displayd.cursor",
+    "field_name": "display_id",
+    "type": "uuid",
+    "required": true,
+    "indexed": "unique",
+    "relationship_type": "owned",
+    "related_model": "displayd.display",
+    "cascade_delete": true,
+    "description": "Parent display (one cursor per display)"
+}

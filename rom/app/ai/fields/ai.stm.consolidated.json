@@ -1,0 +1,9 @@
+{
+    "model_name": "ai.stm",
+    "field_name": "consolidated",
+    "type": "boolean",
+    "required": true,
+    "default_value": "false",
+    "indexed": "simple",
+    "description": "Has been processed during consolidation"
+}

@@ -1,0 +1,7 @@
+{
+    "model_name": "agentd.agent",
+    "field_name": "model",
+    "type": "text",
+    "default_value": "sonnet",
+    "description": "LLM model to use (haiku, sonnet, opus)"
+}

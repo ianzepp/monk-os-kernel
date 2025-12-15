@@ -1,0 +1,6 @@
+{
+    "model_name": "displayd.element",
+    "field_name": "width",
+    "type": "text",
+    "description": "CSS width value"
+}

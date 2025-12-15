@@ -1,0 +1,6 @@
+{
+    "model_name": "displayd.event",
+    "field_name": "target_tag",
+    "type": "text",
+    "description": "Target element tag name"
+}

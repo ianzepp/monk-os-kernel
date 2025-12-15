@@ -1,0 +1,6 @@
+{
+    "model_name": "timerd.timer",
+    "field_name": "error",
+    "type": "text",
+    "description": "Error message (if failed)"
+}

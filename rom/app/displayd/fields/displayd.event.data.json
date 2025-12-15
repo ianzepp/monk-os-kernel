@@ -1,0 +1,6 @@
+{
+    "model_name": "displayd.event",
+    "field_name": "data",
+    "type": "jsonb",
+    "description": "Event-specific data"
+}

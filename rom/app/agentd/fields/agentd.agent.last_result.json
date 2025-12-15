@@ -1,0 +1,6 @@
+{
+    "model_name": "agentd.agent",
+    "field_name": "last_result",
+    "type": "text",
+    "description": "AI response from last run"
+}

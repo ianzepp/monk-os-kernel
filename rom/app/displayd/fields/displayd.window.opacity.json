@@ -1,0 +1,7 @@
+{
+    "model_name": "displayd.window",
+    "field_name": "opacity",
+    "type": "numeric",
+    "default_value": "1.0",
+    "description": "Window opacity (0-1)"
+}

@@ -1,0 +1,7 @@
+{
+    "model_name": "displayd.window",
+    "field_name": "resizable",
+    "type": "boolean",
+    "default_value": "true",
+    "description": "Window can be resized"
+}

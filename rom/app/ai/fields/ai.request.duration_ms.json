@@ -1,0 +1,7 @@
+{
+    "model_name": "ai.request",
+    "field_name": "duration_ms",
+    "type": "integer",
+    "indexed": "simple",
+    "description": "Total request duration in milliseconds"
+}

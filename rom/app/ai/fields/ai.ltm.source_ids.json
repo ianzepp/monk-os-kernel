@@ -1,0 +1,6 @@
+{
+    "model_name": "ai.ltm",
+    "field_name": "source_ids",
+    "type": "jsonb",
+    "description": "Array of source STM ids"
+}

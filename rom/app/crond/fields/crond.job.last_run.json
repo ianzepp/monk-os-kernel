@@ -1,0 +1,6 @@
+{
+    "model_name": "crond.job",
+    "field_name": "last_run",
+    "type": "timestamp",
+    "description": "Last execution time"
+}

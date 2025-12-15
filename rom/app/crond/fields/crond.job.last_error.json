@@ -1,0 +1,6 @@
+{
+    "model_name": "crond.job",
+    "field_name": "last_error",
+    "type": "text",
+    "description": "Error message from last run (if failed)"
+}

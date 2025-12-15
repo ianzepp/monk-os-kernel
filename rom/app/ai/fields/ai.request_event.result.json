@@ -1,0 +1,6 @@
+{
+    "model_name": "ai.request_event",
+    "field_name": "result",
+    "type": "text",
+    "description": "Output or error"
+}

@@ -1,0 +1,7 @@
+{
+    "model_name": "agentd.agent",
+    "field_name": "schedule",
+    "type": "text",
+    "required": true,
+    "description": "Cron expression for when to run"
+}

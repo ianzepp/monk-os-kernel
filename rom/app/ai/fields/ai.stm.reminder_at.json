@@ -1,0 +1,7 @@
+{
+    "model_name": "ai.stm",
+    "field_name": "reminder_at",
+    "type": "timestamp",
+    "indexed": "simple",
+    "description": "When to surface this memory as a reminder (null = not a reminder)"
+}

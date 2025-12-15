@@ -1,0 +1,6 @@
+{
+    "model_name": "displayd.display",
+    "field_name": "user_agent",
+    "type": "text",
+    "description": "Browser user agent string"
+}

@@ -1,0 +1,7 @@
+{
+    "model_name": "agentd.agent",
+    "field_name": "name",
+    "type": "text",
+    "required": true,
+    "description": "Agent name/identifier"
+}

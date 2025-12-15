@@ -1,0 +1,6 @@
+{
+    "model_name": "displayd.event",
+    "field_name": "y",
+    "type": "integer",
+    "description": "Y coordinate"
+}

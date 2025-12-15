@@ -1,0 +1,6 @@
+{
+    "model_name": "timerd.timer",
+    "field_name": "args",
+    "type": "jsonb",
+    "description": "Arguments to pass to syscall"
+}

@@ -1,0 +1,7 @@
+{
+    "model_name": "displayd.event",
+    "field_name": "prevented",
+    "type": "boolean",
+    "default_value": "false",
+    "description": "Default action prevented"
+}

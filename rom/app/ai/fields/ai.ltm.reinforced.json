@@ -1,0 +1,9 @@
+{
+    "model_name": "ai.ltm",
+    "field_name": "reinforced",
+    "type": "integer",
+    "required": true,
+    "default_value": "1",
+    "indexed": "simple",
+    "description": "Reinforcement count (higher = stronger)"
+}

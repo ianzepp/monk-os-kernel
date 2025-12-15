@@ -1,0 +1,8 @@
+{
+    "model_name": "displayd.event",
+    "field_name": "handled",
+    "type": "boolean",
+    "default_value": "false",
+    "indexed": "simple",
+    "description": "Event has been processed"
+}

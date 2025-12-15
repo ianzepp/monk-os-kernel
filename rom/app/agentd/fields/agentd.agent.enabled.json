@@ -1,0 +1,8 @@
+{
+    "model_name": "agentd.agent",
+    "field_name": "enabled",
+    "type": "boolean",
+    "default_value": "true",
+    "indexed": "simple",
+    "description": "Agent is active"
+}

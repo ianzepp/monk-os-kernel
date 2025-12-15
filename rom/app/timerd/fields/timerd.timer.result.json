@@ -1,0 +1,6 @@
+{
+    "model_name": "timerd.timer",
+    "field_name": "result",
+    "type": "jsonb",
+    "description": "Syscall result (if successful)"
+}

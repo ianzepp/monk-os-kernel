@@ -1,0 +1,7 @@
+{
+    "model_name": "displayd.event",
+    "field_name": "window_id",
+    "type": "uuid",
+    "indexed": "simple",
+    "description": "Target window"
+}

@@ -1,0 +1,6 @@
+{
+    "model_name": "displayd.selection",
+    "field_name": "start_element_id",
+    "type": "uuid",
+    "description": "Element where selection starts"
+}

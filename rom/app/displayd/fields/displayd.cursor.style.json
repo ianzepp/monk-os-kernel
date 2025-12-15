@@ -1,0 +1,7 @@
+{
+    "model_name": "displayd.cursor",
+    "field_name": "style",
+    "type": "text",
+    "default_value": "default",
+    "description": "CSS cursor style"
+}

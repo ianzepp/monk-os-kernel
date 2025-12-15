@@ -1,0 +1,8 @@
+{
+    "model_name": "crond.job",
+    "field_name": "enabled",
+    "type": "boolean",
+    "default_value": "true",
+    "indexed": "simple",
+    "description": "Job is active"
+}

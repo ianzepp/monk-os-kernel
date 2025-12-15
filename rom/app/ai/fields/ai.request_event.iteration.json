@@ -1,0 +1,8 @@
+{
+    "model_name": "ai.request_event",
+    "field_name": "iteration",
+    "type": "integer",
+    "required": true,
+    "indexed": "simple",
+    "description": "Agentic loop iteration (1, 2, 3...)"
+}

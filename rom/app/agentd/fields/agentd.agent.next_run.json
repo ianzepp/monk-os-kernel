@@ -1,0 +1,7 @@
+{
+    "model_name": "agentd.agent",
+    "field_name": "next_run",
+    "type": "timestamp",
+    "indexed": "simple",
+    "description": "Next scheduled execution time"
+}

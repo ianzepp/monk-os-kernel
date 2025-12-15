@@ -1,0 +1,9 @@
+{
+    "model_name": "ai.task",
+    "field_name": "priority",
+    "type": "integer",
+    "required": true,
+    "default_value": "5",
+    "indexed": "simple",
+    "description": "Priority 1-9 (1=critical, 5=normal, 9=idle)"
+}

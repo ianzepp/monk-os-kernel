@@ -1,0 +1,8 @@
+{
+    "model_name": "displayd.window",
+    "field_name": "focused",
+    "type": "boolean",
+    "default_value": "false",
+    "indexed": "simple",
+    "description": "Has keyboard focus"
+}

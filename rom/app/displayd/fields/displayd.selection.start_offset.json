@@ -1,0 +1,6 @@
+{
+    "model_name": "displayd.selection",
+    "field_name": "start_offset",
+    "type": "integer",
+    "description": "Selection start offset"
+}

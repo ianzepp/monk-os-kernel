@@ -1,64 +1,6 @@
 {
+    "model_name": "ai.request",
+    "status": "user",
     "description": "AI request execution tracking - traces from start to finish",
-    "passthrough": false,
-    "fields": {
-        "task": {
-            "type": "text",
-            "required": true,
-            "description": "Original instruction text"
-        },
-        "client_addr": {
-            "type": "text",
-            "description": "Client address (e.g., 127.0.0.1:58198)"
-        },
-        "model": {
-            "type": "text",
-            "required": true,
-            "indexed": "simple",
-            "description": "LLM model used"
-        },
-        "status": {
-            "type": "text",
-            "required": true,
-            "default_value": "running",
-            "enum_values": "[\"running\",\"ok\",\"error\"]",
-            "indexed": "simple",
-            "description": "Execution status"
-        },
-        "result": {
-            "type": "text",
-            "description": "Final response or error message"
-        },
-        "iterations": {
-            "type": "integer",
-            "default_value": "0",
-            "description": "Agentic loop iteration count"
-        },
-        "started_at": {
-            "type": "timestamp",
-            "indexed": "simple",
-            "description": "When request started"
-        },
-        "completed_at": {
-            "type": "timestamp",
-            "description": "When request completed"
-        },
-        "duration_ms": {
-            "type": "integer",
-            "indexed": "simple",
-            "description": "Total request duration in milliseconds"
-        },
-        "prompt_tokens": {
-            "type": "integer",
-            "description": "Input token count"
-        },
-        "completion_tokens": {
-            "type": "integer",
-            "description": "Output token count"
-        },
-        "total_tokens": {
-            "type": "integer",
-            "description": "Total token count"
-        }
-    }
+    "passthrough": false
 }

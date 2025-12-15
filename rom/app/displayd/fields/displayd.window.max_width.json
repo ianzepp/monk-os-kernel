@@ -1,0 +1,6 @@
+{
+    "model_name": "displayd.window",
+    "field_name": "max_width",
+    "type": "integer",
+    "description": "Maximum window width"
+}

@@ -1,0 +1,6 @@
+{
+    "model_name": "displayd.selection",
+    "field_name": "end_offset",
+    "type": "integer",
+    "description": "Selection end offset"
+}

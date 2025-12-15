@@ -1,0 +1,7 @@
+{
+    "model_name": "agentd.agent",
+    "field_name": "prompt",
+    "type": "text",
+    "required": true,
+    "description": "Prompt to send to AI"
+}

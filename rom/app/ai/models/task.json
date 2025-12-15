@@ -1,59 +1,6 @@
 {
+    "model_name": "ai.task",
+    "status": "user",
     "description": "AI task queue with priority-based scheduling",
-    "passthrough": false,
-    "fields": {
-        "title": {
-            "type": "text",
-            "required": true,
-            "description": "Brief task description"
-        },
-        "description": {
-            "type": "text",
-            "description": "Detailed task requirements"
-        },
-        "priority": {
-            "type": "integer",
-            "required": true,
-            "default_value": "5",
-            "indexed": "simple",
-            "description": "Priority 1-9 (1=critical, 5=normal, 9=idle)"
-        },
-        "stage": {
-            "type": "text",
-            "required": true,
-            "default_value": "backlog",
-            "enum_values": "[\"backlog\",\"selected\",\"active\",\"delegated\",\"review\",\"release\",\"done\",\"failed\"]",
-            "indexed": "simple",
-            "description": "Pipeline stage"
-        },
-        "owner": {
-            "type": "text",
-            "indexed": "simple",
-            "description": "Who is working on this (null, prior, or monk pid)"
-        },
-        "parent_id": {
-            "type": "text",
-            "indexed": "simple",
-            "relationship_type": "referenced",
-            "related_model": "ai.task",
-            "related_field": "id",
-            "description": "Parent task for subtask hierarchy"
-        },
-        "result": {
-            "type": "text",
-            "description": "Task output/result"
-        },
-        "error": {
-            "type": "text",
-            "description": "Error message if failed"
-        },
-        "started_at": {
-            "type": "timestamp",
-            "description": "When work began"
-        },
-        "completed_at": {
-            "type": "timestamp",
-            "description": "When work finished"
-        }
-    }
+    "passthrough": false
 }

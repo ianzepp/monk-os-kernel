@@ -1,45 +1,6 @@
 {
+    "model_name": "displayd.cursor",
+    "status": "user",
     "description": "Mouse cursor state",
-    "passthrough": true,
-    "fields": {
-        "display_id": {
-            "type": "uuid",
-            "required": true,
-            "indexed": "unique",
-            "relationship_type": "owned",
-            "related_model": "display",
-            "cascade_delete": true,
-            "description": "Parent display (one cursor per display)"
-        },
-        "x": {
-            "type": "integer",
-            "required": true,
-            "default_value": "0",
-            "description": "X coordinate on screen"
-        },
-        "y": {
-            "type": "integer",
-            "required": true,
-            "default_value": "0",
-            "description": "Y coordinate on screen"
-        },
-        "style": {
-            "type": "text",
-            "default_value": "default",
-            "description": "CSS cursor style"
-        },
-        "visible": {
-            "type": "boolean",
-            "default_value": "1",
-            "description": "Cursor is visible"
-        },
-        "window_id": {
-            "type": "uuid",
-            "description": "Window cursor is over"
-        },
-        "element_id": {
-            "type": "uuid",
-            "description": "Element cursor is over"
-        }
-    }
+    "passthrough": true
 }

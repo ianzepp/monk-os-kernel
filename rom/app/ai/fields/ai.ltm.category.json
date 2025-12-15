@@ -1,0 +1,7 @@
+{
+    "model_name": "ai.ltm",
+    "field_name": "category",
+    "type": "text",
+    "indexed": "simple",
+    "description": "Memory category (user_prefs, project_facts, lessons, etc.)"
+}

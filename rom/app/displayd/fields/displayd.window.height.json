@@ -1,0 +1,7 @@
+{
+    "model_name": "displayd.window",
+    "field_name": "height",
+    "type": "integer",
+    "required": true,
+    "description": "Window height in pixels"
+}

@@ -1,0 +1,8 @@
+{
+    "model_name": "timerd.timer",
+    "field_name": "fire_at",
+    "type": "timestamp",
+    "required": true,
+    "indexed": "simple",
+    "description": "When to fire the syscall"
+}

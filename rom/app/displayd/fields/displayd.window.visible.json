@@ -1,0 +1,8 @@
+{
+    "model_name": "displayd.window",
+    "field_name": "visible",
+    "type": "boolean",
+    "default_value": "true",
+    "indexed": "simple",
+    "description": "Is visible on screen"
+}

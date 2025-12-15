@@ -1,0 +1,7 @@
+{
+    "model_name": "displayd.window",
+    "field_name": "title",
+    "type": "text",
+    "default_value": "",
+    "description": "Window title bar text"
+}

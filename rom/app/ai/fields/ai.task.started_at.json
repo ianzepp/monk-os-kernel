@@ -1,0 +1,6 @@
+{
+    "model_name": "ai.task",
+    "field_name": "started_at",
+    "type": "timestamp",
+    "description": "When work began"
+}

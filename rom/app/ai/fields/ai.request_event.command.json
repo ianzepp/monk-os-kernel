@@ -1,0 +1,7 @@
+{
+    "model_name": "ai.request_event",
+    "field_name": "command",
+    "type": "text",
+    "required": true,
+    "description": "What was executed"
+}

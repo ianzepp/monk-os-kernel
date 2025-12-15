@@ -1,0 +1,6 @@
+{
+    "model_name": "displayd.window",
+    "field_name": "min_height",
+    "type": "integer",
+    "description": "Minimum window height"
+}

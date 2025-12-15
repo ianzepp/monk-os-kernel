@@ -1,0 +1,7 @@
+{
+    "model_name": "displayd.element",
+    "field_name": "order_",
+    "type": "integer",
+    "default_value": "0",
+    "description": "Sibling order"
+}

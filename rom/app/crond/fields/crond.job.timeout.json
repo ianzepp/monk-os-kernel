@@ -1,0 +1,6 @@
+{
+    "model_name": "crond.job",
+    "field_name": "timeout",
+    "type": "integer",
+    "description": "Max execution time in seconds"
+}

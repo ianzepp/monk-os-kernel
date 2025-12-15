@@ -1,0 +1,8 @@
+{
+    "model_name": "displayd.element",
+    "field_name": "tag",
+    "type": "text",
+    "required": true,
+    "default_value": "div",
+    "description": "HTML tag name"
+}

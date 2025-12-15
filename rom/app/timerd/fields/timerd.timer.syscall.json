@@ -1,0 +1,7 @@
+{
+    "model_name": "timerd.timer",
+    "field_name": "syscall",
+    "type": "text",
+    "required": true,
+    "description": "Syscall to execute (e.g., 'ems:update')"
+}

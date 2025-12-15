@@ -1,0 +1,10 @@
+{
+    "model_name": "ai.task",
+    "field_name": "parent_id",
+    "type": "text",
+    "indexed": "simple",
+    "relationship_type": "referenced",
+    "related_model": "ai.task",
+    "related_field": "id",
+    "description": "Parent task for subtask hierarchy"
+}

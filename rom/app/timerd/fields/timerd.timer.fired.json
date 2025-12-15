@@ -1,0 +1,8 @@
+{
+    "model_name": "timerd.timer",
+    "field_name": "fired",
+    "type": "boolean",
+    "default_value": "false",
+    "indexed": "simple",
+    "description": "Timer has fired"
+}

@@ -1,0 +1,7 @@
+{
+    "model_name": "displayd.window",
+    "field_name": "x",
+    "type": "integer",
+    "default_value": "0",
+    "description": "X position in pixels"
+}
