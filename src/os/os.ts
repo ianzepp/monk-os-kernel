@@ -202,13 +202,17 @@ export class OS extends BaseOS {
                 ? parseInt(this.config.env.MONK_PORT, 10)
                 : 7778;
 
+            const wsPort = this.config.env?.MONK_WS_PORT
+                ? parseInt(this.config.env.MONK_WS_PORT, 10)
+                : 7779;
+
             this.__gateway = new Gateway(
                 this.__dispatcher,
                 this.__kernel,
                 this.__hal,
             );
 
-            await this.__gateway.listen(port);
+            await this.__gateway.listen(port, wsPort);
 
             // 11. Kernel init (mounts /proc, loads services, creates PID 1 placeholder)
             await this.__kernel.init({ debug });
