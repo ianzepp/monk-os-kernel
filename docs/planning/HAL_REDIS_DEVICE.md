@@ -1162,3 +1162,137 @@ async function getUser(id: string): Promise<User> {
 - Pro: Native browser support
 - Con: Adds HTTP layer where not needed
 - Con: More complex than direct pub/sub
+
+---
+
+## 13. Future: RedisMount (VFS Integration)
+
+A synthetic filesystem backed by HAL Redis, exposing cache as files. Pure "because we can" territory.
+
+### 13.1 Concept
+
+Map Redis key-value operations to POSIX file semantics:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  /redis/                                                     │
+│  ├── user/                                                   │
+│  │   ├── 123/                                                │
+│  │   │   └── profile     ← GET/SET user:123:profile          │
+│  │   └── 456/                                                │
+│  │       └── profile                                         │
+│  ├── session/                                                │
+│  │   └── abc-def         ← GET/SET session:abc-def           │
+│  └── .ttl/               ← Shadow tree for TTL inspection    │
+│      └── session/                                            │
+│          └── abc-def     ← Returns "3542" (seconds remaining)│
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 13.2 Operation Mapping
+
+| Redis | VFS | Notes |
+|-------|-----|-------|
+| `GET key` | `read("/redis/key")` | Returns value as bytes |
+| `SET key value` | `write("/redis/key", value)` | Creates key if needed |
+| `DEL key` | `unlink("/redis/key")` | |
+| `EXISTS key` | `stat("/redis/key")` | ENOENT if missing |
+| `SCAN prefix*` | `readdir("/redis/prefix/")` | Virtual directory listing |
+| `TTL key` | `read("/redis/.ttl/key")` | Shadow tree |
+| `EXPIRE key sec` | `write("/redis/.ttl/key", "300")` | Set TTL via shadow tree |
+
+Key separator (`:`) becomes path separator (`/`):
+- Redis key `user:123:profile` → VFS path `/redis/user/123/profile`
+
+### 13.3 Interface
+
+```typescript
+// src/vfs/mounts/redis.ts
+
+export interface RedisMount {
+    vfsPath: string;           // Mount point, e.g., "/redis"
+    redis: RedisDevice;        // HAL Redis device
+    separator?: string;        // Key separator, default ":"
+}
+
+export function createRedisMount(
+    vfsPath: string,
+    redis: RedisDevice,
+    opts?: { separator?: string }
+): RedisMount;
+```
+
+### 13.4 Impedance Mismatches
+
+**Directories are virtual**
+- Redis keys are flat; directories are inferred from key structure
+- `mkdir("/redis/foo")` is a no-op (directory exists when any `foo:*` key exists)
+- `rmdir("/redis/foo")` would need to `DEL` all keys with prefix `foo:`
+
+**Atomic operations**
+- `INCR`, `DECR`, `SETNX` have no POSIX file equivalent
+- Options:
+  - Expose as syscalls only (not via mount)
+  - Special file convention: `echo "+5" > /redis/counter.incr`
+  - Accept the limitation
+
+**Pub/sub**
+- Fundamentally streaming, doesn't map to files
+- Could use FIFOs: `cat /redis/.pubsub/channel` blocks and yields messages
+- Or leave pub/sub entirely out of the mount (use ports instead)
+
+**Binary safety**
+- Redis values are binary-safe
+- VFS read/write are binary-safe
+- No issue here
+
+### 13.5 Usage Examples
+
+```bash
+# Shell-scriptable Redis
+echo '{"name":"alice"}' > /redis/user/123/profile
+cat /redis/user/123/profile
+
+# List all user keys
+ls /redis/user/
+
+# Check TTL
+cat /redis/.ttl/session/abc-def
+# Output: 3542
+
+# Set TTL
+echo "300" > /redis/.ttl/session/abc-def
+
+# Delete
+rm /redis/session/abc-def
+```
+
+```typescript
+// Programmatic access via VFS (why though?)
+const handle = await vfs.open('/redis/user/123/profile', { read: true }, caller);
+const data = await handle.read(65536);
+await handle.close();
+```
+
+### 13.6 Configuration (mounts.json)
+
+```json
+{
+    "path": "/redis",
+    "type": "redis",
+    "options": {
+        "separator": ":"
+    }
+}
+```
+
+Requires `hal.redis` to be initialized first.
+
+### 13.7 Priority
+
+Low. This is "because we can" functionality:
+- Useful for debugging/inspection from shell
+- Cool factor for Unix philosophy adherence
+- Not performance-critical path
+
+Implement after core HAL Redis device is stable.

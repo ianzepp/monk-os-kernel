@@ -14,12 +14,6 @@
             "type": "entity",
             "description": "Entity filesystem (all models)",
             "options": {}
-        },
-        {
-            "path": "/cdn",
-            "type": "host",
-            "source": "cdn",
-            "description": "Static files for httpd"
         }
     ]
 }
