@@ -159,7 +159,7 @@ export class EMS {
 
         // 4. Create entity operations (streaming CRUD with observers)
         log('creating entity ops');
-        this._ops = new EntityOps(this._db, this._models, this._runner);
+        this._ops = new EntityOps(this.hal, this._db, this._models, this._runner);
 
         // 5. Create path cache (empty - VFS will populate after seeding root)
         // WHY not loaded here: The entities table exists but is empty at this

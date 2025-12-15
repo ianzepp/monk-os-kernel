@@ -637,7 +637,7 @@ describe('Ring 5 is required for persistence', () => {
 
         // EMPTY runner - no Ring 5 observers registered
         const emptyRunner = new ObserverRunner();
-        const entityOps = new EntityOps(db, cache, emptyRunner);
+        const entityOps = new EntityOps(hal, db, cache, emptyRunner);
 
         // Attempt to create a record - pipeline runs but no SQL executes
         // createAll yields the record (no re-read), but database is empty
@@ -682,7 +682,7 @@ describe('Ring 5 is required for persistence', () => {
 
         // Runner WITH Ring 5 observers
         const runner = createObserverRunner();
-        const entityOps = new EntityOps(db, cache, runner);
+        const entityOps = new EntityOps(hal, db, cache, runner);
 
         // Create a record - Ring 5 observers execute SQL
         const results = await collect(

@@ -37,6 +37,7 @@
  * @module ems/entity-ops
  */
 
+import type { HAL } from '@src/hal/index.js';
 import type { DatabaseConnection } from '@src/hal/connection.js';
 import { DatabaseOps, collect, type Source, type DbRecord } from '@src/hal/database-ops.js';
 import type { ModelCache } from './model-cache.js';
@@ -103,9 +104,38 @@ export interface EntityRecord extends DbRecord {
 }
 
 /**
+ * Event emitted by watch() for entity changes.
+ */
+export interface WatchEvent<T extends EntityRecord> {
+    /** Operation type: create, update, or delete */
+    op: OperationType;
+
+    /** The entity data (for delete, only id is populated) */
+    entity: T;
+
+    /** Changed fields (update only) */
+    changes?: Record<string, unknown>;
+}
+
+/**
+ * Internal payload structure from pub/sub notifications.
+ */
+interface WatchPayload {
+    id: string;
+    model: string;
+    operation: OperationType;
+    data: Record<string, unknown> | null;
+    changes?: Record<string, unknown>;
+    timestamp: string;
+}
+
+/**
  * System context for observer pipeline.
  */
 export interface EntitySystemContext extends SystemContext {
+    /** HAL instance for pub/sub and other system services */
+    hal: HAL;
+
     /** Database connection (HAL-based) */
     db: DatabaseConnection;
 
@@ -140,9 +170,9 @@ export class EntityOps {
     // CONSTRUCTOR
     // =========================================================================
 
-    constructor(db: DatabaseConnection, cache: ModelCache, runner: ObserverRunner) {
+    constructor(hal: HAL, db: DatabaseConnection, cache: ModelCache, runner: ObserverRunner) {
         this.dbOps = new DatabaseOps(db);
-        this.system = { db, cache, runner };
+        this.system = { hal, db, cache, runner };
     }
 
     // =========================================================================
@@ -750,6 +780,90 @@ export class EntityOps {
         }
 
         throw new EFAULT('upsertAll yielded no records');
+    }
+
+    // =========================================================================
+    // WATCH OPERATIONS (real-time entity change notifications)
+    // =========================================================================
+
+    /**
+     * Watch for entity changes via pub/sub subscription.
+     *
+     * Subscribes to entity change notifications published by the PubsubNotify
+     * observer (Ring 9). Yields events for create, update, and delete operations.
+     *
+     * TOPIC PATTERN:
+     * - `entity.{model}.*` matches all operations for the model
+     * - Events arrive after database commit and cache updates
+     *
+     * FILTER:
+     * Optional client-side filter to narrow down events. Applied after
+     * receiving from pub/sub, so all events are still transmitted.
+     *
+     * @example
+     * ```typescript
+     * // Watch all user changes
+     * for await (const event of ops.watch('user')) {
+     *     console.log(`User ${event.entity.id} was ${event.op}d`);
+     * }
+     *
+     * // Watch with filter
+     * for await (const event of ops.watch('task', { where: { status: 'active' } })) {
+     *     console.log(`Active task changed: ${event.entity.id}`);
+     * }
+     * ```
+     *
+     * @param modelName - Model to watch
+     * @param filter - Optional filter to apply to events
+     * @yields WatchEvent for each matching entity change
+     */
+    async *watch<T extends EntityRecord>(
+        modelName: string,
+        filter?: { where?: Partial<T> },
+    ): AsyncGenerator<WatchEvent<T>> {
+        const topic = `entity.${modelName}.*`;
+        const subscription = await this.system.hal.redis.subscribe([topic]);
+
+        try {
+            for await (const msg of subscription.messages()) {
+                const payload = msg.payload as WatchPayload;
+
+                // Extract operation from topic (entity.model.{op})
+                const op = msg.topic.split('.').pop() as OperationType;
+
+                // For delete, we only have the id
+                if (op === 'delete') {
+                    yield {
+                        op,
+                        entity: { id: payload.id } as T,
+                    };
+                    continue;
+                }
+
+                // For create/update, we have full data
+                const entity = payload.data as T;
+
+                // Apply client-side filter if provided
+                if (filter?.where) {
+                    const matches = Object.entries(filter.where).every(
+                        ([key, value]) => entity[key as keyof T] === value,
+                    );
+
+                    if (!matches) {
+                        continue;
+                    }
+                }
+
+                yield {
+                    op,
+                    entity,
+                    changes: op === 'update' ? payload.changes : undefined,
+                };
+            }
+        }
+        finally {
+            await subscription.close();
+        }
     }
 
     // =========================================================================

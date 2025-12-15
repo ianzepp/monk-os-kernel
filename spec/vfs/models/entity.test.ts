@@ -47,7 +47,7 @@ beforeEach(async () => {
     const runner = createObserverRunner();
 
     // Create EntityOps
-    ops = new EntityOps(db, cache, runner);
+    ops = new EntityOps(hal, db, cache, runner);
 
     // Create PathCache and load from database
     pathCache = new PathCache();

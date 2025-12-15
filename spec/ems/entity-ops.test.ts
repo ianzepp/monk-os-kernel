@@ -38,7 +38,7 @@ describe('EntityOps', () => {
         await loadVfsSchema(db, hal);
         cache = new ModelCache(db);
         runner = createObserverRunner();
-        entityOps = new EntityOps(db, cache, runner);
+        entityOps = new EntityOps(hal, db, cache, runner);
     });
 
     afterEach(async () => {
@@ -469,7 +469,7 @@ describe('EntityOps', () => {
     describe('with empty observer runner', () => {
         it('should not persist records without Ring 5 observers', async () => {
             const emptyRunner = new ObserverRunner();
-            const emptyOps = new EntityOps(db, cache, emptyRunner);
+            const emptyOps = new EntityOps(hal, db, cache, emptyRunner);
 
             // Create yields record but doesn't persist (no SQL executed)
             const results = await collect(

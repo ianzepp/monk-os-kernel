@@ -160,6 +160,7 @@ export {
     type EntityRecord,
     type EntitySystemContext,
     type UpsertOptions,
+    type WatchEvent,
 } from './entity-ops.js';
 
 // =============================================================================

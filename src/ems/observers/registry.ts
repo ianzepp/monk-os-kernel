@@ -69,6 +69,9 @@ import { DdlCreateModel, DdlCreateField } from '../ring/6/index.js';
 // Ring 8: Integration
 import { Cache, PathCacheSync } from '../ring/8/index.js';
 
+// Ring 9: Notification
+import { PubsubNotify } from '../ring/9/index.js';
+
 // =============================================================================
 // FACTORY
 // =============================================================================
@@ -152,7 +155,7 @@ export function createObserverRunner(): ObserverRunner {
     // =========================================================================
     // RING 9: NOTIFICATION
     // =========================================================================
-    // Application-specific observers registered separately
+    runner.register(new PubsubNotify());
 
     return runner;
 }
