@@ -8,6 +8,7 @@
 
 import type { Adapter } from './types.js';
 import type { ApiFormat } from '../types.js';
+import { EINVAL } from '@src/hal/errors.js';
 import { OpenAIAdapter } from './openai.js';
 import { AnthropicAdapter } from './anthropic.js';
 
@@ -41,7 +42,7 @@ export function getAdapter(format: ApiFormat): Adapter {
     const adapter = adapters[format];
 
     if (!adapter) {
-        throw new Error(`Unsupported API format: ${format}`);
+        throw new EINVAL(`Unsupported API format: ${format}`);
     }
 
     return adapter;

@@ -29,6 +29,7 @@
 
 import type { Channel } from '@src/hal/channel/types.js';
 import type { Response } from '@src/message.js';
+import { EIO } from '@src/hal/errors.js';
 import type {
     LLMProvider,
     LLMModel,
@@ -152,11 +153,11 @@ export class OpenAIAdapter implements Adapter {
             if (response.op === 'error') {
                 const err = response.data as { code?: string; message?: string };
 
-                throw new Error(`OpenAI API error: ${err.code} - ${err.message}`);
+                throw new EIO(`OpenAI API error: ${err.code} - ${err.message}`);
             }
         }
 
-        throw new Error('No response from OpenAI API');
+        throw new EIO('No response from OpenAI API');
     }
 
     // =========================================================================
@@ -193,7 +194,7 @@ export class OpenAIAdapter implements Adapter {
             else if (response.op === 'error') {
                 const err = response.data as { code?: string; message?: string };
 
-                throw new Error(`OpenAI API error: ${err.code} - ${err.message}`);
+                throw new EIO(`OpenAI API error: ${err.code} - ${err.message}`);
             }
             else if (response.op === 'done') {
                 return;
@@ -245,11 +246,11 @@ export class OpenAIAdapter implements Adapter {
             if (response.op === 'error') {
                 const err = response.data as { code?: string; message?: string };
 
-                throw new Error(`OpenAI API error: ${err.code} - ${err.message}`);
+                throw new EIO(`OpenAI API error: ${err.code} - ${err.message}`);
             }
         }
 
-        throw new Error('No response from OpenAI API');
+        throw new EIO('No response from OpenAI API');
     }
 
     // =========================================================================
@@ -312,7 +313,7 @@ export class OpenAIAdapter implements Adapter {
             else if (response.op === 'error') {
                 const err = response.data as { code?: string; message?: string };
 
-                throw new Error(`Ollama API error: ${err.code} - ${err.message}`);
+                throw new EIO(`Ollama API error: ${err.code} - ${err.message}`);
             }
             else if (response.op === 'done') {
                 return;
@@ -357,7 +358,7 @@ export class OpenAIAdapter implements Adapter {
                 else if (response.op === 'error') {
                     const err = response.data as { code?: string; message?: string };
 
-                    throw new Error(`Ollama API error: ${err.code} - ${err.message}`);
+                    throw new EIO(`Ollama API error: ${err.code} - ${err.message}`);
                 }
             }
         }

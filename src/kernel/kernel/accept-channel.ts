@@ -30,6 +30,7 @@
 import type { Kernel } from '../kernel.js';
 import type { Process } from '../types.js';
 import type { ChannelOpts } from '../../hal/index.js';
+import { EBADF, EINVAL } from '../../hal/errors.js';
 import { ChannelHandleAdapter } from '../handle.js';
 import { allocHandle } from './alloc-handle.js';
 import { getHandle } from './get-handle.js';
@@ -66,11 +67,11 @@ export async function acceptChannel(
     const socketHandle = getHandle(self, proc, socketFd);
 
     if (!socketHandle) {
-        throw new Error(`EBADF: Bad socket descriptor ${socketFd}`);
+        throw new EBADF(`Bad socket descriptor ${socketFd}`);
     }
 
     if (socketHandle.type !== 'socket') {
-        throw new Error(`EINVAL: Handle ${socketFd} is not a socket (type: ${socketHandle.type})`);
+        throw new EINVAL(`Handle ${socketFd} is not a socket (type: ${socketHandle.type})`);
     }
 
     // Get underlying socket from handle
@@ -78,7 +79,7 @@ export async function acceptChannel(
     const socket = socketAdapter.getSocket();
 
     if (!socket) {
-        throw new Error(`EBADF: Socket ${socketFd} has no underlying socket`);
+        throw new EBADF(`Socket ${socketFd} has no underlying socket`);
     }
 
     // Create channel wrapping the socket

@@ -28,6 +28,7 @@ import type { EMS } from '@src/ems/ems.js';
 import type { WhereConditions } from '@src/ems/index.js';
 import { loadSchemaSync, type SchemaOps } from '@src/ems/schema-loader.js';
 import type { Channel } from '@src/hal/channel/types.js';
+import { ENOENT, EINVAL, ENOTSUP } from '@src/hal/errors.js';
 import { getAdapter } from './adapters/index.js';
 import type {
     LLMProvider,
@@ -166,11 +167,11 @@ export class LLM {
         }
 
         if (!model) {
-            throw new Error(`Model not found: ${modelName}`);
+            throw new ENOENT(`Model not found: ${modelName}`);
         }
 
         if (model.status !== 'active') {
-            throw new Error(`Model disabled: ${modelName}`);
+            throw new EINVAL(`Model disabled: ${modelName}`);
         }
 
         // Query provider
@@ -184,11 +185,11 @@ export class LLM {
         }
 
         if (!provider) {
-            throw new Error(`Provider not found: ${model.provider}`);
+            throw new ENOENT(`Provider not found: ${model.provider}`);
         }
 
         if (provider.status !== 'active') {
-            throw new Error(`Provider disabled: ${model.provider}`);
+            throw new EINVAL(`Provider disabled: ${model.provider}`);
         }
 
         return { model, provider };
@@ -311,7 +312,7 @@ export class LLM {
         const { model, provider } = await this.resolveModel(request.model);
 
         if (!model.supports_embeddings) {
-            throw new Error(`Model ${request.model} does not support embeddings`);
+            throw new ENOTSUP(`Model ${request.model} does not support embeddings`);
         }
 
         const adapter = getAdapter(provider.api_format);

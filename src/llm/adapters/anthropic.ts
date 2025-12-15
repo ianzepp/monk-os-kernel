@@ -31,6 +31,7 @@
 
 import type { Channel } from '@src/hal/channel/types.js';
 import type { Response } from '@src/message.js';
+import { EIO, ENOTSUP } from '@src/hal/errors.js';
 import type {
     LLMProvider,
     LLMModel,
@@ -207,11 +208,11 @@ export class AnthropicAdapter implements Adapter {
             if (response.op === 'error') {
                 const err = response.data as { code?: string; message?: string };
 
-                throw new Error(`Anthropic API error: ${err.code} - ${err.message}`);
+                throw new EIO(`Anthropic API error: ${err.code} - ${err.message}`);
             }
         }
 
-        throw new Error('No response from Anthropic API');
+        throw new EIO('No response from Anthropic API');
     }
 
     // =========================================================================
@@ -251,7 +252,7 @@ export class AnthropicAdapter implements Adapter {
             else if (response.op === 'error') {
                 const err = response.data as { code?: string; message?: string };
 
-                throw new Error(`Anthropic API error: ${err.code} - ${err.message}`);
+                throw new EIO(`Anthropic API error: ${err.code} - ${err.message}`);
             }
             else if (response.op === 'done') {
                 return;
@@ -270,7 +271,7 @@ export class AnthropicAdapter implements Adapter {
         _request: EmbeddingRequest,
     ): Promise<EmbeddingResponse> {
         // Anthropic doesn't have an embeddings API
-        throw new Error('Anthropic does not support embeddings. Use a different provider.');
+        throw new ENOTSUP('Anthropic does not support embeddings. Use a different provider.');
     }
 
     // =========================================================================

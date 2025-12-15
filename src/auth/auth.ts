@@ -57,6 +57,7 @@ import type { HAL } from '@src/hal/index.js';
 import type { EMS } from '@src/ems/ems.js';
 import { collect } from '@src/ems/entity-ops.js';
 import { loadSchemaSync, type SchemaOps } from '@src/ems/schema-loader.js';
+import { EINVAL } from '@src/hal/errors.js';
 import type { JWTPayload, TokenResult, AuthConfig, LoginResult, AuthUser, AuthSession } from './types.js';
 import { DEFAULT_AUTH_CONFIG, ROOT_USER_ID, DEFAULT_ROOT_PASSWORD, DEFAULT_ROOT_PASSWORD_HASH, REVALIDATE_INTERVAL } from './types.js';
 import { signJWT, verifyJWT, generateKey } from './jwt.js';
@@ -270,7 +271,7 @@ export class Auth {
      */
     async mintToken(principal: string, ttl?: number): Promise<TokenResult> {
         if (!this.signingKey) {
-            throw new Error('Auth not initialized');
+            throw new EINVAL('Auth not initialized');
         }
 
         const sessionId = this.hal.entropy.uuid();
@@ -367,11 +368,11 @@ export class Auth {
      */
     async login(username: string, password: string): Promise<LoginResult | null> {
         if (!this.signingKey) {
-            throw new Error('Auth not initialized');
+            throw new EINVAL('Auth not initialized');
         }
 
         if (!this.ems) {
-            throw new Error('EMS required for password login');
+            throw new EINVAL('EMS required for password login');
         }
 
         // Look up user by username
@@ -548,7 +549,7 @@ export class Auth {
      */
     async register(username: string, password: string): Promise<string | null> {
         if (!this.ems) {
-            throw new Error('EMS required for user registration');
+            throw new EINVAL('EMS required for user registration');
         }
 
         // Check username not taken
@@ -606,7 +607,7 @@ export class Auth {
      */
     async grant(principal: string, scope?: string[], ttl?: number): Promise<TokenResult> {
         if (!this.signingKey) {
-            throw new Error('Auth not initialized');
+            throw new EINVAL('Auth not initialized');
         }
 
         const sessionId = this.hal.entropy.uuid();
