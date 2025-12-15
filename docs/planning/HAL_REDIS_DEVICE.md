@@ -427,8 +427,9 @@ class MemoryRedis implements RedisDevice {
     }
 
     async setnx(key: string, value: string): Promise<boolean> {
-        if (await this.exists(key)) return false;
-        await this.set(key, value);
+        // Atomic check-and-set (matches Redis SETNX semantics)
+        if (this.cache.has(key)) return false;
+        this.cache.set(key, value);
         return true;
     }
 
@@ -536,22 +537,39 @@ class MemoryRedis implements RedisDevice {
         // Convert glob pattern to regex
         // event.* -> event\.[^.]+
         // event.** -> event\..*
+        //
+        // Use placeholder to avoid ** being partially consumed by * replacement.
+        // Order matters: escape dots first, then replace ** (greedy), then * (single-level).
+        const DOUBLE_STAR = '\x00DOUBLESTAR\x00';
         const regex = pattern
             .replace(/\./g, '\\.')
-            .replace(/\*\*/g, '.*')
-            .replace(/\*/g, '[^.]+');
+            .replace(/\*\*/g, DOUBLE_STAR)
+            .replace(/\*/g, '[^.]+')
+            .replace(new RegExp(DOUBLE_STAR, 'g'), '.*');
 
         return new RegExp(`^${regex}$`).test(topic);
     }
 
     async subscriberCount(pattern: string): Promise<number> {
+        // Returns count of subscriptions to this exact pattern.
+        // Matches Redis PUBSUB NUMSUB semantics: does not count pattern subscribers
+        // that would match a topic, only exact pattern matches.
         return this.subscriptions.get(pattern)?.size ?? 0;
     }
 
     async shutdown(): Promise<void> {
+        // Clean up subscriptions
         for (const id of this.state.keys()) {
             await this.unsubscribe(id);
         }
+
+        // Clean up TTL timers to prevent post-shutdown callbacks
+        for (const timer of this.timers.values()) {
+            clearTimeout(timer);
+        }
+        this.timers.clear();
+        this.cache.clear();
+        this.expires.clear();
     }
 }
 ```
@@ -576,8 +594,11 @@ class RedisBackend implements RedisDevice {
     private readonly url: string;
     private readonly prefix: string;
 
-    /** Shared connection for cache + PUBLISH commands */
+    /** Shared connection for cache commands */
     private conn: RedisConnection | null = null;
+
+    /** Separate connection for PUBLISH (can't publish on subscriber connection) */
+    private publishConn: RedisConnection | null = null;
 
     /** Active subscriptions (each needs own connection) */
     private subscriptions = new Map<string, {

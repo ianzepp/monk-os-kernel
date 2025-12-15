@@ -15,7 +15,7 @@
  * - All async operations use Promise/AsyncIterable patterns
  * - Errors follow POSIX conventions (ENOENT, EBADF, etc.)
  *
- * The HAL aggregates 16 device interfaces:
+ * The HAL aggregates 17 device interfaces:
  *
  * 1. BlockDevice: Raw byte storage (files, S3, databases as byte arrays)
  * 2. StorageEngine: Key-value store with transactions (SQLite, PostgreSQL, memory)
@@ -33,6 +33,7 @@
  * 14. FileDevice: Host filesystem access (KERNEL USE ONLY - see file.ts)
  * 15. JsonDevice: JSON encoding/decoding
  * 16. YamlDevice: YAML encoding/decoding (uses Bun.YAML.parse)
+ * 17. RedisDevice: Cache + pub/sub (memory or external Redis)
  *
  * BunHAL is the production implementation using Bun primitives. Test implementations
  * (MockHAL, MemoryStorageEngine, etc.) enable deterministic testing without real
@@ -122,6 +123,7 @@ import { BunCompressionDevice } from './compression.js';
 import { BunFileDevice } from './file.js';
 import { BunJsonDevice } from './json.js';
 import { BunYamlDevice } from './yaml.js';
+import { MemoryRedis, createRedisDevice } from './redis.js';
 import { EIO } from './errors.js';
 import { debug } from '../debug.js';
 
@@ -218,6 +220,7 @@ export type { CompressionDevice, CompressionAlg, CompressionLevel, CompressionOp
 export type { FileDevice, FileStat } from './file.js';
 export type { JsonDevice } from './json.js';
 export type { YamlDevice } from './yaml.js';
+export type { RedisDevice, RedisConfig, PubsubSubscription, PubsubMessage } from './redis.js';
 
 // =============================================================================
 // DATABASE ABSTRACTION (RE-EXPORTS)
@@ -292,6 +295,7 @@ export { BunCompressionDevice, MockCompressionDevice } from './compression.js';
 export { BunFileDevice, MockFileDevice } from './file.js';
 export { BunJsonDevice, MockJsonDevice } from './json.js';
 export { BunYamlDevice, MockYamlDevice } from './yaml.js';
+export { MemoryRedis, createRedisDevice } from './redis.js';
 
 // =============================================================================
 // HAL INTERFACE
@@ -366,6 +370,14 @@ export interface HAL {
 
     /** YAML encoding/decoding */
     readonly yaml: import('./yaml.js').YamlDevice;
+
+    /**
+     * Redis-like cache + pub/sub
+     *
+     * Provides key-value caching with TTL and publish/subscribe messaging.
+     * Memory backend for dev/single-node, Redis backend for production.
+     */
+    readonly redis: import('./redis.js').RedisDevice;
 
     /**
      * Initialize the HAL
@@ -444,6 +456,19 @@ export interface HALConfig {
         | { type: 'memory' }
         | { type: 'sqlite'; path: string }
         | { type: 'postgres'; url: string };
+
+    /**
+     * Redis device type and configuration
+     *
+     * WHY: Redis is pluggable. Two variants supported:
+     * - memory: In-process (testing, single-node)
+     * - redis: External Redis server (distributed, production)
+     *
+     * USAGE:
+     * - Development: { type: 'memory' }
+     * - Production: { type: 'redis', url: 'redis://...' }
+     */
+    redis?: import('./redis.js').RedisConfig;
 }
 
 // =============================================================================
@@ -491,6 +516,7 @@ export class BunHAL implements HAL {
     readonly file: import('./file.js').FileDevice;
     readonly json: import('./json.js').JsonDevice;
     readonly yaml: import('./yaml.js').YamlDevice;
+    readonly redis: import('./redis.js').RedisDevice;
 
     // =========================================================================
     // LIFECYCLE STATE
@@ -577,7 +603,11 @@ export class BunHAL implements HAL {
         this.json = new BunJsonDevice();
         this.yaml = new BunYamlDevice();
 
-        log('BunHAL constructed with 16 devices');
+        // Redis device: memory or external Redis
+        // WHY: Redis provides cache + pub/sub. Memory for dev, Redis for production.
+        this.redis = createRedisDevice(config?.redis);
+
+        log('BunHAL constructed with 17 devices');
     }
 
     // =========================================================================
@@ -657,6 +687,16 @@ export class BunHAL implements HAL {
         }
         catch (err) {
             errors.push(new EIO(`Storage close failed: ${err instanceof Error ? err.message : String(err)}`));
+        }
+
+        // WHY: Shutdown Redis to close subscriptions and clear timers.
+        // Must happen after storage close in case storage triggers pub/sub events.
+        try {
+            log('shutting down redis device');
+            await this.redis.shutdown();
+        }
+        catch (err) {
+            errors.push(new EIO(`Redis shutdown failed: ${err instanceof Error ? err.message : String(err)}`));
         }
 
         // WHY: Network listeners/sockets are closed via their own dispose methods.
