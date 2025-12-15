@@ -1,6 +1,6 @@
 # HAL Redis Device - Cache + Pub/Sub with Memory Fallback
 
-## Status: Draft
+## Status: Partial (Phases 1-4 Complete)
 ## Author: Claude + Ian
 ## Date: December 2024
 
@@ -8,10 +8,15 @@
 
 ## 1. Motivation
 
-Currently, pub/sub in Monk OS is:
-- In-memory only (`PubsubPort` in kernel/resource)
-- Single-process (messages don't cross node boundaries)
-- Not usable for watch() notifications across distributed deployments
+Pub/sub in Monk OS now supports:
+- **MemoryRedis backend** for dev/testing/single-node (implemented)
+- **HAL redis device** with cache + pub/sub operations (implemented)
+- **PubsubPort delegation** to HAL for cross-node readiness (implemented)
+- **EntityOps.watch()** for real-time entity notifications (implemented)
+
+Remaining work:
+- Redis backend for production/multi-node (Phase 5)
+- SSE/Gateway integration (Phase 6)
 
 We want:
 - **Memory backend** for dev/testing/single-node
@@ -1044,43 +1049,41 @@ await ems.create('event', {
 
 ## 9. Implementation Plan
 
-### Phase 1: HAL RedisDevice Interface (1 day)
-1. Define `RedisDevice` interface in `src/hal/redis.ts`
-2. Define `PubsubSubscription` interface
-3. Add `redis` to HAL interface
-4. Factory function to create Memory or Redis backend based on config
+### Phase 1: HAL RedisDevice Interface ✅ COMPLETE
+- `src/hal/redis/types.ts` - RedisDevice, PubsubSubscription, PubsubMessage interfaces
+- `src/hal/redis.ts` - barrel file with exports and factory
+- `src/hal/index.ts` - redis added as HAL device
 
-### Phase 2: Memory Implementation (1-2 days)
-1. Implement `MemoryRedis` class with cache operations (get, set, del, expire, etc.)
-2. Implement pub/sub operations (subscribe, publish)
-3. TTL management with timers
-4. Comprehensive tests for all cache operations
-5. Tests for pub/sub pattern matching
+### Phase 2: Memory Implementation ✅ COMPLETE
+- `src/hal/redis/memory.ts` - MemoryRedis with cache + pub/sub
+- TTL management with timers, cleanup on shutdown
+- Pattern matching with `*` (single-level) and `**` (multi-level)
+- `spec/hal/redis.test.ts` - 45 tests for all operations
 
-### Phase 3: Kernel Integration (1 day)
-1. Update `PubsubPort` to use `hal.redis`
-2. Verify existing pubsub syscalls work
-3. Add cache syscalls if needed (`cache:get`, `cache:set`, etc.)
-4. Tests
+### Phase 3: Kernel Integration ✅ COMPLETE
+- `src/kernel/resource/pubsub-port.ts` - PubsubPort delegates to HAL redis
+- Removed kernel pubsubPorts set and publishPubsub function
+- Updated create-port.ts, create-io-source-handle.ts, activate-service.ts
+- Net reduction of ~380 lines
 
-### Phase 4: EMS watch() (1 day)
-1. Add `PubsubNotifyObserver` to Ring 5
-2. Implement `EntityOps.watch()`
-3. Tests
+### Phase 4: EMS watch() ✅ COMPLETE
+- `src/ems/ring/9/99-pubsub-notify.ts` - Ring 9 observer publishes entity changes
+- Topic format: `entity.{model}.{operation}` (e.g., `entity.user.create`)
+- `EntityOps.watch()` subscribes to entity changes with optional filter
+- `spec/ems/watch.test.ts` - 7 tests for watch functionality
+- Added HAL to EntitySystemContext
 
-### Phase 5: Redis Backend (2 days)
+### Phase 5: Redis Backend (TODO)
 1. Implement `RedisBackend` class
 2. Redis connection management (connection pooling, reconnection)
 3. Configuration loading from HAL config
 4. Integration tests with real Redis (docker-compose)
 5. Verify memory/redis backends are interchangeable
 
-### Phase 6: SSE Integration (1 day)
+### Phase 6: SSE Integration (TODO)
 1. Gateway SSE handler using watch()
 2. Event model for connection-targeted messages
 3. End-to-end test
-
-### Total: ~7-8 days
 
 ---
 
