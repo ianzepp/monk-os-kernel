@@ -61,7 +61,6 @@ import type { Handle } from '@src/kernel/handle.js';
 import type { KernelMessage } from '@src/kernel/types.js';
 import { EBUSY } from '@src/kernel/errors.js';
 import type { Port } from '@src/kernel/resource.js';
-import type { PubsubPort } from '@src/kernel/resource.js';
 import type { ServiceDef } from '@src/kernel/services.js';
 import { loadMounts } from '@src/kernel/mounts.js';
 import { VFSLoader } from '@src/kernel/loader.js';
@@ -349,20 +348,6 @@ export class Kernel {
      * - message: The KernelMessage (syscall, ping, cancel, etc.)
      */
     onWorkerMessage?: (worker: Worker, message: KernelMessage) => Promise<void>;
-
-    // =========================================================================
-    // PUBSUB ROUTING
-    // =========================================================================
-
-    /**
-     * Active pubsub ports for topic-based message routing.
-     *
-     * WHY SET: Need to iterate all ports on each publish to find subscribers.
-     * Topic matching uses glob patterns (e.g., "log.*" matches "log.info").
-     *
-     * CLEANUP: Ports are removed when closed via unsubscribeFn callback.
-     */
-    readonly pubsubPorts: Set<PubsubPort> = new Set();
 
     // =========================================================================
     // SERVICE MANAGEMENT
@@ -773,7 +758,6 @@ export class Kernel {
         this.services.clear();
         this.activationPorts.clear();
         this.activationAborts.clear();
-        this.pubsubPorts.clear();
 
         // ---------------------------------------------------------------------
         // PHASE 6: POOL SHUTDOWN

@@ -6,12 +6,13 @@
  * Use Handle adapters from handle.ts instead.
  */
 
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
 import { ListenerPort, WatchPort, PubsubPort, matchTopic, createMessagePipe } from '@src/kernel/resource.js';
 import { ENOTSUP } from '@src/kernel/errors.js';
 import { respond } from '@src/message.js';
 import type { WatchEvent } from '@src/vfs/model.js';
-import type { Listener, Socket } from '@src/hal/index.js';
+import type { Listener, Socket, HAL } from '@src/hal/index.js';
+import { MemoryRedis } from '@src/hal/index.js';
 
 describe('ListenerPort', () => {
     function createMockListener(): Listener {
@@ -511,118 +512,139 @@ describe('matchTopic', () => {
 });
 
 describe('PubsubPort', () => {
-    it('should have type "pubsub:subscribe"', () => {
-        const publishFn = mock(() => {});
-        const unsubscribeFn = mock(() => {});
-        const port = new PubsubPort('pub-1', ['orders.*'], publishFn, unsubscribeFn, 'pubsub:subscribe:orders.*');
+    let redis: MemoryRedis;
+    let mockHal: HAL;
+
+    beforeEach(() => {
+        redis = new MemoryRedis();
+        // Create minimal mock HAL with real redis (cast via unknown for test)
+        mockHal = { redis } as unknown as HAL;
+    });
+
+    afterEach(async () => {
+        await redis.shutdown();
+    });
+
+    it('should have type "pubsub:subscribe"', async () => {
+        const port = new PubsubPort('pub-1', mockHal, ['orders.*'], 'pubsub:subscribe:orders.*');
+        await port.init();
 
         expect(port.type).toBe('pubsub:subscribe');
+        await port.close();
     });
 
-    it('should use provided description', () => {
-        const publishFn = mock(() => {});
-        const unsubscribeFn = mock(() => {});
-        const port = new PubsubPort('pub-1', ['orders.*'], publishFn, unsubscribeFn, 'pubsub:orders.*');
+    it('should use provided description', async () => {
+        const port = new PubsubPort('pub-1', mockHal, ['orders.*'], 'pubsub:orders.*');
+        await port.init();
 
         expect(port.description).toBe('pubsub:orders.*');
+        await port.close();
     });
 
-    it('should expose patterns', () => {
-        const publishFn = mock(() => {});
-        const unsubscribeFn = mock(() => {});
-        const port = new PubsubPort('pub-1', ['orders.*', 'users.>'], publishFn, unsubscribeFn, 'pubsub:test');
+    it('should expose patterns', async () => {
+        const port = new PubsubPort('pub-1', mockHal, ['orders.*', 'users.**'], 'pubsub:test');
+        await port.init();
 
-        expect(port.getPatterns()).toEqual(['orders.*', 'users.>']);
+        expect(port.getPatterns()).toEqual(['orders.*', 'users.**']);
+        await port.close();
     });
 
-    it('should call publishFn on send()', async () => {
-        const publishFn = mock(() => {});
-        const unsubscribeFn = mock(() => {});
-        const port = new PubsubPort('pub-1', [], publishFn, unsubscribeFn, 'pubsub:send-only');
+    it('should publish via send()', async () => {
+        const port = new PubsubPort('pub-1', mockHal, [], 'pubsub:send-only');
+        await port.init();
+
+        // Set up a subscriber to verify publish works
+        const sub = await redis.subscribe(['orders.*']);
+        const messages: unknown[] = [];
+
+        const reader = (async () => {
+            for await (const msg of sub.messages()) {
+                messages.push(msg);
+                break;
+            }
+        })();
 
         const data = new Uint8Array([1, 2, 3]);
-
         await port.send('orders.created', data);
 
-        // publishFn now has 4 args: (topic, data, meta, sourcePortId)
-        expect(publishFn).toHaveBeenCalledWith('orders.created', data, undefined, 'pub-1');
+        await reader;
+        await sub.close();
+        await port.close();
+
+        expect(messages).toHaveLength(1);
     });
 
-    it('should enqueue messages and recv() them', async () => {
-        const publishFn = mock(() => {});
-        const unsubscribeFn = mock(() => {});
-        const port = new PubsubPort('pub-1', ['orders.*'], publishFn, unsubscribeFn, 'pubsub:test');
+    it('should receive messages via recv()', async () => {
+        const port = new PubsubPort('pub-1', mockHal, ['orders.*'], 'pubsub:test');
+        await port.init();
 
-        port.enqueue({
-            from: 'orders.created',
-            data: new Uint8Array([4, 5, 6]),
-            meta: { timestamp: 12345 },
-        });
+        // Start receiving
+        const recvPromise = port.recv();
 
-        const msg = await port.recv();
+        // Publish a message
+        await redis.publish('orders.created', { id: 123 });
+
+        const msg = await recvPromise;
 
         expect(msg.from).toBe('orders.created');
-        expect(msg.data).toEqual(new Uint8Array([4, 5, 6]));
-        expect(msg.meta?.timestamp).toBe(12345);
+        expect(msg.meta?.pattern).toBe('orders.*');
+        await port.close();
     });
 
-    it('should queue messages and deliver in order', async () => {
-        const publishFn = mock(() => {});
-        const unsubscribeFn = mock(() => {});
-        const port = new PubsubPort('pub-1', ['*'], publishFn, unsubscribeFn, 'pubsub:test');
+    it('should deliver messages in order', async () => {
+        const port = new PubsubPort('pub-1', mockHal, ['event.*'], 'pubsub:test');
+        await port.init();
 
-        port.enqueue({ from: 'first', data: new Uint8Array([1]) });
-        port.enqueue({ from: 'second', data: new Uint8Array([2]) });
-        port.enqueue({ from: 'third', data: new Uint8Array([3]) });
+        // Publish multiple messages
+        await redis.publish('event.first', { n: 1 });
+        await redis.publish('event.second', { n: 2 });
+        await redis.publish('event.third', { n: 3 });
 
-        expect((await port.recv()).from).toBe('first');
-        expect((await port.recv()).from).toBe('second');
-        expect((await port.recv()).from).toBe('third');
+        expect((await port.recv()).from).toBe('event.first');
+        expect((await port.recv()).from).toBe('event.second');
+        expect((await port.recv()).from).toBe('event.third');
+        await port.close();
     });
 
     it('should deliver to waiting receiver immediately', async () => {
-        const publishFn = mock(() => {});
-        const unsubscribeFn = mock(() => {});
-        const port = new PubsubPort('pub-1', ['*'], publishFn, unsubscribeFn, 'pubsub:test');
+        const port = new PubsubPort('pub-1', mockHal, ['test.*'], 'pubsub:test');
+        await port.init();
 
         // Start waiting for message
         const recvPromise = port.recv();
 
-        // Small delay then enqueue
+        // Small delay then publish
         await new Promise(r => setTimeout(r, 10));
-        port.enqueue({ from: 'delayed', data: new Uint8Array([99]) });
+        await redis.publish('test.delayed', { value: 99 });
 
         const msg = await recvPromise;
 
-        expect(msg.from).toBe('delayed');
+        expect(msg.from).toBe('test.delayed');
+        await port.close();
     });
 
-    it('should call unsubscribeFn on close()', async () => {
-        const publishFn = mock(() => {});
-        const unsubscribeFn = mock(() => {});
-        const port = new PubsubPort('pub-1', ['*'], publishFn, unsubscribeFn, 'pubsub:test');
+    it('should close cleanly', async () => {
+        const port = new PubsubPort('pub-1', mockHal, ['test.*'], 'pubsub:test');
+        await port.init();
 
         await port.close();
 
-        expect(unsubscribeFn).toHaveBeenCalled();
         expect(port.closed).toBe(true);
     });
 
     it('should be idempotent on close', async () => {
-        const publishFn = mock(() => {});
-        const unsubscribeFn = mock(() => {});
-        const port = new PubsubPort('pub-1', ['*'], publishFn, unsubscribeFn, 'pubsub:test');
+        const port = new PubsubPort('pub-1', mockHal, ['test.*'], 'pubsub:test');
+        await port.init();
 
         await port.close();
-        await port.close();
+        await port.close(); // Should not throw
 
-        expect(unsubscribeFn).toHaveBeenCalledTimes(1);
+        expect(port.closed).toBe(true);
     });
 
     it('should throw on recv() after close', async () => {
-        const publishFn = mock(() => {});
-        const unsubscribeFn = mock(() => {});
-        const port = new PubsubPort('pub-1', ['*'], publishFn, unsubscribeFn, 'pubsub:test');
+        const port = new PubsubPort('pub-1', mockHal, ['test.*'], 'pubsub:test');
+        await port.init();
 
         await port.close();
 
@@ -630,23 +652,19 @@ describe('PubsubPort', () => {
     });
 
     it('should throw on send() after close', async () => {
-        const publishFn = mock(() => {});
-        const unsubscribeFn = mock(() => {});
-        const port = new PubsubPort('pub-1', ['*'], publishFn, unsubscribeFn, 'pubsub:test');
+        const port = new PubsubPort('pub-1', mockHal, [], 'pubsub:test');
+        await port.init();
 
         await port.close();
 
         await expect(port.send('topic', new Uint8Array())).rejects.toThrow('Port closed');
     });
 
-    it('should ignore enqueue after close', async () => {
-        const publishFn = mock(() => {});
-        const unsubscribeFn = mock(() => {});
-        const port = new PubsubPort('pub-1', ['*'], publishFn, unsubscribeFn, 'pubsub:test');
+    it('should throw on recv() for send-only port', async () => {
+        const port = new PubsubPort('pub-1', mockHal, [], 'pubsub:send-only');
+        await port.init();
 
+        await expect(port.recv()).rejects.toThrow('send-only');
         await port.close();
-
-        // Should not throw
-        port.enqueue({ from: 'ignored', data: new Uint8Array() });
     });
 });

@@ -3,21 +3,18 @@
  *
  * ARCHITECTURE OVERVIEW
  * =====================
- * PubsubPort implements a topic-based pub/sub messaging system for inter-process
- * communication. Each port subscribes to one or more topic patterns and can both
- * publish and receive messages on matching topics.
+ * PubsubPort provides topic-based pub/sub messaging for inter-process
+ * communication. It delegates all subscription management and message routing
+ * to the HAL Redis device, which can use either an in-memory backend (for
+ * single-node deployments) or an external Redis server (for distributed
+ * deployments).
  *
- * Messages are delivered asynchronously - when a process publishes to a topic,
- * the kernel routes the message to all ports with matching subscriptions. This
- * enables decoupled many-to-many communication patterns without direct process
- * references.
+ * This delegation enables:
+ * - Cross-node pub/sub when using Redis backend
+ * - Consistent behavior between dev (memory) and prod (Redis)
+ * - Simplified kernel code (no routing logic)
  *
- * The implementation uses a queue-and-waiter pattern: messages are queued if no
- * recv() is pending, otherwise they're delivered immediately to a waiting recv().
- * This provides backpressure control - if a subscriber falls behind, messages
- * accumulate in its queue rather than being dropped.
- *
- * Topic matching supports hierarchical patterns with wildcards:
+ * Topic matching supports glob-style patterns:
  * - `orders.created` - exact topic match
  * - `orders.*` - single-level wildcard (matches orders.created, orders.deleted)
  * - `orders.**` - multi-level wildcard (matches orders.us.created, orders.eu.cancelled)
@@ -27,8 +24,7 @@
  *
  *   constructor() ─────> OPEN ──────────> CLOSED
  *                          │                 ^
- *                          │ recv() waits/   │
- *                          │ dequeues        │
+ *                          │ recv() reads    │
  *                          │ send() publishes│
  *                          └─────────────────┘
  *                              close()
@@ -37,48 +33,26 @@
  * ===================================
  * INV-1: type is always 'pubsub:subscribe' for this port implementation
  * INV-2: Once _closed is true, it never becomes false again
- * INV-3: At most one of (messageQueue.length > 0) OR (waiters.length > 0) is true
- * INV-4: After close(), messageQueue and waiters are empty
- * INV-5: patterns array is immutable after construction
- * INV-6: enqueue() only delivers to ONE waiter (first in line)
+ * INV-3: After close(), subscription is closed and no more messages arrive
+ * INV-4: patterns array is immutable after construction
  *
  * CONCURRENCY MODEL
  * =================
- * JavaScript is single-threaded but async operations can interleave. Multiple
- * processes may publish to the same topic concurrently - the kernel serializes
- * these into individual enqueue() calls. Within a single port:
- *
- * - recv() calls are serialized by the caller (kernel ensures one recv at a time)
- * - enqueue() may be called during recv() await points
- * - The queue-or-deliver pattern ensures messages aren't lost during interleaving
- *
- * RACE CONDITION MITIGATIONS
- * ==========================
- * RC-1: _closed flag checked before operations to prevent use-after-close
- * RC-2: enqueue() checks _closed to drop messages to closed ports
- * RC-3: close() clears waiters before setting _closed (prevents waiter leaks)
- * RC-4: INV-3 ensures queue and waiters don't both accumulate simultaneously
- * RC-5: No Promise cleanup on timeout (recv never times out - see MEMORY MANAGEMENT)
+ * Message delivery is handled by HAL Redis device. Multiple processes can
+ * publish to the same topic concurrently - Redis/memory backend handles
+ * serialization.
  *
  * MEMORY MANAGEMENT
  * =================
- * - messageQueue grows unbounded if subscriber falls behind (backpressure issue)
- * - waiters array grows if multiple recv() calls happen without messages arriving
- * - close() immediately clears both arrays to prevent memory leaks
- * - Callers should implement timeouts externally with Promise.race() if needed
- * - Messages in queue at close time are dropped (no delivery guarantee after close)
- *
- * KNOWN LIMITATIONS
- * =================
- * LIMIT-1: No message delivery guarantees (at-most-once semantics)
- * LIMIT-2: No persistent queue (messages lost on process restart)
- * LIMIT-3: No backpressure signaling (queue grows unbounded)
- * LIMIT-4: recv() never times out internally (caller must implement)
+ * - PubsubPort holds a reference to HAL redis subscription
+ * - close() releases the subscription
+ * - Messages are buffered in HAL redis subscription until recv() is called
  *
  * @module kernel/resource/pubsub-port
  */
 
 import type { PortType } from '@src/kernel/types.js';
+import type { HAL, PubsubSubscription } from '@src/hal/index.js';
 import { EBADF } from '@src/kernel/errors.js';
 import type { Port, PortMessage } from './types.js';
 
@@ -87,7 +61,7 @@ import type { Port, PortMessage } from './types.js';
 // =============================================================================
 
 /**
- * Pubsub port implementation.
+ * Pubsub port implementation backed by HAL Redis device.
  *
  * Topic-based publish/subscribe messaging with pattern matching.
  * recv() blocks until a message arrives on a subscribed topic.
@@ -100,26 +74,16 @@ export class PubsubPort implements Port {
 
     /**
      * Port type identifier.
-     *
-     * WHY: Distinguishes pubsub ports from other port types in kernel tables.
-     * INVARIANT: Always 'pubsub:subscribe' for this implementation.
      */
     readonly type: PortType = 'pubsub:subscribe';
 
     /**
      * Unique port identifier.
-     *
-     * WHY: Enables kernel to track and revoke ports by ID.
-     * Also used to prevent echo (ports don't receive their own messages).
-     * INVARIANT: Immutable after construction.
      */
     readonly id: string;
 
     /**
      * Human-readable description.
-     *
-     * WHY: Aids debugging and process introspection.
-     * Example: "pubsub:orders.*"
      */
     readonly description: string;
 
@@ -129,71 +93,28 @@ export class PubsubPort implements Port {
 
     /**
      * Topic patterns this port subscribes to.
-     *
-     * WHY: Stored locally for getPatterns() introspection.
-     * Kernel maintains the canonical subscription mapping.
-     * INVARIANT: Immutable after construction.
      */
-    private patterns: string[];
+    private readonly patterns: string[];
 
-    // =========================================================================
-    // PORT STATE
-    // =========================================================================
+    /**
+     * HAL reference for publishing.
+     */
+    private readonly hal: HAL;
+
+    /**
+     * HAL Redis subscription (created lazily on first recv).
+     */
+    private subscription: PubsubSubscription | null = null;
+
+    /**
+     * Async iterator for receiving messages.
+     */
+    private messageIterator: AsyncIterator<import('@src/hal/index.js').PubsubMessage> | null = null;
 
     /**
      * Whether port has been closed.
-     *
-     * WHY: Prevents operations on closed ports.
-     * INVARIANT: Once true, never becomes false again.
      */
     private _closed = false;
-
-    /**
-     * Queue of messages waiting to be received.
-     *
-     * WHY: Buffers messages when no recv() is pending.
-     * Enables backpressure - slow subscribers queue messages rather than drop.
-     * INVARIANT: Empty when waiters.length > 0 (see INV-3).
-     */
-    private messageQueue: PortMessage[] = [];
-
-    /**
-     * Queue of recv() calls waiting for messages.
-     *
-     * WHY: Allows recv() to block until a message arrives.
-     * INVARIANT: Empty when messageQueue.length > 0 (see INV-3).
-     */
-    private waiters: Array<(msg: PortMessage) => void> = [];
-
-    // =========================================================================
-    // DEPENDENCIES
-    // =========================================================================
-
-    /**
-     * Function to publish messages to kernel.
-     *
-     * WHY: Delegates to kernel's pubsub router for topic matching and delivery.
-     * Injected to avoid circular dependency on kernel.
-     *
-     * @param topic - Topic to publish to
-     * @param data - Message payload (optional)
-     * @param meta - Message metadata (optional)
-     * @param sourcePortId - ID of publishing port (for echo prevention)
-     */
-    private publishFn: (
-        topic: string,
-        data: Uint8Array | undefined,
-        meta: Record<string, unknown> | undefined,
-        sourcePortId: string,
-    ) => void;
-
-    /**
-     * Function to unsubscribe from topics on close.
-     *
-     * WHY: Delegates to kernel to remove this port from subscription tables.
-     * Injected to avoid circular dependency on kernel.
-     */
-    private unsubscribeFn: () => void;
 
     // =========================================================================
     // CONSTRUCTOR
@@ -203,28 +124,37 @@ export class PubsubPort implements Port {
      * Create a new PubsubPort.
      *
      * @param id - Unique port identifier
+     * @param hal - HAL instance for redis access
      * @param patterns - Topic patterns to subscribe to
-     * @param publishFn - Function to publish messages via kernel
-     * @param unsubscribeFn - Function to unsubscribe from topics
      * @param description - Human-readable description
      */
     constructor(
         id: string,
+        hal: HAL,
         patterns: string[],
-        publishFn: (
-            topic: string,
-            data: Uint8Array | undefined,
-            meta: Record<string, unknown> | undefined,
-            sourcePortId: string,
-        ) => void,
-        unsubscribeFn: () => void,
         description: string,
     ) {
         this.id = id;
+        this.hal = hal;
         this.patterns = patterns;
-        this.publishFn = publishFn;
-        this.unsubscribeFn = unsubscribeFn;
         this.description = description;
+    }
+
+    // =========================================================================
+    // INITIALIZATION
+    // =========================================================================
+
+    /**
+     * Initialize the subscription.
+     *
+     * Must be called after construction to set up HAL subscription.
+     * Separated from constructor because it's async.
+     */
+    async init(): Promise<void> {
+        if (this.patterns.length > 0) {
+            this.subscription = await this.hal.redis.subscribe(this.patterns);
+            this.messageIterator = this.subscription.messages()[Symbol.asyncIterator]();
+        }
     }
 
     // =========================================================================
@@ -233,8 +163,6 @@ export class PubsubPort implements Port {
 
     /**
      * Check if port is closed.
-     *
-     * WHY: Exposes closure state for external checks.
      */
     get closed(): boolean {
         return this._closed;
@@ -243,59 +171,10 @@ export class PubsubPort implements Port {
     /**
      * Get subscribed topic patterns.
      *
-     * WHY: Enables introspection of port's subscriptions.
-     *
-     * @returns Array of topic patterns (copy to prevent mutation)
+     * @returns Array of topic patterns
      */
     getPatterns(): string[] {
         return this.patterns;
-    }
-
-    // =========================================================================
-    // MESSAGE DELIVERY (called by kernel)
-    // =========================================================================
-
-    /**
-     * Enqueue a message for delivery.
-     *
-     * Called by kernel when a published message matches this port's subscriptions.
-     * If a recv() is waiting, delivers immediately. Otherwise queues for later.
-     *
-     * ALGORITHM:
-     * 1. Check if port is closed (drop message if closed)
-     * 2. If waiters exist, deliver to first waiter and return
-     * 3. Otherwise, append to message queue
-     *
-     * RACE CONDITION:
-     * If close() is called while enqueue() is running, the _closed check
-     * prevents further enqueueing. Any message in-flight during close is
-     * either delivered to a waiter or added to queue (then dropped by close).
-     *
-     * WHY we don't notify waiters about closure:
-     * The recv() promise is pending in user code. If port closes while recv()
-     * is waiting, the caller should use Promise.race() with a timeout or
-     * cancellation token. We don't resolve/reject pending promises from close()
-     * to avoid surprising the caller with unexpected resolution.
-     *
-     * @param msg - Message to enqueue
-     */
-    enqueue(msg: PortMessage): void {
-        // Drop messages to closed ports
-        if (this._closed) {
-            return;
-        }
-
-        // Deliver immediately if recv() is waiting
-        if (this.waiters.length > 0) {
-            // WHY shift() - delivers to first waiter in FIFO order
-            const waiter = this.waiters.shift()!;
-
-            waiter(msg);
-        }
-        else {
-            // Queue for later recv()
-            this.messageQueue.push(msg);
-        }
     }
 
     // =========================================================================
@@ -305,41 +184,37 @@ export class PubsubPort implements Port {
     /**
      * Receive a message from a subscribed topic.
      *
-     * If messages are queued, returns immediately. Otherwise blocks until
-     * a message arrives via enqueue().
-     *
-     * ALGORITHM:
-     * 1. Check if port is closed (throw EBADF if so)
-     * 2. If messageQueue has items, dequeue and return first
-     * 3. Otherwise, create a Promise and add resolver to waiters
-     * 4. Promise resolves when enqueue() delivers a message
-     *
-     * RACE CONDITION:
-     * If close() is called while recv() is blocked, the waiter is cleared
-     * but the Promise never resolves. Caller should use Promise.race() with
-     * a timeout or cancellation mechanism if this is a concern.
+     * Blocks until a message arrives via HAL subscription.
      *
      * @returns Promise that resolves to received message
-     * @throws EBADF - If port is closed
+     * @throws EBADF - If port is closed or has no subscriptions
      */
     async recv(): Promise<PortMessage> {
         if (this._closed) {
             throw new EBADF('Port closed');
         }
 
-        // Return queued message if available
-        if (this.messageQueue.length > 0) {
-            // WHY shift() - delivers messages in FIFO order
-            return this.messageQueue.shift()!;
+        if (!this.messageIterator) {
+            throw new EBADF('Port has no subscriptions (send-only)');
         }
 
-        // No messages available - wait for one
-        // WHY we don't implement timeout here:
-        // Timeout policy varies by use case. Callers should use Promise.race()
-        // with their own timeout logic if needed.
-        return new Promise(resolve => {
-            this.waiters.push(resolve);
-        });
+        const result = await this.messageIterator.next();
+
+        if (result.done) {
+            throw new EBADF('Subscription closed');
+        }
+
+        const msg = result.value;
+
+        // Convert HAL PubsubMessage to kernel PortMessage
+        return {
+            from: msg.topic,
+            data: this.encodePayload(msg.payload),
+            meta: {
+                pattern: msg.pattern,
+                timestamp: Date.now(),
+            },
+        };
     }
 
     // =========================================================================
@@ -349,16 +224,7 @@ export class PubsubPort implements Port {
     /**
      * Publish a message to a topic.
      *
-     * Delegates to kernel which routes to all ports with matching subscriptions.
-     *
-     * ALGORITHM:
-     * 1. Check if port is closed (throw EBADF if so)
-     * 2. Call publishFn with topic, data, meta, and this port's ID
-     * 3. Kernel handles topic matching and delivery to subscribers
-     *
-     * WHY we pass sourcePortId:
-     * Prevents echo - ports don't receive their own published messages.
-     * Kernel checks sourcePortId when routing to subscribers.
+     * Delegates to HAL redis.publish() which routes to all matching subscribers.
      *
      * @param topic - Topic to publish to (e.g., "orders.created")
      * @param data - Optional message payload
@@ -370,8 +236,13 @@ export class PubsubPort implements Port {
             throw new EBADF('Port closed');
         }
 
-        // Delegate to kernel's pubsub router
-        this.publishFn(topic, data, meta, this.id);
+        // Decode payload and merge with meta
+        const payload = {
+            data: data ? this.decodePayload(data) : undefined,
+            ...meta,
+        };
+
+        await this.hal.redis.publish(topic, payload);
     }
 
     // =========================================================================
@@ -381,47 +252,52 @@ export class PubsubPort implements Port {
     /**
      * Close the pubsub port.
      *
-     * Unsubscribes from all topics, clears pending messages and waiters.
-     * Safe to call multiple times (idempotent).
-     *
-     * ALGORITHM:
-     * 1. Check if already closed (return early if so)
-     * 2. Set _closed flag
-     * 3. Unsubscribe from topics (kernel cleanup)
-     * 4. Clear waiters (pending recv() calls won't resolve)
-     * 5. Clear message queue (undelivered messages are dropped)
-     *
-     * RACE CONDITION:
-     * If recv() is blocked when close() is called, the waiter is removed
-     * but its Promise never resolves. Callers should implement timeouts
-     * externally if they need guaranteed resolution.
-     *
-     * WHY we don't reject pending promises:
-     * Rejecting would surprise callers who expect recv() to only throw
-     * if the port is already closed. The _closed flag provides the signal
-     * for subsequent operations.
+     * Closes HAL subscription. Safe to call multiple times (idempotent).
      *
      * @returns Promise that resolves when cleanup completes
      */
     async close(): Promise<void> {
-        // Idempotent close
         if (this._closed) {
             return;
         }
 
-        // Mark closed before cleanup to prevent re-entry
         this._closed = true;
 
-        // Unsubscribe from kernel's routing tables
-        this.unsubscribeFn();
+        if (this.subscription) {
+            await this.subscription.close();
+            this.subscription = null;
+            this.messageIterator = null;
+        }
+    }
 
-        // Clear waiters - pending recv() promises won't resolve
-        // WHY: Prevents memory leak from abandoned promises
-        this.waiters = [];
+    // =========================================================================
+    // PAYLOAD ENCODING
+    // =========================================================================
 
-        // Clear queued messages - they won't be delivered
-        // WHY: Frees memory from unprocessed messages
-        this.messageQueue = [];
+    /**
+     * Encode a payload for transmission.
+     * Converts unknown to Uint8Array via JSON serialization.
+     */
+    private encodePayload(payload: unknown): Uint8Array | undefined {
+        if (payload === undefined || payload === null) {
+            return undefined;
+        }
+        const json = JSON.stringify(payload);
+        return new TextEncoder().encode(json);
+    }
+
+    /**
+     * Decode a payload from transmission.
+     * Converts Uint8Array to unknown via JSON deserialization.
+     */
+    private decodePayload(data: Uint8Array): unknown {
+        const json = new TextDecoder().decode(data);
+        try {
+            return JSON.parse(json);
+        }
+        catch {
+            return json; // Return as string if not valid JSON
+        }
     }
 }
 

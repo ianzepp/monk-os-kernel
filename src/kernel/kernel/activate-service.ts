@@ -72,7 +72,6 @@ import type { WatchEvent } from '../../vfs/model.js';
 import { ListenerPort, PubsubPort, WatchPort, UdpPort } from '../resource.js';
 import { spawnServiceHandler } from './spawn-service-handler.js';
 import { runActivationLoop } from './run-activation-loop.js';
-import { publishPubsub } from './publish-pubsub.js';
 import { printk } from './printk.js';
 
 // =============================================================================
@@ -178,20 +177,11 @@ export async function activateService(
             const patterns = [activation.topic];
             const description = `service:${name}:pubsub:subscribe:${activation.topic}`;
 
-            // WHY: Publish function allows Port to publish messages back to kernel
-            const publishFn = (topic: string, data: Uint8Array | undefined, meta: Record<string, unknown> | undefined, sourcePortId: string) => {
-                publishPubsub(self, topic, data, meta, sourcePortId);
-            };
+            // Create port with HAL reference for redis pub/sub
+            const port = new PubsubPort(portId, self.hal, patterns, description);
 
-            // WHY: Unsubscribe function removes Port from pubsub registry on close
-            const unsubscribeFn = () => {
-                self.pubsubPorts.delete(port);
-            };
-
-            const port = new PubsubPort(portId, patterns, publishFn, unsubscribeFn, description);
-
-            // Register for message routing
-            self.pubsubPorts.add(port);
+            // Initialize subscription (creates HAL subscription)
+            await port.init();
 
             // Store for cleanup on service stop
             self.activationPorts.set(name, port);

@@ -35,8 +35,8 @@
  *        VIOLATED BY: Invalid syscall argument (EINVAL)
  * INV-2: Port-specific options must be valid for that port type
  *        VIOLATED BY: Missing port number for tcp:listen/udp:bind (EINVAL)
- * INV-3: Pubsub ports must be registered in kernel.pubsubPorts set
- *        VIOLATED BY: Skipping registration breaks message delivery
+ * INV-3: Pubsub ports must be initialized via init() after construction
+ *        VIOLATED BY: Skipping init() breaks message delivery
  * INV-4: TCP listener must be closed if handle allocation fails
  *        VIOLATED BY: Resource leak (port bound but no handle to close it)
  *
@@ -60,12 +60,11 @@
  * - MITIGATION: HAL network layer serializes bind operations
  * - Error propagates to caller, no kernel state corruption
  *
- * RACE CONDITION: Pubsub registration
- * - Port created and registered in pubsubPorts
+ * RACE CONDITION: Pubsub subscription
+ * - Port created and subscription initialized
  * - Message published BEFORE handle allocated to process
  * - Message delivered to port but process can't recv yet
- * - MITIGATION: Port buffers messages until process calls recv()
- * - Bounded buffer prevents memory exhaustion
+ * - MITIGATION: HAL subscription buffers messages until recv() is called
  *
  * MEMORY MANAGEMENT
  * =================
@@ -88,7 +87,6 @@ import { EINVAL } from '../errors.js';
 import { ListenerPort, WatchPort, UdpPort, PubsubPort } from '../resource.js';
 import { PortHandleAdapter } from '../handle.js';
 import { allocHandle } from './alloc-handle.js';
-import { publishPubsub } from './publish-pubsub.js';
 
 // =============================================================================
 // MAIN FUNCTION
@@ -126,8 +124,8 @@ import { publishPubsub } from './publish-pubsub.js';
  *
  * PUBSUB:SUBSCRIBE:
  * 1. Parse topic patterns (optional, empty = send-only)
- * 2. Create PubsubPort with publish/unsubscribe callbacks
- * 3. Register port in kernel.pubsubPorts set (CRITICAL)
+ * 2. Create PubsubPort with HAL reference
+ * 3. Initialize subscription via port.init() (ASYNC)
  * 4. Wrap in PortHandleAdapter
  * 5. Allocate fd and register handle
  * 6. Return fd number
@@ -261,36 +259,11 @@ export async function createPort(
                 ? `pubsub:subscribe:${patterns.join(',')}`
                 : 'pubsub:subscribe:(send-only)';
 
-            // Publish callback: when port sends, route to all matching subscribers
-            // WHY CLOSURE: Port needs reference to kernel's pubsub routing
-            const publishFn = (
-                topic: string,
-                data: Uint8Array | undefined,
-                meta: Record<string, unknown> | undefined,
-                sourcePortId: string,
-            ) => {
-                publishPubsub(self, topic, data, meta, sourcePortId);
-            };
+            // Create port with HAL reference for redis pub/sub
+            const pubsubPort = new PubsubPort(portId, self.hal, patterns, description);
 
-            // Unsubscribe callback: remove port from routing table on close
-            // WHY NEEDED: Prevents receiving messages after port closed
-            // BUG POTENTIAL: If not called, port leaks in pubsubPorts set
-            // NOTE: This closure captures 'port' before it's assigned, uses handle lookup
-            const unsubscribeFn = () => {
-                const handle = self.handles.get(portId) as PortHandleAdapter | undefined;
-
-                if (handle) {
-                    const p = handle.getPort() as PubsubPort;
-
-                    self.pubsubPorts.delete(p);
-                }
-            };
-
-            const pubsubPort = new PubsubPort(portId, patterns, publishFn, unsubscribeFn, description);
-
-            // CRITICAL: Register port in kernel routing table BEFORE allocating fd
-            // Otherwise early publishes could be lost
-            self.pubsubPorts.add(pubsubPort);
+            // Initialize subscription (ASYNC - creates HAL subscription)
+            await pubsubPort.init();
 
             port = pubsubPort;
             break;

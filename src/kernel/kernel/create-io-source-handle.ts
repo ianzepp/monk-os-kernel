@@ -37,8 +37,8 @@
  * ===================================
  * INV-1: Source type must be one of: console, file, null, pubsub:subscribe, fs:watch, udp:bind
  *        VIOLATED BY: Invalid service configuration (validation failure)
- * INV-2: Port-based sources must be registered in kernel's pubsubPorts set (for pubsub)
- *        VIOLATED BY: Skipping registration breaks message delivery
+ * INV-2: Pubsub ports must be initialized via init() after construction
+ *        VIOLATED BY: Skipping init() breaks message delivery
  * INV-3: VFS paths (console, file) must be accessible by kernel user
  *        VIOLATED BY: Permission denied, file doesn't exist
  * INV-4: Handle IDs are globally unique UUIDs
@@ -50,7 +50,7 @@
  * could be spawning concurrently, each creating their own I/O handles.
  *
  * RACE CONDITION: Pubsub port registration
- * - self.pubsubPorts.add(port) must happen BEFORE any publish operations
+ * - port.init() must happen BEFORE any recv operations
  * - Otherwise early messages could be lost
  * - MITIGATION: Service doesn't start until this function completes
  *
@@ -78,7 +78,6 @@ import type { WatchEvent } from '../../vfs/model.js';
 import { respond } from '../../message.js';
 import { FileHandleAdapter, PortHandleAdapter } from '../handle.js';
 import { PubsubPort, WatchPort, UdpPort } from '../resource.js';
-import { publishPubsub } from './publish-pubsub.js';
 
 // =============================================================================
 // CONSTANTS
@@ -118,8 +117,8 @@ const CONSOLE_PATH = '/dev/console';
  *
  * PUBSUB:
  * 1. Parse topic patterns from config
- * 2. Create PubsubPort with publish callback
- * 3. Register port in kernel.pubsubPorts set (for routing)
+ * 2. Create PubsubPort with HAL reference
+ * 3. Initialize subscription via port.init()
  * 4. Wrap in PortHandleAdapter
  * 5. Return adapter
  *
@@ -144,9 +143,9 @@ const CONSOLE_PATH = '/dev/console';
  * - TypeScript prevents this at compile time
  * - No runtime check needed (discriminated union)
  *
- * EDGE CASE: Pubsub unsubscribe callback
- * - Must remove port from kernel.pubsubPorts when closed
- * - Otherwise port leaks and receives unwanted messages
+ * EDGE CASE: Pubsub cleanup
+ * - Port.close() handles unsubscription from HAL redis
+ * - No manual cleanup required
  * - Implemented via unsubscribeFn closure
  *
  * @param self - Kernel instance
@@ -210,28 +209,11 @@ export async function createIOSourceHandle(
             const portId = self.hal.entropy.uuid();
             const description = `pubsub:subscribe:${patterns.join(',')}`;
 
-            // Publish callback: when port sends, route to all matching subscribers
-            // WHY CLOSURE: Port needs reference to kernel's pubsub routing
-            const publishFn = (
-                topic: string,
-                data: Uint8Array | undefined,
-                meta: Record<string, unknown> | undefined,
-                sourcePortId: string,
-            ) => {
-                publishPubsub(self, topic, data, meta, sourcePortId);
-            };
+            // Create port with HAL reference for redis pub/sub
+            const port = new PubsubPort(portId, self.hal, patterns, description);
 
-            // Unsubscribe callback: remove port from routing table on close
-            // WHY NEEDED: Prevents receiving messages after port closed
-            // BUG POTENTIAL: If not called, port leaks in pubsubPorts set
-            const unsubscribeFn = () => {
-                self.pubsubPorts.delete(port);
-            };
-
-            // Create port and register in kernel's pubsub routing table
-            const port = new PubsubPort(portId, patterns, publishFn, unsubscribeFn, description);
-
-            self.pubsubPorts.add(port); // CRITICAL: Must happen before service starts
+            // Initialize subscription (ASYNC - creates HAL subscription)
+            await port.init();
 
             // Wrap in adapter for Handle interface
             return new PortHandleAdapter(portId, port, description);
