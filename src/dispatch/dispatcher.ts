@@ -95,6 +95,9 @@ import { llmComplete, llmStream, llmChat, llmChatStream, llmEmbed, llmModels } f
 // Sigcall management syscalls
 import { sigcallRegister, sigcallUnregister, sigcallList } from './syscall/sigcall.js';
 
+// Debug syscalls
+import { debugIsEnabled, debugLog, debugListPatterns } from './syscall/debug.js';
+
 // Sigcall registry for routing to userspace
 import * as sigcallRegistry from './sigcall/registry.js';
 import type { SigcallRegistration } from './sigcall/registry.js';
@@ -713,6 +716,22 @@ export class SyscallDispatcher {
 
             case 'sigcall:list':
                 yield* sigcallList(proc);
+                break;
+
+                // =================================================================
+                // DEBUG SYSCALLS (debug:*)
+                // =================================================================
+
+            case 'debug:enabled':
+                yield* debugIsEnabled(proc, args[0]);
+                break;
+
+            case 'debug:log':
+                yield* debugLog(proc, args[0], args[1], ...args.slice(2));
+                break;
+
+            case 'debug:patterns':
+                yield* debugListPatterns(proc);
                 break;
 
                 // =================================================================

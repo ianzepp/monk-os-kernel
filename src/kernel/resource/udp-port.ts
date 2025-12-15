@@ -60,7 +60,11 @@
 
 import type { PortType } from '@src/kernel/types.js';
 import { EBADF, EINVAL } from '@src/kernel/errors.js';
+import { debug } from '@src/debug.js';
 import type { Port, PortMessage, UdpSocketOpts } from './types.js';
+
+// WHY: Centralize error logging through debug module instead of raw console.error
+const log = debug('kernel:udp-port');
 
 // =============================================================================
 // TYPES
@@ -424,11 +428,10 @@ export class UdpPort implements Port {
                 /**
                  * Handle socket errors.
                  *
-                 * WHY console.error: No kernel logging available in callback context.
-                 * Production systems should inject logger dependency.
+                 * WHY debug: Centralized logging through debug module.
                  */
                 error(_socket, error) {
-                    console.error('UDP socket error:', error);
+                    log('socket error: %o', error);
                 },
             },
         }) as Promise<BunUdpSocket>;

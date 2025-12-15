@@ -430,7 +430,7 @@ async function executeSpawn(spawnArgs: SpawnArgs, ctx: BangExecutionContext): Pr
     const spawnId = generateSpawnId();
     const spawnModel = spawnArgs.model ?? ctx.currentModel;
 
-    await log(`ai: !spawn ${spawnId} "${spawnArgs.task.slice(0, 50)}..."`);
+    log('!spawn %s "%s..."', spawnId, spawnArgs.task.slice(0, 50));
 
     // Create instruction for subagent (inherits context)
     const subInstruction = {
@@ -483,7 +483,7 @@ async function executeWait(waitId: string): Promise<string> {
             return '(no pending spawns)';
         }
 
-        await log(`ai: !wait all (${agents.size} pending...)`);
+        log('!wait all (%d pending...)', agents.size);
 
         const waitResults: string[] = [];
 
@@ -519,7 +519,7 @@ async function executeWait(waitId: string): Promise<string> {
     }
 
     // Wait for completion
-    await log(`ai: !wait ${waitId} (blocking...)`);
+    log('!wait %s (blocking...)', waitId);
     const agentResult = await agent.promise;
 
     deleteSpawnedAgent(waitId);

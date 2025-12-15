@@ -2,23 +2,32 @@
  * Gateway Debug Logging
  *
  * Simple debug output for gateway communications.
- * Enable with DEBUG=gateway or DEBUG=1 environment variable.
+ * Enable with DEBUG=gateway:* environment variable.
  *
  * @module gateway/debug
  */
 
-const DEBUG_ENV = process.env.DEBUG ?? '';
-const DEBUG = DEBUG_ENV === '1'
-    || DEBUG_ENV === '*'
-    || DEBUG_ENV.split(',').some(s => s.trim() === 'gateway');
+import { debug as createDebugger } from '@src/debug.js';
+
+// Create loggers for different gateway categories
+const loggers = new Map<string, ReturnType<typeof createDebugger>>();
+
+function getLogger(category: string): ReturnType<typeof createDebugger> {
+    let logger = loggers.get(category);
+
+    if (!logger) {
+        logger = createDebugger(`gateway:${category}`);
+        loggers.set(category, logger);
+    }
+
+    return logger;
+}
 
 /**
  * Log a debug message to stderr.
  */
 export function debug(category: string, msg: string): void {
-    if (DEBUG) {
-        console.error(`[gateway:${category}] ${msg}`);
-    }
+    getLogger(category)(msg);
 }
 
 /**
@@ -48,11 +57,14 @@ function describeType(value: unknown): string {
     return value.constructor?.name ?? 'Object';
 }
 
+// Decode logger for binary debugging
+const decodeLog = createDebugger('gateway:decode');
+
 /**
  * Log decoded message with type info for binary debugging.
  */
 export function debugDecode(msg: { id?: string; call?: string; args?: unknown[] }): void {
-    if (!DEBUG) {
+    if (!decodeLog.enabled) {
         return;
     }
 
@@ -74,5 +86,5 @@ export function debugDecode(msg: { id?: string; call?: string; args?: unknown[] 
         }
     }
 
-    console.error(`[gateway:decode] ${out}`);
+    decodeLog(out);
 }

@@ -57,6 +57,7 @@ import {
     IDENTITY_PATH,
     CONTEXT_PATH,
     log,
+    debugInit,
     setSystemPrompt,
     setDiscoveryPrompt,
     getDiscoveryPrompt,
@@ -85,9 +86,12 @@ import type { ModelSchema, Instruction, TaskResult } from './lib/index.js';
  * Tasks are received via the system gateway, not direct network connections.
  */
 export default async function main(): Promise<void> {
+    // Initialize debug logging first (fetches patterns from kernel)
+    await debugInit();
+
     const pid = await getpid();
 
-    await log(`ai: starting (pid ${pid})`);
+    log('starting (pid %d)', pid);
 
     // -------------------------------------------------------------------------
     // Load System Prompt
@@ -97,10 +101,10 @@ export default async function main(): Promise<void> {
         const systemPrompt = await readFile(SYSTEM_PROMPT_PATH);
 
         setSystemPrompt(systemPrompt);
-        await log(`ai: loaded system prompt (${systemPrompt.length} chars)`);
+        log('loaded system prompt (%d chars)', systemPrompt.length);
     }
     catch {
-        await log('ai: no system prompt found, running without');
+        log('no system prompt found, running without');
     }
 
     // -------------------------------------------------------------------------
@@ -111,20 +115,20 @@ export default async function main(): Promise<void> {
         const discoveryPrompt = await readFile(DISCOVERY_PROMPT_PATH);
 
         setDiscoveryPrompt(discoveryPrompt);
-        await log(`ai: loaded discovery prompt template`);
+        log('loaded discovery prompt template');
     }
     catch {
-        await log('ai: no discovery prompt template found');
+        log('no discovery prompt template found');
     }
 
     try {
         const wakePrompt = await readFile(WAKE_PROMPT_PATH);
 
         setWakePrompt(wakePrompt);
-        await log(`ai: loaded wake prompt template`);
+        log('loaded wake prompt template');
     }
     catch {
-        await log('ai: no wake prompt template found');
+        log('no wake prompt template found');
     }
 
     // -------------------------------------------------------------------------
@@ -133,12 +137,12 @@ export default async function main(): Promise<void> {
 
     try {
         await mkdir(MEMORY_DIR, { recursive: true });
-        await log(`ai: memory directory ready at ${MEMORY_DIR}`);
+        log('memory directory ready at %s', MEMORY_DIR);
     }
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);
 
-        await log(`ai: failed to create memory directory: ${message}`);
+        log('failed to create memory directory: %s', message);
     }
 
     // -------------------------------------------------------------------------
@@ -149,7 +153,7 @@ export default async function main(): Promise<void> {
         const identity = await readFile(IDENTITY_PATH);
 
         setIdentity(identity);
-        await log(`ai: loaded existing identity (${identity.length} chars)`);
+        log('loaded existing identity (%d chars)', identity.length);
     }
     catch {
         // No identity yet - will be created on first tick
@@ -163,7 +167,7 @@ export default async function main(): Promise<void> {
         const memoryContext = await readFile(CONTEXT_PATH);
 
         setMemoryContext(memoryContext);
-        await log(`ai: loaded memory context (${memoryContext.length} chars)`);
+        log('loaded memory context (%d chars)', memoryContext.length);
     }
     catch {
         // No context yet - will be created by distillation
@@ -174,7 +178,7 @@ export default async function main(): Promise<void> {
     // -------------------------------------------------------------------------
 
     await subscribeTicks();
-    await log('ai: subscribed to kernel ticks');
+    log('subscribed to kernel ticks');
 
     // Register tick handler
     onTick(async (_dt, _now, seq) => {
@@ -191,7 +195,7 @@ export default async function main(): Promise<void> {
         catch (err) {
             const message = err instanceof Error ? err.message : String(err);
 
-            await log(`ai: tick error: ${message}`);
+            log('tick error: %s', message);
         }
         finally {
             setTickBusy(false);
@@ -204,11 +208,11 @@ export default async function main(): Promise<void> {
 
     try {
         await call('sigcall:register', 'ai:task');
-        await log('ai: registered sigcall ai:task');
+        log('registered sigcall ai:task');
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        await log(`ai: failed to register ai:task: ${msg}`);
+        log('failed to register ai:task: %s', msg);
     }
 
     // Handler for ai:task - execute a task and return result
@@ -220,7 +224,7 @@ export default async function main(): Promise<void> {
             return;
         }
 
-        await log(`ai: received task: ${instr.task.slice(0, 50)}...`);
+        log('received task: %s...', instr.task.slice(0, 50));
 
         try {
             const result: TaskResult = await executeTask(instr, {}, consolidateMemory);
@@ -239,7 +243,7 @@ export default async function main(): Promise<void> {
         }
         catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
-            await log(`ai: task error: ${msg}`);
+            log('task error: %s', msg);
             yield respond.error('EIO', msg);
         }
     });
@@ -252,7 +256,7 @@ export default async function main(): Promise<void> {
 
     onSignal(() => {
         running = false;
-        log('ai: received shutdown signal');
+        log('received shutdown signal');
     });
 
     // Keep process alive while waiting for shutdown
@@ -260,7 +264,7 @@ export default async function main(): Promise<void> {
         await sleep(1000);
     }
 
-    await log('ai: shutdown complete');
+    log('shutdown complete');
 }
 
 // =============================================================================
@@ -294,7 +298,7 @@ async function handleTick(seq: number): Promise<void> {
  */
 async function handleFirstTick(): Promise<void> {
     // Load EMS schema so AI understands available data models
-    await log('ai: tick 1 - loading EMS schema');
+    log('tick 1 - loading EMS schema');
 
     try {
         const models = await collect<ModelSchema>('ems:describe');
@@ -305,17 +309,17 @@ async function handleFirstTick(): Promise<void> {
         });
 
         setEmsSchema(schemaLines.join('\n'));
-        await log(`ai: loaded ${models.length} EMS models`);
+        log('loaded %d EMS models', models.length);
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
 
-        await log(`ai: failed to load EMS schema: ${msg}`);
+        log('failed to load EMS schema: %s', msg);
     }
 
     // Self-discovery (only if no identity exists)
     if (!getIdentity()) {
-        await log('ai: tick 1 - performing self-discovery');
+        log('tick 1 - performing self-discovery');
 
         const discoveryPrompt = getDiscoveryPrompt()
             ?? 'You just woke up. Describe your environment and capabilities. Be concise.';
@@ -328,22 +332,22 @@ async function handleFirstTick(): Promise<void> {
 
         if (result.status === 'ok' && result.result) {
             setIdentity(result.result);
-            await log(`ai: self-discovery complete`);
-            await log(`ai: ${result.result}`);
+            log('self-discovery complete');
+            log('%s', result.result);
 
             // Persist identity to file
             try {
                 await writeFile(IDENTITY_PATH, result.result);
-                await log(`ai: identity saved to ${IDENTITY_PATH}`);
+                log('identity saved to %s', IDENTITY_PATH);
             }
             catch (err) {
                 const msg = err instanceof Error ? err.message : String(err);
 
-                await log(`ai: failed to save identity: ${msg}`);
+                log('failed to save identity: %s', msg);
             }
         }
         else {
-            await log(`ai: self-discovery failed: ${result.error}`);
+            log('self-discovery failed: %s', result.error);
         }
     }
 }
@@ -381,7 +385,7 @@ interface StmRecord {
  * prompts Prior to review and take any needed actions.
  */
 async function handleWakeCycle(seq: number): Promise<void> {
-    await log(`ai: wake cycle tick=${seq}`);
+    log('wake cycle tick=%d', seq);
 
     // Gather system state
     const state = await gatherSystemState();
@@ -403,10 +407,10 @@ async function handleWakeCycle(seq: number): Promise<void> {
             ? response.slice(0, 200) + '...'
             : response;
 
-        await log(`ai: wake - ${preview}`);
+        log('wake - %s', preview);
     }
     else {
-        await log(`ai: wake cycle error: ${result.error}`);
+        log('wake cycle error: %s', result.error);
     }
 }
 
@@ -438,7 +442,7 @@ async function gatherSystemState(): Promise<SystemState> {
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
 
-        await log(`ai: wake - failed to list processes: ${msg}`);
+        log('wake - failed to list processes: %s', msg);
     }
 
     // Get due reminders (reminder_at <= now and not consolidated)
@@ -458,7 +462,7 @@ async function gatherSystemState(): Promise<SystemState> {
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
 
-        await log(`ai: wake - failed to query reminders: ${msg}`);
+        log('wake - failed to query reminders: %s', msg);
     }
 
     // Get recent unconsolidated STM (last 5, high salience)
@@ -479,7 +483,7 @@ async function gatherSystemState(): Promise<SystemState> {
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
 
-        await log(`ai: wake - failed to query recent stm: ${msg}`);
+        log('wake - failed to query recent stm: %s', msg);
     }
 
     return {

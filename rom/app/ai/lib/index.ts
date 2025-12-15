@@ -56,6 +56,7 @@ export {
 
 export {
     log,
+    debugInit,
     generateRequestId,
     generateSpawnId,
 } from './logging.js';

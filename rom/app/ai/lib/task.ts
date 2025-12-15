@@ -101,7 +101,7 @@ export async function executeTask(
         // Non-critical - log and continue
         const msg = err instanceof Error ? err.message : String(err);
 
-        await log(`ai: failed to create ai.request: ${msg}`, requestId);
+        log('[%s] failed to create ai.request: %s', requestId, msg);
     }
 
     // Conversation history for agentic loop
@@ -169,13 +169,13 @@ export async function executeTask(
                 }
             }).join('\n\n');
 
-            await log(`ai: iteration ${iterations}, calling llm:complete with model=${model}`);
+            log('iteration %d, calling llm:complete with model=%s', iterations, model);
 
             const response = await call<CompletionResponse>('llm:complete', model, prompt, {
                 system: getSystemPrompt(),
             });
 
-            await log(`ai: llm responded, ${response.text.length} chars`);
+            log('llm responded, %d chars', response.text.length);
 
             // Check for bang commands
             const bangCommands = parseBangCommands(response.text);
@@ -208,7 +208,7 @@ export async function executeTask(
                 const cmd = getBangCommandDescription(otherCommands[i]!);
                 const logText = resultText.trim();
 
-                await log(`ai: ${cmd} -> ${logText.slice(0, 80)}${logText.length > 80 ? '...' : ''}`);
+                log('%s -> %s', cmd, logText.slice(0, 80) + (logText.length > 80 ? '...' : ''));
                 conversation.push({ role: 'exec', content: resultText });
             }
 
@@ -222,7 +222,7 @@ export async function executeTask(
                 const cmd = getBangCommandDescription(waitCommands[i]!);
                 const logText = resultText.trim();
 
-                await log(`ai: ${cmd} -> ${logText.slice(0, 80)}${logText.length > 80 ? '...' : ''}`);
+                log('%s -> %s', cmd, logText.slice(0, 80) + (logText.length > 80 ? '...' : ''));
                 conversation.push({ role: 'exec', content: resultText });
             }
         }
@@ -265,7 +265,7 @@ export async function executeTask(
         const message = err instanceof Error ? err.message : String(err);
         const durationMs = Date.now() - startTime;
 
-        await log(`ai: error: ${message}`, requestId);
+        log('[%s] error: %s', requestId, message);
 
         // Update ai.request record on error
         try {

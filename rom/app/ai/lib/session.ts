@@ -60,7 +60,7 @@ export async function logSession(
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);
 
-        await log(`ai: failed to log session: ${message}`);
+        log('failed to log session: %s', message);
     }
 
     // Write to short-term memory for later consolidation

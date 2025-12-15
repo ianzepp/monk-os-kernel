@@ -63,6 +63,10 @@
 
 import type { Listener, ListenerAcceptOpts, ListenOpts, Socket } from './types.js';
 import { BunSocket } from './socket.js';
+import { debug } from '@src/debug.js';
+
+// WHY: Centralize error logging through debug module
+const log = debug('hal:listener');
 
 // =============================================================================
 // MAIN CLASS
@@ -363,13 +367,10 @@ export class BunListener implements Listener {
             /**
                  * Socket error.
                  *
-                 * WHY: Log error and mark socket closed. In production, this should
-                 * use a proper logger instead of console.error.
-                 *
-                 * TODO: Replace console.error with kernel logger.
+                 * WHY debug: Centralized logging through debug module.
                  */
             error(socket: any, error: any) {
-                console.error('Socket error:', error);
+                log('socket error: %o', error);
                 (socket as any)._setClosed(true);
             },
         };

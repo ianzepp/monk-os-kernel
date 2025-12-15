@@ -69,7 +69,11 @@
 
 import type { PortType } from '@src/kernel/types.js';
 import { EBADF, ENOTSUP, EIO } from '@src/kernel/errors.js';
+import { debug } from '@src/debug.js';
 import type { Port, PortMessage } from './types.js';
+
+// WHY: Centralize error logging through debug module instead of raw console.error
+const log = debug('kernel:watch-port');
 
 // =============================================================================
 // TYPES
@@ -407,9 +411,8 @@ export class WatchPort implements Port {
         catch (error) {
             // If closed, ignore errors (expected during shutdown)
             if (!this._closed) {
-                // WHY console.error: No kernel logging available in async context
-                // Production systems should inject logger dependency
-                console.error('WatchPort error:', error);
+                // WHY debug: Centralized logging through debug module
+                log('error: %o', error);
             }
         }
     }

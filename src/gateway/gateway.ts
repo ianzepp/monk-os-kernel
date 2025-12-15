@@ -431,7 +431,7 @@ export class Gateway {
             if (!this.shuttingDown) {
                 const error = err as Error;
 
-                console.error(`Gateway TCP accept error: ${error.message}`);
+                debug('tcp', `accept error: ${error.message}`);
             }
         }
     }
@@ -472,7 +472,7 @@ export class Gateway {
             if (!this.shuttingDown) {
                 const error = err as Error;
 
-                console.error(`Gateway WebSocket accept error: ${error.message}`);
+                debug('ws', `accept error: ${error.message}`);
             }
         }
     }

@@ -46,7 +46,7 @@ import { executeTask } from './task.js';
  * Reviews STM entries by salience and extracts insights.
  */
 export async function consolidateMemory(): Promise<void> {
-    await log('ai: starting memory consolidation');
+    log('starting memory consolidation');
 
     try {
         // Find unconsolidated STM entries, ordered by salience
@@ -61,12 +61,12 @@ export async function consolidateMemory(): Promise<void> {
         );
 
         if (stmEntries.length === 0) {
-            await log('ai: no memories to consolidate');
+            log('no memories to consolidate');
 
             return;
         }
 
-        await log(`ai: consolidating ${stmEntries.length} memories`);
+        log('consolidating %d memories', stmEntries.length);
 
         // Build context for LLM
         const memoryList = stmEntries
@@ -105,7 +105,7 @@ Output only JSON lines, no commentary. If nothing is worth keeping, output nothi
                         last_accessed: new Date().toISOString(),
                     });
 
-                    await log(`ai: stored insight [${insight.category}]: ${insight.content.slice(0, 50)}...`);
+                    log('stored insight [%s]: %s...', insight.category, insight.content.slice(0, 50));
                 }
                 catch {
                     // Skip malformed lines
@@ -123,11 +123,11 @@ Output only JSON lines, no commentary. If nothing is worth keeping, output nothi
             });
         }
 
-        await log('ai: memory consolidation complete');
+        log('memory consolidation complete');
     }
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);
 
-        await log(`ai: consolidation error: ${message}`);
+        log('consolidation error: %s', message);
     }
 }
