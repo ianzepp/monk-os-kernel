@@ -1,5 +1,5 @@
 {
     "handler": "main.ts",
-    "activate": { "type": "manual" },
+    "activate": { "type": "boot" },
     "description": "AI assistant daemon"
 }

@@ -39,12 +39,14 @@ import {
     collect,
     onSignal,
     onTick,
+    onSigcall,
     subscribeTicks,
     getpid,
     sleep,
     readFile,
     writeFile,
     mkdir,
+    respond,
 } from '@rom/lib/process/index.js';
 
 import {
@@ -70,7 +72,7 @@ import {
     consolidateMemory,
 } from './lib/index.js';
 
-import type { ModelSchema } from './lib/index.js';
+import type { ModelSchema, Instruction, TaskResult } from './lib/index.js';
 
 // =============================================================================
 // MAIN
@@ -193,6 +195,52 @@ export default async function main(): Promise<void> {
         }
         finally {
             setTickBusy(false);
+        }
+    });
+
+    // -------------------------------------------------------------------------
+    // Register Sigcalls (ai:task, ai:chat)
+    // -------------------------------------------------------------------------
+
+    try {
+        await call('sigcall:register', 'ai:task');
+        await log('ai: registered sigcall ai:task');
+    }
+    catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        await log(`ai: failed to register ai:task: ${msg}`);
+    }
+
+    // Handler for ai:task - execute a task and return result
+    onSigcall('ai:task', async function*(instruction: unknown) {
+        const instr = instruction as Instruction;
+
+        if (!instr || typeof instr.task !== 'string') {
+            yield respond.error('EINVAL', 'instruction.task must be a string');
+            return;
+        }
+
+        await log(`ai: received task: ${instr.task.slice(0, 50)}...`);
+
+        try {
+            const result: TaskResult = await executeTask(instr, {}, consolidateMemory);
+
+            if (result.status === 'ok') {
+                yield respond.ok({
+                    result: result.result,
+                    model: result.model,
+                    duration_ms: result.duration_ms,
+                    request_id: result.request_id,
+                });
+            }
+            else {
+                yield respond.error('EIO', result.error ?? 'Task failed');
+            }
+        }
+        catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            await log(`ai: task error: ${msg}`);
+            yield respond.error('EIO', msg);
         }
     });
 
