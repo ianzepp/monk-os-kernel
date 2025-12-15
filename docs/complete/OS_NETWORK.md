@@ -268,7 +268,7 @@ await bus.send('orders.created', orderData);
 **Topic patterns:**
 - `orders.created` - exact topic
 - `orders.*` - one level wildcard
-- `orders.>` - multi-level wildcard (all under orders)
+- `orders.**` - multi-level wildcard (all under orders)
 
 ## Flow Control
 

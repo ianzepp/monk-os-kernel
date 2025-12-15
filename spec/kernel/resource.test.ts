@@ -488,13 +488,13 @@ describe('matchTopic', () => {
         expect(matchTopic('*.created', 'users.created')).toBe(true);
     });
 
-    it('should match multi-level wildcard (>)', () => {
-        expect(matchTopic('orders.>', 'orders.created')).toBe(true);
-        expect(matchTopic('orders.>', 'orders.us.created')).toBe(true);
-        expect(matchTopic('orders.>', 'orders.us.east.created')).toBe(true);
-        expect(matchTopic('orders.>', 'orders')).toBe(false); // Must have at least one segment after
-        expect(matchTopic('>', 'orders')).toBe(true);
-        expect(matchTopic('>', 'orders.created')).toBe(true);
+    it('should match multi-level wildcard (**)', () => {
+        expect(matchTopic('orders.**', 'orders.created')).toBe(true);
+        expect(matchTopic('orders.**', 'orders.us.created')).toBe(true);
+        expect(matchTopic('orders.**', 'orders.us.east.created')).toBe(true);
+        expect(matchTopic('orders.**', 'orders')).toBe(false); // Must have at least one segment after
+        expect(matchTopic('**', 'orders')).toBe(true);
+        expect(matchTopic('**', 'orders.created')).toBe(true);
     });
 
     it('should handle mixed patterns', () => {

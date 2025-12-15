@@ -20,7 +20,7 @@
  * Topic matching supports hierarchical patterns with wildcards:
  * - `orders.created` - exact topic match
  * - `orders.*` - single-level wildcard (matches orders.created, orders.deleted)
- * - `orders.>` - multi-level wildcard (matches orders.us.created, orders.eu.cancelled)
+ * - `orders.**` - multi-level wildcard (matches orders.us.created, orders.eu.cancelled)
  *
  * STATE MACHINE
  * =============
@@ -435,19 +435,19 @@ export class PubsubPort implements Port {
  * Implements hierarchical topic matching with wildcard support:
  * - Exact match: "orders.created" matches "orders.created"
  * - Single wildcard: "orders.*" matches "orders.created" and "orders.deleted"
- * - Multi wildcard: "orders.>" matches "orders.created" and "orders.us.created"
+ * - Multi wildcard: "orders.**" matches "orders.created" and "orders.us.created"
  *
  * ALGORITHM:
  * 1. Split pattern and topic into segments by '.'
  * 2. Iterate through pattern segments
- * 3. If segment is '>', match succeeds if at least one topic segment remains
+ * 3. If segment is '**', match succeeds if at least one topic segment remains
  * 4. If segment is '*', skip topic segment (must exist)
  * 5. Otherwise require exact segment match
- * 6. Pattern and topic must have same length (unless '>' was used)
+ * 6. Pattern and topic must have same length (unless '**' was used)
  *
- * WHY '>' requires at least one segment:
+ * WHY '**' requires at least one segment:
  * Empty trailing segments would be ambiguous. "orders." is invalid.
- * "orders.>" requires at least "orders.X" to match.
+ * "orders.**" requires at least "orders.X" to match.
  *
  * @param pattern - Topic pattern with optional wildcards
  * @param topic - Topic to test against pattern
@@ -461,7 +461,7 @@ export function matchTopic(pattern: string, topic: string): boolean {
         const p = patternParts[i];
 
         // Multi-level wildcard - matches one or more remaining segments
-        if (p === '>') {
+        if (p === '**') {
             // Must have at least one segment after this position
             // WHY: Prevents matching against "orders." (trailing dot)
             return topicParts.length > i;
