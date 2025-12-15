@@ -216,6 +216,75 @@ export async function* fileWrite(
 }
 
 /**
+ * Read entire file as text (convenience syscall).
+ *
+ * Opens file, reads all content, closes file.
+ * Returns content as UTF-8 string.
+ *
+ * @param proc - Calling process
+ * @param kernel - Kernel instance
+ * @param vfs - VFS instance (currently unused, kernel.vfs used)
+ * @param path - File path to read
+ */
+export async function* fileText(
+    proc: Process,
+    kernel: Kernel,
+    _vfs: VFS,
+    path: unknown,
+): AsyncIterable<Response> {
+    if (typeof path !== 'string') {
+        yield respond.error('EINVAL', 'path must be a string');
+
+        return;
+    }
+
+    // Open read-only
+    const fd = await openFile(kernel, proc, path, { read: true });
+
+    try {
+        const handle = getHandle(kernel, proc, fd);
+
+        if (!handle) {
+            yield respond.error('EBADF', `Bad file descriptor: ${fd}`);
+
+            return;
+        }
+
+        // Read all content
+        const chunks: Uint8Array[] = [];
+
+        for await (const response of handle.exec({ op: 'recv' })) {
+            if (response.op === 'error') {
+                yield response;
+
+                return;
+            }
+
+            if (response.op === 'data' && 'bytes' in response) {
+                chunks.push(response.bytes as Uint8Array);
+            }
+        }
+
+        // Concatenate and decode as UTF-8
+        const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+        const combined = new Uint8Array(totalLength);
+        let offset = 0;
+
+        for (const chunk of chunks) {
+            combined.set(chunk, offset);
+            offset += chunk.length;
+        }
+
+        const text = new TextDecoder().decode(combined);
+
+        yield respond.ok(text);
+    }
+    finally {
+        await closeHandle(kernel, proc, fd);
+    }
+}
+
+/**
  * Append data to a file (convenience syscall).
  *
  * Opens file with append flag, writes data, closes file.
