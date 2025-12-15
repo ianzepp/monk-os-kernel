@@ -48,7 +48,8 @@ src/ems/
     ├── 5/                # Database (SqlCreate, SqlUpdate, SqlDelete, PathnameSync)
     ├── 6/                # DDL (DdlCreateModel, DdlCreateField)
     ├── 7/                # Audit (Tracked)
-    └── 8/                # Integration (Cache, PathCacheSync)
+    ├── 8/                # Integration (Cache, PathCacheSync)
+    └── 9/                # Notification (PubsubNotify)
 ```
 
 ## Observer Pipeline
@@ -78,6 +79,7 @@ All mutations flow through a 10-ring observer pipeline. Rings execute in order (
 - **Tracked** (Ring 7): Records changes to tracked fields for audit
 - **Cache** (Ring 8): Invalidates model cache on schema changes
 - **PathCacheSync** (Ring 8): Syncs VFS path cache on entity changes
+- **PubsubNotify** (Ring 9): Publishes entity changes to pub/sub for watch()
 
 ## Database Dialect
 
@@ -183,6 +185,7 @@ Entity-aware operations with full observer pipeline.
 - `revertOne(model, id)` - Restore soft-deleted
 - `expireAll(model, source)` - Stream hard-deleted entities
 - `expireOne(model, id)` - Hard delete
+- `watch(model, filter?)` - Real-time entity change notifications
 
 ### ModelCache
 
@@ -602,3 +605,38 @@ for await (const response of stream) {
     }
 }
 ```
+
+### Real-time Entity Notifications with watch()
+
+The `watch()` method enables real-time notifications when entities change. It uses pub/sub under the hood (via HAL redis), making it work across nodes in multi-node deployments.
+
+```typescript
+// Watch all changes to a model
+for await (const event of ems.ops.watch<User>('User')) {
+    console.log(`User ${event.entity.id} was ${event.op}d`);
+
+    if (event.op === 'update') {
+        console.log('Changed fields:', event.changes);
+    }
+}
+
+// Watch with filter (client-side filtering)
+for await (const event of ems.ops.watch<Task>('Task', {
+    where: { status: 'active' }
+})) {
+    console.log(`Active task changed: ${event.entity.id}`);
+}
+```
+
+**WatchEvent structure:**
+```typescript
+interface WatchEvent<T> {
+    op: 'create' | 'update' | 'delete';
+    entity: T;                          // Full entity (delete has only id)
+    changes?: Record<string, unknown>;  // Changed fields (update only)
+}
+```
+
+**Topic format:** Events are published to `entity.{model}.{operation}` (e.g., `entity.User.create`).
+
+**Note:** The filter is applied client-side after receiving events from pub/sub. For high-volume models, consider using specific topic subscriptions directly via HAL redis.

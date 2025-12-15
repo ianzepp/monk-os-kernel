@@ -16,7 +16,7 @@ The Hardware Abstraction Layer is the lowest TypeScript layer in Monk OS, sittin
 ┌─────────────────────────────────────────────────────────────┐
 │  Kernel / VFS / EMS                                         │
 ├─────────────────────────────────────────────────────────────┤
-│  HAL Interface (16 device abstractions)                     │
+│  HAL Interface (17 device abstractions)                     │
 ├─────────────────────────────────────────────────────────────┤
 │  BunHAL Implementation                                      │
 ├─────────────────────────────────────────────────────────────┤
@@ -43,6 +43,7 @@ src/hal/
 ├── json.ts               # JsonDevice (JSON encoding/decoding)
 ├── timer.ts              # TimerDevice (setTimeout, setInterval)
 ├── yaml.ts               # YamlDevice (YAML encoding/decoding)
+├── redis.ts              # RedisDevice barrel (re-exports redis/)
 ├── storage.ts            # StorageEngine barrel (re-exports storage/)
 ├── network.ts            # NetworkDevice barrel (re-exports network/)
 ├── channel.ts            # ChannelDevice barrel (re-exports channel/)
@@ -57,15 +58,18 @@ src/hal/
 │   ├── listener.ts       # BunListener
 │   ├── socket.ts         # BunSocket
 │   └── websocket-server.ts # BunWebSocketServer, BunWebSocketConnection
-└── channel/
-    ├── types.ts          # Channel interface
-    ├── device.ts         # BunChannelDevice factory
-    ├── http.ts           # HTTP client
-    ├── http-server.ts    # HTTP server channel
-    ├── websocket.ts      # WebSocket client
-    ├── sse.ts            # Server-Sent Events
-    ├── postgres.ts       # PostgreSQL wire protocol
-    └── sqlite.ts         # SQLite interface
+├── channel/
+│   ├── types.ts          # Channel interface
+│   ├── device.ts         # BunChannelDevice factory
+│   ├── http.ts           # HTTP client
+│   ├── http-server.ts    # HTTP server channel
+│   ├── websocket.ts      # WebSocket client
+│   ├── sse.ts            # Server-Sent Events
+│   ├── postgres.ts       # PostgreSQL wire protocol
+│   └── sqlite.ts         # SQLite interface
+└── redis/
+    ├── types.ts          # RedisDevice, PubsubSubscription, PubsubMessage
+    └── memory.ts         # MemoryRedis (in-memory implementation)
 ```
 
 ## Device Reference
@@ -324,6 +328,47 @@ Encoding/decoding utilities.
 - JSON: `BunJsonDevice`, `MockJsonDevice`
 - YAML: `BunYamlDevice`, `MockYamlDevice`
 
+---
+
+### RedisDevice (`redis/`)
+
+Cache (key-value) and pub/sub operations.
+
+**Cache Operations:**
+
+| Operation | Description |
+|-----------|-------------|
+| `get(key)` | Get value by key |
+| `set(key, value, opts?)` | Set value with optional TTL (ex: seconds, px: milliseconds) |
+| `del(...keys)` | Delete one or more keys |
+| `exists(...keys)` | Count how many keys exist |
+| `expire(key, seconds)` | Set TTL on existing key |
+| `ttl(key)` | Get remaining TTL (-1 = no expiry, -2 = not found) |
+| `incr(key)` | Increment by 1 |
+| `incrby(key, amount)` | Increment by amount |
+| `setnx(key, value)` | Set if not exists |
+| `keys(pattern)` | Find keys matching glob pattern |
+
+**Pub/Sub Operations:**
+
+| Operation | Description |
+|-----------|-------------|
+| `subscribe(patterns)` | Subscribe to topic patterns |
+| `publish(topic, payload)` | Publish message, returns subscriber count |
+
+**Pattern Matching:**
+- `*` matches single path segment (e.g., `user.*` matches `user.created`)
+- `**` matches multiple segments (e.g., `user.**` matches `user.profile.updated`)
+
+**PubsubSubscription Interface:**
+
+| Method | Description |
+|--------|-------------|
+| `messages()` | AsyncIterable of incoming messages |
+| `close()` | Unsubscribe and cleanup |
+
+**Implementations:** `MemoryRedis` (in-memory), Redis backend (future)
+
 ## HAL Interface
 
 ```typescript
@@ -344,6 +389,7 @@ interface HAL {
     readonly file: FileDevice;
     readonly json: JsonDevice;
     readonly yaml: YamlDevice;
+    readonly redis: RedisDevice;
 
     init(): Promise<void>;
     shutdown(): Promise<void>;
@@ -359,7 +405,11 @@ interface HALConfig {
         type: 'memory' | 'sqlite' | 'postgres';
         path?: string;    // sqlite only
         url?: string;     // postgres only
-    }
+    };
+    redis?: {
+        type: 'memory' | 'redis';  // memory (default) or redis
+        url?: string;              // redis only (e.g., redis://localhost:6379)
+    };
 }
 ```
 
