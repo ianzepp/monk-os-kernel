@@ -56,6 +56,9 @@ import { BunWebSocketClientChannel } from './websocket.js';
 import { BunSSEServerChannel } from './sse.js';
 import { BunPostgresChannel } from './postgres.js';
 import { BunSqliteChannel } from './sqlite.js';
+import { debug } from '../../debug.js';
+
+const log = debug('hal:channel');
 
 // =============================================================================
 // MAIN CLASS
@@ -100,6 +103,7 @@ export class BunChannelDevice implements ChannelDevice {
      * @throws Error if protocol is unsupported
      */
     async open(proto: string, url: string, opts?: ChannelOpts): Promise<Channel> {
+        log('open proto=%s url=%s', proto, url);
         // WHY: Switch on protocol string enables easy extensibility - new protocols
         // just add cases. Could use a registry pattern but that adds complexity.
         switch (proto) {
@@ -130,6 +134,7 @@ export class BunChannelDevice implements ChannelDevice {
             default:
                 // WHY: Fail-fast on unknown protocols - don't return null or undefined.
                 // Caller should handle errors explicitly.
+                log('unsupported protocol: %s', proto);
                 throw new Error(`Unsupported protocol: ${proto}`);
         }
     }
@@ -166,6 +171,7 @@ export class BunChannelDevice implements ChannelDevice {
      * @throws Error if protocol is unsupported or requires HTTP upgrade
      */
     async accept(socket: Socket, proto: string, opts?: ChannelOpts): Promise<Channel> {
+        log('accept proto=%s', proto);
         switch (proto) {
             case 'http':
             case 'http-server':
@@ -182,9 +188,11 @@ export class BunChannelDevice implements ChannelDevice {
                 // WHY: WebSocket requires HTTP upgrade handshake which must happen
                 // before this method is called. HTTP server handles upgrade, then
                 // creates WebSocket directly (not via this method).
+                log('websocket accept requires HTTP upgrade first');
                 throw new Error('WebSocket server channels should be created via HTTP upgrade');
 
             default:
+                log('unsupported server protocol: %s', proto);
                 throw new Error(`Unsupported server protocol: ${proto}`);
         }
     }

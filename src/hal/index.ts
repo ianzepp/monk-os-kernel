@@ -123,6 +123,9 @@ import { BunFileDevice } from './file.js';
 import { BunJsonDevice } from './json.js';
 import { BunYamlDevice } from './yaml.js';
 import { EIO } from './errors.js';
+import { debug } from '../debug.js';
+
+const log = debug('hal:init');
 
 // =============================================================================
 // ERROR TYPES (RE-EXPORTS)
@@ -524,6 +527,10 @@ export class BunHAL implements HAL {
      * @param config - HAL configuration options
      */
     constructor(config?: HALConfig) {
+        const storageConfig = config?.storage ?? { type: 'memory' };
+
+        log('constructing BunHAL with storage=%s', storageConfig.type);
+
         // Block device: file-based or memory
         // WHY: Block device is where VFS stores file content as raw bytes.
         // Memory block device is fast for tests, file-based is durable.
@@ -534,18 +541,18 @@ export class BunHAL implements HAL {
         // Storage engine: SQLite, PostgreSQL, or memory
         // WHY: Storage engine is where VFS stores metadata (filenames, UUIDs, etc.).
         // Choice of engine affects performance, durability, and scalability.
-        const storageConfig = config?.storage ?? { type: 'memory' };
-
         switch (storageConfig.type) {
             case 'memory':
                 this.storage = new MemoryStorageEngine();
                 break;
             case 'sqlite':
+                log('using SQLite storage: %s', storageConfig.path);
                 this.storage = new BunStorageEngine(storageConfig.path);
                 break;
             case 'postgres':
                 // WHY: PostgreSQL enables distributed VFS with multiple Monk nodes
                 // NOTE: pg.init() is called in init() method to handle async schema setup
+                log('using PostgreSQL storage: %s', storageConfig.url);
                 this.storage = new PostgresStorageEngine(storageConfig.url);
                 break;
             default:
@@ -569,6 +576,8 @@ export class BunHAL implements HAL {
         this.file = new BunFileDevice();
         this.json = new BunJsonDevice();
         this.yaml = new BunYamlDevice();
+
+        log('BunHAL constructed with 16 devices');
     }
 
     // =========================================================================
@@ -589,15 +598,21 @@ export class BunHAL implements HAL {
      */
     async init(): Promise<void> {
         if (this.initialized) {
+            log('init() called but already initialized');
             return;
         }
 
+        log('initializing HAL');
         this.initialized = true;
+
         // WHY: PostgresStorageEngine requires async schema initialization
         // SQLite and Memory engines initialize synchronously in constructor
         if (this.storage instanceof PostgresStorageEngine) {
+            log('initializing PostgreSQL storage engine');
             await this.storage.init();
         }
+
+        log('HAL initialized');
     }
 
     /**
@@ -621,11 +636,13 @@ export class BunHAL implements HAL {
      * when some resources fail to close properly.
      */
     async shutdown(): Promise<void> {
+        log('shutting down HAL');
         const errors: Error[] = [];
 
         // WHY: Cancel timers first to prevent callbacks from firing during shutdown.
         // This is synchronous - timers are cancelled immediately before any await.
         try {
+            log('cancelling all timers');
             (this.timer as BunTimerDevice).cancelAll();
         }
         catch (err) {
@@ -635,6 +652,7 @@ export class BunHAL implements HAL {
         // WHY: Close storage after timers are cancelled.
         // Timer callbacks could reference storage, so cancel them first.
         try {
+            log('closing storage engine');
             await this.storage.close();
         }
         catch (err) {
@@ -651,6 +669,8 @@ export class BunHAL implements HAL {
 
             throw new EIO(`HAL shutdown encountered errors: ${message}`);
         }
+
+        log('HAL shutdown complete');
     }
 }
 

@@ -83,6 +83,9 @@ import type {
 import { BunSocket } from './socket.js';
 import { BunListener } from './listener.js';
 import { BunWebSocketServer } from './websocket-server.js';
+import { debug } from '../../debug.js';
+
+const log = debug('hal:network');
 
 // =============================================================================
 // MAIN CLASS
@@ -118,6 +121,7 @@ export class BunNetworkDevice implements NetworkDevice {
      * @returns Promise resolving to ready-to-use listener
      */
     async listen(port: number, opts?: ListenOpts): Promise<Listener> {
+        log('listen port=%d hostname=%s', port, opts?.hostname ?? '0.0.0.0');
         return new BunListener(port, opts);
     }
 
@@ -157,6 +161,7 @@ export class BunNetworkDevice implements NetworkDevice {
      * @throws Error - On connection failure
      */
     async connect(host: string, port: number, opts?: ConnectOpts): Promise<Socket> {
+        log('connect host=%s port=%d', host, port);
         return new Promise((resolve, reject) => {
             /**
              * Data queue for incoming bytes.
@@ -197,6 +202,7 @@ export class BunNetworkDevice implements NetworkDevice {
                  * timeout handler can detect successful connection.
                  */
                 open(socket: any) {
+                    log('connected to %s:%d', host, port);
                     socketRef = socket;
                     resolve(new BunSocket(socket, dataQueue, () => dataResolve, r => {
                         dataResolve = r;
@@ -252,6 +258,7 @@ export class BunNetworkDevice implements NetworkDevice {
                  * WHY: Reject connect() Promise immediately.
                  */
                 connectError(_socket: any, error: Error) {
+                    log('connect failed %s:%d - %s', host, port, error.message);
                     reject(error);
                 },
             };
@@ -336,6 +343,7 @@ export class BunNetworkDevice implements NetworkDevice {
         handler: HttpHandler<T>,
         opts?: ServeOpts<T>,
     ): Promise<HttpServer> {
+        log('serve http port=%d hostname=%s ws=%s', port, opts?.hostname ?? '0.0.0.0', !!opts?.websocket);
         // Build Bun.serve() config
         // WHY type assertion: Bun's types are complex, our abstraction is simpler
         const config: Parameters<typeof Bun.serve>[0] = {
@@ -418,6 +426,7 @@ export class BunNetworkDevice implements NetworkDevice {
      * @returns Promise resolving to ready-to-use WebSocket server
      */
     async listenWebSocket(port: number, opts?: WebSocketServerOpts): Promise<WebSocketServer> {
+        log('listenWebSocket port=%d', port);
         return new BunWebSocketServer(port, opts);
     }
 }

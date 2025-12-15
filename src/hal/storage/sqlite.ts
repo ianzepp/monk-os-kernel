@@ -57,6 +57,9 @@
 
 import { Database } from 'bun:sqlite';
 import type { StorageEngine, StorageStat, Transaction, WatchEvent } from './types.js';
+import { debug } from '../../debug.js';
+
+const log = debug('hal:storage');
 
 // =============================================================================
 // MAIN CLASS
@@ -125,8 +128,10 @@ export class BunStorageEngine implements StorageEngine {
      * @param path - SQLite database path, or ':memory:' for in-memory
      */
     constructor(path: string) {
+        log('opening SQLite database: %s', path);
         this.db = new Database(path);
         this.init();
+        log('SQLite database initialized');
     }
 
     /**
@@ -320,6 +325,7 @@ export class BunStorageEngine implements StorageEngine {
      * @returns Transaction handle
      */
     async begin(): Promise<Transaction> {
+        log('begin transaction');
         // Use IMMEDIATE to acquire write lock at start, avoiding deadlocks
         // WHY: Prevents "database is locked" errors from lock upgrades
         this.db.run('BEGIN IMMEDIATE');
@@ -474,12 +480,14 @@ export class BunStorageEngine implements StorageEngine {
      * @returns Promise that resolves when cleanup is complete
      */
     async close(): Promise<void> {
+        log('closing SQLite database');
         if (this.pollInterval) {
             clearInterval(this.pollInterval);
             this.pollInterval = null;
         }
 
         this.db.close();
+        log('SQLite database closed');
     }
 
     // =========================================================================
