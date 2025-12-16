@@ -69,6 +69,7 @@
 import type { Kernel } from '../kernel.js';
 import type { ServiceDef } from '../services.js';
 import type { WatchEvent } from '../../vfs/model.js';
+import { KERNEL_ID } from '../types.js';
 import { ListenerPort, PubsubPort, WatchPort, UdpPort } from '../resource.js';
 import { spawnServiceHandler } from './spawn-service-handler.js';
 import { runActivationLoop } from './run-activation-loop.js';
@@ -211,7 +212,7 @@ export async function activateService(
 
             // WHY: VFS watch function provides file events via AsyncIterable
             const vfsWatch = (pattern: string): AsyncIterable<WatchEvent> => {
-                return self.vfs.watch(pattern, 'kernel');
+                return self.vfs.watch(pattern, KERNEL_ID);
             };
 
             const port = new WatchPort(portId, activation.pattern, vfsWatch, description);

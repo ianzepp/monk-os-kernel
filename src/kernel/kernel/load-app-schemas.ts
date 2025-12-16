@@ -13,6 +13,7 @@
 
 import type { Kernel } from '../kernel.js';
 import type { SchemaOps } from '@src/ems/schema-loader.js';
+import { KERNEL_ID } from '../types.js';
 import { printk } from './printk.js';
 
 /**
@@ -45,7 +46,7 @@ async function readJsonFromVfs(
     kernel: Kernel,
     path: string,
 ): Promise<unknown> {
-    const handle = await kernel.vfs.open(path, { read: true }, 'kernel');
+    const handle = await kernel.vfs.open(path, { read: true }, KERNEL_ID);
     const chunks: Uint8Array[] = [];
 
     while (true) {
@@ -85,7 +86,7 @@ async function loadJsonFilesFromVfs(
 
     // Check if directory exists
     try {
-        await kernel.vfs.stat(dir, 'kernel');
+        await kernel.vfs.stat(dir, KERNEL_ID);
     }
     catch {
         return [];
@@ -94,7 +95,7 @@ async function loadJsonFilesFromVfs(
     // Read directory entries
     const entries: Array<{ name: string; model: string }> = [];
 
-    for await (const entry of kernel.vfs.readdir(dir, 'kernel')) {
+    for await (const entry of kernel.vfs.readdir(dir, KERNEL_ID)) {
         entries.push(entry);
     }
 
@@ -173,7 +174,7 @@ export async function loadAppSchemas(kernel: Kernel): Promise<void> {
 
     // Check if /app exists
     try {
-        await kernel.vfs.stat('/app', 'kernel');
+        await kernel.vfs.stat('/app', KERNEL_ID);
     }
     catch {
         // No /app directory - fine
@@ -183,7 +184,7 @@ export async function loadAppSchemas(kernel: Kernel): Promise<void> {
     const ops = kernel.ems.ops as unknown as SchemaOps;
 
     // Iterate over app directories
-    for await (const entry of kernel.vfs.readdir('/app', 'kernel')) {
+    for await (const entry of kernel.vfs.readdir('/app', KERNEL_ID)) {
         if (entry.model !== 'folder') {
             continue;
         }
@@ -193,7 +194,7 @@ export async function loadAppSchemas(kernel: Kernel): Promise<void> {
 
         // Check if app has models directory
         try {
-            await kernel.vfs.stat(`${appDir}/models`, 'kernel');
+            await kernel.vfs.stat(`${appDir}/models`, KERNEL_ID);
         }
         catch {
             // No models directory - skip

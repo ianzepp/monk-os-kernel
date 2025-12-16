@@ -50,6 +50,7 @@ import type { PathCache } from '@src/vfs/path-cache.js';
 import type { EntityOps, EntityRecord } from '@src/ems/entity-ops.js';
 import type { ModelCache } from '@src/ems/model-cache.js';
 import { ENOENT, EACCES, EISDIR, ENOTDIR, EBADF, EROFS, EINVAL } from '@src/hal/errors.js';
+import { KERNEL_ID } from '@src/kernel/types.js';
 
 // =============================================================================
 // CONSTANTS
@@ -57,7 +58,7 @@ import { ENOENT, EACCES, EISDIR, ENOTDIR, EBADF, EROFS, EINVAL } from '@src/hal/
 
 const ENTITY_ID_PREFIX = 'entity:';
 const ENTITY_HANDLE_PREFIX = 'entity-handle:';
-const ENTITY_FILE_OWNER = 'kernel';
+const ENTITY_FILE_OWNER = KERNEL_ID;
 
 /** Default maximum depth for relationship traversal */
 const DEFAULT_MAX_DEPTH = 3;

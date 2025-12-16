@@ -63,6 +63,7 @@
 
 import type { HAL } from '@src/hal/index.js';
 import { EBUSY, EIO, ETIMEDOUT, ENOENT } from '@src/hal/errors.js';
+import { KERNEL_ID } from '@src/kernel/types.js';
 
 // =============================================================================
 // CONSTANTS
@@ -721,7 +722,7 @@ export class PoolManager {
         stat: (path: string, caller: string) => Promise<unknown>;
     }): Promise<void> {
         try {
-            const handle = await vfs.open('/etc/pools.json', { read: true }, 'kernel');
+            const handle = await vfs.open('/etc/pools.json', { read: true }, KERNEL_ID);
             const data = await handle.read();
 
             await handle.close();

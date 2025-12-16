@@ -90,6 +90,7 @@ import { join, resolve, basename } from 'path';
 import type { FileHandle, OpenFlags, SeekWhence } from '@src/vfs/handle.js';
 import type { ModelStat } from '@src/vfs/model.js';
 import { ENOENT, EACCES, EISDIR, ENOTDIR, EBADF } from '@src/hal/errors.js';
+import { KERNEL_ID } from '@src/kernel/types.js';
 
 // =============================================================================
 // CONSTANTS
@@ -110,10 +111,10 @@ const HOST_HANDLE_PREFIX = 'host-handle:';
 
 /**
  * Default owner for host files.
- * WHY: Host files aren't owned by VFS processes. Using 'kernel'
+ * WHY: Host files aren't owned by VFS processes. Using KERNEL_ID
  * indicates system-level ownership.
  */
-const HOST_FILE_OWNER = 'kernel';
+const HOST_FILE_OWNER = KERNEL_ID;
 
 // =============================================================================
 // TYPES

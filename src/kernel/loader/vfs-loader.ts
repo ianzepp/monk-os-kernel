@@ -63,6 +63,7 @@
 
 import type { VFS } from '@src/vfs/index.js';
 import type { HAL } from '@src/hal/index.js';
+import { KERNEL_ID } from '@src/kernel/types.js';
 import type { CachedModule, ModuleCacheConfig } from './types.js';
 import { ModuleCache } from './cache.js';
 import { resolveImport, isVFSPath, rewriteImports } from './imports.js';
@@ -541,7 +542,7 @@ if (typeof __entry.default === 'function') {
      * @returns File content as UTF-8 string
      */
     private async readVFSFile(path: string): Promise<string> {
-        const handle = await this.vfs.open(path, { read: true }, 'kernel');
+        const handle = await this.vfs.open(path, { read: true }, KERNEL_ID);
         const chunks: Uint8Array[] = [];
 
         try {

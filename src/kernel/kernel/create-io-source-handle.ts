@@ -72,6 +72,7 @@
 
 import type { Kernel } from '../kernel.js';
 import type { Process } from '../types.js';
+import { KERNEL_ID } from '../types.js';
 import type { IOSource } from '../services.js';
 import type { Handle } from '../handle.js';
 import type { WatchEvent } from '../../vfs/model.js';
@@ -164,7 +165,7 @@ export async function createIOSourceHandle(
         // ---------------------------------------------------------------------
         case 'console': {
             // Open /dev/console through VFS (goes through DeviceModel → HAL console)
-            const vfsHandle = await self.vfs.open(CONSOLE_PATH, { read: true }, 'kernel');
+            const vfsHandle = await self.vfs.open(CONSOLE_PATH, { read: true }, KERNEL_ID);
 
             return new FileHandleAdapter(vfsHandle.id, vfsHandle);
         }
@@ -174,7 +175,7 @@ export async function createIOSourceHandle(
         // ---------------------------------------------------------------------
         case 'file': {
             // Open configured file path through VFS
-            const vfsHandle = await self.vfs.open(source.path, { read: true }, 'kernel');
+            const vfsHandle = await self.vfs.open(source.path, { read: true }, KERNEL_ID);
 
             return new FileHandleAdapter(vfsHandle.id, vfsHandle);
         }

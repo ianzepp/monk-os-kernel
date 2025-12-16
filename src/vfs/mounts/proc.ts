@@ -39,6 +39,7 @@ import type { FileHandle, OpenFlags, SeekWhence } from '@src/vfs/handle.js';
 import type { ModelStat } from '@src/vfs/model.js';
 import type { ProcessTable } from '@src/kernel/process-table.js';
 import type { Process } from '@src/kernel/types.js';
+import { KERNEL_ID } from '@src/kernel/types.js';
 import { ENOENT, EACCES, EISDIR, ENOTDIR, EBADF, EROFS, EPERM, EEXIST } from '@src/hal/errors.js';
 
 // =============================================================================
@@ -47,7 +48,7 @@ import { ENOENT, EACCES, EISDIR, ENOTDIR, EBADF, EROFS, EPERM, EEXIST } from '@s
 
 const PROC_ID_PREFIX = 'proc:';
 const PROC_HANDLE_PREFIX = 'proc-handle:';
-const PROC_FILE_OWNER = 'kernel';
+const PROC_FILE_OWNER = KERNEL_ID;
 
 /** Files directly under /proc/{uuid}/ */
 const PROC_FILES = ['stat', 'env', 'cwd', 'cmdline'] as const;
@@ -205,7 +206,7 @@ function parseProcPath(
 export async function procStat(
     mount: ProcMount,
     vfsPath: string,
-    caller: string = 'kernel',
+    caller: string = KERNEL_ID,
 ): Promise<ModelStat> {
     const parsed = parseProcPath(mount, vfsPath, caller);
 
@@ -341,7 +342,7 @@ export async function procStat(
 export async function* procReaddir(
     mount: ProcMount,
     vfsPath: string,
-    caller: string = 'kernel',
+    caller: string = KERNEL_ID,
 ): AsyncIterable<ModelStat> {
     const parsed = parseProcPath(mount, vfsPath, caller);
 
@@ -480,7 +481,7 @@ export async function procOpen(
     mount: ProcMount,
     vfsPath: string,
     flags: OpenFlags,
-    caller: string = 'kernel',
+    caller: string = KERNEL_ID,
 ): Promise<FileHandle> {
     if (flags.write) {
         throw new EROFS(`Proc filesystem is read-only: ${vfsPath}`);
@@ -544,7 +545,7 @@ export async function procSymlink(
     }
 
     // Only the process itself (or kernel) can modify its PATH
-    if (caller !== 'kernel' && caller !== proc.id) {
+    if (caller !== KERNEL_ID && caller !== proc.id) {
         throw new EPERM(`Cannot modify another process's PATH`);
     }
 
@@ -576,7 +577,7 @@ export async function procUnlink(
     }
 
     // Only the process itself (or kernel) can modify its PATH
-    if (caller !== 'kernel' && caller !== proc.id) {
+    if (caller !== KERNEL_ID && caller !== proc.id) {
         throw new EPERM(`Cannot modify another process's PATH`);
     }
 

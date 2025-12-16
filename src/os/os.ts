@@ -36,6 +36,7 @@ import { LLM } from '@src/llm/index.js';
 import { SyscallDispatcher } from '@src/dispatch/index.js';
 import { Gateway } from '@src/gateway/index.js';
 import { loadMounts } from '@src/kernel/mounts.js';
+import { KERNEL_ID } from '@src/kernel/types.js';
 import type { InitOpts, BootOpts, ExecOpts } from './types.js';
 import { BaseOS } from './base.js';
 
@@ -141,13 +142,13 @@ export class OS extends BaseOS {
             let hasExistingContent = false;
 
             try {
-                const binStat = await this.__vfs.stat('/bin', 'kernel');
+                const binStat = await this.__vfs.stat('/bin', KERNEL_ID);
 
                 if (binStat.model === 'folder') {
                     // Check if /bin has children (indicates ROM was copied)
                     let childCount = 0;
 
-                    for await (const _ of this.__vfs.readdir('/bin', 'kernel')) {
+                    for await (const _ of this.__vfs.readdir('/bin', KERNEL_ID)) {
                         childCount++;
                         if (childCount > 0) {
                             hasExistingContent = true;

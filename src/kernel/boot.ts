@@ -9,6 +9,8 @@
 import { readFile, readdir } from 'fs/promises';
 import { join, resolve } from 'path';
 
+import { KERNEL_ID } from '@src/kernel/types.js';
+
 /**
  * Dependencies for boot operations
  */
@@ -54,10 +56,10 @@ async function copyDirToVfs(deps: BootDeps, hostDir: string, vfsDir: string): Pr
 
         if (entry.isDirectory()) {
             // Create directory in VFS (recursive: true to handle existing dirs)
-            await vfs.mkdir(vfsPath, 'kernel', { recursive: true });
+            await vfs.mkdir(vfsPath, KERNEL_ID, { recursive: true });
 
             // Set directory ACL: world-readable
-            await vfs.setAccess(vfsPath, 'kernel', {
+            await vfs.setAccess(vfsPath, KERNEL_ID, {
                 grants: [{ to: '*', ops: ['read', 'list', 'stat'] }],
                 deny: [],
             });
@@ -73,7 +75,7 @@ async function copyDirToVfs(deps: BootDeps, hostDir: string, vfsDir: string): Pr
             const handle = await vfs.open(
                 vfsPath,
                 { read: true, write: true, create: true },
-                'kernel',
+                KERNEL_ID,
             );
 
             // Write content
@@ -81,7 +83,7 @@ async function copyDirToVfs(deps: BootDeps, hostDir: string, vfsDir: string): Pr
             await handle.close();
 
             // Set file ACL: world-readable
-            await vfs.setAccess(vfsPath, 'kernel', {
+            await vfs.setAccess(vfsPath, KERNEL_ID, {
                 grants: [{ to: '*', ops: ['read', 'stat'] }],
                 deny: [],
             });

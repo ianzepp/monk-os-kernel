@@ -33,6 +33,7 @@ import { EINVAL } from '@src/hal/index.js';
 import type { VFS } from '@src/vfs/vfs.js';
 import type { Kernel } from '@src/kernel/kernel.js';
 import type { Process } from '@src/kernel/types.js';
+import { KERNEL_ID } from '@src/kernel/types.js';
 import type { Response } from '@src/message.js';
 import { fromCode } from '@src/hal/errors.js';
 import type { OSConfig, OSEvents, OSEventName } from './types.js';
@@ -801,7 +802,7 @@ export abstract class BaseOS {
         const parent = vfsPath.substring(0, vfsPath.lastIndexOf('/')) || '/';
 
         try {
-            await vfsInst.stat(parent, 'kernel');
+            await vfsInst.stat(parent, KERNEL_ID);
         }
         catch {
             await vfsInst.mkdir(parent, 'kernel', { recursive: true });
@@ -836,7 +837,7 @@ export abstract class BaseOS {
         }
 
         try {
-            await vfsInst.stat(vfsPath, 'kernel');
+            await vfsInst.stat(vfsPath, KERNEL_ID);
         }
         catch {
             try {
@@ -846,7 +847,7 @@ export abstract class BaseOS {
                 // EDGE: Directory may have been created by concurrent operation
                 // or exists from previous boot. If it's EEXIST, check if it's a folder.
                 if ((mkdirErr as NodeJS.ErrnoException).code === 'EEXIST') {
-                    const existing = await vfsInst.stat(vfsPath, 'kernel');
+                    const existing = await vfsInst.stat(vfsPath, KERNEL_ID);
 
                     if (existing.model !== 'folder') {
                         throw mkdirErr;

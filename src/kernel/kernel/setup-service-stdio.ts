@@ -56,6 +56,7 @@
 
 import type { Kernel } from '../kernel.js';
 import type { Process } from '../types.js';
+import { KERNEL_ID } from '../types.js';
 import { FileHandleAdapter } from '../handle.js';
 
 // =============================================================================
@@ -114,7 +115,7 @@ export async function setupServiceStdio(
 
     // Open /dev/console through VFS
     // 'kernel' = caller identity (bypasses some permission checks)
-    const vfsHandle = await self.vfs.open(CONSOLE_PATH, flags, 'kernel');
+    const vfsHandle = await self.vfs.open(CONSOLE_PATH, flags, KERNEL_ID);
 
     // Wrap VFS handle in adapter
     // Adapter ID reuses VFS handle's ID (no new UUID needed)

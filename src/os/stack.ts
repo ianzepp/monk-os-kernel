@@ -44,6 +44,7 @@ import { VFS } from '@src/vfs/vfs.js';
 import { Kernel } from '@src/kernel/kernel.js';
 import { EMS } from '@src/ems/ems.js';
 import { SyscallDispatcher } from '@src/dispatch/index.js';
+import { KERNEL_ID } from '@src/kernel/types.js';
 
 // =============================================================================
 // TYPES
@@ -323,7 +324,7 @@ async function copyRomToVfs(vfs: VFS, romPath: string): Promise<void> {
 async function copyDirToVfs(vfs: VFS, hostPath: string, vfsPath: string): Promise<void> {
     // Ensure target directory exists
     try {
-        await vfs.stat(vfsPath, 'kernel');
+        await vfs.stat(vfsPath, KERNEL_ID);
     }
     catch {
         await vfs.mkdir(vfsPath, 'kernel', { recursive: true });
@@ -352,7 +353,7 @@ async function copyFileToVfs(vfs: VFS, hostPath: string, vfsPath: string): Promi
     const parent = vfsPath.substring(0, vfsPath.lastIndexOf('/')) || '/';
 
     try {
-        await vfs.stat(parent, 'kernel');
+        await vfs.stat(parent, KERNEL_ID);
     }
     catch {
         await vfs.mkdir(parent, 'kernel', { recursive: true });
@@ -360,7 +361,7 @@ async function copyFileToVfs(vfs: VFS, hostPath: string, vfsPath: string): Promi
 
     // Read from host, write to VFS
     const content = await fs.readFile(hostPath);
-    const handle = await vfs.open(vfsPath, { write: true, create: true, truncate: true }, 'kernel');
+    const handle = await vfs.open(vfsPath, { write: true, create: true, truncate: true }, KERNEL_ID);
 
     try {
         await handle.write(new Uint8Array(content));

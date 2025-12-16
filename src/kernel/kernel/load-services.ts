@@ -11,6 +11,7 @@
 
 import type { Kernel } from '../kernel.js';
 import type { ServiceDef } from '../services.js';
+import { KERNEL_ID } from '../types.js';
 import { loadServicesFromDir } from './load-services-from-dir.js';
 import { logServiceError } from './log-service-error.js';
 
@@ -24,7 +25,7 @@ export async function loadServices(self: Kernel): Promise<void> {
 
     // Core services (/etc/services/*.json)
     try {
-        await self.vfs.stat('/etc/services', 'kernel');
+        await self.vfs.stat('/etc/services', KERNEL_ID);
         serviceDirs.push('/etc/services');
     }
     catch {
@@ -43,8 +44,8 @@ export async function loadServices(self: Kernel): Promise<void> {
 
     // Package services (/usr/{pkg}/etc/services/*.json)
     try {
-        await self.vfs.stat('/usr', 'kernel');
-        for await (const pkg of self.vfs.readdir('/usr', 'kernel')) {
+        await self.vfs.stat('/usr', KERNEL_ID);
+        for await (const pkg of self.vfs.readdir('/usr', KERNEL_ID)) {
             if (pkg.model !== 'folder') {
                 continue;
             }
@@ -52,7 +53,7 @@ export async function loadServices(self: Kernel): Promise<void> {
             const pkgServicesDir = `/usr/${pkg.name}/etc/services`;
 
             try {
-                await self.vfs.stat(pkgServicesDir, 'kernel');
+                await self.vfs.stat(pkgServicesDir, KERNEL_ID);
                 serviceDirs.push(pkgServicesDir);
             }
             catch {
@@ -85,7 +86,7 @@ export async function loadServices(self: Kernel): Promise<void> {
 async function loadAppServices(self: Kernel): Promise<void> {
     // Check if /app exists
     try {
-        await self.vfs.stat('/app', 'kernel');
+        await self.vfs.stat('/app', KERNEL_ID);
     }
     catch {
         // No /app directory - fine
@@ -93,7 +94,7 @@ async function loadAppServices(self: Kernel): Promise<void> {
     }
 
     // Iterate over app directories
-    for await (const entry of self.vfs.readdir('/app', 'kernel')) {
+    for await (const entry of self.vfs.readdir('/app', KERNEL_ID)) {
         if (entry.model !== 'folder') {
             continue;
         }
@@ -109,7 +110,7 @@ async function loadAppServices(self: Kernel): Promise<void> {
 
         // Check if service.json exists
         try {
-            await self.vfs.stat(servicePath, 'kernel');
+            await self.vfs.stat(servicePath, KERNEL_ID);
         }
         catch {
             // No service.json - app not registered as service
@@ -118,7 +119,7 @@ async function loadAppServices(self: Kernel): Promise<void> {
 
         try {
             // Read service.json
-            const handle = await self.vfs.open(servicePath, { read: true }, 'kernel');
+            const handle = await self.vfs.open(servicePath, { read: true }, KERNEL_ID);
             const chunks: Uint8Array[] = [];
 
             while (true) {
@@ -155,7 +156,7 @@ async function loadAppServices(self: Kernel): Promise<void> {
             const handlerPath = def.handler.endsWith('.ts') ? def.handler : def.handler + '.ts';
 
             try {
-                await self.vfs.stat(handlerPath, 'kernel');
+                await self.vfs.stat(handlerPath, KERNEL_ID);
             }
             catch {
                 logServiceError(self, appName, 'unknown handler', def.handler);

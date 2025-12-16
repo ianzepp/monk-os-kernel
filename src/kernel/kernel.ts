@@ -54,7 +54,7 @@ import { EINVAL } from '@src/hal/errors.js';
 import type { VFS } from '@src/vfs/index.js';
 import type { EMS } from '@src/ems/ems.js';
 import type { ExitStatus, BootEnv, Process } from '@src/kernel/types.js';
-import { SIGTERM, SIGKILL, TERM_GRACE_MS } from '@src/kernel/types.js';
+import { KERNEL_ID, SIGTERM, SIGKILL, TERM_GRACE_MS } from '@src/kernel/types.js';
 import { poll } from '@src/kernel/poll.js';
 import { ProcessTable } from '@src/kernel/process-table.js';
 import type { Handle } from '@src/kernel/handle.js';
@@ -174,7 +174,7 @@ export interface MountPolicy {
 const DEFAULT_MOUNT_POLICY: MountPolicy = {
     rules: [
         // Kernel can mount anything anywhere (needed for boot)
-        { caller: 'kernel', source: '*', target: '*', description: 'Kernel unrestricted' },
+        { caller: KERNEL_ID, source: '*', target: '*', description: 'Kernel unrestricted' },
 
         // World-writable /tmp allows user mounts
         { caller: '*', source: '*', target: '/tmp/**', description: 'Temp mounts' },
@@ -516,15 +516,15 @@ export class Kernel {
 
         printk(this, 'init', 'Creating kernel process (PID 1)');
         const kernelProcess: Process = {
-            id: 'kernel',
+            id: KERNEL_ID,
             parent: '',
-            user: 'kernel',
+            user: KERNEL_ID,
             worker: null as unknown as Worker,
             virtual: false,
             state: 'running',
             cmd: '/kernel',
             cwd: '/',
-            env: { MONK_PID: 'kernel', MONK_OS: this.id },
+            env: { MONK_PID: KERNEL_ID, MONK_OS: this.id },
             args: [],
             pathDirs: new Map([['00-bin', '/bin']]),
             handles: new Map(),

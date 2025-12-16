@@ -57,6 +57,7 @@
 
 import type { Kernel } from '../kernel.js';
 import type { ServiceDef } from '../services.js';
+import { KERNEL_ID } from '../types.js';
 import { logServiceError } from './log-service-error.js';
 
 // =============================================================================
@@ -88,7 +89,7 @@ export async function loadServicesFromDir(self: Kernel, dir: string): Promise<vo
     // Iterate over service files
     // -------------------------------------------------------------------------
 
-    for await (const entry of self.vfs.readdir(dir, 'kernel')) {
+    for await (const entry of self.vfs.readdir(dir, KERNEL_ID)) {
         // WHY: Only process .json files (skip other files)
         if (!entry.name.endsWith('.json')) {
             continue;
@@ -112,7 +113,7 @@ export async function loadServicesFromDir(self: Kernel, dir: string): Promise<vo
             // -------------------------------------------------------------------------
 
             // WHY: VFS read is chunked (streaming), must collect all chunks
-            const handle = await self.vfs.open(path, { read: true }, 'kernel');
+            const handle = await self.vfs.open(path, { read: true }, KERNEL_ID);
             const chunks: Uint8Array[] = [];
 
             // Read in 64KB chunks until EOF
@@ -153,7 +154,7 @@ export async function loadServicesFromDir(self: Kernel, dir: string): Promise<vo
             const handlerPath = def.handler.endsWith('.ts') ? def.handler : def.handler + '.ts';
 
             try {
-                await self.vfs.stat(handlerPath, 'kernel');
+                await self.vfs.stat(handlerPath, KERNEL_ID);
             }
             catch {
                 logServiceError(self, serviceName, 'unknown handler', def.handler);

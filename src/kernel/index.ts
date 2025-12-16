@@ -32,6 +32,7 @@ export type {
 } from '@src/kernel/types.js';
 
 export {
+    KERNEL_ID,
     SIGTERM,
     SIGKILL,
     TERM_GRACE_MS,

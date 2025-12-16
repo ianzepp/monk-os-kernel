@@ -72,6 +72,7 @@ import { FolderModel } from '@src/vfs/models/folder.js';
 import { DeviceModel, initStandardDevices } from '@src/vfs/models/device.js';
 import { LinkModel } from '@src/vfs/models/link.js';
 import { ENOENT, EEXIST, ENOTDIR, EACCES, EINVAL } from '@src/hal/index.js';
+import { KERNEL_ID } from '@src/kernel/types.js';
 import { debug } from '../debug.js';
 
 const log = debug('vfs:init');
@@ -433,7 +434,7 @@ export class VFS {
      * Creates: /dev/console, /dev/null, /dev/zero, /dev/random, etc.
      */
     private async initDevices(): Promise<void> {
-        const ctx = this.createContext('kernel');
+        const ctx = this.createContext(KERNEL_ID);
 
         // Check if /dev already exists
         let devId = await this.resolvePath('/dev');
@@ -449,7 +450,7 @@ export class VFS {
             throw new ENOENT('Folder model not registered');
         }
 
-        devId = await folderModel.create(ctx, ROOT_ID, 'dev', { owner: 'kernel' });
+        devId = await folderModel.create(ctx, ROOT_ID, 'dev', { owner: KERNEL_ID });
 
         // Index the new folder for O(1) lookup
         await this.addChildIndex(ROOT_ID, 'dev', devId);
@@ -1519,7 +1520,7 @@ export class VFS {
      */
     private async checkEntityAccess(entityId: string, caller: string, ops: string[]): Promise<void> {
         // Kernel bypasses all ACL checks
-        if (caller === 'kernel') {
+        if (caller === KERNEL_ID) {
             return;
         }
 

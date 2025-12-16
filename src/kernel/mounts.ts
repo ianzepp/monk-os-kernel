@@ -9,6 +9,7 @@
  * Mount types
  */
 import { EINVAL } from '@src/hal/errors.js';
+import { KERNEL_ID } from '@src/kernel/types.js';
 
 export type MountType = 'memory' | 'host' | 'transpiled-host' | 'storage' | 'entity';
 
@@ -153,7 +154,7 @@ export async function loadMounts(deps: MountLoaderDeps): Promise<void> {
     const mountsPath = '/etc/mounts.json';
 
     try {
-        await vfs.stat(mountsPath, 'kernel');
+        await vfs.stat(mountsPath, KERNEL_ID);
     }
     catch {
         // No mounts.json - that's fine, skip
@@ -161,7 +162,7 @@ export async function loadMounts(deps: MountLoaderDeps): Promise<void> {
     }
 
     try {
-        const handle = await vfs.open(mountsPath, { read: true }, 'kernel');
+        const handle = await vfs.open(mountsPath, { read: true }, KERNEL_ID);
         const chunks: Uint8Array[] = [];
 
         while (true) {
@@ -209,10 +210,10 @@ export async function applyMount(deps: MountLoaderDeps, mount: MountDef): Promis
 
     // Ensure mount point exists
     try {
-        await vfs.stat(mount.path, 'kernel');
+        await vfs.stat(mount.path, KERNEL_ID);
     }
     catch {
-        await vfs.mkdir(mount.path, 'kernel', { recursive: true });
+        await vfs.mkdir(mount.path, KERNEL_ID, { recursive: true });
     }
 
     switch (mount.type) {
@@ -220,9 +221,9 @@ export async function applyMount(deps: MountLoaderDeps, mount: MountDef): Promis
             // Memory mounts are the default VFS behavior (HAL storage)
             // Set world-writable ACL if requested (e.g., for /tmp)
             if (mount.options?.worldWritable) {
-                await vfs.setAccess(mount.path, 'kernel', {
+                await vfs.setAccess(mount.path, KERNEL_ID, {
                     grants: [
-                        { to: 'kernel', ops: ['*'] },
+                        { to: KERNEL_ID, ops: ['*'] },
                         { to: '*', ops: ['read', 'write', 'create', 'delete', 'list', 'stat'] },
                     ],
                     deny: [],

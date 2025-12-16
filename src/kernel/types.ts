@@ -219,6 +219,17 @@ export interface ExternalProcessHandle {
 }
 
 /**
+ * Kernel identity constant
+ *
+ * Used as a magic identity for:
+ * - VFS caller identity (ACL bypass)
+ * - File ownership
+ * - Process identity (kernel process is PID 1)
+ * - Mount policy rules
+ */
+export const KERNEL_ID = 'kernel';
+
+/**
  * Signal values
  */
 export const SIGTERM = 15;

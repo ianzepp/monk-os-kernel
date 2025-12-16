@@ -73,6 +73,7 @@
 import type { Kernel } from '../kernel.js';
 import type { IOTarget } from '../services.js';
 import type { Handle } from '../handle.js';
+import { KERNEL_ID } from '../types.js';
 import { respond } from '../../message.js';
 import { FileHandleAdapter } from '../handle.js';
 
@@ -155,7 +156,7 @@ export async function createIOTargetHandle(
         // ---------------------------------------------------------------------
         case 'console': {
             // Open /dev/console through VFS (goes through DeviceModel → HAL console)
-            const vfsHandle = await self.vfs.open(CONSOLE_PATH, { write: true }, 'kernel');
+            const vfsHandle = await self.vfs.open(CONSOLE_PATH, { write: true }, KERNEL_ID);
 
             return new FileHandleAdapter(vfsHandle.id, vfsHandle);
         }
@@ -174,7 +175,7 @@ export async function createIOTargetHandle(
             // Open configured file path through VFS
             // If create=true: creates file if missing
             // If append=false: truncates existing file to 0 bytes
-            const vfsHandle = await self.vfs.open(target.path, flags, 'kernel');
+            const vfsHandle = await self.vfs.open(target.path, flags, KERNEL_ID);
 
             // Wrap in adapter for Handle interface
             return new FileHandleAdapter(vfsHandle.id, vfsHandle);
