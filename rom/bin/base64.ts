@@ -147,7 +147,7 @@ function decodeBase64(data: string): Uint8Array {
 
         return bytes;
     }
-    catch (err) {
+    catch (_err) {
         throw new Error('invalid input');
     }
 }

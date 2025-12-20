@@ -250,17 +250,11 @@ export class OS extends BaseOS {
             throw new EBUSY('OS already booted');
         }
 
-        try {
-            // Boot kernel (activates services, starts tick)
-            await this.__kernel!.boot();
+        // Boot kernel (activates services, starts tick)
+        await this.__kernel!.boot();
 
-            // RC-3: Only set booted after full success
-            this.booted = true;
-        }
-        catch (err) {
-            // Don't cleanup on boot failure - init state is still valid
-            throw err;
-        }
+        // RC-3: Only set booted after full success
+        this.booted = true;
     }
 
     /**
@@ -271,7 +265,7 @@ export class OS extends BaseOS {
      * @param opts - Optional exec options
      * @returns Exit code (0 for clean shutdown)
      */
-    async exec(opts?: ExecOpts): Promise<number> {
+    async exec(_opts?: ExecOpts): Promise<number> {
         await this.init();
         await this.boot();
 

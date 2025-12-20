@@ -122,6 +122,7 @@ export class BunNetworkDevice implements NetworkDevice {
      */
     async listen(port: number, opts?: ListenOpts): Promise<Listener> {
         log('listen port=%d hostname=%s', port, opts?.hostname ?? '0.0.0.0');
+
         return new BunListener(port, opts);
     }
 
@@ -162,6 +163,7 @@ export class BunNetworkDevice implements NetworkDevice {
      */
     async connect(host: string, port: number, opts?: ConnectOpts): Promise<Socket> {
         log('connect host=%s port=%d', host, port);
+
         return new Promise((resolve, reject) => {
             /**
              * Data queue for incoming bytes.
@@ -427,6 +429,7 @@ export class BunNetworkDevice implements NetworkDevice {
      */
     async listenWebSocket(port: number, opts?: WebSocketServerOpts): Promise<WebSocketServer> {
         log('listenWebSocket port=%d', port);
+
         return new BunWebSocketServer(port, opts);
     }
 }

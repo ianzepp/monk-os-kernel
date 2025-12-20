@@ -282,7 +282,9 @@ export class PubsubPort implements Port {
         if (payload === undefined || payload === null) {
             return undefined;
         }
+
         const json = JSON.stringify(payload);
+
         return new TextEncoder().encode(json);
     }
 
@@ -292,6 +294,7 @@ export class PubsubPort implements Port {
      */
     private decodePayload(data: Uint8Array): unknown {
         const json = new TextDecoder().decode(data);
+
         try {
             return JSON.parse(json);
         }

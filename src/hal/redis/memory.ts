@@ -119,10 +119,13 @@ export class MemoryRedis implements RedisDevice {
      */
     private checkExpiry(key: string): boolean {
         const expireTime = this.expires.get(key);
+
         if (expireTime && Date.now() > expireTime) {
             this.deleteKey(key);
+
             return false;
         }
+
         return this.cache.has(key);
     }
 
@@ -131,13 +134,16 @@ export class MemoryRedis implements RedisDevice {
      */
     private deleteKey(key: string): boolean {
         const existed = this.cache.has(key);
+
         this.cache.delete(key);
         this.expires.delete(key);
         const timer = this.timers.get(key);
+
         if (timer) {
             clearTimeout(timer);
             this.timers.delete(key);
         }
+
         return existed;
     }
 
@@ -147,7 +153,10 @@ export class MemoryRedis implements RedisDevice {
     private setTTL(key: string, ttlMs: number): void {
         // Clear existing timer
         const existingTimer = this.timers.get(key);
-        if (existingTimer) clearTimeout(existingTimer);
+
+        if (existingTimer) {
+            clearTimeout(existingTimer);
+        }
 
         if (ttlMs > 0) {
             this.expires.set(key, Date.now() + ttlMs);
@@ -165,26 +174,34 @@ export class MemoryRedis implements RedisDevice {
 
     async get(key: string): Promise<string | null> {
         const k = this.key(key);
-        if (!this.checkExpiry(k)) return null;
+
+        if (!this.checkExpiry(k)) {
+            return null;
+        }
+
         return this.cache.get(k) ?? null;
     }
 
     async set(key: string, value: string, opts?: { ex?: number; px?: number }): Promise<void> {
         const k = this.key(key);
+
         this.cache.set(k, value);
 
         // Calculate TTL in milliseconds
         const ttlMs = opts?.px ?? (opts?.ex ? opts.ex * 1000 : this.defaultTTL * 1000);
+
         this.setTTL(k, ttlMs);
     }
 
     async del(...keys: string[]): Promise<number> {
         let count = 0;
+
         for (const key of keys) {
             if (this.deleteKey(this.key(key))) {
                 count++;
             }
         }
+
         return count;
     }
 
@@ -194,23 +211,36 @@ export class MemoryRedis implements RedisDevice {
 
     async expire(key: string, seconds: number): Promise<boolean> {
         const k = this.key(key);
-        if (!this.checkExpiry(k)) return false;
+
+        if (!this.checkExpiry(k)) {
+            return false;
+        }
+
         this.setTTL(k, seconds * 1000);
+
         return true;
     }
 
     async ttl(key: string): Promise<number> {
         const k = this.key(key);
-        if (!this.cache.has(k)) return -2;
 
-        // Check expiration
-        const expireTime = this.expires.get(k);
-        if (expireTime && Date.now() > expireTime) {
-            this.deleteKey(k);
+        if (!this.cache.has(k)) {
             return -2;
         }
 
-        if (!expireTime) return -1;
+        // Check expiration
+        const expireTime = this.expires.get(k);
+
+        if (expireTime && Date.now() > expireTime) {
+            this.deleteKey(k);
+
+            return -2;
+        }
+
+        if (!expireTime) {
+            return -1;
+        }
+
         return Math.max(0, Math.ceil((expireTime - Date.now()) / 1000));
     }
 
@@ -227,7 +257,9 @@ export class MemoryRedis implements RedisDevice {
         }
 
         const value = (current ? parseInt(current, 10) : 0) + increment;
+
         this.cache.set(k, value.toString());
+
         return value;
     }
 
@@ -247,10 +279,15 @@ export class MemoryRedis implements RedisDevice {
 
     async setnx(key: string, value: string): Promise<boolean> {
         const k = this.key(key);
+
         // Atomic check-and-set (matches Redis SETNX semantics)
         // Synchronous check ensures atomicity in single-threaded JS
-        if (this.checkExpiry(k)) return false;
+        if (this.checkExpiry(k)) {
+            return false;
+        }
+
         this.cache.set(k, value);
+
         return true;
     }
 
@@ -272,13 +309,16 @@ export class MemoryRedis implements RedisDevice {
         // Register subscription for each pattern
         for (const pattern of patterns) {
             const prefixedPattern = this.prefix ? `${this.prefix}${pattern}` : pattern;
+
             if (!this.subscriptions.has(prefixedPattern)) {
                 this.subscriptions.set(prefixedPattern, new Set());
             }
+
             this.subscriptions.get(prefixedPattern)!.add(id);
         }
 
         const self = this;
+
         return {
             id,
             patterns,
@@ -295,6 +335,7 @@ export class MemoryRedis implements RedisDevice {
             if (this.matches(pattern, prefixedTopic)) {
                 for (const subId of subIds) {
                     const state = this.subState.get(subId);
+
                     if (state && !state.closed) {
                         // Strip prefix from pattern for message
                         const userPattern = this.prefix && pattern.startsWith(this.prefix)
@@ -305,12 +346,14 @@ export class MemoryRedis implements RedisDevice {
 
                         // If someone is waiting, deliver directly
                         const waiter = state.waiters.shift();
+
                         if (waiter) {
                             waiter(msg);
                         }
                         else {
                             state.queue.push(msg);
                         }
+
                         count++;
                     }
                 }
@@ -325,6 +368,7 @@ export class MemoryRedis implements RedisDevice {
         // Matches Redis PUBSUB NUMSUB semantics: does not count pattern subscribers
         // that would match a topic, only exact pattern matches.
         const prefixedPattern = this.prefix ? `${this.prefix}${pattern}` : pattern;
+
         return this.subscriptions.get(prefixedPattern)?.size ?? 0;
     }
 
@@ -333,7 +377,10 @@ export class MemoryRedis implements RedisDevice {
      */
     private async *iterate(id: string): AsyncIterable<PubsubMessage> {
         const state = this.subState.get(id);
-        if (!state) return;
+
+        if (!state) {
+            return;
+        }
 
         while (!state.closed) {
             // Drain queue first
@@ -343,15 +390,20 @@ export class MemoryRedis implements RedisDevice {
             }
 
             // Wait for next message
-            const msg = await new Promise<PubsubMessage | null>((resolve) => {
+            const msg = await new Promise<PubsubMessage | null>(resolve => {
                 if (state.closed) {
                     resolve(null);
+
                     return;
                 }
+
                 state.waiters.push(resolve);
             });
 
-            if (msg === null) break;
+            if (msg === null) {
+                break;
+            }
+
             yield msg;
         }
     }
@@ -361,7 +413,10 @@ export class MemoryRedis implements RedisDevice {
      */
     private async unsubscribe(id: string): Promise<void> {
         const state = this.subState.get(id);
-        if (!state) return;
+
+        if (!state) {
+            return;
+        }
 
         state.closed = true;
 
@@ -373,6 +428,7 @@ export class MemoryRedis implements RedisDevice {
         // Remove from pattern maps
         for (const pattern of state.patterns) {
             const prefixedPattern = this.prefix ? `${this.prefix}${pattern}` : pattern;
+
             this.subscriptions.get(prefixedPattern)?.delete(id);
             // Clean up empty pattern sets
             if (this.subscriptions.get(prefixedPattern)?.size === 0) {
@@ -421,6 +477,7 @@ export class MemoryRedis implements RedisDevice {
         for (const timer of this.timers.values()) {
             clearTimeout(timer);
         }
+
         this.timers.clear();
         this.cache.clear();
         this.expires.clear();

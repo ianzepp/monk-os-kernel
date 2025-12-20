@@ -114,7 +114,7 @@ const ARG_SPECS = {
 /**
  * Evaluate a mathematical expression.
  */
-function evaluate(expr: string, scale: number): number | undefined {
+function evaluate(expr: string, _scale: number): number | undefined {
     // Replace constants
     let processed = expr
         .replace(/\bpi\b/gi, String(Math.PI))

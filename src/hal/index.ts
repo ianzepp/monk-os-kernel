@@ -123,7 +123,8 @@ import { BunCompressionDevice } from './compression.js';
 import { BunFileDevice } from './file.js';
 import { BunJsonDevice } from './json.js';
 import { BunYamlDevice } from './yaml.js';
-import { MemoryRedis, createRedisDevice } from './redis.js';
+import { createRedisDevice } from './redis.js';
+export { MemoryRedis } from './redis.js';
 import { EIO } from './errors.js';
 import { debug } from '../debug.js';
 
@@ -629,6 +630,7 @@ export class BunHAL implements HAL {
     async init(): Promise<void> {
         if (this.initialized) {
             log('init() called but already initialized');
+
             return;
         }
 

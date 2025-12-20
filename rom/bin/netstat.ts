@@ -18,7 +18,7 @@
  * @module rom/bin/netstat
  */
 
-import { println, eprintln, exit, getargs, call } from '@rom/lib/process/index.js';
+import { println, exit, getargs, call } from '@rom/lib/process/index.js';
 
 const HELP_TEXT = `
 Usage: netstat [OPTIONS]
@@ -93,7 +93,7 @@ export default async function main(): Promise<void> {
     try {
         stats = await call<{ ports?: PortInfo[] }>('pool:stats');
     }
-    catch (err) {
+    catch (_err) {
         // Fallback if pool:stats not available
         stats = { ports: [] };
     }

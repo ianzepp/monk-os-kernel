@@ -527,6 +527,7 @@ describe('PubsubPort', () => {
 
     it('should have type "pubsub:subscribe"', async () => {
         const port = new PubsubPort('pub-1', mockHal, ['orders.*'], 'pubsub:subscribe:orders.*');
+
         await port.init();
 
         expect(port.type).toBe('pubsub:subscribe');
@@ -535,6 +536,7 @@ describe('PubsubPort', () => {
 
     it('should use provided description', async () => {
         const port = new PubsubPort('pub-1', mockHal, ['orders.*'], 'pubsub:orders.*');
+
         await port.init();
 
         expect(port.description).toBe('pubsub:orders.*');
@@ -543,6 +545,7 @@ describe('PubsubPort', () => {
 
     it('should expose patterns', async () => {
         const port = new PubsubPort('pub-1', mockHal, ['orders.*', 'users.**'], 'pubsub:test');
+
         await port.init();
 
         expect(port.getPatterns()).toEqual(['orders.*', 'users.**']);
@@ -551,6 +554,7 @@ describe('PubsubPort', () => {
 
     it('should publish via send()', async () => {
         const port = new PubsubPort('pub-1', mockHal, [], 'pubsub:send-only');
+
         await port.init();
 
         // Set up a subscriber to verify publish works
@@ -565,6 +569,7 @@ describe('PubsubPort', () => {
         })();
 
         const data = new Uint8Array([1, 2, 3]);
+
         await port.send('orders.created', data);
 
         await reader;
@@ -576,6 +581,7 @@ describe('PubsubPort', () => {
 
     it('should receive messages via recv()', async () => {
         const port = new PubsubPort('pub-1', mockHal, ['orders.*'], 'pubsub:test');
+
         await port.init();
 
         // Start receiving
@@ -593,6 +599,7 @@ describe('PubsubPort', () => {
 
     it('should deliver messages in order', async () => {
         const port = new PubsubPort('pub-1', mockHal, ['event.*'], 'pubsub:test');
+
         await port.init();
 
         // Publish multiple messages
@@ -608,6 +615,7 @@ describe('PubsubPort', () => {
 
     it('should deliver to waiting receiver immediately', async () => {
         const port = new PubsubPort('pub-1', mockHal, ['test.*'], 'pubsub:test');
+
         await port.init();
 
         // Start waiting for message
@@ -625,6 +633,7 @@ describe('PubsubPort', () => {
 
     it('should close cleanly', async () => {
         const port = new PubsubPort('pub-1', mockHal, ['test.*'], 'pubsub:test');
+
         await port.init();
 
         await port.close();
@@ -634,6 +643,7 @@ describe('PubsubPort', () => {
 
     it('should be idempotent on close', async () => {
         const port = new PubsubPort('pub-1', mockHal, ['test.*'], 'pubsub:test');
+
         await port.init();
 
         await port.close();
@@ -644,6 +654,7 @@ describe('PubsubPort', () => {
 
     it('should throw on recv() after close', async () => {
         const port = new PubsubPort('pub-1', mockHal, ['test.*'], 'pubsub:test');
+
         await port.init();
 
         await port.close();
@@ -653,6 +664,7 @@ describe('PubsubPort', () => {
 
     it('should throw on send() after close', async () => {
         const port = new PubsubPort('pub-1', mockHal, [], 'pubsub:test');
+
         await port.init();
 
         await port.close();
@@ -662,6 +674,7 @@ describe('PubsubPort', () => {
 
     it('should throw on recv() for send-only port', async () => {
         const port = new PubsubPort('pub-1', mockHal, [], 'pubsub:send-only');
+
         await port.init();
 
         await expect(port.recv()).rejects.toThrow('send-only');

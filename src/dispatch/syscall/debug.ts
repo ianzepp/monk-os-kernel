@@ -124,7 +124,7 @@ export async function* debugLog(
  * // Returns: { op: 'ok', data: ['hal:*', 'ems:init'] }
  */
 export async function* debugListPatterns(
-    proc: Process,
+    _proc: Process,
 ): AsyncGenerator<Response> {
     yield respond.ok(debugPatterns());
 }

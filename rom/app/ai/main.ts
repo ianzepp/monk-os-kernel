@@ -212,6 +212,7 @@ export default async function main(): Promise<void> {
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+
         log('failed to register ai:task: %s', msg);
     }
 
@@ -221,6 +222,7 @@ export default async function main(): Promise<void> {
 
         if (!instr || typeof instr.task !== 'string') {
             yield respond.error('EINVAL', 'instruction.task must be a string');
+
             return;
         }
 
@@ -243,6 +245,7 @@ export default async function main(): Promise<void> {
         }
         catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
+
             log('task error: %s', msg);
             yield respond.error('EIO', msg);
         }

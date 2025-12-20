@@ -53,7 +53,7 @@ import type { HAL } from '@src/hal/index.js';
 import { EINVAL } from '@src/hal/errors.js';
 import type { VFS } from '@src/vfs/index.js';
 import type { EMS } from '@src/ems/ems.js';
-import type { ExitStatus, BootEnv, Process } from '@src/kernel/types.js';
+import type { ExitStatus, Process } from '@src/kernel/types.js';
 import { KERNEL_ID, SIGTERM, SIGKILL, TERM_GRACE_MS } from '@src/kernel/types.js';
 import { poll } from '@src/kernel/poll.js';
 import { ProcessTable } from '@src/kernel/process-table.js';
@@ -62,7 +62,6 @@ import type { KernelMessage } from '@src/kernel/types.js';
 import { EBUSY } from '@src/kernel/errors.js';
 import type { Port } from '@src/kernel/resource.js';
 import type { ServiceDef } from '@src/kernel/services.js';
-import { loadMounts } from '@src/kernel/mounts.js';
 import { VFSLoader } from '@src/kernel/loader.js';
 import { PoolManager, type LeasedWorker } from '@src/kernel/pool.js';
 // Extracted kernel functions (used by boot, shutdown, spawnExternal)

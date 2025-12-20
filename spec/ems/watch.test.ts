@@ -8,7 +8,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { BunHAL } from '@src/hal/index.js';
 import { createDatabase } from '@src/ems/database.js';
 import { ModelCache } from '@src/ems/model-cache.js';
-import { EntityOps, collect, type EntityRecord, type WatchEvent } from '@src/ems/entity-ops.js';
+import { EntityOps, type EntityRecord, type WatchEvent } from '@src/ems/entity-ops.js';
 import { createObserverRunner } from '@src/ems/observers/registry.js';
 import type { DatabaseConnection } from '@src/hal/connection.js';
 import { loadVfsSchema } from '../helpers/test-os.js';
@@ -29,6 +29,7 @@ beforeEach(async () => {
     await loadVfsSchema(db, hal);
     cache = new ModelCache(db);
     const runner = createObserverRunner();
+
     entityOps = new EntityOps(hal, db, cache, runner);
 });
 
@@ -62,6 +63,7 @@ describe('EntityOps.watch()', () => {
                 // Stop after first event
                 break;
             }
+
             watchResolved = true;
         })();
 
@@ -98,7 +100,9 @@ describe('EntityOps.watch()', () => {
             for await (const event of entityOps.watch<FileRecord>('file')) {
                 events.push(event);
                 // Stop after first event (skip create, get update)
-                if (event.op === 'update') break;
+                if (event.op === 'update') {
+                    break;
+                }
             }
         })();
 
@@ -114,6 +118,7 @@ describe('EntityOps.watch()', () => {
         await watchPromise;
 
         const updateEvent = events.find(e => e.op === 'update');
+
         expect(updateEvent).toBeDefined();
         expect(updateEvent!.entity.owner).toBe('new-owner');
         expect(updateEvent!.changes).toBeDefined();
@@ -134,7 +139,9 @@ describe('EntityOps.watch()', () => {
             for await (const event of entityOps.watch<FileRecord>('file')) {
                 events.push(event);
                 // Stop after delete event
-                if (event.op === 'delete') break;
+                if (event.op === 'delete') {
+                    break;
+                }
             }
         })();
 
@@ -148,6 +155,7 @@ describe('EntityOps.watch()', () => {
         await watchPromise;
 
         const deleteEvent = events.find(e => e.op === 'delete');
+
         expect(deleteEvent).toBeDefined();
         expect(deleteEvent!.entity.id).toBe(created.id);
     });
@@ -164,7 +172,9 @@ describe('EntityOps.watch()', () => {
                 events.push(event);
                 eventCount++;
                 // Stop after 2 events (should only match the filtered ones)
-                if (eventCount >= 2) break;
+                if (eventCount >= 2) {
+                    break;
+                }
             }
         })();
 
@@ -207,14 +217,18 @@ describe('EntityOps.watch()', () => {
         const watch1 = (async () => {
             for await (const event of entityOps.watch<FileRecord>('file')) {
                 events1.push(event);
-                if (events1.length >= 2) break;
+                if (events1.length >= 2) {
+                    break;
+                }
             }
         })();
 
         const watch2 = (async () => {
             for await (const event of entityOps.watch<FileRecord>('file')) {
                 events2.push(event);
-                if (events2.length >= 2) break;
+                if (events2.length >= 2) {
+                    break;
+                }
             }
         })();
 
@@ -249,7 +263,9 @@ describe('PubsubNotify observer', () => {
         const collectPromise = (async () => {
             for await (const msg of subscription.messages()) {
                 messages.push(msg);
-                if (messages.length >= 1) break;
+                if (messages.length >= 1) {
+                    break;
+                }
             }
         })();
 

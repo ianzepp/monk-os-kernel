@@ -110,6 +110,7 @@ export class PubsubNotify extends BaseObserver {
         // Skip if HAL not available (shouldn't happen in production)
         if (!system.hal?.redis) {
             log('HAL redis not available, skipping pubsub notification');
+
             return;
         }
 

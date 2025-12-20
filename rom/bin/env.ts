@@ -33,7 +33,7 @@
 // IMPORTS
 // =============================================================================
 
-import { println, exit, getargs, syscall, send, respond, collect } from '@rom/lib/process/index.js';
+import { println, exit, getargs, send, respond } from '@rom/lib/process/index.js';
 import { parseArgs } from '@rom/lib/args';
 
 // =============================================================================

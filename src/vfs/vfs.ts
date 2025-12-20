@@ -76,6 +76,7 @@ import { KERNEL_ID } from '@src/kernel/types.js';
 import { debug } from '../debug.js';
 
 const log = debug('vfs:init');
+
 import type { HostMount, HostMountOptions } from '@src/vfs/mounts/host.js';
 import {
     createHostMount,
@@ -343,6 +344,7 @@ export class VFS {
         // Idempotency guard
         if (this.initialized) {
             log('init() called but already initialized');
+
             return;
         }
 

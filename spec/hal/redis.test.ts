@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { MemoryRedis, createRedisDevice } from '@src/hal/index.js';
-import type { RedisDevice, PubsubSubscription } from '@src/hal/index.js';
+import type { PubsubSubscription } from '@src/hal/index.js';
 
 describe('Redis Device', () => {
     describe('MemoryRedis', () => {
@@ -21,12 +21,14 @@ describe('Redis Device', () => {
         describe('get/set', () => {
             it('should return null for missing key', async () => {
                 const result = await redis.get('missing');
+
                 expect(result).toBeNull();
             });
 
             it('should store and retrieve value', async () => {
                 await redis.set('key', 'value');
                 const result = await redis.get('key');
+
                 expect(result).toBe('value');
             });
 
@@ -34,6 +36,7 @@ describe('Redis Device', () => {
                 await redis.set('key', 'value1');
                 await redis.set('key', 'value2');
                 const result = await redis.get('key');
+
                 expect(result).toBe('value2');
             });
 
@@ -63,12 +66,14 @@ describe('Redis Device', () => {
         describe('del', () => {
             it('should return 0 for missing key', async () => {
                 const count = await redis.del('missing');
+
                 expect(count).toBe(0);
             });
 
             it('should delete existing key and return 1', async () => {
                 await redis.set('key', 'value');
                 const count = await redis.del('key');
+
                 expect(count).toBe(1);
                 expect(await redis.get('key')).toBeNull();
             });
@@ -79,6 +84,7 @@ describe('Redis Device', () => {
                 await redis.set('key3', 'value3');
 
                 const count = await redis.del('key1', 'key2', 'missing');
+
                 expect(count).toBe(2);
                 expect(await redis.get('key1')).toBeNull();
                 expect(await redis.get('key2')).toBeNull();
@@ -128,6 +134,7 @@ describe('Redis Device', () => {
             it('should return remaining seconds', async () => {
                 await redis.set('key', 'value', { ex: 10 });
                 const ttl = await redis.ttl('key');
+
                 expect(ttl).toBeGreaterThan(8);
                 expect(ttl).toBeLessThanOrEqual(10);
             });
@@ -142,6 +149,7 @@ describe('Redis Device', () => {
         describe('incr/incrby/decr', () => {
             it('should create key with value 1 on incr', async () => {
                 const result = await redis.incr('counter');
+
                 expect(result).toBe(1);
                 expect(await redis.get('counter')).toBe('1');
             });
@@ -149,24 +157,28 @@ describe('Redis Device', () => {
             it('should increment existing value', async () => {
                 await redis.set('counter', '5');
                 const result = await redis.incr('counter');
+
                 expect(result).toBe(6);
             });
 
             it('should increment by specific amount', async () => {
                 await redis.set('counter', '10');
                 const result = await redis.incrby('counter', 5);
+
                 expect(result).toBe(15);
             });
 
             it('should handle negative increment', async () => {
                 await redis.set('counter', '10');
                 const result = await redis.incrby('counter', -3);
+
                 expect(result).toBe(7);
             });
 
             it('should decrement value', async () => {
                 await redis.set('counter', '10');
                 const result = await redis.decr('counter');
+
                 expect(result).toBe(9);
             });
 
@@ -182,6 +194,7 @@ describe('Redis Device', () => {
                 await redis.set('key2', 'value2');
 
                 const result = await redis.mget('key1', 'key2', 'missing');
+
                 expect(result).toEqual(['value1', 'value2', null]);
             });
 
@@ -196,6 +209,7 @@ describe('Redis Device', () => {
         describe('setnx', () => {
             it('should set key if not exists', async () => {
                 const result = await redis.setnx('key', 'value');
+
                 expect(result).toBe(true);
                 expect(await redis.get('key')).toBe('value');
             });
@@ -203,6 +217,7 @@ describe('Redis Device', () => {
             it('should not overwrite existing key', async () => {
                 await redis.set('key', 'original');
                 const result = await redis.setnx('key', 'new');
+
                 expect(result).toBe(false);
                 expect(await redis.get('key')).toBe('original');
             });
@@ -212,6 +227,7 @@ describe('Redis Device', () => {
                 await Bun.sleep(100);
 
                 const result = await redis.setnx('key', 'new');
+
                 expect(result).toBe(true);
                 expect(await redis.get('key')).toBe('new');
             });
@@ -225,7 +241,9 @@ describe('Redis Device', () => {
             let sub: PubsubSubscription;
 
             afterEach(async () => {
-                if (sub) await sub.close();
+                if (sub) {
+                    await sub.close();
+                }
             });
 
             it('should receive published messages', async () => {
@@ -235,7 +253,9 @@ describe('Redis Device', () => {
                 const reader = (async () => {
                     for await (const msg of sub.messages()) {
                         messages.push(msg);
-                        if (messages.length >= 2) break;
+                        if (messages.length >= 2) {
+                            break;
+                        }
                     }
                 })();
 
@@ -259,7 +279,9 @@ describe('Redis Device', () => {
                 const reader = (async () => {
                     for await (const msg of sub.messages()) {
                         messages.push(msg);
-                        if (messages.length >= 2) break;
+                        if (messages.length >= 2) {
+                            break;
+                        }
                     }
                 })();
 
@@ -279,7 +301,9 @@ describe('Redis Device', () => {
                 const reader = (async () => {
                     for await (const msg of sub.messages()) {
                         messages.push(msg);
-                        if (messages.length >= 3) break;
+                        if (messages.length >= 3) {
+                            break;
+                        }
                     }
                 })();
 
@@ -299,6 +323,7 @@ describe('Redis Device', () => {
                 expect(await redis.subscriberCount('test.topic')).toBe(1);
 
                 const sub2 = await redis.subscribe(['test.topic']);
+
                 expect(await redis.subscriberCount('test.topic')).toBe(2);
 
                 await sub2.close();
@@ -307,10 +332,12 @@ describe('Redis Device', () => {
 
             it('should return publish count', async () => {
                 const count1 = await redis.publish('no.subscribers', 'test');
+
                 expect(count1).toBe(0);
 
                 sub = await redis.subscribe(['test.topic']);
                 const count2 = await redis.publish('test.topic', 'test');
+
                 expect(count2).toBe(1);
             });
 
@@ -341,7 +368,9 @@ describe('Redis Device', () => {
                 const reader = (async () => {
                     for await (const msg of sub.messages()) {
                         messages.push(msg);
-                        if (messages.length >= 2) break;
+                        if (messages.length >= 2) {
+                            break;
+                        }
                     }
                 })();
 
@@ -403,12 +432,13 @@ describe('Redis Device', () => {
         describe('shutdown', () => {
             it('should clear all state', async () => {
                 await redis.set('key', 'value');
-                const sub = await redis.subscribe(['test']);
+                const _sub = await redis.subscribe(['test']);
 
                 await redis.shutdown();
 
                 // Create fresh instance to verify state was cleared
                 const fresh = new MemoryRedis();
+
                 expect(await fresh.get('key')).toBeNull();
                 await fresh.shutdown();
             });
@@ -445,11 +475,13 @@ describe('Redis Device', () => {
     describe('createRedisDevice', () => {
         it('should create MemoryRedis by default', () => {
             const device = createRedisDevice();
+
             expect(device).toBeInstanceOf(MemoryRedis);
         });
 
         it('should create MemoryRedis when type is memory', () => {
             const device = createRedisDevice({ type: 'memory' });
+
             expect(device).toBeInstanceOf(MemoryRedis);
         });
 

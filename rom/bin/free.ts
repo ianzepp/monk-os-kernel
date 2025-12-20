@@ -111,7 +111,7 @@ export default async function main(): Promise<void> {
     const extStr = padLeft(formatBytes(external, unit, human), w);
 
     // Output header
-    const unitLabel = human ? '' : unit === 'b' ? ' (bytes)' : ` (${unit}i)`;
+    const _unitLabel = human ? '' : unit === 'b' ? ' (bytes)' : ` (${unit}i)`;
 
     await println(`              total        used        free`);
     await println(`Heap:   ${totalStr}${usedStr}${freeStr}`);

@@ -47,7 +47,7 @@
 // =============================================================================
 
 import { getargs, println, eprintln, exit, kill, send, respond } from '@rom/lib/process/index.js';
-import { parseArgs, formatError } from '@rom/lib/args';
+import { formatError } from '@rom/lib/args';
 
 // =============================================================================
 // CONSTANTS

@@ -80,4 +80,3 @@ export function generateRequestId(): string {
 export function generateSpawnId(): string {
     return `spawn:${generateId(SPAWN_ID_LENGTH)}`;
 }
-

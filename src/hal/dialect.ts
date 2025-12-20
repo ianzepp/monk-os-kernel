@@ -524,7 +524,7 @@ export class PostgresDialect implements DatabaseDialect {
         return value;
     }
 
-    fromDatabase(value: unknown, fieldType: string): unknown {
+    fromDatabase(value: unknown, _fieldType: string): unknown {
         // PostgreSQL drivers return native JS types - minimal conversion needed
         if (value === null || value === undefined) {
             return null;
